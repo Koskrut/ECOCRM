@@ -142,6 +142,11 @@ export function DayRouteMapPanel({
       compensationKm != null &&
       plan > 0 &&
       compensationKm < plan * 0.85;
+    const incompleteDeviationNote = showIncompleteDeviationNote
+      ? bundle.shiftActive
+        ? t.deviationHiddenIncompleteOpenShift
+        : t.deviationHiddenIncompleteTruncatedTrack
+      : null;
     const showPlanScheduledDeviationNote =
       bundle.planIncludesScheduled &&
       !bundle.incompleteTour &&
@@ -155,6 +160,7 @@ export function DayRouteMapPanel({
       compensationKm,
       deviationPct,
       showIncompleteDeviationNote,
+      incompleteDeviationNote,
       showPlanScheduledDeviationNote,
     };
   }, [bundle]);
@@ -295,8 +301,8 @@ export function DayRouteMapPanel({
                   · {t.deviation} {compareKpi.deviationPct > 0 ? "+" : ""}
                   {compareKpi.deviationPct}%
                 </span>
-              ) : compareKpi.showIncompleteDeviationNote ? (
-                <span className="ml-1 text-amber-700">· {t.deviationHiddenIncomplete}</span>
+              ) : compareKpi.incompleteDeviationNote ? (
+                <span className="ml-1 text-amber-700">· {compareKpi.incompleteDeviationNote}</span>
               ) : compareKpi.showPlanScheduledDeviationNote && compareKpi.deviationPct == null ? (
                 <span className="ml-1 text-amber-700">· {t.deviationHiddenScheduledPlan}</span>
               ) : null}
@@ -305,7 +311,11 @@ export function DayRouteMapPanel({
             <p className="text-xs text-zinc-500">{t.noData}</p>
           ) : null}
           {bundle?.incompleteTour ? (
-            <p className="mt-1 text-xs text-amber-800">{t.incompleteTourFootnote}</p>
+            <p className="mt-1 text-xs text-amber-800">
+              {bundle.shiftActive
+                ? t.incompleteTourFootnoteOpenShift
+                : t.incompleteTourFootnoteTruncatedTrack}
+            </p>
           ) : null}
           {bundle?.planIncludesScheduled ? (
             <p className="mt-1 text-xs text-amber-800">{t.planIncludesScheduledFootnote}</p>

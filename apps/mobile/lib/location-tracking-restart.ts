@@ -142,13 +142,18 @@ export async function recordRestartAttempt(
   nowMs = Date.now(),
   opts?: { bypassCooldown?: boolean },
 ): Promise<{ allowed: boolean; diagnostics: TrackingRestartDiagnostics }> {
-  if (!opts?.bypassCooldown && !canRestartNow(nowMs)) {
-    const diagnostics = await getTrackingRestartDiagnostics();
-    return { allowed: false, diagnostics };
+  const stored = await readStored();
+  if (!opts?.bypassCooldown) {
+    // Cooldown must survive process kills — check persisted lastRestartAt, not only memory.
+    const storedMs = stored.lastRestartAt ? new Date(stored.lastRestartAt).getTime() : 0;
+    const lastMs = Math.max(inMemoryLastRestartAt, Number.isFinite(storedMs) ? storedMs : 0);
+    if (nowMs - lastMs < RESTART_COOLDOWN_MS) {
+      const diagnostics = await getTrackingRestartDiagnostics();
+      return { allowed: false, diagnostics };
+    }
   }
 
   inMemoryLastRestartAt = nowMs;
-  const stored = await readStored();
   const day = todayKey();
   const restartCountToday =
     stored.restartCountDate === day ? stored.restartCountToday + 1 : 1;

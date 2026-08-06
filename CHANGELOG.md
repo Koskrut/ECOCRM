@@ -4,7 +4,28 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.141**.)_
+_(планируемые изменения после **0.2.142**.)_
+
+## [0.2.142] — 2026-08-06
+
+### Summary
+
+Патч **0.2.142**: shift close reminder notification; mobile GPS shift bootstrap + flush schedule.
+
+### Added
+
+- **Field shift close reminder**: `FIELD_SHIFT_CLOSE_REMINDER` notification + cron; web notifications settings.
+- **Mobile shift bootstrap**: persist shift id + Kyiv day before GPS/flush (`location-shift-bootstrap-gate`); flush schedule; GPS diagnostics format.
+
+### Changed
+
+- **Mobile GPS**: sample filter/reject, buffer/restart/task polish; notification channel + deep link.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.142`**.
+- **Миграция:** `20260806120000_field_shift_close_reminder_notification` — **`prisma migrate deploy`** до **`up`**.
+- **Mobile**: новый **EAS build** обязателен.
 
 ## [0.2.141] — 2026-08-06
 

@@ -16,6 +16,8 @@ export function notificationEntityPath(
       return `/contact/${entityId}`;
     case "VISIT":
       return `/visit/${entityId}`;
+    case "FIELD_SHIFT":
+      return "/(tabs)";
     default:
       return null;
   }

@@ -19,6 +19,7 @@ import { getApiBaseUrl } from "@/lib/config";
 import { formatLocalDateKey } from "@/lib/date";
 import { useTheme } from "@/lib/design/theme-context";
 import { getErrorLog, type ErrorLogEntry } from "@/lib/error-log";
+import { batteryOptimizationLabel, formatMinutesAgo } from "@/lib/gps-diagnostics-format";
 import { t } from "@/lib/i18n";
 import { getTrackingDiagnostics, type TrackingDiagnostics } from "@/lib/location-tracking";
 import {
@@ -151,6 +152,9 @@ export default function MoreScreen() {
                 ]}>
                 <Text style={[theme.typography.caption, { color: theme.colors.primaryText, fontWeight: "600" }]}>
                   {t("today.trackingActive")}
+                  {pendingSamples > 0
+                    ? ` · ${t("today.queuePending", { count: pendingSamples })}`
+                    : ""}
                 </Text>
               </View>
             ) : null}
@@ -188,14 +192,25 @@ export default function MoreScreen() {
                     ) : null}
                     {unhealthyReason === "background_task_dead" ||
                     unhealthyReason === "foreground_watch_dead" ||
-                    unhealthyReason === "accept_stale" ? (
+                    unhealthyReason === "accept_stale" ||
+                    (unhealthyReason === "fgs_start_blocked_background" &&
+                      AppState.currentState === "active") ? (
                       <AppButton
-                        label={t("gps.restartTracking")}
+                        label={
+                          unhealthyReason === "fgs_start_blocked_background"
+                            ? t("gps.openAppAndRestart")
+                            : t("gps.restartTracking")
+                        }
                         onPress={() => void restartTracking()}
                         disabled={loading}
                         loading={loading}
                         variant="secondary"
                       />
+                    ) : null}
+                    {pendingSamples > 0 ? (
+                      <Text style={[theme.typography.caption, { color: theme.colors.dangerText }]}>
+                        {t("today.queuePending", { count: pendingSamples })}
+                      </Text>
                     ) : null}
                     {unhealthyReason === "background_task_dead" ||
                     unhealthyReason === "accept_stale" ||
@@ -330,6 +345,12 @@ export default function MoreScreen() {
                       ? new Date(trackingDebug.lastAcceptedAt).toLocaleString()
                       : t("gps.neverAccepted"),
                   })}
+                  {trackingDebug.lastAcceptedAt
+                    ? ` · ${t("gps.lastAcceptAge", { age: formatMinutesAgo(trackingDebug.lastAcceptedAt) })}`
+                    : ""}
+                </Text>
+                <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 4 }]}>
+                  {t("gps.lastFlushError", { error: trackingDebug.lastFlushError ?? "—" })}
                 </Text>
                 <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 4 }]}>
                   {t("gps.lastRejectReason", {
@@ -345,7 +366,9 @@ export default function MoreScreen() {
                   })}
                 </Text>
                 <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 4 }]}>
-                  {t("more.debugBatteryOpt", { status: trackingDebug.batteryOptimizationStatus })}
+                  {t("more.debugBatteryOpt", {
+                    status: batteryOptimizationLabel(trackingDebug.batteryOptimizationStatus),
+                  })}
                 </Text>
                 <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 4 }]}>
                   {t("more.debugLastRestart", {

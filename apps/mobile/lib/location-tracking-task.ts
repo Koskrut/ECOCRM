@@ -1,17 +1,20 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Location from "expo-location";
 import * as TaskManager from "expo-task-manager";
 
 import { applyAdaptiveTier } from "./location-tracking-adaptive";
-import { FIELD_LOCATION_TASK } from "./location-tracking-config";
+import { FIELD_LOCATION_TASK, FLUSH_INTERVAL_MS } from "./location-tracking-config";
 import {
   appendPendingSample,
   flushPendingSamples,
   maybeFlushAfterAppend,
+  STORAGE_KEYS,
 } from "./location-tracking-buffer";
+import { shouldFlushByInterval } from "./location-flush-schedule";
 import { processLocationUpdate } from "./location-tracking-processor";
 import { hydrateApiBaseUrl } from "./config";
 import { sendPresenceHeartbeatFromTask } from "./presence-heartbeat";
-import { getLastFlushBlockReason } from "./session-auth";
+import { getLastFlushBlockReason, hydrateSessionAuthFromStorage } from "./session-auth";
 import type { SamplingTier } from "./location-tracking-config";
 
 export { FIELD_LOCATION_TASK };
@@ -29,13 +32,31 @@ export function setForegroundWatchStarter(fn: (tier: SamplingTier) => Promise<vo
  */
 if (!TaskManager.isTaskDefined(FIELD_LOCATION_TASK)) {
   TaskManager.defineTask(FIELD_LOCATION_TASK, async ({ data, error }) => {
-    if (error) return;
     await hydrateApiBaseUrl();
+    await hydrateSessionAuthFromStorage();
+
+    const tryIntervalFlush = async () => {
+      const lastFlushAt = await AsyncStorage.getItem(STORAGE_KEYS.LAST_FLUSH_AT);
+      if (shouldFlushByInterval(lastFlushAt)) {
+        await flushPendingSamples();
+      }
+    };
+
+    if (error) {
+      await tryIntervalFlush().catch(() => undefined);
+      return;
+    }
+
     const locations = (data as { locations?: Location.LocationObject[] } | undefined)?.locations;
-    if (!locations?.length) return;
 
     const block = getLastFlushBlockReason();
     if (block === "wrong_day" || block === "auth_401" || block === "stale_gps") {
+      await tryIntervalFlush().catch(() => undefined);
+      return;
+    }
+
+    if (!locations?.length) {
+      await tryIntervalFlush().catch(() => undefined);
       return;
     }
 

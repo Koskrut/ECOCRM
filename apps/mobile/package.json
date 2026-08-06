@@ -8,7 +8,7 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "export:android": "expo export --platform android",
-    "test": "node --test --require ../../node_modules/ts-node/register/transpile-only lib/__tests__/location-flush-errors.spec.ts lib/__tests__/location-sample-reject.spec.ts lib/__tests__/location-sample-filter.spec.ts lib/__tests__/kyiv-date.spec.ts lib/__tests__/location-tracking-health.spec.ts lib/__tests__/location-tracking-restart.spec.ts lib/__tests__/location-buffer-purge.spec.ts lib/__tests__/session-auth.spec.ts lib/__tests__/config-api-url.spec.ts lib/__tests__/order-currency.spec.ts"
+    "test": "node --test --require ../../node_modules/ts-node/register/transpile-only lib/__tests__/location-flush-errors.spec.ts lib/__tests__/location-sample-reject.spec.ts lib/__tests__/location-sample-filter.spec.ts lib/__tests__/gps-diagnostics-format.spec.ts lib/__tests__/kyiv-date.spec.ts lib/__tests__/location-tracking-health.spec.ts lib/__tests__/location-tracking-restart.spec.ts lib/__tests__/location-buffer-purge.spec.ts lib/__tests__/location-shift-bootstrap.spec.ts lib/__tests__/session-auth.spec.ts lib/__tests__/config-api-url.spec.ts lib/__tests__/order-currency.spec.ts"
   },
   "dependencies": {
     "@expo-google-fonts/inter": "^0.4.2",

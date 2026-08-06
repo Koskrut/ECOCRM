@@ -56,6 +56,40 @@ export function formatRejectReasons(rejectReasons: SampleRejectReasons | undefin
   }
 }
 
+/** Human-readable one-liner for client error log / diagnostics. */
+export function describeRejectBatch(
+  rejectReasons: SampleRejectReasons | undefined | null,
+): string {
+  if (!rejectReasons || typeof rejectReasons !== "object") return "unknown reject";
+  const parts: string[] = [];
+  for (const [reason, count] of Object.entries(rejectReasons)) {
+    if (typeof count !== "number" || count <= 0) continue;
+    switch (reason) {
+      case "duplicate":
+        parts.push(`${count} duplicate (keepalive OK)`);
+        break;
+      case "keepalive":
+        parts.push(`${count} keepalive`);
+        break;
+      case "teleport":
+        parts.push(`${count} teleport after gap — batch dropped`);
+        break;
+      case "wrong_day":
+        parts.push(`${count} wrong_day — shift date mismatch`);
+        break;
+      case "out_of_region":
+        parts.push(`${count} out_of_region`);
+        break;
+      case "bad_accuracy":
+        parts.push(`${count} bad_accuracy`);
+        break;
+      default:
+        parts.push(`${count} ${reason}`);
+    }
+  }
+  return parts.length > 0 ? parts.join("; ") : "unknown reject";
+}
+
 export function rejectReasonCount(
   rejectReasons: SampleRejectReasons | undefined | null,
   reason: string,

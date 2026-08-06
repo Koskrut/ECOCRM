@@ -14,6 +14,34 @@ export class FieldShiftsCron {
     @Inject(ModuleStateService) private readonly modules: ModuleStateService,
   ) {}
 
+  /** Remind field reps to close a still-open shift at 20:00 Kyiv. */
+  @Cron("0 20 * * *", { timeZone: "Europe/Kyiv" })
+  async remindCloseShiftAtEightPm() {
+    if (process.env.CRON_ENABLED !== "true") return;
+    if (process.env.MODULE_GATING_ENABLED === "true") {
+      const ok = await this.modules.isEffective(ModuleIds.Visits);
+      if (!ok) return;
+    }
+    return withAuditSource(
+      "cron",
+      "cron:field-shifts-close-reminder",
+      async () => {
+        try {
+          const r = await this.shifts.remindOpenShiftsToClose();
+          if (r.notified > 0) {
+            this.logger.log(
+              `Shift close reminders sent: ${r.notified} (skipped ${r.skipped} already sent)`,
+            );
+          }
+        } catch (e: unknown) {
+          const msg = e instanceof Error ? e.message : String(e);
+          this.logger.error(`Failed to send shift close reminders: ${msg}`);
+        }
+      },
+      { job: "field-shifts-close-reminder" },
+    );
+  }
+
   /** Close stale field shifts once a day (Kyiv calendar). */
   @Cron("5 0 * * *", { timeZone: "Europe/Kyiv" })
   async closeStaleNightly() {

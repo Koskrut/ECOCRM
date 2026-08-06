@@ -11,11 +11,13 @@ import {
 } from "./location-flush-errors";
 import {
   classifySampleRejectBatch,
+  describeRejectBatch,
   formatRejectReasons,
   isWrongDayBatch,
   softRejectCountsAsAccept,
   type SampleRejectReasons,
 } from "./location-sample-reject";
+import { readActiveShiftId } from "./location-shift-bootstrap";
 import { enqueueOfflineJob } from "./offline-queue";
 import {
   setAuthRequired,
@@ -26,6 +28,19 @@ import {
 const MAX_BATCH = 100;
 export const MAX_PENDING_SAMPLES = 500;
 
+/** Field networks stall silently — never let a flush request hold the buffer lock forever. */
+const FLUSH_FETCH_TIMEOUT_MS = 25_000;
+
+async function fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), FLUSH_FETCH_TIMEOUT_MS);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export const STORAGE_KEYS = {
   PENDING_SAMPLES: "field_location_pending_samples",
   ACTIVE_SHIFT_ID: "field_active_shift_id",
@@ -34,6 +49,7 @@ export const STORAGE_KEYS = {
   LAST_FLUSH_AT: "field_last_flush_at",
   LAST_ACCEPTED_AT: "field_last_accepted_at",
   LAST_REJECT_REASON: "field_last_reject_reason",
+  LAST_FLUSH_ERROR: "field_last_flush_error",
 } as const;
 
 export type PendingLocationSample = {
@@ -96,6 +112,18 @@ export async function getLastRejectReason(): Promise<string | null> {
   return AsyncStorage.getItem(STORAGE_KEYS.LAST_REJECT_REASON);
 }
 
+export async function getLastFlushError(): Promise<string | null> {
+  return AsyncStorage.getItem(STORAGE_KEYS.LAST_FLUSH_ERROR);
+}
+
+async function rememberFlushError(message: string): Promise<void> {
+  await AsyncStorage.setItem(STORAGE_KEYS.LAST_FLUSH_ERROR, message.slice(0, 300));
+}
+
+async function clearFlushError(): Promise<void> {
+  await AsyncStorage.removeItem(STORAGE_KEYS.LAST_FLUSH_ERROR);
+}
+
 /** Only real server accepts (created>0 / keepalive accept) refresh healthy. */
 async function markPipelineAlive(): Promise<void> {
   await AsyncStorage.setItem(STORAGE_KEYS.LAST_ACCEPTED_AT, new Date().toISOString());
@@ -122,12 +150,14 @@ async function applyFlushFailure(
   }
   if (action === "auth_required") {
     // Keep entire pending buffer — never silent discard on 401 (Грибовская).
+    void rememberFlushError(`401: ${message}`);
     void appendErrorLog(`flush samples auth required (401): ${message}`, "error");
     setAuthRequired(true, "auth_401");
     return;
   }
   if (action === "discard_all") {
     await writePending([]);
+    void rememberFlushError(`discard_all: ${message}`);
     void appendErrorLog(`flush samples discarded all: ${message}`, "error");
     return;
   }
@@ -135,6 +165,7 @@ async function applyFlushFailure(
     // 400 after failed retarget — KEEP buffer, stop ingest. Do not drain 100-by-100.
     // Clear accept timestamp so watchdog CTA appears immediately (like wrong_day).
     await AsyncStorage.removeItem(STORAGE_KEYS.LAST_ACCEPTED_AT);
+    void rememberFlushError(`400 blocked: ${message}`);
     void appendErrorLog(
       `flush samples blocked on 400 (${batch.length} kept): ${message}`,
       "error",
@@ -149,6 +180,7 @@ async function applyFlushFailure(
     items: batch,
   });
   await writePending(rest);
+  void rememberFlushError(message);
   void appendErrorLog(`flush samples enqueued offline (${batch.length}): ${message}`, "warn");
 }
 
@@ -160,8 +192,20 @@ export async function appendPendingSample(sample: PendingLocationSample): Promis
     if (block === "auth_401" || block === "wrong_day" || block === "stale_gps") {
       return (await readPending()).length;
     }
+    const shiftId = await readActiveShiftId();
+    if (!shiftId) {
+      void appendErrorLog("append pending skipped: no active shift id", "warn");
+      return 0;
+    }
+    const token = await getAuthToken();
+    if (!token) {
+      void appendErrorLog("append pending skipped: no auth token", "warn");
+      return (await readPending()).length;
+    }
     const current = await readPending();
     if (current.length >= MAX_PENDING_SAMPLES) {
+      // Surface in diagnostics (More → GPS debug), not only in the error log.
+      void rememberFlushError(`buffer full (${MAX_PENDING_SAMPLES}) — new points dropped`);
       void appendErrorLog(
         `append pending skipped: buffer full (${MAX_PENDING_SAMPLES})`,
         "warn",
@@ -192,7 +236,7 @@ async function resolveFlushShiftId(
   const stored = await AsyncStorage.getItem(STORAGE_KEYS.ACTIVE_SHIFT_ID);
   if (stored) return stored;
   try {
-    const activeRes = await fetch(`${getApiBaseUrl()}/field/shifts/active`, {
+    const activeRes = await fetchWithTimeout(`${getApiBaseUrl()}/field/shifts/active`, {
       headers: { Authorization: `Bearer ${token}` },
     });
     if (!activeRes.ok) return null;
@@ -215,6 +259,7 @@ export async function flushPendingSamples(shiftId?: string): Promise<number> {
     if (!token) {
       // Do NOT setAuthRequired here — empty SecureStore also happens on voluntary logout.
       // auth_required is only set from a real HTTP 401 response.
+      void rememberFlushError("no auth token");
       void appendErrorLog("flush samples skipped: no auth token (buffer kept)", "warn");
       return 0;
     }
@@ -223,6 +268,7 @@ export async function flushPendingSamples(shiftId?: string): Promise<number> {
     if (!sid) {
       const pending = await readPending();
       if (pending.length > 0) {
+        void rememberFlushError(`no shift id (${pending.length} pending)`);
         void appendErrorLog(
           `flush samples blocked: ${pending.length} pending but no active shift id`,
           "warn",
@@ -243,7 +289,7 @@ export async function flushPendingSamples(shiftId?: string): Promise<number> {
       const rest = pending.slice(MAX_BATCH);
 
       try {
-        const res = await fetch(`${getApiBaseUrl()}/field/shifts/${sid}/samples`, {
+        const res = await fetchWithTimeout(`${getApiBaseUrl()}/field/shifts/${sid}/samples`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -286,7 +332,7 @@ export async function flushPendingSamples(shiftId?: string): Promise<number> {
           if (action === "discard_batch" && !retargetAttempted) {
             retargetAttempted = true;
             try {
-              const activeRes = await fetch(`${getApiBaseUrl()}/field/shifts/active`, {
+              const activeRes = await fetchWithTimeout(`${getApiBaseUrl()}/field/shifts/active`, {
                 headers: { Authorization: `Bearer ${token}` },
               });
               if (activeRes.ok) {
@@ -355,8 +401,13 @@ export async function flushPendingSamples(shiftId?: string): Promise<number> {
         await AsyncStorage.setItem(STORAGE_KEYS.LAST_FLUSH_AT, new Date().toISOString());
         uploaded += Math.max(0, created);
 
+        if (created > 0) {
+          await clearFlushError();
+        }
+
         if (created === 0 && rejected > 0) {
           const reasons = formatRejectReasons(rejectReasons);
+          const human = describeRejectBatch(rejectReasons);
           const severity = classifySampleRejectBatch(rejectReasons);
           if (severity === "soft") {
             // Михайлів: duplicate → info. Do NOT refresh LAST_ACCEPTED_AT on duplicate-only.
@@ -364,18 +415,17 @@ export async function flushPendingSamples(shiftId?: string): Promise<number> {
               await markPipelineAlive();
             }
             void appendErrorLog(
-              `flush samples all rejected (${rejected}) shiftId=${sid} rejectReasons=${reasons} — batch dropped (dedup)`,
+              `flush samples dedup (${rejected}) shiftId=${sid}: ${human}`,
               "info",
             );
           } else if (severity === "hard") {
-            // teleport / out_of_region / bad_accuracy: drop batch, keep ingest open.
             void appendErrorLog(
-              `flush samples all rejected (${rejected}) shiftId=${sid} rejectReasons=${reasons} — batch dropped`,
-              "error",
+              `flush samples rejected (${rejected}) shiftId=${sid}: ${human} [${reasons}]`,
+              "warn",
             );
           } else {
             void appendErrorLog(
-              `flush samples all rejected (${rejected}) shiftId=${sid} rejectReasons=${reasons} — batch dropped`,
+              `flush samples rejected (${rejected}) shiftId=${sid}: ${human} [${reasons}]`,
               "warn",
             );
           }

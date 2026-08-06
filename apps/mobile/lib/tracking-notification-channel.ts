@@ -19,3 +19,17 @@ export async function ensureFieldTrackingNotificationChannel(): Promise<void> {
     /* channel setup is best-effort */
   }
 }
+
+/** Android 13+ — FGS location notification needs POST_NOTIFICATIONS before start. */
+export async function ensureTrackingNotificationPermission(): Promise<boolean> {
+  if (Platform.OS !== "android") return true;
+
+  try {
+    const current = await Notifications.getPermissionsAsync();
+    if (current.granted) return true;
+    const requested = await Notifications.requestPermissionsAsync();
+    return requested.granted;
+  } catch {
+    return false;
+  }
+}

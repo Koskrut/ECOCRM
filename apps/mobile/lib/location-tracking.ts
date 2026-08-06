@@ -3,11 +3,13 @@ import * as Location from "expo-location";
 import { AppState, Platform } from "react-native";
 
 import { readBatteryOptimizationStatus } from "./battery-optimization";
+import { bootstrapShiftTrackingContext } from "./location-shift-bootstrap";
 import { formatKyivDateKey } from "./date";
 import {
   appendPendingSample,
   flushPendingSamples,
   getLastAcceptedAt,
+  getLastFlushError,
   getLastRejectReason,
   getPendingCount,
   maybeFlushAfterAppend,
@@ -53,7 +55,10 @@ import {
   setBatteryOptimizationStatus,
   type TrackingRestartReason,
 } from "./location-tracking-restart";
-import { ensureFieldTrackingNotificationChannel } from "./tracking-notification-channel";
+import {
+  ensureFieldTrackingNotificationChannel,
+  ensureTrackingNotificationPermission,
+} from "./tracking-notification-channel";
 import { sendTrackingRestartEvent } from "./tracking-telemetry";
 
 export { registerFieldLocationTask };
@@ -70,6 +75,8 @@ export {
   appendPendingSample,
   flushPendingSamples,
   getLastAcceptedAt,
+  getLastFlushError,
+  getLastRejectReason,
   getPendingCount,
   purgePendingSamples,
   STORAGE_KEYS,
@@ -84,6 +91,7 @@ export type TrackingDiagnostics = {
   lastFlushAt: string | null;
   lastAcceptedAt: string | null;
   lastRejectReason: string | null;
+  lastFlushError: string | null;
   activeShiftId: string | null;
   foregroundPermission: string;
   backgroundPermission: string | null;
@@ -164,8 +172,8 @@ async function handleRawLocation(input: {
   const result = await processLocationUpdate(input);
   if (result.accepted && result.sample) {
     const count = await appendPendingSample(result.sample);
+    // Threshold flush + 30s timer cover delivery; per-sample flush doubled network churn.
     void maybeFlushAfterAppend(count).catch(() => undefined);
-    void flushPendingSamples().catch(() => undefined);
   }
   if (result.tierChanged) {
     void applyAdaptiveTier(result.tier, startForegroundWatch).catch(() => undefined);
@@ -176,7 +184,7 @@ async function handleRawLocation(input: {
 function startFlushTimer(): void {
   if (flushTimer) return;
   flushTimer = setInterval(() => {
-    if (AppState.currentState !== "active") return;
+    // Flush in background too — FGS keeps JS alive; Ісанчев had 1h silence while foreground gate blocked timer.
     void flushPendingSamples().catch(() => {
       /* retry on next tick */
     });
@@ -238,6 +246,7 @@ async function startBackgroundUpdates(
   if (started) {
     await Location.stopLocationUpdatesAsync(FIELD_LOCATION_TASK);
   }
+  await ensureTrackingNotificationPermission();
   await ensureFieldTrackingNotificationChannel();
   await Location.startLocationUpdatesAsync(
     FIELD_LOCATION_TASK,
@@ -288,14 +297,17 @@ async function applyPendingAdaptiveTierIfNeeded(): Promise<void> {
 
 export async function startLocationTracking(shiftId: string): Promise<TrackingMode> {
   try {
+    const boot = await bootstrapShiftTrackingContext(shiftId);
+    if (!boot.ok) {
+      void appendErrorLog(`startLocationTracking: bootstrap failed (${boot.reason})`, "warn");
+      await AsyncStorage.setItem(STORAGE_KEYS.TRACKING_MODE, "none");
+      return "none";
+    }
+
     setForegroundWatchStarter(startForegroundWatch);
     await registerFieldLocationTask();
     await resetLocationProcessorState();
     clearFlushBlockReason();
-    await AsyncStorage.setItem(STORAGE_KEYS.ACTIVE_SHIFT_ID, shiftId);
-    await AsyncStorage.setItem(STORAGE_KEYS.ACTIVE_SHIFT_DAY_KEY, formatKyivDateKey());
-    // Do NOT seed LAST_ACCEPTED_AT — honest healthy requires real created>0
-    // (grace seed masked Ісанчев ACTIVE+0 samples as healthy for 10 min).
 
     const { foreground, background } = await requestTrackingPermissionsWithRationale();
     if (foreground !== "granted") {
@@ -406,8 +418,10 @@ export async function restartTrackingPipeline(): Promise<RestartTrackingResult> 
     mode = await ensureBackgroundTaskRunning(shiftId, "manualRestart", {
       bypassCooldown: true,
     });
+  } else if (claimed === "none") {
+    mode = await startLocationTracking(shiftId);
   } else {
-    mode = await ensureTrackingContinuity();
+    mode = await ensureTrackingContinuity({ bypassCooldown: true });
   }
 
   await captureImmediateFixAndFlush().catch(() => false);
@@ -579,6 +593,7 @@ export async function getTrackingRuntimeHealth(): Promise<TrackingRuntimeHealth>
     batteryStatus,
     lastAcceptedAt,
     lastRejectReason,
+    lastFlushError,
   ] = await Promise.all([
     getTrackingState(),
     getTrackingPermissionStatus(),
@@ -588,6 +603,7 @@ export async function getTrackingRuntimeHealth(): Promise<TrackingRuntimeHealth>
     readBatteryOptimizationStatus(),
     getLastAcceptedAt(),
     getLastRejectReason(),
+    getLastFlushError(),
   ]);
   void setBatteryOptimizationStatus(batteryStatus);
   const { getForegroundSubscription } = await import("./location-tracking-adaptive");
@@ -617,21 +633,19 @@ export async function getTrackingRuntimeHealth(): Promise<TrackingRuntimeHealth>
     batteryOptimizationStatus: batteryStatus,
     lastAcceptedAt,
     lastRejectReason,
+    lastFlushError,
   };
 }
 
 export async function getTrackingDiagnostics(): Promise<TrackingDiagnostics> {
   const health = await getTrackingRuntimeHealth();
-  const [lastAcceptedAt, lastRejectReason] = await Promise.all([
-    getLastAcceptedAt(),
-    getLastRejectReason(),
-  ]);
   return {
     mode: health.mode,
     pendingSamples: health.pendingSamples,
     lastFlushAt: health.lastFlushAt,
-    lastAcceptedAt,
-    lastRejectReason,
+    lastAcceptedAt: health.lastAcceptedAt ?? null,
+    lastRejectReason: health.lastRejectReason ?? null,
+    lastFlushError: health.lastFlushError ?? null,
     activeShiftId: health.activeShiftId,
     foregroundPermission: health.foregroundPermission,
     backgroundPermission: health.backgroundPermission,

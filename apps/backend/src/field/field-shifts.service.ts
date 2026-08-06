@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Injectable, Logger, NotFoundException, Optional } from "@nestjs/common";
 import {
   ClientPlatform,
   FieldShiftStatus,
@@ -8,7 +8,8 @@ import {
 } from "@prisma/client";
 import { EventEmitter2 } from "@nestjs/event-emitter";
 import type { AuthUser } from "../auth/auth.types";
-import { instantToKyivYmd, todayYmdKyiv } from "../crm-timezone";
+import { instantToKyivYmd, kyivDayBounds, todayYmdKyiv } from "../crm-timezone";
+import { NotificationsService } from "../notifications/notifications.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { RoutePlansService } from "../visits/route-plans.service";
 import {
@@ -37,6 +38,7 @@ export class FieldShiftsService {
     private readonly prisma: PrismaService,
     private readonly routePlans: RoutePlansService,
     private readonly eventEmitter: EventEmitter2,
+    @Optional() private readonly notifications?: NotificationsService,
   ) {}
 
   private calendarDateKey(dateStr: string): Date {
@@ -78,6 +80,61 @@ export class FieldShiftsService {
     );
 
     return { closed: stale.length };
+  }
+
+  /** Remind field reps to close today's still-open shift (once per shift per day). */
+  async remindOpenShiftsToClose(): Promise<{ notified: number; skipped: number }> {
+    if (!this.notifications) {
+      return { notified: 0, skipped: 0 };
+    }
+
+    const dateYmd = todayYmdKyiv();
+    const todayKey = this.calendarDateKey(dateYmd);
+    const { from: dayStart } = kyivDayBounds(dateYmd);
+
+    const open = await this.prisma.fieldShift.findMany({
+      where: {
+        status: FieldShiftStatus.ACTIVE,
+        date: todayKey,
+      },
+      select: { id: true, ownerId: true },
+      orderBy: { startedAt: "asc" },
+    });
+
+    if (open.length === 0) {
+      return { notified: 0, skipped: 0 };
+    }
+
+    const shiftIds = open.map((s) => s.id);
+    const alreadySent = await this.prisma.userNotification.findMany({
+      where: {
+        type: "FIELD_SHIFT_CLOSE_REMINDER",
+        entityType: "FIELD_SHIFT",
+        entityId: { in: shiftIds },
+        createdAt: { gte: dayStart },
+      },
+      select: { entityId: true },
+    });
+    const sentShiftIds = new Set(
+      alreadySent.map((n) => n.entityId).filter((id): id is string => id != null),
+    );
+
+    let notified = 0;
+    let skipped = 0;
+    for (const shift of open) {
+      if (sentShiftIds.has(shift.id)) {
+        skipped += 1;
+        continue;
+      }
+      await this.notifications.notifyFieldShiftCloseReminder({
+        userId: shift.ownerId,
+        shiftId: shift.id,
+        dateYmd,
+      });
+      notified += 1;
+    }
+
+    return { notified, skipped };
   }
 
   async getActive(actor: AuthUser | undefined) {

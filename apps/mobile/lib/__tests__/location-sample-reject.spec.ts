@@ -3,6 +3,7 @@ const { describe, it } = require("node:test");
 
 const {
   classifySampleRejectBatch,
+  describeRejectBatch,
   formatRejectReasons,
   isWrongDayBatch,
   softRejectCountsAsAccept,
@@ -69,6 +70,16 @@ describe("formatRejectReasons", () => {
 
   it("falls back to empty object", () => {
     assert.equal(formatRejectReasons(undefined), "{}");
+  });
+});
+
+describe("describeRejectBatch", () => {
+  it("humanizes duplicate as keepalive OK", () => {
+    assert.match(describeRejectBatch({ duplicate: 3 }), /duplicate.*keepalive OK/i);
+  });
+
+  it("humanizes teleport after gap", () => {
+    assert.match(describeRejectBatch({ teleport: 1 }), /teleport after gap/i);
   });
 });
 

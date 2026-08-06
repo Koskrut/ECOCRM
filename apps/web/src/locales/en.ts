@@ -2207,8 +2207,12 @@ export const en = {
     kpiFactVisits: "Visits",
     deviation: "dev.",
     noData: "No route data",
-    incompleteTourFootnote: "Incomplete tour — shift still open",
-    deviationHiddenIncomplete: "deviation vs plan hidden — open day",
+    incompleteTourFootnoteOpenShift: "Incomplete tour — shift still open",
+    incompleteTourFootnoteTruncatedTrack:
+      "GPS track incomplete — recording stopped before the route ended",
+    deviationHiddenIncompleteOpenShift: "deviation vs plan hidden — shift still open",
+    deviationHiddenIncompleteTruncatedTrack:
+      "deviation vs plan hidden — GPS track incomplete",
     deviationHiddenScheduledPlan: "deviation vs plan unreliable — plan includes open stops",
     planIncludesScheduledFootnote: "Plan includes scheduled stops — compare km after the tour closes.",
     plannedOrderInefficient:

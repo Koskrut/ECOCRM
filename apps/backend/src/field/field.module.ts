@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
 import { EventEmitterModule } from "@nestjs/event-emitter";
+import { NotificationsModule } from "../notifications/notifications.module";
 import { PrismaModule } from "../prisma/prisma.module";
 import { SystemModule } from "../system/system.module";
 import { VisitsModule } from "../visits/visits.module";
@@ -11,7 +12,7 @@ import { FieldShiftsCron } from "./field-shifts.cron";
 import { FieldShiftsService } from "./field-shifts.service";
 
 @Module({
-  imports: [PrismaModule, VisitsModule, EventEmitterModule, SystemModule],
+  imports: [PrismaModule, VisitsModule, EventEmitterModule, SystemModule, NotificationsModule],
   controllers: [FieldController],
   providers: [FieldShiftsService, FieldFuelService, FieldFuelRefuelsService, FieldFuelListener, FieldShiftsCron],
 })

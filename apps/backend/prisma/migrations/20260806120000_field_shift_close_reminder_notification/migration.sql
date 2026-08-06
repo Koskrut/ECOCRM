@@ -1,0 +1,2 @@
+-- AlterEnum
+ALTER TYPE "NotificationType" ADD VALUE 'FIELD_SHIFT_CLOSE_REMINDER';

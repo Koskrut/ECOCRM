@@ -1,5 +1,5 @@
 import React from "react";
-import { View } from "react-native";
+import { AppState, View } from "react-native";
 
 import { Text } from "@/components/Themed";
 import { AppButton } from "@/components/ui/AppButton";
@@ -61,12 +61,14 @@ export function ShiftStatusCard({
   const showPermissionCta = unhealthyReason === "background_permission";
   const showLoginHint = unhealthyReason === "accept_stale_auth_401";
   const showOpenAppHint = unhealthyReason === "fgs_start_blocked_background";
+  const appInForeground = AppState.currentState === "active";
 
   const showRestartTracking =
-    !showOpenAppHint &&
+    (appInForeground || !showOpenAppHint) &&
     (unhealthyReason === "background_task_dead" ||
       unhealthyReason === "foreground_watch_dead" ||
-      unhealthyReason === "accept_stale");
+      unhealthyReason === "accept_stale" ||
+      (unhealthyReason === "fgs_start_blocked_background" && appInForeground));
   const showRestartShift =
     unhealthyReason === "background_task_dead" ||
     unhealthyReason === "accept_stale" ||
@@ -101,6 +103,11 @@ export function ShiftStatusCard({
               <Text style={[theme.typography.caption, { color: theme.colors.dangerText }]}>
                 {t(msg.bodyKey)}
               </Text>
+              {pendingSamples > 0 ? (
+                <Text style={[theme.typography.caption, { color: theme.colors.dangerText }]}>
+                  {t("today.queuePending", { count: pendingSamples })}
+                </Text>
+              ) : null}
               {showPermissionCta ? (
                 <AppButton
                   label={t("gps.openSettings")}
@@ -123,6 +130,20 @@ export function ShiftStatusCard({
                 <AppButton
                   label={t("gps.closeAndReopenShift")}
                   onPress={onRestartShift}
+                  variant="secondary"
+                  loading={loading}
+                  disabled={loading}
+                />
+              ) : null}
+              {showOpenAppHint && !appInForeground ? (
+                <Text style={[theme.typography.caption, { color: theme.colors.dangerText }]}>
+                  {t("gps.openAppFirstHint")}
+                </Text>
+              ) : null}
+              {showOpenAppHint && appInForeground && onRestartTracking ? (
+                <AppButton
+                  label={t("gps.openAppAndRestart")}
+                  onPress={onRestartTracking}
                   variant="secondary"
                   loading={loading}
                   disabled={loading}

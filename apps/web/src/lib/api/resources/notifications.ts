@@ -9,7 +9,8 @@ export type NotificationType =
   | "TASK_ASSIGNED"
   | "TELEGRAM_MESSAGE"
   | "META_INSTAGRAM_MESSAGE"
-  | "META_FACEBOOK_MESSAGE";
+  | "META_FACEBOOK_MESSAGE"
+  | "FIELD_SHIFT_CLOSE_REMINDER";
 
 export type UserNotification = {
   id: string;
@@ -105,6 +106,8 @@ export function notificationHref(n: UserNotification): string | null {
       return `/contacts?contactId=${encodeURIComponent(n.entityId)}`;
     case "CONVERSATION":
       return `/inbox/telegram?conversationId=${encodeURIComponent(n.entityId)}`;
+    case "FIELD_SHIFT":
+      return "/visits";
     default:
       return null;
   }

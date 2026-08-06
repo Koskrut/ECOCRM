@@ -106,6 +106,15 @@ describe("mapRestartContextToReason", () => {
     assert.equal(mapRestartContextToReason("backgroundWatchdog"), "watchdog");
     assert.equal(mapRestartContextToReason("maintainBackgroundTracking"), "appstate");
     assert.equal(mapRestartContextToReason("resumeTrackingIfNeeded"), "os_kill");
+    assert.equal(mapRestartContextToReason("foregroundRecover"), "os_kill");
+  });
+});
+
+describe("canStartLocationForegroundService (foreground recover gate)", () => {
+  it("allows FGS start only when app is active", () => {
+    assert.equal(canStartLocationForegroundService("active"), true);
+    assert.equal(canStartLocationForegroundService("background"), false);
+    assert.equal(canStartLocationForegroundService("inactive"), false);
   });
 });
 

@@ -2217,8 +2217,12 @@ export const uk = {
     kpiFactVisits: "Візити",
     deviation: "відхил.",
     noData: "Немає даних маршруту",
-    incompleteTourFootnote: "Маршрут незавершений — зміна ще відкрита",
-    deviationHiddenIncomplete: "відхилення від плану приховано — незавершена зміна",
+    incompleteTourFootnoteOpenShift: "Маршрут незавершений — зміна ще відкрита",
+    incompleteTourFootnoteTruncatedTrack:
+      "GPS-трек неповний — запис обірвався до кінця маршруту",
+    deviationHiddenIncompleteOpenShift: "відхилення від плану приховано — зміна ще відкрита",
+    deviationHiddenIncompleteTruncatedTrack:
+      "відхилення від плану приховано — GPS-трек неповний",
     deviationHiddenScheduledPlan: "відхилення від плану ненадійне — у плані є відкриті зупинки",
     planIncludesScheduledFootnote: "У плані є заплановані зупинки — порівнюйте km після закриття туру.",
     plannedOrderInefficient:

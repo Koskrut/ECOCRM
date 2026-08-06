@@ -6,6 +6,9 @@ export const MIN_DISTANCE_DEDUP_M = 15;
 /** Accept a near-duplicate sample after this idle span (keepalive for coverage). */
 export const KEEPALIVE_INTERVAL_MS = 3 * 60_000;
 
+/** After this gap, next sample reanchors (no teleport vs stale prev) — aligns with backend reanchor. */
+export const REANCHOR_GAP_MS = 30 * 60_000;
+
 function haversineDistanceM(aLat: number, aLng: number, bLat: number, bLng: number): number {
   const R = 6371000;
   const toRad = (d: number) => (d * Math.PI) / 180;
@@ -56,6 +59,15 @@ export function filterLocationSample(
 
   const prevAt = toTimeMs(prev.clientRecordedAt);
   const nextAt = toTimeMs(next.clientRecordedAt);
+
+  if (
+    Number.isFinite(prevAt) &&
+    Number.isFinite(nextAt) &&
+    nextAt - prevAt >= REANCHOR_GAP_MS
+  ) {
+    return { accept: true };
+  }
+
   const distM = haversineDistanceM(prev.lat, prev.lng, next.lat, next.lng);
   if (distM < MIN_DISTANCE_DEDUP_M) {
     if (

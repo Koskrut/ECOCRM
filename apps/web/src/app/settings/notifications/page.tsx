@@ -19,6 +19,7 @@ const NOTIFICATION_TYPE_LABELS: Record<NotificationType, string> = {
   TELEGRAM_MESSAGE: "Повідомлення в Telegram Inbox",
   META_INSTAGRAM_MESSAGE: "Повідомлення в Instagram Inbox",
   META_FACEBOOK_MESSAGE: "Повідомлення в Facebook Messenger Inbox",
+  FIELD_SHIFT_CLOSE_REMINDER: "Нагадування закрити зміну (поле)",
 };
 
 const ALL_TYPES: NotificationType[] = [
@@ -31,6 +32,7 @@ const ALL_TYPES: NotificationType[] = [
   "TELEGRAM_MESSAGE",
   "META_INSTAGRAM_MESSAGE",
   "META_FACEBOOK_MESSAGE",
+  "FIELD_SHIFT_CLOSE_REMINDER",
 ];
 
 function prefFor(

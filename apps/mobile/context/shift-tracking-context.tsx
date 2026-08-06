@@ -17,6 +17,7 @@ import {
   captureImmediateFixAndFlush,
   ensureTrackingContinuity,
   flushPendingSamples,
+  getPendingCount,
   getTrackingRuntimeHealth,
   maintainBackgroundTracking,
   pauseLocationTrackingKeepBuffer,
@@ -28,9 +29,12 @@ import {
   stopLocationTracking,
   type TrackingMode,
 } from "@/lib/location-tracking";
+import { bootstrapShiftTrackingContext } from "@/lib/location-shift-bootstrap";
+import { sendTrackingRestartEvent } from "@/lib/tracking-telemetry";
 import {
   clearFlushBlockReason,
   getLastFlushBlockReason,
+  hydrateSessionAuthFromStorage,
   isAuthRequired,
 } from "@/lib/session-auth";
 import {
@@ -109,6 +113,7 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
   const flushAlertShownRef = useRef(false);
   const staleAlertShownRef = useRef(false);
   const batteryUnknownAlertShownRef = useRef(false);
+  const watchdogTelemetrySentRef = useRef(false);
 
   const applyHealth = useCallback(
     (health: Awaited<ReturnType<typeof getTrackingRuntimeHealth>>) => {
@@ -314,6 +319,10 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
   }, [token, syncTrackingHealth, promptOpenSettings]);
 
   useEffect(() => {
+    void hydrateSessionAuthFromStorage();
+  }, []);
+
+  useEffect(() => {
     if (!ready || !token) return;
 
     let cancelled = false;
@@ -416,8 +425,19 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
       // Reuse today's ACTIVE instead of stacking empty shifts (backend also idempotent).
       if (activeShift?.status === "ACTIVE") {
         if (trackingEnabled) {
+          const boot = await bootstrapShiftTrackingContext(activeShift.id);
+          if (!boot.ok) {
+            Alert.alert(
+              t("common.error"),
+              boot.reason === "no_token"
+                ? t("gps.bootstrapFailedNoToken")
+                : t("gps.bootstrapFailedNoShift"),
+            );
+            return;
+          }
           const mode = await startLocationTracking(activeShift.id);
           setTrackingMode(mode);
+          await flushPendingSamples(activeShift.id);
           await captureImmediateFixAndFlush();
           await syncTrackingHealth();
           if (mode === "background") {
@@ -449,8 +469,19 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
       setActiveShift(res.shift);
 
       if (trackingEnabled) {
+        const boot = await bootstrapShiftTrackingContext(res.shift.id);
+        if (!boot.ok) {
+          Alert.alert(
+            t("common.error"),
+            boot.reason === "no_token"
+              ? t("gps.bootstrapFailedNoToken")
+              : t("gps.bootstrapFailedNoShift"),
+          );
+          return;
+        }
         const mode = await startLocationTracking(res.shift.id);
         setTrackingMode(mode);
+        await flushPendingSamples(res.shift.id);
         await captureImmediateFixAndFlush();
         const health = await syncTrackingHealth();
 
@@ -556,8 +587,19 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
       });
       setActiveShift(res.shift);
       if (res.shift.trackingEnabled) {
+        const boot = await bootstrapShiftTrackingContext(res.shift.id);
+        if (!boot.ok) {
+          Alert.alert(
+            t("common.error"),
+            boot.reason === "no_token"
+              ? t("gps.bootstrapFailedNoToken")
+              : t("gps.bootstrapFailedNoShift"),
+          );
+          return;
+        }
         const mode = await startLocationTracking(res.shift.id);
         setTrackingMode(mode);
+        await flushPendingSamples(res.shift.id);
         await captureImmediateFixAndFlush();
         await syncTrackingHealth();
         if (mode === "background") {
@@ -587,11 +629,17 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
       } else if (!health.healthy && health.claimedMode !== "none") {
         const mode = await ensureTrackingContinuity();
         setTrackingMode(mode);
+        if (health.acceptStale && activeShift?.id && !watchdogTelemetrySentRef.current) {
+          watchdogTelemetrySentRef.current = true;
+          void sendTrackingRestartEvent(activeShift.id, "watchdog");
+        }
         if (health.acceptStale) {
           // ACTIVE + 0 accepts: poke native pipeline + one foreground fix.
           void captureImmediateFixAndFlush().catch(() => undefined);
         }
         await syncTrackingHealth();
+      } else if (health.healthy) {
+        watchdogTelemetrySentRef.current = false;
       }
 
       const after = await getTrackingRuntimeHealth();
@@ -666,11 +714,16 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
     if (!token || !activeShift) return;
     setLoading(true);
     try {
+      // Flush tail BEFORE ending: server rejects samples for ENDED shifts.
       await stopLocationTracking();
+      if ((await getPendingCount()) > 0) {
+        await flushPendingSamples(activeShift.id).catch(() => undefined);
+      }
+      await apiFetch(`/field/shifts/${activeShift.id}/end`, { method: "POST", token });
+      // Purge only after the shift is ended for real — a failed end keeps the buffer.
       await purgePendingSamples();
       clearFlushBlockReason();
       await unregisterBackgroundTrackingWatchdog();
-      await apiFetch(`/field/shifts/${activeShift.id}/end`, { method: "POST", token });
       setActiveShift(null);
       setTrackingMode("none");
       setTrackingHealthy(true);

@@ -17,7 +17,7 @@ type Props = {
   backgroundPermission: string | null;
   batteryOptimizationStatus: BatteryOptimizationStatus;
   trackingMode: "background" | "foreground" | "none";
-  /** Only true after a failed foreground restart attempt. */
+  /** Extra nudge after a failed foreground restart (in addition to ACTIVE-shift battery warn). */
   showBatteryHint?: boolean;
 };
 
@@ -32,12 +32,13 @@ export function TrackingHealthBanner({
   const needsBackground =
     backgroundPermission != null && backgroundPermission !== "granted" && trackingMode !== "none";
   const needsBattery =
-    showBatteryHint &&
     isAndroid() &&
     trackingMode !== "none" &&
     !needsBackground &&
     batteryOptimizationStatus !== "unrestricted" &&
-    (batteryOptimizationStatus === "restricted" || batteryOptimizationStatus === "unknown");
+    (batteryOptimizationStatus === "restricted" ||
+      batteryOptimizationStatus === "unknown" ||
+      showBatteryHint);
 
   if (!needsBackground && !needsBattery) {
     return null;

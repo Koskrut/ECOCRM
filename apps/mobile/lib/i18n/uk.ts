@@ -360,6 +360,9 @@ export const uk = {
     sessionExpiredTitle: "Увійдіть знову",
     sessionExpiredHint:
       "Сесія закінчилась (401). GPS-точки збережено в буфері — увійдіть, щоб надіслати їх.",
+    bootstrapFailedNoToken:
+      "Немає токена авторизації — увійдіть знову перед стартом GPS-треку.",
+    bootstrapFailedNoShift: "Не вдалося прив'язати зміну — спробуйте ще раз.",
     wrongDayTitle: "Зміна застаріла",
     wrongDayHint:
       "Сервер відхилив точки (wrong_day). Завершіть зміну й почніть нову — інакше буфер крутиться даремно.",
@@ -374,8 +377,11 @@ export const uk = {
     staleGpsHint:
       "Немає прийнятих GPS-точок понад 10 хв. Перезапустіть зміну або увійдіть знову, якщо сесія протухла.",
     lastAcceptedAt: "Останній accept: {value}",
+    lastAcceptAge: "{age} тому",
+    lastFlushError: "Остання помилка flush: {error}",
     lastRejectReason: "Останній reject: {value}",
     neverAccepted: "ще не було",
+    openAppAndRestart: "Перезапустити трекінг",
     batteryUnknownHint:
       "Статус енергозбереження невідомий — перевірте, що для застосунку вибрано «Без обмежень».",
     backgroundRationaleTitle: "Фоновий трек",

@@ -84,3 +84,56 @@ describe("FieldShiftsService.getActive stale shifts", () => {
     assert.equal(emitted.length, 1);
   });
 });
+
+describe("FieldShiftsService.remindOpenShiftsToClose", () => {
+  const routePlans = {
+    snapGpsPathToRoads: async () => ({ path: [], source: "none" as const, distanceKm: null }),
+  };
+  const eventEmitter = { emitAsync: async () => undefined };
+
+  it("notifies owners of today's open shifts once", async () => {
+    const notified: Array<{ userId: string; shiftId: string; dateYmd: string }> = [];
+    const prisma = {
+      fieldShift: {
+        findMany: async () => [
+          { id: "s1", ownerId: "u1" },
+          { id: "s2", ownerId: "u2" },
+        ],
+      },
+      userNotification: {
+        findMany: async () => [{ entityId: "s1" }],
+      },
+    };
+    const notifications = {
+      notifyFieldShiftCloseReminder: async (params: {
+        userId: string;
+        shiftId: string;
+        dateYmd: string;
+      }) => {
+        notified.push(params);
+      },
+    };
+
+    const svc = new FieldShiftsService(
+      prisma as never,
+      routePlans as never,
+      eventEmitter as never,
+      notifications as never,
+    );
+
+    const res = await svc.remindOpenShiftsToClose();
+    assert.deepEqual(res, { notified: 1, skipped: 1 });
+    assert.equal(notified.length, 1);
+    assert.equal(notified[0]?.shiftId, "s2");
+    assert.equal(notified[0]?.userId, "u2");
+  });
+
+  it("returns zero when notifications service is unavailable", async () => {
+    const prisma = {
+      fieldShift: { findMany: async () => [{ id: "s1", ownerId: "u1" }] },
+    };
+    const svc = new FieldShiftsService(prisma as never, routePlans as never, eventEmitter as never);
+    const res = await svc.remindOpenShiftsToClose();
+    assert.deepEqual(res, { notified: 0, skipped: 0 });
+  });
+});

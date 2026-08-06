@@ -363,7 +363,9 @@ export class NotificationsService {
       where: { userId_type: { userId, type } },
     });
     if (!pref) {
-      return channel === "inApp";
+      if (channel === "inApp") return true;
+      if (channel === "mobile" && type === "FIELD_SHIFT_CLOSE_REMINDER") return true;
+      return false;
     }
     return pref[channel];
   }
@@ -471,6 +473,22 @@ export class NotificationsService {
         customerPhone: params.customerPhone,
         companyId: params.companyId ?? null,
       },
+    });
+  }
+
+  async notifyFieldShiftCloseReminder(params: {
+    userId: string;
+    shiftId: string;
+    dateYmd: string;
+  }): Promise<void> {
+    await this.create({
+      userId: params.userId,
+      type: "FIELD_SHIFT_CLOSE_REMINDER",
+      title: "Закрийте зміну",
+      body: "Зміна все ще відкрита. Завершіть зміну в CRM, щоб GPS-маршрут зафіксувався правильно.",
+      entityType: "FIELD_SHIFT",
+      entityId: params.shiftId,
+      meta: { dateYmd: params.dateYmd },
     });
   }
 }

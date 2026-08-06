@@ -3,6 +3,7 @@ const { describe, it } = require("node:test");
 
 const {
   KEEPALIVE_INTERVAL_MS,
+  REANCHOR_GAP_MS,
   TRACK_MAX_ACCURACY_M,
   filterLocationSample,
 } = require("../location-sample-filter");
@@ -55,5 +56,13 @@ describe("filterLocationSample", () => {
     const result = filterLocationSample(prev, next);
     assert.equal(result.accept, false);
     assert.equal(result.reason, "teleport");
+  });
+
+  it("reanchors after 30+ min gap (accept far point, no client teleport)", () => {
+    assert.equal(REANCHOR_GAP_MS, 30 * 60_000);
+    const prev = sample(50.45, 30.52, 0, 20);
+    const next = sample(50.55, 30.62, 31 * 60, 20);
+    const result = filterLocationSample(prev, next);
+    assert.equal(result.accept, true);
   });
 });
