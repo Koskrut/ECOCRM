@@ -118,6 +118,25 @@ describe("KyivstarTelephonyProvider", () => {
     assert.ok(urls.some((u) => u.includes("/v1/calls/c-hang/hangup")));
   });
 
+  it("http mode: attachMediaEndpoint treats 409 as idempotent success", async () => {
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const u = String(input);
+      if (u.includes("/media") && init?.method === "POST") {
+        return new Response(JSON.stringify({ error: "media_already_attached" }), { status: 409 });
+      }
+      return new Response("not found", { status: 404 });
+    }) as typeof fetch;
+
+    const p = new KyivstarTelephonyProvider(appConfig(), new StructuredLogger());
+    const result = await p.attachMediaEndpoint("call-409", {
+      host: "159.195.31.153",
+      port: 30001,
+      codec: "alaw",
+    });
+    assert.strictEqual(result.symmetricRtp, true);
+    assert.strictEqual(result.codec, "alaw");
+  });
+
   it("http mode: transferCall is explicitly degraded", async () => {
     globalThis.fetch = (async () => new Response(JSON.stringify({ callId: "x" }), { status: 200 })) as typeof fetch;
     const p = new KyivstarTelephonyProvider(appConfig(), new StructuredLogger());

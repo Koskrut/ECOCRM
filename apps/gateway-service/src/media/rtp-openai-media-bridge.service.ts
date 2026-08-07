@@ -13,15 +13,16 @@ import { StructuredLogger } from "../common/structured-logger";
 import { AdaptiveJitterBuffer } from "./jitter-buffer";
 import { buildRtpPacket, parseRtpPacket, payloadTypeForCodec, type RtpCodec } from "./rtp/packet";
 import { decodeAlaw8k, decodeMulaw8k, encodeAlaw8k, encodeMulaw8k } from "./codecs/g711";
-import { pcm16FromBase64, pcm16ToBase64, resample16kTo8k, resample8kTo16k } from "./codecs/resample";
+import { pcm16FromBase64, pcm16ToBase64, resample24kTo8k, resample8kTo24k } from "./codecs/resample";
+import { FifoQueue } from "./fifo-queue";
 import type { AppConfig } from "../config/configuration";
 import { CONFIG } from "../config/config.module";
 import { RtpPortAllocatorService } from "./rtp-port-allocator.service";
 
 /**
  * Real RTP/OpenAI media bridge:
- * - RTP in (PCMU/PCMA 8k) -> PCM16@16k -> OpenAI input
- * - OpenAI output PCM16@16k -> PCMU/PCMA 8k RTP out
+ * - RTP in (PCMU/PCMA 8k) -> PCM16@24k -> OpenAI input
+ * - OpenAI output PCM16@24k -> PCMU/PCMA 8k RTP out
  * - jitter buffering, bounded queues, reconnect lifecycle and periodic metrics
  */
 @Injectable()
@@ -78,7 +79,7 @@ export class RtpOpenAiMediaBridgeService implements MediaBridge {
       jitter: new AdaptiveJitterBuffer({ targetMs: 60, minMs: 50, maxMs: 100 }),
       startedAtMs: Date.now(),
       lastInboundSpeechAtMs: 0,
-      aiToRtpQueue: [],
+      aiToRtpQueue: new FifoQueue(MAX_OUTBOUND_AUDIO_QUEUE_FRAMES),
       stats: {
         packetIn: 0,
         packetOut: 0,
@@ -237,7 +238,7 @@ export class RtpOpenAiMediaBridgeService implements MediaBridge {
     runtime.lastInboundSpeechAtMs = Date.now();
     if (runtime.aiToRtpQueue.length > 0) {
       // Minimal barge-in strategy: drop queued AI output on caller speech.
-      runtime.aiToRtpQueue = [];
+      runtime.aiToRtpQueue.clear();
     }
   }
 
@@ -246,9 +247,9 @@ export class RtpOpenAiMediaBridgeService implements MediaBridge {
     const popped = runtime.jitter.pop(Date.now());
     if (popped.kind !== "frame") return;
     const pcm8 = runtime.codec === "alaw" ? decodeAlaw8k(popped.packet.payload) : decodeMulaw8k(popped.packet.payload);
-    const pcm16 = resample8kTo16k(pcm8);
+    const pcm24 = resample8kTo24k(pcm8);
     const chunk: AiAudioChunk = {
-      pcm16leBase64: pcm16ToBase64(pcm16),
+      pcm16leBase64: pcm16ToBase64(pcm24),
       sampleRateHz: this.config.openaiRealtimeSampleRateHz,
       channels: 1,
     };
@@ -262,13 +263,10 @@ export class RtpOpenAiMediaBridgeService implements MediaBridge {
   }
 
   private enqueueAiOutput(runtime: SessionRuntime, chunk: AiAudioChunk, receivedAtMs: number): void {
-    const pcm16 = pcm16FromBase64(chunk.pcm16leBase64);
-    const pcm8 = resample16kTo8k(pcm16);
+    const pcm24 = pcm16FromBase64(chunk.pcm16leBase64);
+    const pcm8 = resample24kTo8k(pcm24);
     const payload =
       runtime.codec === "alaw" ? encodeAlaw8k(pcm8) : encodeMulaw8k(pcm8);
-    if (runtime.aiToRtpQueue.length >= MAX_OUTBOUND_AUDIO_QUEUE_FRAMES) {
-      runtime.aiToRtpQueue.shift();
-    }
     runtime.aiToRtpQueue.push({ payload, queuedAtMs: receivedAtMs });
   }
 
@@ -366,7 +364,7 @@ type SessionRuntime = {
   codec: RtpCodec;
   socket: dgram.Socket;
   jitter: AdaptiveJitterBuffer;
-  aiToRtpQueue: Array<{ payload: Buffer; queuedAtMs: number }>;
+  aiToRtpQueue: FifoQueue<{ payload: Buffer; queuedAtMs: number }>;
   startedAtMs: number;
   lastInboundSpeechAtMs: number;
   rtpOut: { sequence: number; timestamp: number; ssrc: number };

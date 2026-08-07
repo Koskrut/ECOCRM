@@ -132,6 +132,11 @@ export class FreeswitchService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
+  async playFile(fsUuid: string, filePath: string): Promise<void> {
+    if (this.config.freeswitchMode === "mock") return;
+    await this.api(`uuid_broadcast ${fsUuid} ${filePath} aleg`);
+  }
+
   private connectEsl(): void {
     const { freeswitchEslHost, freeswitchEslPort, freeswitchEslPassword } = this.config;
     this.conn = new modesl.Connection(freeswitchEslHost, freeswitchEslPort, freeswitchEslPassword, () => {

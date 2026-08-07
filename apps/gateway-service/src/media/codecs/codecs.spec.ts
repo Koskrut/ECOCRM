@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { decodeAlaw8k, decodeMulaw8k, encodeAlaw8k, encodeMulaw8k } from "./g711";
-import { resample16kTo8k, resample8kTo16k } from "./resample";
+import { resample16kTo8k, resample8kTo16k, resample8kTo24k, resample24kTo8k } from "./resample";
 
 function tone(len: number, amp = 3000): Int16Array {
   const out = new Int16Array(len);
@@ -32,11 +32,11 @@ describe("media codecs", () => {
     assert.ok(err / pcm.length < 500, `avg error too high: ${err / pcm.length}`);
   });
 
-  it("resample 8k<->16k roundtrip keeps length", () => {
+  it("resample 8k<->24k roundtrip keeps length", () => {
     const pcm8 = tone(160);
-    const up = resample8kTo16k(pcm8);
-    const down = resample16kTo8k(up);
-    assert.equal(up.length, 320);
+    const up = resample8kTo24k(pcm8);
+    const down = resample24kTo8k(up);
+    assert.equal(up.length, 480);
     assert.equal(down.length, 160);
   });
 });

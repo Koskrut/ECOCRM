@@ -237,6 +237,13 @@ export class KyivstarTelephonyProvider implements TelephonyProvider {
     }
 
     if (!res.ok) {
+      if (res.status === 409) {
+        this.log.warn("kyivstar_media_attach_already_attached", {
+          providerCallId,
+          note: "Media already attached — treating as idempotent success.",
+        });
+        return { symmetricRtp: true, codec: input.codec };
+      }
       this.log.error("kyivstar_media_attach_http_error", {
         providerCallId,
         status: res.status,

@@ -56,19 +56,25 @@ export class OpenAiRealtimeVoiceProvider implements AiVoiceProvider {
   async sendContext(handle: AiSessionHandle, context: Record<string, unknown>): Promise<void> {
     const ws = this.sockets.get(handle.openaiSessionId);
     if (!ws) return;
-    ws.send(JSON.stringify({ type: "session.update", context }));
+    const instructions =
+      typeof context.instructions === "string"
+        ? context.instructions
+        : JSON.stringify(context);
+    ws.send(
+      JSON.stringify({
+        type: "session.update",
+        session: {
+          type: "realtime",
+          instructions,
+        },
+      }),
+    );
   }
 
   async startConversation(handle: AiSessionHandle): Promise<void> {
     this.assertConfigured();
     const ws = await this.ensureSocket(handle.openaiSessionId);
-    ws.send(
-      JSON.stringify({
-        type: "session.start",
-        model: this.config.openaiRealtimeModel,
-        voice: this.config.openaiRealtimeVoice,
-      }),
-    );
+    ws.send(JSON.stringify({ type: "response.create" }));
   }
 
   async pushAudioInput(handle: AiSessionHandle, audio: AiAudioChunk): Promise<void> {
@@ -157,6 +163,7 @@ export class OpenAiRealtimeVoiceProvider implements AiVoiceProvider {
       this.handleWsMessage(openaiSessionId, data);
     });
     ws.on("open", () => {
+      ws.send(JSON.stringify(this.buildGaSessionUpdate()));
       this.emitLifecycle(openaiSessionId, { type: "connected" });
     });
     ws.on("error", (err: unknown) => {
@@ -189,9 +196,14 @@ export class OpenAiRealtimeVoiceProvider implements AiVoiceProvider {
       return;
     }
     const type = parsed?.type;
-    if (type === "response.audio.delta") {
-      const audio = parsed.delta;
-      if (typeof audio !== "string") return;
+    if (type === "response.output_audio.delta" || type === "response.audio.delta") {
+      const audio =
+        typeof parsed.delta === "string"
+          ? parsed.delta
+          : typeof (parsed as { audio?: unknown }).audio === "string"
+            ? ((parsed as { audio: string }).audio as string)
+            : null;
+      if (!audio) return;
       const listeners = this.outputListeners.get(openaiSessionId);
       if (!listeners) return;
       const chunk: AiAudioChunk = {
@@ -256,6 +268,28 @@ export class OpenAiRealtimeVoiceProvider implements AiVoiceProvider {
     const listeners = this.artifactListeners.get(openaiSessionId);
     if (!listeners) return;
     for (const listener of listeners) listener(event);
+  }
+
+  private buildGaSessionUpdate(): Record<string, unknown> {
+    const rate = this.config.openaiRealtimeSampleRateHz;
+    return {
+      type: "session.update",
+      session: {
+        type: "realtime",
+        model: this.config.openaiRealtimeModel,
+        output_modalities: ["audio"],
+        audio: {
+          input: {
+            format: { type: "audio/pcm", rate },
+            turn_detection: { type: "semantic_vad" },
+          },
+          output: {
+            format: { type: "audio/pcm", rate },
+            voice: this.config.openaiRealtimeVoice,
+          },
+        },
+      },
+    };
   }
 
   private assertConfigured(): void {

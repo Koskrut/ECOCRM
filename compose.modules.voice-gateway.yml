@@ -1,19 +1,27 @@
-# Voice gateway stack: AI gateway + SIP adapter + FreeSWITCH (optional host networking for FS).
+# Voice gateway stack: AI gateway + SIP adapter + FreeSWITCH (host networking for FS).
 # Usage:
-#   docker compose -f compose.base.yml -f compose.modules.outbound.yml -f compose.modules.voice-gateway.yml -f compose.client.yml --env-file .env up -d
+#   docker compose -f compose.base.yml -f compose.client.yml \
+#     -f compose.modules.outbound.yml -f compose.modules.outbound-sidecar.yml \
+#     -f compose.modules.voice-gateway.yml --env-file .env up -d
 #
 # Required env (examples):
 #   GATEWAY_API_TOKEN, CRM_WEBHOOK_SECRET, OPENAI_API_KEY
 #   KYIVSTAR_API_TOKEN (same as SIP_ADAPTER_API_TOKEN)
 #   SIP_ADAPTER_API_TOKEN, SIP_PUBLIC_IP, SIP_PROVIDER_HOST, SIP_CLI_NUMBER
+#   VOICE_GATEWAY_VERSION (optional tag for local gateway/sip images)
+
+volumes:
+  crm-play-audio:
 
 services:
   gateway-service:
     build:
       context: ./apps/gateway-service
       dockerfile: Dockerfile
-    image: local/crm-gateway-service:${BACKEND_VERSION:-dev}
+    image: local/crm-gateway-service:${VOICE_GATEWAY_VERSION:-${BACKEND_VERSION:-dev}}
     restart: unless-stopped
+    ports:
+      - "3100:3100"
     environment:
       PORT: 3100
       GATEWAY_PROVIDER_MODE: kyivstar_openai
@@ -22,6 +30,7 @@ services:
       GATEWAY_API_TOKEN: ${GATEWAY_API_TOKEN:?Set GATEWAY_API_TOKEN}
       CRM_WEBHOOK_SECRET: ${CRM_WEBHOOK_SECRET:?Set CRM_WEBHOOK_SECRET}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_REALTIME_SAMPLE_RATE_HZ: ${OPENAI_REALTIME_SAMPLE_RATE_HZ:-24000}
       KYIVSTAR_API_BASE_URL: http://sip-adapter:8080
       KYIVSTAR_API_TOKEN: ${KYIVSTAR_API_TOKEN:-${SIP_ADAPTER_API_TOKEN}}
       KYIVSTAR_HTTP_MEDIA_PATH_TEMPLATE: /v1/calls/{callId}/media
@@ -41,13 +50,15 @@ services:
     build:
       context: ./apps/sip-adapter-service
       dockerfile: Dockerfile
-    image: local/crm-sip-adapter:${BACKEND_VERSION:-dev}
+    image: local/crm-sip-adapter:${VOICE_GATEWAY_VERSION:-${BACKEND_VERSION:-dev}}
     restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       PORT: 8080
       SIP_ADAPTER_API_TOKEN: ${SIP_ADAPTER_API_TOKEN:?Set SIP_ADAPTER_API_TOKEN}
       FREESWITCH_MODE: ${FREESWITCH_MODE:-esl}
-      FREESWITCH_ESL_HOST: ${FREESWITCH_ESL_HOST:-freeswitch}
+      FREESWITCH_ESL_HOST: ${FREESWITCH_ESL_HOST:-host.docker.internal}
       FREESWITCH_ESL_PORT: ${FREESWITCH_ESL_PORT:-8021}
       FREESWITCH_ESL_PASSWORD: ${FREESWITCH_ESL_PASSWORD:-ClueCon}
       SIP_PROVIDER_HOST: ${SIP_PROVIDER_HOST:-94.153.248.113}
@@ -69,3 +80,4 @@ services:
     volumes:
       - ./apps/sip-adapter-service/freeswitch/autoload_configs/event_socket.conf.xml:/etc/freeswitch/autoload_configs/event_socket.conf.xml:ro
       - ./apps/sip-adapter-service/freeswitch/sip_profiles/provider.xml:/etc/freeswitch/sip_profiles/external/provider.xml:ro
+      - crm-play-audio:/var/lib/crm-play-audio
