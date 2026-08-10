@@ -397,6 +397,10 @@ export default function MoreScreen() {
                   })}
                 </Text>
                 <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 4 }]}>
+                  Field tracking flag: {trackingDebug.fieldTrackingMode ?? "—"} · Native module:{" "}
+                  {trackingDebug.nativeModuleLoaded ? "loaded" : "missing"}
+                </Text>
+                <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 4 }]}>
                   Battery module: {trackingDebug.batteryModuleLoaded ? "loaded" : "missing"} · raw API:{" "}
                   {trackingDebug.batteryRawIgnoring == null
                     ? "null"

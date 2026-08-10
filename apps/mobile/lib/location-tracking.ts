@@ -80,11 +80,12 @@ import {
   notifyGpsStoppedZombieFgs,
 } from "./location-tracking-alerts";
 import { resolveTrackingModeAfterPermissions } from "./location-tracking-start";
-import { shouldUseExpoTracking, shouldUseNativeTracking } from "./tracking-feature-flag";
+import { shouldUseExpoTracking, shouldUseNativeTracking, getFieldTrackingMode } from "./tracking-feature-flag";
 import {
   startNativeTracking,
   stopNativeTracking,
   getNativeTrackingHealth,
+  isNativeTrackingModuleLoaded,
   flushNativePendingSamples,
   type NativeTrackingHealth,
 } from "../modules/crm-native-tracking";
@@ -157,6 +158,9 @@ export type TrackingDiagnostics = {
   batteryOptimizationStatus: "restricted" | "unrestricted" | "unknown" | "module_unavailable";
   batteryModuleLoaded?: boolean;
   batteryRawIgnoring?: boolean | null;
+  /** Baked at build time via EXPO_PUBLIC_FIELD_TRACKING_MODE / app.config.js extra. */
+  fieldTrackingMode?: "legacy_expo" | "native_android";
+  nativeModuleLoaded?: boolean;
   claimedMode?: TrackingMode;
   actualMode?: TrackingMode;
 };
@@ -231,6 +235,8 @@ async function buildNativeRuntimeHealth(
     batteryOptimizationStatus: batteryStatus,
     batteryModuleLoaded: batteryDetailed.moduleLoaded,
     batteryRawIgnoring: batteryDetailed.rawIgnoring,
+    fieldTrackingMode: getFieldTrackingMode(),
+    nativeModuleLoaded: isNativeTrackingModuleLoaded(),
     lastAcceptedAt,
     lastRejectReason: await getLastRejectReason(),
     lastFlushError: await getLastFlushError(),
@@ -488,9 +494,13 @@ export async function startLocationTracking(shiftId: string): Promise<TrackingMo
       // Credentials must land in Kotlin DataStore before FGS upload; retry once on race.
       const sync = await syncNativeTrackingSessionDetailed({ retries: 1 });
       if (!sync.ok) {
+        const reason =
+          sync.reason === "module_missing"
+            ? "module_missing (CrmNativeTracking not linked — reinstall preview-native APK)"
+            : sync.reason;
         void appendErrorLog(
-          `startLocationTracking(native): syncSession failed (${sync.reason})`,
-          "warn",
+          `startLocationTracking(native): syncSession failed (${reason})`,
+          sync.reason === "module_missing" ? "error" : "warn",
         );
         await AsyncStorage.setItem(STORAGE_KEYS.TRACKING_MODE, "none");
         return "none";
@@ -998,6 +1008,8 @@ export async function getTrackingRuntimeHealth(): Promise<TrackingRuntimeHealth>
     batteryOptimizationStatus: batteryStatus,
     batteryModuleLoaded: batteryDetailed.moduleLoaded,
     batteryRawIgnoring: batteryDetailed.rawIgnoring,
+    fieldTrackingMode: getFieldTrackingMode(),
+    nativeModuleLoaded: isNativeTrackingModuleLoaded(),
     lastAcceptedAt,
     lastRejectReason,
     lastFlushError,
@@ -1034,6 +1046,8 @@ export async function getTrackingDiagnostics(): Promise<TrackingDiagnostics> {
     batteryOptimizationStatus: health.batteryOptimizationStatus,
     batteryModuleLoaded: health.batteryModuleLoaded,
     batteryRawIgnoring: health.batteryRawIgnoring,
+    fieldTrackingMode: health.fieldTrackingMode,
+    nativeModuleLoaded: health.nativeModuleLoaded,
   };
 }
 

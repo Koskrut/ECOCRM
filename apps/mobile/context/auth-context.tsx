@@ -17,6 +17,7 @@ import {
   clearNativeTrackingSession,
   syncNativeTrackingSession,
 } from "@/lib/native-tracking-session";
+import { shouldUseNativeTracking } from "@/lib/tracking-feature-flag";
 import { endPresenceSession } from "@/lib/presence-heartbeat";
 import { getCachedPushToken, unregisterPushToken } from "@/lib/push-notifications";
 import {
@@ -144,6 +145,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // (covers SecureStore race that left "no auth token" while user stayed logged in).
   useEffect(() => {
     if (!ready || !token || sessionExpired) return;
+    // Native FGS uploads from Kotlin — JS buffer is unused; skip misleading "no auth token" flush.
+    if (shouldUseNativeTracking()) return;
     let cancelled = false;
     void (async () => {
       try {
