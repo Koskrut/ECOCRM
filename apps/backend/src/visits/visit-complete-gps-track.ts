@@ -23,6 +23,7 @@ type PrismaClientLike = {
     create: (args: {
       data: {
         shiftId: string;
+        ownerId: string;
         lat: number;
         lng: number;
         accuracyM?: number;
@@ -90,6 +91,7 @@ export async function dualWriteCompleteGpsToActiveShift(
   await prisma.fieldLocationSample.create({
     data: {
       shiftId: shift.id,
+      ownerId: opts.ownerId,
       lat: candidate.lat,
       lng: candidate.lng,
       accuracyM: candidate.accuracyM,

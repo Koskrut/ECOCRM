@@ -4,13 +4,33 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.149**.)_
+_(планируемые изменения после **0.2.150**.)_
+
+## [0.2.150] — 2026-08-10
+
+### Summary
+
+Hotfix **0.2.150**: CI fix for 0.2.149 — `ownerId` on visit GPS dual-write.
+
+### Fixed
+
+- **Visit complete GPS dual-write**: include required `ownerId` on `FieldLocationSample.create` (schema 0.2.149).
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.150`**.
+- **Миграции:** same as **0.2.149** (if not yet deployed).
+- **Do not use 0.2.149 images** — CI failed on backend build.
 
 ## [0.2.149] — 2026-08-10
 
 ### Summary
 
 Патч **0.2.149**: native Android field tracking (opt-in); GPS sample idempotency; planning due reminders.
+
+### Note
+
+**0.2.149 registry images were not published** (backend tsc). Use **0.2.150+**.
 
 ### Added
 
