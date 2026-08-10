@@ -14,6 +14,7 @@
     "preview": {
       "distribution": "internal",
       "autoIncrement": true,
+      "node": "24.11.0",
       "android": {
         "buildType": "apk"
       },
