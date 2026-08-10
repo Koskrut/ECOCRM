@@ -1,8 +1,10 @@
 import { BadRequestException, Injectable, Logger, NotFoundException, Optional } from "@nestjs/common";
 import {
   ClientPlatform,
+  FieldLocationSampleSource,
   FieldShiftStatus,
   FieldTrackingEventType,
+  FieldTrackingHealthState,
   FieldTrackingRestartReason,
   Prisma,
 } from "@prisma/client";
@@ -28,6 +30,11 @@ import {
 } from "./gps-sample-filter";
 import { SHIFT_ENDED_EVENT } from "./field.events";
 import { deriveDevicePresence, deriveGpsStatus } from "./field-team-status";
+import {
+  formatTrackingTelemetry,
+  parseSampleSource,
+  parseTrackingHealthState,
+} from "./field-tracking-telemetry";
 import type { FieldShiftTeamItem, FieldTeamTrackingRestartReason } from "./field-shifts.types";
 
 const MAX_SAMPLES_BATCH = 250;
@@ -337,7 +344,21 @@ export class FieldShiftsService {
   async appendSamples(
     actor: AuthUser | undefined,
     shiftId: string,
-    items: { lat: number; lng: number; accuracyM?: number | null; clientRecordedAt: string }[],
+    items: {
+      lat: number;
+      lng: number;
+      accuracyM?: number | null;
+      clientRecordedAt: string;
+      sampleId?: string | null;
+      deviceId?: string | null;
+      source?: string;
+    }[],
+    telemetry?: {
+      nativeLastSeenAt?: string;
+      lastGpsCapturedAt?: string;
+      trackingHealthState?: string;
+      deviceId?: string;
+    },
   ) {
     if (!actor) {
       throw new BadRequestException("User is required");
@@ -382,15 +403,37 @@ export class FieldShiftsService {
     const session = new GpsTrackFilterSession(anchorPrev);
     const rows: Prisma.FieldLocationSampleCreateManyInput[] = [];
     let rejected = 0;
+    let duplicate = 0;
     const rejectReasons: Record<string, number> = {};
     let reanchorCount = 0;
     const shiftDayYmd = instantToKyivYmd(shift.date);
     const sortedItems = sortGpsSamplesByTime(items);
 
+    const sampleIds = sortedItems
+      .map((it) => (typeof it.sampleId === "string" && it.sampleId.trim() ? it.sampleId.trim() : null))
+      .filter((id): id is string => id != null);
+    const existingSampleIds = new Set<string>();
+    if (sampleIds.length > 0) {
+      const existing = await this.prisma.fieldLocationSample.findMany({
+        where: { ownerId: actor.id, sampleId: { in: sampleIds } },
+        select: { sampleId: true },
+      });
+      for (const row of existing) {
+        if (row.sampleId) existingSampleIds.add(row.sampleId);
+      }
+    }
+
     for (const it of sortedItems) {
       const clientRecordedAt = new Date(it.clientRecordedAt);
       if (Number.isNaN(clientRecordedAt.getTime())) {
         throw new BadRequestException("Invalid clientRecordedAt");
+      }
+
+      const sampleId =
+        typeof it.sampleId === "string" && it.sampleId.trim() ? it.sampleId.trim() : null;
+      if (sampleId && existingSampleIds.has(sampleId)) {
+        duplicate += 1;
+        continue;
       }
 
       if (instantToKyivYmd(clientRecordedAt) !== shiftDayYmd) {
@@ -469,24 +512,94 @@ export class FieldShiftsService {
 
       rows.push({
         shiftId,
+        ownerId: actor.id,
+        sampleId,
+        deviceId:
+          typeof it.deviceId === "string" && it.deviceId.trim()
+            ? it.deviceId.trim()
+            : telemetry?.deviceId?.trim() || null,
+        source: parseSampleSource(it.source) as FieldLocationSampleSource | undefined,
         lat: candidate.lat,
         lng: candidate.lng,
         accuracyM: candidate.accuracyM,
         clientRecordedAt,
       });
+      if (sampleId) {
+        existingSampleIds.add(sampleId);
+      }
     }
 
+    let created = 0;
     if (rows.length > 0) {
-      await this.prisma.fieldLocationSample.createMany({ data: rows });
+      const result = await this.prisma.fieldLocationSample.createMany({
+        data: rows,
+        skipDuplicates: true,
+      });
+      created = result.count;
+      duplicate += rows.length - created;
     }
 
-    if (rejected > 0 || rows.length > 0 || reanchorCount > 0) {
+    if (created > 0 || duplicate > 0) {
+      await this.touchTrackingTelemetry(actor.id, {
+        lastServerAcceptAt: new Date(),
+        nativeLastSeenAt: telemetry?.nativeLastSeenAt,
+        lastGpsCapturedAt: telemetry?.lastGpsCapturedAt,
+        trackingHealthState: parseTrackingHealthState(telemetry?.trackingHealthState),
+      });
+    } else if (telemetry) {
+      await this.touchTrackingTelemetry(actor.id, {
+        nativeLastSeenAt: telemetry.nativeLastSeenAt,
+        lastGpsCapturedAt: telemetry.lastGpsCapturedAt,
+        trackingHealthState: parseTrackingHealthState(telemetry.trackingHealthState),
+      });
+    }
+
+    if (rejected > 0 || created > 0 || duplicate > 0 || reanchorCount > 0) {
       this.logger.log(
-        `appendSamples shiftId=${shiftId} ownerId=${actor.id} created=${rows.length} rejected=${rejected} rejectReasons=${JSON.stringify(rejectReasons)} reanchor=${reanchorCount}`,
+        `appendSamples shiftId=${shiftId} ownerId=${actor.id} created=${created} duplicate=${duplicate} rejected=${rejected} rejectReasons=${JSON.stringify(rejectReasons)} reanchor=${reanchorCount}`,
       );
     }
 
-    return { created: rows.length, rejected, rejectReasons };
+    return { created, duplicate, rejected, rejectReasons };
+  }
+
+  /** Update mobile session telemetry without conflating app heartbeat with GPS accept. */
+  private async touchTrackingTelemetry(
+    ownerId: string,
+    patch: {
+      lastServerAcceptAt?: Date;
+      nativeLastSeenAt?: string;
+      lastGpsCapturedAt?: string;
+      trackingHealthState?: FieldTrackingHealthState;
+    },
+  ) {
+    const session = await this.prisma.userActivitySession.findFirst({
+      where: { userId: ownerId, platform: ClientPlatform.MOBILE },
+      orderBy: { lastSeenAt: "desc" },
+    });
+    if (!session) return;
+
+    const data: Prisma.UserActivitySessionUpdateInput = {};
+    if (patch.lastServerAcceptAt) {
+      data.lastServerAcceptAt = patch.lastServerAcceptAt;
+    }
+    if (patch.nativeLastSeenAt) {
+      const at = new Date(patch.nativeLastSeenAt);
+      if (!Number.isNaN(at.getTime())) data.nativeLastSeenAt = at;
+    }
+    if (patch.lastGpsCapturedAt) {
+      const at = new Date(patch.lastGpsCapturedAt);
+      if (!Number.isNaN(at.getTime())) data.lastGpsCapturedAt = at;
+    }
+    if (patch.trackingHealthState) {
+      data.trackingHealthState = patch.trackingHealthState;
+    }
+    if (Object.keys(data).length === 0) return;
+
+    await this.prisma.userActivitySession.update({
+      where: { id: session.id },
+      data,
+    });
   }
 
   private visitTitle(v: {
@@ -560,6 +673,11 @@ export class FieldShiftsService {
         select: {
           userId: true,
           lastSeenAt: true,
+          appLastSeenAt: true,
+          nativeLastSeenAt: true,
+          lastGpsCapturedAt: true,
+          lastServerAcceptAt: true,
+          trackingHealthState: true,
           appState: true,
           trackingMode: true,
         },
@@ -738,6 +856,11 @@ export class FieldShiftsService {
                 lastRestartReason: this.toApiRestartReason(lastRestart?.reason ?? null),
               }
             : null,
+        trackingTelemetry: formatTrackingTelemetry(presence ?? null, {
+          trackingEnabled: shift.trackingEnabled,
+          lastSampleAt: last?.clientRecordedAt ?? null,
+          nowMs,
+        }),
       };
     });
 

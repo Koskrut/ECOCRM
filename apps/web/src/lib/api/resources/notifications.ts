@@ -11,7 +11,9 @@ export type NotificationType =
   | "META_INSTAGRAM_MESSAGE"
   | "META_FACEBOOK_MESSAGE"
   | "FIELD_SHIFT_CLOSE_REMINDER"
-  | "FIELD_GPS_STALE";
+  | "FIELD_GPS_STALE"
+  | "PLANNING_FACTORY_DUE"
+  | "PLANNING_PACKING_DUE";
 
 export type UserNotification = {
   id: string;
@@ -109,6 +111,10 @@ export function notificationHref(n: UserNotification): string | null {
       return `/inbox/telegram?conversationId=${encodeURIComponent(n.entityId)}`;
     case "FIELD_SHIFT":
       return "/visits";
+    case "FACTORY_ORDER":
+      return `/planning?tab=make`;
+    case "PACKING_LIST":
+      return `/planning?tab=pack`;
     default:
       return null;
   }

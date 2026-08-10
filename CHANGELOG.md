@@ -4,7 +4,32 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.148**.)_
+_(планируемые изменения после **0.2.149**.)_
+
+## [0.2.149] — 2026-08-10
+
+### Summary
+
+Патч **0.2.149**: native Android field tracking (opt-in); GPS sample idempotency; planning due reminders.
+
+### Added
+
+- **Native field tracking**: `crm-native-tracking` Expo module (Android FGS, WorkManager flush); flag `EXPO_PUBLIC_FIELD_TRACKING_MODE=native_android`.
+- **GPS idempotency**: `FieldLocationSample.sampleId` + `source` (EXPO / NATIVE_ANDROID); split presence telemetry (`appLastSeenAt`, `nativeLastSeenAt`, `trackingHealthState`).
+- **Planning due reminders**: `PLANNING_FACTORY_DUE` / `PLANNING_PACKING_DUE` notifications + cron; web planning due panel.
+- **Field team telemetry**: derived health for supervisors (`TeamFieldList`).
+
+### Changed
+
+- **Field shifts append**: owner-scoped idempotency keys; tracking telemetry on accept.
+- **Web planning**: factory/packing due lists in ops panels.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.149`**.
+- **Миграции:** `20260810120000_planning_due_reminder_notifications`, `20260810140000_native_field_tracking_idempotency` — **`prisma migrate deploy`** до **`up`**.
+- **Mobile**: новый **EAS build** обязателен; native tracking — opt-in via env (default `legacy_expo`).
+- **Web**: deploy для planning due UI + notification settings.
 
 ## [0.2.148] — 2026-08-10
 

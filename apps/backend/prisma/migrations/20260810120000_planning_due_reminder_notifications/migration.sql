@@ -1,0 +1,3 @@
+-- AlterEnum
+ALTER TYPE "NotificationType" ADD VALUE 'PLANNING_FACTORY_DUE';
+ALTER TYPE "NotificationType" ADD VALUE 'PLANNING_PACKING_DUE';

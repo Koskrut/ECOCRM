@@ -18,6 +18,10 @@ export function notificationEntityPath(
       return `/visit/${entityId}`;
     case "FIELD_SHIFT":
       return "/(tabs)";
+    case "FACTORY_ORDER":
+      return "/(tabs)/planning";
+    case "PACKING_LIST":
+      return "/(tabs)/planning";
     default:
       return null;
   }

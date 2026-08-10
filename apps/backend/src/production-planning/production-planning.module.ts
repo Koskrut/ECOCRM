@@ -1,4 +1,5 @@
 import { Module } from "@nestjs/common";
+import { NotificationsModule } from "../notifications/notifications.module";
 import { PrismaModule } from "../prisma/prisma.module";
 import { SystemModule } from "../system/system.module";
 import { BomImportService } from "./bom-import.service";
@@ -19,10 +20,12 @@ import { ProductionService } from "./production.service";
 import { SalesHistoryService } from "./sales-history.service";
 import { MrpActionListService } from "./mrp-action-list.service";
 import { PlanningTodayService } from "./planning-today.service";
+import { PlanningRemindersService } from "./planning-reminders.service";
+import { PlanningRemindersCron } from "./planning-reminders.cron";
 import { WeeklyPlanningJob } from "./weekly-planning.job";
 
 @Module({
-  imports: [PrismaModule, SystemModule],
+  imports: [PrismaModule, SystemModule, NotificationsModule],
   controllers: [ProductionPlanningController],
   providers: [
     DemandRulesService,
@@ -42,6 +45,8 @@ import { WeeklyPlanningJob } from "./weekly-planning.job";
     FactoryOrderService,
     ProductionService,
     PlanningTodayService,
+    PlanningRemindersService,
+    PlanningRemindersCron,
     WeeklyPlanningJob,
   ],
 })

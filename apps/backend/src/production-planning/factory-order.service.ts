@@ -11,6 +11,7 @@ import {
 } from "@prisma/client";
 import * as XLSX from "xlsx";
 import { PrismaService } from "../prisma/prisma.service";
+import { kyivDayBounds } from "../crm-timezone";
 import { constrainsKitCapacity } from "./bom-part.util";
 import { mixKitDemand, uncoveredKitDemand } from "./demand-mix.util";
 import { ForecastService } from "./forecast.service";
@@ -166,6 +167,7 @@ export class FactoryOrderService {
   async createFromRecommendations(
     lines?: Array<{ partProductId: string; qtyOrdered: number }>,
     note?: string,
+    dueAtIso?: string,
   ) {
     const rec = await this.getRecommendations();
     const source =
@@ -196,7 +198,7 @@ export class FactoryOrderService {
 
     const order = await this.prisma.factoryOrder.create({
       data: {
-        dueAt: rec.dueAt,
+        dueAt: dueAtIso ? parseDueDate(dueAtIso) : rec.dueAt,
         status: FactoryOrderStatus.OPEN,
         note: note ?? null,
         lines: {
@@ -221,6 +223,23 @@ export class FactoryOrderService {
     return this.prisma.factoryOrder.update({
       where: { id },
       data: { status },
+      include: {
+        lines: {
+          include: { partProduct: { select: { id: true, sku: true, name: true } } },
+        },
+      },
+    });
+  }
+
+  async updateDueAt(id: string, dueAtIso: string) {
+    const order = await this.get(id);
+    if (order.status === FactoryOrderStatus.CLOSED || order.status === FactoryOrderStatus.CANCELLED) {
+      throw new BadRequestException("Cannot reschedule a closed or cancelled order");
+    }
+    const dueAt = parseDueDate(dueAtIso);
+    return this.prisma.factoryOrder.update({
+      where: { id },
+      data: { dueAt },
       include: {
         lines: {
           include: { partProduct: { select: { id: true, sku: true, name: true } } },
@@ -300,4 +319,16 @@ export class FactoryOrderService {
     }
     return map;
   }
+}
+
+function parseDueDate(iso: string): Date {
+  const trimmed = iso.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    return kyivDayBounds(trimmed).to;
+  }
+  const d = new Date(trimmed);
+  if (Number.isNaN(d.getTime())) {
+    throw new BadRequestException("Invalid dueAt date");
+  }
+  return d;
 }

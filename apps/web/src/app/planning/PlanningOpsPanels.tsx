@@ -23,6 +23,11 @@ import {
 import { formatDateTime } from "@/lib/crmDatetime";
 import { planningCycleStatusLabel } from "@/lib/status-labels";
 
+function toDateInputValue(iso: string | null | undefined): string {
+  if (!iso) return "";
+  return iso.slice(0, 10);
+}
+
 function useStableErrorHandler(onError: (msg: string) => void) {
   const ref = useRef(onError);
   ref.current = onError;
@@ -441,9 +446,11 @@ export function PackingPanel({ onError }: { onError: (msg: string) => void }) {
   const [active, setActive] = useState<PackingList | null>(null);
   const [busy, setBusy] = useState(false);
   const [qtys, setQtys] = useState<Record<string, string>>({});
+  const [cycleEndEdit, setCycleEndEdit] = useState("");
 
   const applyActive = useCallback((full: PackingList) => {
     setActive(full);
+    setCycleEndEdit(toDateInputValue(full.cycleEnd));
     setQtys(
       Object.fromEntries((full.lines ?? []).map((l) => [l.kitProductId, String(l.qtyApproved)])),
     );
@@ -574,9 +581,16 @@ export function PackingPanel({ onError }: { onError: (msg: string) => void }) {
 
       <Panel title={t.tabs.packing}>
         <SimpleTable
-          headers={[t.labels.status, t.labels.capacityUsed, t.labels.createdAt, t.labels.actions]}
+          headers={[
+            t.labels.status,
+            t.labels.cycleEnd,
+            t.labels.capacityUsed,
+            t.labels.createdAt,
+            t.labels.actions,
+          ]}
           rows={lists.map((list) => [
             list.status,
+            formatDateTime(list.cycleEnd),
             `${list.capacityUsed} / ${list.capacityLimit}`,
             formatDateTime(list.createdAt),
             <button
@@ -602,6 +616,40 @@ export function PackingPanel({ onError }: { onError: (msg: string) => void }) {
 
       {active ? (
         <Panel title={`${planningCycleStatusLabel(active.status)} · ${formatDateTime(active.cycleStart)}`}>
+          {active.status !== "DONE" ? (
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              <label className="flex items-center gap-2 text-sm text-zinc-700">
+                <span>{t.labels.cycleEnd}</span>
+                <input
+                  type="date"
+                  className="rounded border border-zinc-200 px-2 py-1"
+                  value={cycleEndEdit}
+                  onChange={(e) => setCycleEndEdit(e.target.value)}
+                />
+              </label>
+              <button
+                type="button"
+                disabled={busy || !cycleEndEdit}
+                className="rounded-lg border border-zinc-200 bg-white px-3 py-1 text-sm disabled:opacity-50"
+                onClick={() => {
+                  void (async () => {
+                    setBusy(true);
+                    try {
+                      applyActive(await planningApi.updatePackingDueAt(active.id, cycleEndEdit));
+                      await reloadLists();
+                    } catch (e) {
+                      reportError(e instanceof Error ? e.message : t.errors.packing);
+                    } finally {
+                      setBusy(false);
+                    }
+                  })();
+                }}
+              >
+                {t.actions.saveDueAt}
+              </button>
+              <p className="text-xs text-zinc-500">{t.labels.packingDueHint}</p>
+            </div>
+          ) : null}
           <SimpleTable
             headers={[
               t.labels.sku,
@@ -644,11 +692,15 @@ export function FactoryPanel({ onError }: { onError: (msg: string) => void }) {
   const [recs, setRecs] = useState<FactoryRecommendation[]>([]);
   const [orders, setOrders] = useState<FactoryOrder[]>([]);
   const [dueAt, setDueAt] = useState<string | null>(null);
+  const [createDueAt, setCreateDueAt] = useState("");
+  const [orderDueEdits, setOrderDueEdits] = useState<Record<string, string>>({});
   const [freshness, setFreshness] = useState<SnapshotFreshness | null>(null);
   const [busy, setBusy] = useState(false);
 
   const reloadOrders = useCallback(async () => {
-    setOrders(await planningApi.listFactoryOrders(30));
+    const next = await planningApi.listFactoryOrders(30);
+    setOrders(next);
+    setOrderDueEdits(Object.fromEntries(next.map((o) => [o.id, toDateInputValue(o.dueAt)])));
   }, []);
 
   useEffect(() => {
@@ -675,6 +727,7 @@ export function FactoryPanel({ onError }: { onError: (msg: string) => void }) {
                 const res = await planningApi.getFactoryRecommendations();
                 setRecs(res.recommendations);
                 setDueAt(res.dueAt);
+                setCreateDueAt(toDateInputValue(res.dueAt));
                 setFreshness(res.freshness);
               } catch (e) {
                 reportError(e instanceof Error ? e.message : t.errors.factory);
@@ -699,6 +752,7 @@ export function FactoryPanel({ onError }: { onError: (msg: string) => void }) {
                     partProductId: r.partProductId,
                     qtyOrdered: r.suggestedQty,
                   })),
+                  dueAt: createDueAt || undefined,
                 });
                 await reloadOrders();
               } catch (e) {
@@ -711,10 +765,21 @@ export function FactoryPanel({ onError }: { onError: (msg: string) => void }) {
         >
           {t.actions.createFactoryOrder}
         </button>
+        {recs.length > 0 ? (
+          <label className="flex items-center gap-2 text-sm text-zinc-700">
+            <span>{t.labels.dueAt}</span>
+            <input
+              type="date"
+              className="rounded border border-zinc-200 px-2 py-1"
+              value={createDueAt}
+              onChange={(e) => setCreateDueAt(e.target.value)}
+            />
+          </label>
+        ) : null}
       </div>
       {dueAt ? (
         <p className="text-sm text-zinc-600">
-          {t.labels.dueAt}: {formatDateTime(dueAt)}
+          {t.labels.factoryDueHint}: {formatDateTime(dueAt)}
         </p>
       ) : null}
       <Panel title={t.actions.loadFactoryRecs}>
@@ -749,19 +814,82 @@ export function FactoryPanel({ onError }: { onError: (msg: string) => void }) {
           ]}
           rows={orders.map((o) => [
             o.status,
-            formatDateTime(o.dueAt),
+            o.status === "CLOSED" || o.status === "CANCELLED" ? (
+              formatDateTime(o.dueAt)
+            ) : (
+              <input
+                key={`due-${o.id}`}
+                type="date"
+                className="rounded border border-zinc-200 px-2 py-1"
+                value={orderDueEdits[o.id] ?? toDateInputValue(o.dueAt)}
+                onChange={(e) =>
+                  setOrderDueEdits((prev) => ({ ...prev, [o.id]: e.target.value }))
+                }
+              />
+            ),
             String(o.lines?.length ?? o._count?.lines ?? 0),
             String((o.lines ?? []).reduce((s, l) => s + l.qtyOrdered, 0)),
-            <button
-              key={o.id}
-              type="button"
-              className="text-cyan-700 underline"
-              onClick={() =>
-                void planningApi.exportFactoryOrder(o.id).catch((e) => reportError(String(e)))
-              }
-            >
-              {t.actions.exportExcel}
-            </button>,
+            <span key={o.id} className="flex flex-wrap gap-2">
+              {o.status !== "CLOSED" && o.status !== "CANCELLED" ? (
+                <>
+                  <button
+                    type="button"
+                    className="text-cyan-700 underline"
+                    onClick={() => {
+                      void (async () => {
+                        setBusy(true);
+                        try {
+                          const nextDue = orderDueEdits[o.id] ?? toDateInputValue(o.dueAt);
+                          if (!nextDue) return;
+                          await planningApi.updateFactoryDueAt(o.id, nextDue);
+                          await reloadOrders();
+                        } catch (e) {
+                          reportError(e instanceof Error ? e.message : t.errors.factory);
+                        } finally {
+                          setBusy(false);
+                        }
+                      })();
+                    }}
+                  >
+                    {t.actions.saveDueAt}
+                  </button>
+                  <button
+                    type="button"
+                    className="text-emerald-700 underline"
+                    onClick={() => {
+                      void (async () => {
+                        setBusy(true);
+                        try {
+                          await planningApi.updateFactoryReceived(
+                            o.id,
+                            (o.lines ?? []).map((l) => ({
+                              partProductId: l.partProductId,
+                              qtyReceived: l.qtyOrdered,
+                            })),
+                          );
+                          await reloadOrders();
+                        } catch (e) {
+                          reportError(e instanceof Error ? e.message : t.errors.factory);
+                        } finally {
+                          setBusy(false);
+                        }
+                      })();
+                    }}
+                  >
+                    {t.actions.markFactoryReceived}
+                  </button>
+                </>
+              ) : null}
+              <button
+                type="button"
+                className="text-cyan-700 underline"
+                onClick={() =>
+                  void planningApi.exportFactoryOrder(o.id).catch((e) => reportError(String(e)))
+                }
+              >
+                {t.actions.exportExcel}
+              </button>
+            </span>,
           ])}
           noDataLabel={t.states.noFactoryOrders}
         />

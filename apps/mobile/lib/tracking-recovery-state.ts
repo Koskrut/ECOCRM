@@ -10,6 +10,24 @@ export type RecoveryStateKind =
   | "RECOVERY_FAILED"
   | "ZOMBIE_FGS";
 
+const RECOVERY_STATE_KINDS: readonly RecoveryStateKind[] = [
+  "HEALTHY",
+  "ACCEPT_STALE",
+  "TASK_DEAD",
+  "RECOVERY_REQUIRED",
+  "RECOVERY_IN_PROGRESS",
+  "RECOVERED",
+  "RECOVERY_FAILED",
+  "ZOMBIE_FGS",
+];
+
+export function parseRecoveryStateKind(value: string | null | undefined): RecoveryStateKind | undefined {
+  if (!value) return undefined;
+  return RECOVERY_STATE_KINDS.includes(value as RecoveryStateKind)
+    ? (value as RecoveryStateKind)
+    : undefined;
+}
+
 export type RecoveryReason = "ZOMBIE_FGS" | "TASK_DEAD" | "ACCEPT_STALE";
 
 export type RecoveryEventKind =

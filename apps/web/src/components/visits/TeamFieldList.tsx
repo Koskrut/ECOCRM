@@ -140,8 +140,12 @@ export function TeamFieldList({ items, selectedOwnerId, onSelect }: TeamFieldLis
           item.sampleCountToday > 0
             ? t.gpsSamplesSuffix.replace("{count}", String(item.sampleCountToday))
             : "";
-        const heartbeatAgo = formatAgo(item.device?.lastSeenAt);
-        const gpsAgo = formatAgo(item.lastSample?.clientRecordedAt);
+        const heartbeatAgo = formatAgo(item.trackingTelemetry?.appLastSeenAt ?? item.device?.lastSeenAt);
+        const nativeAgo = formatAgo(item.trackingTelemetry?.nativeLastSeenAt);
+        const gpsAgo = formatAgo(
+          item.trackingTelemetry?.lastServerAcceptAt ?? item.lastSample?.clientRecordedAt,
+        );
+        const healthState = item.trackingTelemetry?.derivedHealthState;
         const restartDetail =
           item.trackingRestart && item.trackingRestart.restartCountToday > 0
             ? t.trackingRestartDetail
@@ -201,6 +205,12 @@ export function TeamFieldList({ items, selectedOwnerId, onSelect }: TeamFieldLis
                     .replace("{gps}", gpsAgo)
                     .replace("{samples}", samplesSuffix)}
                 </p>
+                {nativeAgo !== t.gpsNoSignal ? (
+                  <p className="text-zinc-500">
+                    Native: {nativeAgo}
+                    {healthState ? ` · ${healthState}` : ""}
+                  </p>
+                ) : null}
                 {restartDetail ? <p className="text-amber-700">{restartDetail}</p> : null}
                 {(item.gpsStatus === "stale" || item.gpsStatus === "none") &&
                 item.trackingRestart?.lastRestartReason === "os_kill" ? (

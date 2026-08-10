@@ -84,7 +84,8 @@
           "photosPermission": "CRM використовує галерею для фото чека заправки.",
           "cameraPermission": "CRM використовує камеру для фото чека заправки."
         }
-      ]
+      ],
+      "./modules/crm-native-tracking/app.plugin.js"
     ],
     "experiments": {
       "typedRoutes": true

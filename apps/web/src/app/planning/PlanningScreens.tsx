@@ -8,6 +8,7 @@ import {
   type ActionListItem,
   type FactoryRecommendation,
   type MrpRunLine,
+  type PlanningDueReminder,
   type PlanningTodayView,
   type TodayBurningItem,
   type TodaySuggestedAction,
@@ -209,6 +210,95 @@ export function TodayScreen({
           </p>
         ) : null}
       </Panel>
+
+      {(data?.dueReminders?.length ?? 0) > 0 ? (
+        <Panel title={t.labels.dueToday}>
+          <p className="mb-3 text-sm text-zinc-600">{t.labels.dueTodayHint}</p>
+          <SimpleTable
+            headers={[
+              t.labels.actionType,
+              t.labels.dueAt,
+              t.labels.status,
+              t.labels.lineCount,
+              t.labels.qty,
+              t.labels.actions,
+            ]}
+            rows={(data?.dueReminders ?? []).map((item: PlanningDueReminder) => [
+              item.kind === "factory" ? t.tabs.factory : t.tabs.packing,
+              <span
+                key={`${item.id}-due`}
+                className={item.isOverdue ? "font-medium text-rose-700" : undefined}
+              >
+                {formatDateTime(item.dueAt)}
+                {item.isOverdue ? ` (${t.labels.dueOverdue})` : ""}
+              </span>,
+              item.status,
+              String(item.lineCount),
+              String(item.totalQty),
+              <span key={`${item.id}-act`} className="flex flex-wrap gap-2">
+                <Link
+                  href={item.kind === "factory" ? "/planning?tab=make" : "/planning?tab=pack"}
+                  className="text-cyan-700 underline"
+                >
+                  {t.actions.open}
+                </Link>
+                {item.kind === "packing" ? (
+                  <button
+                    type="button"
+                    className="text-emerald-700 underline"
+                    onClick={() => {
+                      void (async () => {
+                        setBusy(true);
+                        try {
+                          await planningApi.markPackingDone(item.id);
+                          await load();
+                        } catch (e) {
+                          reportError(e instanceof Error ? e.message : t.errors.packing);
+                        } finally {
+                          setBusy(false);
+                        }
+                      })();
+                    }}
+                  >
+                    {t.actions.markPackingComplete}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="text-emerald-700 underline"
+                    onClick={() => {
+                      void (async () => {
+                        setBusy(true);
+                        try {
+                          const order = await planningApi.listFactoryOrders(50).then((orders) =>
+                            orders.find((o) => o.id === item.id),
+                          );
+                          if (!order?.lines?.length) return;
+                          await planningApi.updateFactoryReceived(
+                            item.id,
+                            order.lines.map((l) => ({
+                              partProductId: l.partProductId,
+                              qtyReceived: l.qtyOrdered,
+                            })),
+                          );
+                          await load();
+                        } catch (e) {
+                          reportError(e instanceof Error ? e.message : t.errors.factory);
+                        } finally {
+                          setBusy(false);
+                        }
+                      })();
+                    }}
+                  >
+                    {t.actions.markFactoryReceived}
+                  </button>
+                )}
+              </span>,
+            ])}
+            noDataLabel={t.states.none}
+          />
+        </Panel>
+      ) : null}
 
       <Panel title={t.labels.burningNow}>
         <SimpleTable

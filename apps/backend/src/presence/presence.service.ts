@@ -64,6 +64,7 @@ export class PresenceService {
         where: { id: recent.id },
         data: {
           lastSeenAt: now,
+          appLastSeenAt: now,
           activeSeconds: recent.activeSeconds + deltaSec,
           ...(lat != null ? { lat } : {}),
           ...(lng != null ? { lng } : {}),
@@ -90,6 +91,7 @@ export class PresenceService {
         lng: this.validCoord(coords.lng),
         startedAt: now,
         lastSeenAt: now,
+        appLastSeenAt: now,
         activeSeconds: 0,
         appState,
         trackingMode,

@@ -722,6 +722,10 @@ export const planningApi = {
     const res = await apiHttp.post(`/planning/packing-lists/${id}/done`);
     return res.data;
   },
+  updatePackingDueAt: async (id: string, cycleEnd: string): Promise<PackingList> => {
+    const res = await apiHttp.patch<PackingList>(`/planning/packing-lists/${id}/due-at`, { cycleEnd });
+    return res.data;
+  },
   exportPackingList: async (id: string) => {
     await downloadBlob(`/planning/packing-lists/${id}/export.xlsx`, `packing-list-${id.slice(0, 8)}.xlsx`);
   },
@@ -741,8 +745,13 @@ export const planningApi = {
   createFactoryOrder: async (payload?: {
     lines?: Array<{ partProductId: string; qtyOrdered: number }>;
     note?: string;
+    dueAt?: string;
   }): Promise<FactoryOrder> => {
     const res = await apiHttp.post<FactoryOrder>("/planning/factory/orders", payload ?? {});
+    return res.data;
+  },
+  updateFactoryDueAt: async (id: string, dueAt: string): Promise<FactoryOrder> => {
+    const res = await apiHttp.patch<FactoryOrder>(`/planning/factory/orders/${id}/due-at`, { dueAt });
     return res.data;
   },
   updateFactoryStatus: async (id: string, status: FactoryOrder["status"]): Promise<FactoryOrder> => {
@@ -862,6 +871,17 @@ export type TodayBurningItem = {
   suggestedActions: TodaySuggestedAction[];
 };
 
+export type PlanningDueReminder = {
+  id: string;
+  kind: "factory" | "packing";
+  dueAt: string;
+  status: string;
+  label: string;
+  isOverdue: boolean;
+  lineCount: number;
+  totalQty: number;
+};
+
 export type PlanningTodayView = {
   freshness: PlanningFreshness;
   mrpComputedAt: string | null;
@@ -869,4 +889,5 @@ export type PlanningTodayView = {
   packSummary: { positionCount: number; totalQty: number };
   makeSummary: { positionCount: number; totalQty: number };
   burning: TodayBurningItem[];
+  dueReminders: PlanningDueReminder[];
 };

@@ -366,6 +366,8 @@ export class NotificationsService {
       if (channel === "inApp") return true;
       if (channel === "mobile" && type === "FIELD_SHIFT_CLOSE_REMINDER") return true;
       if (channel === "mobile" && type === "FIELD_GPS_STALE") return true;
+      if (channel === "mobile" && type === "PLANNING_FACTORY_DUE") return true;
+      if (channel === "mobile" && type === "PLANNING_PACKING_DUE") return true;
       return false;
     }
     return pref[channel];
@@ -507,6 +509,44 @@ export class NotificationsService {
       entityType: "FIELD_SHIFT",
       entityId: params.shiftId,
       meta: { dateYmd: params.dateYmd, lastSampleAt: params.lastSampleAt },
+    });
+  }
+
+  async notifyPlanningFactoryDue(params: {
+    userId: string;
+    orderId: string;
+    title: string;
+    body: string;
+    dueYmd: string;
+    isOverdue: boolean;
+  }): Promise<void> {
+    await this.create({
+      userId: params.userId,
+      type: "PLANNING_FACTORY_DUE",
+      title: params.title,
+      body: params.body,
+      entityType: "FACTORY_ORDER",
+      entityId: params.orderId,
+      meta: { dueYmd: params.dueYmd, isOverdue: params.isOverdue },
+    });
+  }
+
+  async notifyPlanningPackingDue(params: {
+    userId: string;
+    packingListId: string;
+    title: string;
+    body: string;
+    dueYmd: string;
+    isOverdue: boolean;
+  }): Promise<void> {
+    await this.create({
+      userId: params.userId,
+      type: "PLANNING_PACKING_DUE",
+      title: params.title,
+      body: params.body,
+      entityType: "PACKING_LIST",
+      entityId: params.packingListId,
+      meta: { dueYmd: params.dueYmd, isOverdue: params.isOverdue },
     });
   }
 }

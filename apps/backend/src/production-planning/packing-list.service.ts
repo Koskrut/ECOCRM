@@ -11,6 +11,7 @@ import {
 } from "@prisma/client";
 import * as XLSX from "xlsx";
 import { PrismaService } from "../prisma/prisma.service";
+import { kyivDayBounds } from "../crm-timezone";
 import { constrainsKitCapacity } from "./bom-part.util";
 import { mixKitDemand, uncoveredKitDemand } from "./demand-mix.util";
 import { ForecastService } from "./forecast.service";
@@ -413,6 +414,27 @@ export class PackingListService {
     });
   }
 
+  async updateCycleEnd(id: string, cycleEndIso: string) {
+    const list = await this.get(id);
+    if (list.status === PackingListStatus.DONE) {
+      throw new BadRequestException("Cannot reschedule a completed packing list");
+    }
+    const cycleEnd = parseCycleEndDate(cycleEndIso);
+    if (cycleEnd.getTime() < list.cycleStart.getTime()) {
+      throw new BadRequestException("cycleEnd must be on or after cycleStart");
+    }
+    const updated = await this.prisma.packingList.update({
+      where: { id },
+      data: { cycleEnd },
+      include: {
+        lines: {
+          include: { kitProduct: { select: { id: true, sku: true, name: true } } },
+        },
+      },
+    });
+    return { ...updated, lines: await this.enrichLines(updated.lines) };
+  }
+
   async exportExcel(id: string): Promise<StreamableFile> {
     const list = await this.get(id);
     const rows = list.lines.map((l) => ({
@@ -444,4 +466,16 @@ function startOfDay(d: Date): Date {
   const x = new Date(d);
   x.setHours(0, 0, 0, 0);
   return x;
+}
+
+function parseCycleEndDate(iso: string): Date {
+  const trimmed = iso.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    return kyivDayBounds(trimmed).to;
+  }
+  const d = new Date(trimmed);
+  if (Number.isNaN(d.getTime())) {
+    throw new BadRequestException("Invalid cycleEnd date");
+  }
+  return d;
 }

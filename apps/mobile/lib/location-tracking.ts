@@ -48,7 +48,7 @@ import {
 import { appendErrorLog } from "./error-log";
 import { validateRawLocationSample } from "./location-region-check";
 import { formatTeleportRejectLog } from "./location-sample-filter";
-import { isAcceptStale, reconcileTrackingHealth } from "./location-tracking-health";
+import { isAcceptStale, reconcileTrackingHealth, LAST_POINT_STALE_MS } from "./location-tracking-health";
 import { clearFlushBlockReason, clearStaleGpsFlushBlockIfNeeded, getLastFlushBlockReason } from "./session-auth";
 import {
   canStartLocationForegroundService,
@@ -73,12 +73,22 @@ import {
   notifyGpsStoppedZombieFgs,
 } from "./location-tracking-alerts";
 import { resolveTrackingModeAfterPermissions } from "./location-tracking-start";
+import { shouldUseExpoTracking, shouldUseNativeTracking } from "./tracking-feature-flag";
+import {
+  startNativeTracking,
+  stopNativeTracking,
+  getNativeTrackingHealth,
+  flushNativePendingSamples,
+  type NativeTrackingHealth,
+} from "../modules/crm-native-tracking";
+import { syncNativeTrackingSession } from "./native-tracking-session";
 import { sendGpsZombieDetectedEvent, sendTrackingRestartEvent } from "./tracking-telemetry";
 import {
   beginRecoveryAttempt,
   clearRecoveryState,
   evaluateRecoveryOutcome,
   markRecoveryRequired,
+  parseRecoveryStateKind,
   readRecoveryState,
   recordRecoveryEvent,
   type RecoveryPersistedState,
@@ -148,6 +158,70 @@ export type TrackingRuntimeHealth = TrackingDiagnostics & {
 };
 
 let flushTimer: ReturnType<typeof setInterval> | null = null;
+
+function isTimestampStale(iso: string | null | undefined, thresholdMs: number): boolean {
+  if (!iso) return true;
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return true;
+  return Date.now() - t > thresholdMs;
+}
+
+function mapNativeHealthStateToHealthy(state: string | undefined): boolean {
+  return state === "TRACKING_HEALTHY" || state === "NETWORK_DEGRADED";
+}
+
+async function buildNativeRuntimeHealth(
+  state: Awaited<ReturnType<typeof getTrackingState>>,
+  perms: TrackingPermissionStatus,
+  activeShiftId: string | null,
+  restartDiagnostics: Awaited<ReturnType<typeof getTrackingRestartDiagnostics>>,
+  batteryDetailed: Awaited<ReturnType<typeof readBatteryOptimizationDetailed>>,
+  nativeHealth: NativeTrackingHealth | null,
+): Promise<TrackingRuntimeHealth> {
+  const batteryStatus = batteryDetailed.status;
+  void setBatteryOptimizationStatus(batteryStatus);
+  const serviceRunning = nativeHealth?.serviceRunning === true;
+  const mode: TrackingMode =
+    state.mode !== "none" ? state.mode : serviceRunning ? "background" : "none";
+  const lastAcceptedAt = nativeHealth?.lastServerAcceptAt ?? (await getLastAcceptedAt());
+  const lastGpsPointAt = nativeHealth?.lastGpsCapturedAt ?? null;
+  const acceptStale = isAcceptStale(lastAcceptedAt);
+  const pointStale = isTimestampStale(lastGpsPointAt, LAST_POINT_STALE_MS);
+  const healthState = nativeHealth?.trackingHealthState;
+  const healthy =
+    mapNativeHealthStateToHealthy(healthState) && !acceptStale && serviceRunning;
+
+  return {
+    mode,
+    claimedMode: mode,
+    actualMode: serviceRunning ? "background" : "none",
+    pendingSamples: nativeHealth?.pendingUploadCount ?? state.pendingSamples,
+    lastFlushAt: state.lastFlushAt,
+    activeShiftId,
+    foregroundPermission: perms.foreground,
+    backgroundPermission: perms.background,
+    backgroundTaskStarted: serviceRunning,
+    foregroundWatchActive: false,
+    healthy,
+    acceptStale,
+    pointStale,
+    healthKind: acceptStale ? "accept_stale" : healthy ? "healthy" : "task_dead",
+    zombieFgs: false,
+    recoveryState: parseRecoveryStateKind(nativeHealth?.recoveryState),
+    lastGpsPointAt,
+    flushBlockReason: getLastFlushBlockReason(),
+    lastRestartAt: restartDiagnostics.lastRestartAt,
+    restartCountToday: restartDiagnostics.restartCountToday,
+    lastRestartReason: restartDiagnostics.lastRestartReason,
+    batteryOptimizationStatus: batteryStatus,
+    batteryModuleLoaded: batteryDetailed.moduleLoaded,
+    batteryRawIgnoring: batteryDetailed.rawIgnoring,
+    lastAcceptedAt,
+    lastRejectReason: await getLastRejectReason(),
+    lastFlushError: await getLastFlushError(),
+    recovery: await readRecoveryState(),
+  };
+}
 
 type LocationCallback = (result: Awaited<ReturnType<typeof processLocationUpdate>>) => void;
 const locationListeners = new Set<LocationCallback>();
@@ -346,6 +420,25 @@ async function applyPendingAdaptiveTierIfNeeded(): Promise<void> {
 
 export async function startLocationTracking(shiftId: string): Promise<TrackingMode> {
   try {
+    if (shouldUseNativeTracking()) {
+      await syncNativeTrackingSession();
+      const ok = await startNativeTracking(shiftId);
+      await AsyncStorage.setItem(STORAGE_KEYS.ACTIVE_SHIFT_ID, shiftId);
+      await AsyncStorage.setItem(STORAGE_KEYS.TRACKING_MODE, ok ? "background" : "none");
+      if (ok) {
+        await writeFieldShiftSnapshot({
+          shiftId,
+          trackingMode: "background",
+          startedAt: new Date().toISOString(),
+        });
+      }
+      return ok ? "background" : "none";
+    }
+
+    if (!shouldUseExpoTracking()) {
+      return "none";
+    }
+
     const boot = await bootstrapShiftTrackingContext(shiftId);
     if (!boot.ok) {
       void appendErrorLog(`startLocationTracking: bootstrap failed (${boot.reason})`, "warn");
@@ -453,6 +546,41 @@ export async function restartTrackingPipeline(): Promise<RestartTrackingResult> 
   const shiftId = await AsyncStorage.getItem(STORAGE_KEYS.ACTIVE_SHIFT_ID);
   const claimed =
     ((await AsyncStorage.getItem(STORAGE_KEYS.TRACKING_MODE)) as TrackingMode | null) ?? "none";
+
+  if (shouldUseNativeTracking()) {
+    const taskStartedNow = (await getNativeTrackingHealth())?.serviceRunning === true;
+    if (!shiftId) {
+      return { ok: false, mode: claimed, backgroundTaskStarted: taskStartedNow, errorCode: "no_shift" };
+    }
+    if (!canStartLocationForegroundService(AppState.currentState)) {
+      return {
+        ok: false,
+        mode: claimed,
+        backgroundTaskStarted: taskStartedNow,
+        errorCode: "app_not_active",
+      };
+    }
+    await syncNativeTrackingSession();
+    await stopNativeTracking();
+    const started = await startNativeTracking(shiftId);
+    await flushNativePendingSamples();
+    const nativeHealth = await getNativeTrackingHealth();
+    const serviceRunning = nativeHealth?.serviceRunning === true || started;
+    const lastAccept = nativeHealth?.lastServerAcceptAt;
+    const acceptFresh = !!lastAccept && !isAcceptStale(lastAccept);
+    if (serviceRunning && acceptFresh) {
+      return { ok: true, mode: "background", backgroundTaskStarted: true, recoveryState: "RECOVERED" };
+    }
+    return {
+      ok: serviceRunning,
+      mode: serviceRunning ? "background" : "none",
+      backgroundTaskStarted: serviceRunning,
+      errorCode: serviceRunning && !acceptFresh ? "recovery_failed" : "start_failed",
+      errorDetail: serviceRunning && !acceptFresh ? "no_new_accept" : "native_service_failed",
+      recoveryState: parseRecoveryStateKind(nativeHealth?.recoveryState),
+    };
+  }
+
   const taskStartedNow = await Location.hasStartedLocationUpdatesAsync(FIELD_LOCATION_TASK).catch(
     () => false,
   );
@@ -557,6 +685,9 @@ export async function restartTrackingPipeline(): Promise<RestartTrackingResult> 
 
 export async function stopLocationTracking(): Promise<void> {
   try {
+    if (shouldUseNativeTracking()) {
+      await stopNativeTracking();
+    }
     stopFlushTimer();
     await stopForegroundWatch();
     const started = await Location.hasStartedLocationUpdatesAsync(FIELD_LOCATION_TASK).catch(
@@ -593,6 +724,9 @@ export async function stopLocationTracking(): Promise<void> {
  */
 export async function pauseLocationTrackingKeepBuffer(): Promise<void> {
   try {
+    if (shouldUseNativeTracking()) {
+      await stopNativeTracking();
+    }
     stopFlushTimer();
     await stopForegroundWatch();
     const started = await Location.hasStartedLocationUpdatesAsync(FIELD_LOCATION_TASK).catch(
@@ -638,6 +772,19 @@ export async function resumeTrackingIfNeeded(
       ]);
       return startLocationTracking(shift.id);
     }
+    if (shouldUseNativeTracking()) {
+      const mode = await AsyncStorage.getItem(STORAGE_KEYS.TRACKING_MODE);
+      const activeId = await AsyncStorage.getItem(STORAGE_KEYS.ACTIVE_SHIFT_ID);
+      if (activeId === shift.id && mode === "background") {
+        await syncNativeTrackingSession();
+        const health = await getNativeTrackingHealth();
+        if (!health?.serviceRunning) {
+          await startNativeTracking(shift.id);
+        }
+        return "background";
+      }
+      return startLocationTracking(shift.id);
+    }
     await registerFieldLocationTask();
     setForegroundWatchStarter(startForegroundWatch);
     const mode = await AsyncStorage.getItem(STORAGE_KEYS.TRACKING_MODE);
@@ -677,6 +824,32 @@ export async function getTrackingState(): Promise<{
 }
 
 export async function getTrackingRuntimeHealth(): Promise<TrackingRuntimeHealth> {
+  if (shouldUseNativeTracking()) {
+    const [
+      state,
+      perms,
+      activeShiftId,
+      restartDiagnostics,
+      batteryDetailed,
+      nativeHealth,
+    ] = await Promise.all([
+      getTrackingState(),
+      getTrackingPermissionStatus(),
+      AsyncStorage.getItem(STORAGE_KEYS.ACTIVE_SHIFT_ID),
+      getTrackingRestartDiagnostics(),
+      readBatteryOptimizationDetailed(),
+      getNativeTrackingHealth(),
+    ]);
+    return buildNativeRuntimeHealth(
+      state,
+      perms,
+      activeShiftId,
+      restartDiagnostics,
+      batteryDetailed,
+      nativeHealth,
+    );
+  }
+
   const [
     state,
     perms,
@@ -995,6 +1168,27 @@ export async function runBackgroundTrackingWatchdog(): Promise<void> {
 
 /** Foreground recovery: dead or zombie background task → forceRestart + immediate fix. */
 export async function recoverDeadBackgroundTaskOnForeground(): Promise<TrackingMode> {
+  if (shouldUseNativeTracking()) {
+    if (!canStartLocationForegroundService(AppState.currentState)) {
+      return "none";
+    }
+    const shiftId = await AsyncStorage.getItem(STORAGE_KEYS.ACTIVE_SHIFT_ID);
+    if (!shiftId) return "none";
+    await syncNativeTrackingSession();
+    const health = await getNativeTrackingHealth();
+    if (
+      health?.serviceRunning &&
+      mapNativeHealthStateToHealthy(health.trackingHealthState) &&
+      !isAcceptStale(health.lastServerAcceptAt)
+    ) {
+      return "background";
+    }
+    await stopNativeTracking();
+    const ok = await startNativeTracking(shiftId);
+    await flushNativePendingSamples();
+    return ok ? "background" : "none";
+  }
+
   if (!canStartLocationForegroundService(AppState.currentState)) {
     return "none";
   }

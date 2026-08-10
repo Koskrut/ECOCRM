@@ -346,6 +346,13 @@ export class ProductionPlanningController {
     return this.packingLists.markDone(id);
   }
 
+  @Patch("packing-lists/:id/due-at")
+  @Roles(UserRole.ADMIN, UserRole.LEAD, UserRole.WAREHOUSE)
+  updatePackingDueAt(@Param("id") id: string, @Body() body: { cycleEnd: string }) {
+    if (!body?.cycleEnd) throw new BadRequestException("cycleEnd is required");
+    return this.packingLists.updateCycleEnd(id, body.cycleEnd);
+  }
+
   @Get("packing-lists/:id/export.xlsx")
   exportPackingList(@Param("id") id: string) {
     return this.packingLists.exportExcel(id);
@@ -373,9 +380,17 @@ export class ProductionPlanningController {
     body: {
       lines?: Array<{ partProductId: string; qtyOrdered: number }>;
       note?: string;
+      dueAt?: string;
     },
   ) {
-    return this.factoryOrders.createFromRecommendations(body?.lines, body?.note);
+    return this.factoryOrders.createFromRecommendations(body?.lines, body?.note, body?.dueAt);
+  }
+
+  @Patch("factory/orders/:id/due-at")
+  @Roles(UserRole.ADMIN, UserRole.LEAD, UserRole.WAREHOUSE)
+  updateFactoryDueAt(@Param("id") id: string, @Body() body: { dueAt: string }) {
+    if (!body?.dueAt) throw new BadRequestException("dueAt is required");
+    return this.factoryOrders.updateDueAt(id, body.dueAt);
   }
 
   @Patch("factory/orders/:id/status")

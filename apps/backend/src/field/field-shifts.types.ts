@@ -33,6 +33,15 @@ export type FieldTeamTrackingRestart = {
   lastRestartReason: FieldTeamTrackingRestartReason | null;
 };
 
+export type FieldTeamTrackingTelemetry = {
+  appLastSeenAt: string | null;
+  nativeLastSeenAt: string | null;
+  lastGpsCapturedAt: string | null;
+  lastServerAcceptAt: string | null;
+  trackingHealthState: string | null;
+  derivedHealthState: string;
+};
+
 export type FieldShiftTeamItem = {
   shift: {
     id: string;
@@ -53,4 +62,6 @@ export type FieldShiftTeamItem = {
   /** Dirty abroad/mock samples or nothing left after sanitize. */
   gpsWarning: FieldTeamGpsWarning;
   trackingRestart: FieldTeamTrackingRestart | null;
+  /** Split telemetry — supervisors must not infer GPS from device.lastSeenAt alone. */
+  trackingTelemetry: FieldTeamTrackingTelemetry | null;
 };

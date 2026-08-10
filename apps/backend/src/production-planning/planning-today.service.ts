@@ -3,6 +3,7 @@ import { PlanningRunLineType, ProductKind } from "@prisma/client";
 import { FactoryOrderService } from "./factory-order.service";
 import { computeDesiredDate } from "./mrp-desired-date.util";
 import { PlanningCalculationService } from "./planning-calculation.service";
+import { PlanningRemindersService, type PlanningDueReminderItem } from "./planning-reminders.service";
 import { PlanningRunService } from "./planning-run.service";
 import { PlanningSettingsService } from "./planning-settings.service";
 import { MrpConfigService } from "./mrp-config.service";
@@ -28,6 +29,7 @@ export type PlanningTodayView = {
   packSummary: { positionCount: number; totalQty: number };
   makeSummary: { positionCount: number; totalQty: number };
   burning: TodayBurningItem[];
+  dueReminders: PlanningDueReminderItem[];
 };
 
 @Injectable()
@@ -38,10 +40,11 @@ export class PlanningTodayService {
     private readonly factory: FactoryOrderService,
     private readonly settings: PlanningSettingsService,
     private readonly mrpConfig: MrpConfigService,
+    private readonly reminders: PlanningRemindersService,
   ) {}
 
   async getToday(): Promise<PlanningTodayView> {
-    const [freshness, packaging, production, factoryRecs, latest, settings, horizon] =
+    const [freshness, packaging, production, factoryRecs, latest, settings, horizon, dueReminders] =
       await Promise.all([
         this.calculations.getPlanningFreshness(),
         this.planningRuns.getPackaging(),
@@ -50,6 +53,7 @@ export class PlanningTodayService {
         this.planningRuns.getLatest(),
         this.settings.getSettings(),
         this.mrpConfig.getHorizon(),
+        this.reminders.getDueReminders(),
       ]);
 
     const packableQty = (packaging.canItems ?? []).reduce((s, i) => s + i.qty, 0);
@@ -145,6 +149,7 @@ export class PlanningTodayService {
       packSummary,
       makeSummary,
       burning,
+      dueReminders,
     };
   }
 }

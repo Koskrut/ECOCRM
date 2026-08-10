@@ -46,6 +46,15 @@ export type FieldTeamTrackingRestart = {
   lastRestartReason: FieldTeamTrackingRestartReason | null;
 };
 
+export type FieldTeamTrackingTelemetry = {
+  appLastSeenAt: string | null;
+  nativeLastSeenAt: string | null;
+  lastGpsCapturedAt: string | null;
+  lastServerAcceptAt: string | null;
+  trackingHealthState: string | null;
+  derivedHealthState: string;
+};
+
 export type FieldShiftTeamItem = {
   shift: FieldShiftSummary;
   owner: { id: string; fullName: string; email: string };
@@ -56,6 +65,7 @@ export type FieldShiftTeamItem = {
   gpsStatus: FieldTeamGpsStatus;
   gpsWarning?: FieldTeamGpsWarning;
   trackingRestart: FieldTeamTrackingRestart | null;
+  trackingTelemetry?: FieldTeamTrackingTelemetry | null;
 };
 
 export type FieldLocationSampleRow = {

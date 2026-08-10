@@ -89,6 +89,8 @@ enum NotificationType {
   META_FACEBOOK_MESSAGE
   FIELD_SHIFT_CLOSE_REMINDER
   FIELD_GPS_STALE
+  PLANNING_FACTORY_DUE
+  PLANNING_PACKING_DUE
 }
 
 enum AuditAction {
@@ -156,6 +158,21 @@ enum FieldTrackingRestartReason {
   TIER_CHANGE
   APPSTATE
   WATCHDOG
+}
+
+/// Client-reported native tracking pipeline health (supervisor dashboard).
+enum FieldTrackingHealthState {
+  TRACKING_HEALTHY
+  NETWORK_DEGRADED
+  LOCATION_STALE
+  SERVICE_DEAD
+  RECOVERY_IN_PROGRESS
+  RECOVERY_FAILED
+}
+
+enum FieldLocationSampleSource {
+  EXPO
+  NATIVE_ANDROID
 }
 
 enum FuelCompensationStatus {
@@ -678,6 +695,7 @@ model User {
   dataImportJobsCreated      DataImportJob[]           @relation("DataImportJobCreatedBy")
   fieldProfile               UserFieldProfile?
   fieldShifts                FieldShift[]
+  fieldLocationSamples       FieldLocationSample[]
   fieldTrackingEvents        FieldTrackingEvent[]
   fuelDayReports             FuelDayReport[]
   fuelRefuelEntries          FuelRefuelEntry[]
@@ -1223,6 +1241,15 @@ model UserActivitySession {
   activeSeconds Int            @default(0)
   appState      String?
   trackingMode  String?
+  /// JS/React heartbeat — do not infer GPS from this alone.
+  appLastSeenAt DateTime?
+  /// Native Android FGS / WorkManager last alive signal.
+  nativeLastSeenAt DateTime?
+  /// Last GPS fix captured on device (B1).
+  lastGpsCapturedAt DateTime?
+  /// Last batch with created>0 or idempotent duplicate accept (B3).
+  lastServerAcceptAt DateTime?
+  trackingHealthState FieldTrackingHealthState?
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
 
@@ -1276,6 +1303,12 @@ model FieldTrackingEvent {
 model FieldLocationSample {
   id               String   @id @default(cuid())
   shiftId          String
+  /// Denormalized for owner-scoped idempotency (see migration partial unique index).
+  ownerId          String
+  /// Client UUID — idempotent retries must reuse the same value.
+  sampleId         String?
+  deviceId         String?
+  source           FieldLocationSampleSource?
   lat              Float
   lng              Float
   accuracyM        Float?
@@ -1283,8 +1316,10 @@ model FieldLocationSample {
   createdAt        DateTime @default(now())
 
   shift FieldShift @relation(fields: [shiftId], references: [id], onDelete: Cascade)
+  owner User       @relation(fields: [ownerId], references: [id], onDelete: Cascade)
 
   @@index([shiftId, clientRecordedAt])
+  @@index([ownerId, sampleId])
 }
 
 /// Дневной отчёт по топливу/компенсации для менеджера.

@@ -59,6 +59,7 @@ export const STORAGE_KEYS = {
 } as const;
 
 export type PendingLocationSample = {
+  sampleId?: string;
   lat: number;
   lng: number;
   accuracyM?: number | null;
@@ -76,8 +77,8 @@ function withBufferLock<T>(fn: () => Promise<T>): Promise<T> {
   return run;
 }
 
-function newMutationId(): string {
-  return `${Date.now()}_${Math.random().toString(16).slice(2)}`;
+function newSampleId(): string {
+  return `${Date.now()}_${Math.random().toString(16).slice(2)}_${Math.random().toString(16).slice(2)}`;
 }
 
 async function readPending(): Promise<PendingLocationSample[]> {
@@ -193,7 +194,7 @@ async function applyFlushFailure(
   const rest = pending.slice(batch.length);
   await enqueueOfflineJob("shiftSamplesBatch", {
     shiftId,
-    clientMutationId: newMutationId(),
+    clientMutationId: newSampleId(),
     items: batch,
   });
   await writePending(rest);
@@ -231,7 +232,10 @@ export async function appendPendingSample(sample: PendingLocationSample): Promis
       );
       return current.length;
     }
-    const pending = trimPending([...current, sample]);
+    const pending = trimPending([
+      ...current,
+      { ...sample, sampleId: sample.sampleId ?? newSampleId() },
+    ]);
     await writePending(pending);
     await markGpsPointReceived(sample.clientRecordedAt);
     return pending.length;
@@ -320,7 +324,12 @@ export async function flushPendingSamples(shiftId?: string): Promise<number> {
             "Content-Type": "application/json",
             Authorization: `Bearer ${token}`,
           },
-          body: JSON.stringify({ items: batch }),
+          body: JSON.stringify({
+            items: batch.map((s) => ({
+              ...s,
+              source: "expo",
+            })),
+          }),
         });
 
         if (!res.ok) {
@@ -383,16 +392,21 @@ export async function flushPendingSamples(shiftId?: string): Promise<number> {
         }
 
         let created = batch.length;
+        let duplicate = 0;
         let rejected = 0;
         let rejectReasons: SampleRejectReasons | undefined;
         try {
           const body = (await res.json()) as {
             created?: number;
+            duplicate?: number;
             rejected?: number;
             rejectReasons?: SampleRejectReasons;
           };
           if (typeof body.created === "number" && Number.isFinite(body.created)) {
             created = body.created;
+          }
+          if (typeof body.duplicate === "number" && Number.isFinite(body.duplicate)) {
+            duplicate = body.duplicate;
           }
           if (typeof body.rejected === "number" && Number.isFinite(body.rejected)) {
             rejected = body.rejected;
@@ -426,7 +440,7 @@ export async function flushPendingSamples(shiftId?: string): Promise<number> {
         await AsyncStorage.setItem(STORAGE_KEYS.LAST_FLUSH_AT, new Date().toISOString());
         uploaded += Math.max(0, created);
 
-        if (created > 0) {
+        if (created > 0 || duplicate > 0) {
           await clearFlushError();
         }
 
@@ -435,8 +449,7 @@ export async function flushPendingSamples(shiftId?: string): Promise<number> {
           const human = describeRejectBatch(rejectReasons);
           const severity = classifySampleRejectBatch(rejectReasons);
           if (severity === "soft") {
-            // Михайлів: duplicate → info. Do NOT refresh LAST_ACCEPTED_AT on duplicate-only.
-            if (softRejectCountsAsAccept(rejectReasons)) {
+            if (softRejectCountsAsAccept(rejectReasons) || duplicate > 0) {
               await markPipelineAlive();
             }
             void appendErrorLog(
@@ -454,8 +467,8 @@ export async function flushPendingSamples(shiftId?: string): Promise<number> {
               "warn",
             );
           }
-        } else if (created > 0) {
-          // Keepalive on server is accept:true → created>0.
+        } else if (created > 0 || duplicate > 0) {
+          // Keepalive on server is accept:true → created>0 or idempotent duplicate.
           await markPipelineAlive();
         }
 

@@ -60,7 +60,9 @@ export class NotificationsDeliveryService {
     if (!pref?.mobile) {
       const defaultMobile =
         notification.type === "FIELD_SHIFT_CLOSE_REMINDER" ||
-        notification.type === "FIELD_GPS_STALE";
+        notification.type === "FIELD_GPS_STALE" ||
+        notification.type === "PLANNING_FACTORY_DUE" ||
+        notification.type === "PLANNING_PACKING_DUE";
       if (!defaultMobile) {
         return;
       }

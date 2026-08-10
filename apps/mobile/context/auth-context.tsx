@@ -13,6 +13,10 @@ import { useServerConfig } from "@/context/server-config-context";
 import { apiFetch } from "@/lib/api";
 import { t } from "@/lib/i18n";
 import { flushPendingSamples } from "@/lib/location-tracking-buffer";
+import {
+  clearNativeTrackingSession,
+  syncNativeTrackingSession,
+} from "@/lib/native-tracking-session";
 import { endPresenceSession } from "@/lib/presence-heartbeat";
 import { getCachedPushToken, unregisterPushToken } from "@/lib/push-notifications";
 import {
@@ -131,6 +135,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, [serverReady, apiUrl]);
 
+  useEffect(() => {
+    if (!token || !apiUrl) return;
+    void syncNativeTrackingSession();
+  }, [token, apiUrl]);
+
   const login = useCallback(async (loginStr: string, password: string) => {
     const data = await apiFetch<LoginResponse>("/auth/login", {
       method: "POST",
@@ -147,6 +156,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     clearFlushBlockReason();
     setToken(data.token);
     setUser(data.user);
+    void syncNativeTrackingSession();
     // Грибовская: after re-login, flush preserved GPS buffer (+ offline GPS jobs).
     void (async () => {
       try {
@@ -203,6 +213,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setSessionExpired(false);
     setToken(null);
     setUser(null);
+    void clearNativeTrackingSession();
   }, [token]);
 
   const value = useMemo<AuthCtx>(

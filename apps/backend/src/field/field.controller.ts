@@ -93,12 +93,26 @@ export class FieldController {
     @Param("id") id: string,
     @Body()
     body: {
-      items: { lat: number; lng: number; accuracyM?: number | null; clientRecordedAt: string }[];
+      items: {
+        lat: number;
+        lng: number;
+        accuracyM?: number | null;
+        clientRecordedAt: string;
+        sampleId?: string | null;
+        deviceId?: string | null;
+        source?: string;
+      }[];
+      telemetry?: {
+        nativeLastSeenAt?: string;
+        lastGpsCapturedAt?: string;
+        trackingHealthState?: string;
+        deviceId?: string;
+      };
     },
     @Req() req: Request & { user?: AuthUser },
   ) {
     const items = Array.isArray(body?.items) ? body.items : [];
-    return this.shifts.appendSamples(req.user, id, items);
+    return this.shifts.appendSamples(req.user, id, items, body?.telemetry);
   }
 
   @Post("shifts/:id/tracking-events")
