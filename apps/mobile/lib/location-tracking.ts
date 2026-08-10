@@ -4,12 +4,14 @@ import { AppState, Platform } from "react-native";
 
 import { readBatteryOptimizationDetailed } from "./battery-optimization";
 import { bootstrapShiftTrackingContext } from "./location-shift-bootstrap";
+import { clearFieldShiftSnapshot, writeFieldShiftSnapshot } from "./field-shift-snapshot";
 import { formatKyivDateKey } from "./date";
 import {
   appendPendingSample,
   flushPendingSamples,
   getLastAcceptedAt,
   getLastFlushError,
+  getLastGpsPointAt,
   getLastRejectReason,
   getPendingCount,
   maybeFlushAfterAppend,
@@ -68,9 +70,21 @@ import {
 import {
   clearGpsStoppedNotificationDedupe,
   notifyGpsStoppedIfBackgroundTaskDead,
+  notifyGpsStoppedZombieFgs,
 } from "./location-tracking-alerts";
 import { resolveTrackingModeAfterPermissions } from "./location-tracking-start";
-import { sendTrackingRestartEvent } from "./tracking-telemetry";
+import { sendGpsZombieDetectedEvent, sendTrackingRestartEvent } from "./tracking-telemetry";
+import {
+  beginRecoveryAttempt,
+  clearRecoveryState,
+  evaluateRecoveryOutcome,
+  markRecoveryRequired,
+  readRecoveryState,
+  recordRecoveryEvent,
+  type RecoveryPersistedState,
+  type RecoveryStateKind,
+} from "./tracking-recovery-state";
+import type { TrackingHealthKind } from "./location-tracking-health";
 
 export { registerFieldLocationTask };
 export { requestTrackingPermissionsWithRationale as requestTrackingPermissions };
@@ -86,6 +100,7 @@ export {
   appendPendingSample,
   flushPendingSamples,
   getLastAcceptedAt,
+  getLastGpsPointAt,
   getLastFlushError,
   getLastRejectReason,
   getPendingCount,
@@ -109,6 +124,11 @@ export type TrackingDiagnostics = {
   backgroundTaskStarted: boolean;
   healthy: boolean;
   acceptStale?: boolean;
+  pointStale?: boolean;
+  healthKind?: TrackingHealthKind;
+  zombieFgs?: boolean;
+  recoveryState?: RecoveryStateKind;
+  lastGpsPointAt?: string | null;
   flushBlockReason?: string | null;
   lastRestartAt: string | null;
   restartCountToday: number;
@@ -124,6 +144,7 @@ export type TrackingRuntimeHealth = TrackingDiagnostics & {
   claimedMode: TrackingMode;
   actualMode: TrackingMode;
   foregroundWatchActive: boolean;
+  recovery?: RecoveryPersistedState;
 };
 
 let flushTimer: ReturnType<typeof setInterval> | null = null;
@@ -363,6 +384,11 @@ export async function startLocationTracking(shiftId: string): Promise<TrackingMo
     }
     await stopForegroundWatch();
     await AsyncStorage.setItem(STORAGE_KEYS.TRACKING_MODE, "background");
+    await writeFieldShiftSnapshot({
+      shiftId,
+      trackingMode: "background",
+      startedAt: new Date().toISOString(),
+    });
     startFlushTimer();
     clearStaleGpsFlushBlockIfNeeded();
     void clearGpsStoppedNotificationDedupe().catch(() => undefined);
@@ -413,9 +439,10 @@ export type RestartTrackingResult = {
   ok: boolean;
   mode: TrackingMode;
   backgroundTaskStarted: boolean;
-  errorCode?: "no_shift" | "app_not_active" | "start_failed";
+  errorCode?: "no_shift" | "app_not_active" | "start_failed" | "recovery_failed";
   /** Raw / plain-language failure detail for Alert. */
   errorDetail?: string;
+  recoveryState?: RecoveryStateKind;
 };
 
 /**
@@ -447,6 +474,9 @@ export async function restartTrackingPipeline(): Promise<RestartTrackingResult> 
   clearStaleGpsFlushBlockIfNeeded();
   const lastAcceptedAt = await getLastAcceptedAt();
   const acceptStale = isAcceptStale(lastAcceptedAt);
+  const recoveryReason = acceptStale ? "ZOMBIE_FGS" : "TASK_DEAD";
+  await beginRecoveryAttempt(lastAcceptedAt, recoveryReason);
+  await recordRecoveryEvent("RESTART_REQUESTED");
 
   let mode: TrackingMode;
   if (claimed === "background") {
@@ -470,9 +500,32 @@ export async function restartTrackingPipeline(): Promise<RestartTrackingResult> 
     FIELD_LOCATION_TASK,
   ).catch(() => false);
 
-  // Field default: success means background FGS is actually running.
+  if (backgroundTaskStarted) {
+    await recordRecoveryEvent("TASK_RECREATED");
+  }
+
+  const newAcceptedAt = await getLastAcceptedAt();
+  const recovery = await evaluateRecoveryOutcome({
+    taskStarted: backgroundTaskStarted,
+    lastAcceptedAt: newAcceptedAt,
+  });
+  if (newAcceptedAt && recovery.recoveryStartedAt && newAcceptedAt > recovery.recoveryStartedAt) {
+    await recordRecoveryEvent("ACCEPT_RECEIVED");
+    await recordRecoveryEvent("RECOVERY_CONFIRMED");
+  }
+
+  // Field default: success requires background FGS AND fresh accept after recovery start.
   if (mode === "background" || claimed === "background" || claimed === "none") {
-    if (!backgroundTaskStarted || mode !== "background") {
+    const recoveryPass =
+      recovery.state === "RECOVERED" ||
+      (recovery.recoveryStartedAt != null &&
+        newAcceptedAt != null &&
+        newAcceptedAt > recovery.recoveryStartedAt);
+
+    if (!backgroundTaskStarted || mode !== "background" || !recoveryPass) {
+      if (backgroundTaskStarted && !recoveryPass) {
+        await recordRecoveryEvent("RECOVERY_FAILED");
+      }
       return {
         ok: false,
         mode: reportedModeAfterBackgroundRestartAttempt(
@@ -480,12 +533,14 @@ export async function restartTrackingPipeline(): Promise<RestartTrackingResult> 
           backgroundTaskStarted,
         ),
         backgroundTaskStarted,
-        errorCode: "start_failed",
-        errorDetail: "fgs_or_os_rejected",
+        errorCode: backgroundTaskStarted && !recoveryPass ? "recovery_failed" : "start_failed",
+        errorDetail: backgroundTaskStarted && !recoveryPass ? "no_new_accept" : "fgs_or_os_rejected",
+        recoveryState: (await readRecoveryState()).state,
       };
     }
     clearStaleGpsFlushBlockIfNeeded();
-    return { ok: true, mode: "background", backgroundTaskStarted: true };
+    void clearGpsStoppedNotificationDedupe().catch(() => undefined);
+    return { ok: true, mode: "background", backgroundTaskStarted: true, recoveryState: "RECOVERED" };
   }
 
   if (mode !== "none") {
@@ -523,6 +578,8 @@ export async function stopLocationTracking(): Promise<void> {
       STORAGE_KEYS.ACTIVE_SHIFT_DAY_KEY,
       STORAGE_KEYS.TRACKING_MODE,
     ]);
+    await clearFieldShiftSnapshot();
+    await clearRecoveryState();
     await resetLocationProcessorState();
     await resetTrackingRestartDiagnostics();
   } catch {
@@ -630,6 +687,8 @@ export async function getTrackingRuntimeHealth(): Promise<TrackingRuntimeHealth>
     lastAcceptedAt,
     lastRejectReason,
     lastFlushError,
+    lastGpsPointAt,
+    recoveryState,
   ] = await Promise.all([
     getTrackingState(),
     getTrackingPermissionStatus(),
@@ -640,6 +699,8 @@ export async function getTrackingRuntimeHealth(): Promise<TrackingRuntimeHealth>
     getLastAcceptedAt(),
     getLastRejectReason(),
     getLastFlushError(),
+    getLastGpsPointAt(),
+    readRecoveryState(),
   ]);
   const batteryStatus = batteryDetailed.status;
   void setBatteryOptimizationStatus(batteryStatus);
@@ -647,6 +708,7 @@ export async function getTrackingRuntimeHealth(): Promise<TrackingRuntimeHealth>
   const foregroundWatchActive = !!getForegroundSubscription();
   let health = reconcileTrackingHealth(state.mode, backgroundTaskStarted, foregroundWatchActive, {
     lastAcceptedAt,
+    lastGpsPointAt,
     requireRecentAccept: !!activeShiftId && state.mode !== "none",
     backgroundPermission: perms.background,
   });
@@ -664,6 +726,11 @@ export async function getTrackingRuntimeHealth(): Promise<TrackingRuntimeHealth>
     foregroundWatchActive,
     healthy: health.healthy,
     acceptStale: health.acceptStale,
+    pointStale: health.pointStale,
+    healthKind: health.healthKind,
+    zombieFgs: health.zombieFgs,
+    recoveryState: recoveryState.state,
+    lastGpsPointAt,
     flushBlockReason: getLastFlushBlockReason(),
     lastRestartAt: restartDiagnostics.lastRestartAt,
     restartCountToday: restartDiagnostics.restartCountToday,
@@ -674,6 +741,7 @@ export async function getTrackingRuntimeHealth(): Promise<TrackingRuntimeHealth>
     lastAcceptedAt,
     lastRejectReason,
     lastFlushError,
+    recovery: recoveryState,
   };
 }
 
@@ -694,6 +762,11 @@ export async function getTrackingDiagnostics(): Promise<TrackingDiagnostics> {
     backgroundTaskStarted: health.backgroundTaskStarted,
     healthy: health.healthy,
     acceptStale: health.acceptStale,
+    pointStale: health.pointStale,
+    healthKind: health.healthKind,
+    zombieFgs: health.zombieFgs,
+    recoveryState: health.recoveryState,
+    lastGpsPointAt: health.lastGpsPointAt ?? null,
     flushBlockReason: health.flushBlockReason,
     lastRestartAt: health.lastRestartAt,
     restartCountToday: health.restartCountToday,
@@ -835,9 +908,48 @@ export async function ensureTrackingContinuity(opts?: {
 }
 
 /**
- * App went to background: flush pending samples only.
+ * Background-only health inspection: notify + persist recovery requirement.
+ * Never start FGS from background (Android 12+ forbids it).
+ */
+async function inspectBackgroundTrackingHealth(context: string): Promise<void> {
+  const shiftId = await AsyncStorage.getItem(STORAGE_KEYS.ACTIVE_SHIFT_ID);
+  if (!shiftId) return;
+
+  const mode = await AsyncStorage.getItem(STORAGE_KEYS.TRACKING_MODE);
+  if (mode !== "background") return;
+
+  const taskRegistered = await Location.hasStartedLocationUpdatesAsync(FIELD_LOCATION_TASK).catch(
+    () => false,
+  );
+  const [lastAcceptedAt, lastGpsPointAt] = await Promise.all([
+    getLastAcceptedAt(),
+    getLastGpsPointAt(),
+  ]);
+  const health = reconcileTrackingHealth("background", taskRegistered, false, {
+    lastAcceptedAt,
+    lastGpsPointAt,
+    requireRecentAccept: true,
+  });
+
+  if (health.zombieFgs) {
+    void appendErrorLog(`${context}: zombie_fgs (task registered, accept stale)`, "warn");
+    void sendGpsZombieDetectedEvent(shiftId);
+    void notifyGpsStoppedZombieFgs().catch(() => undefined);
+    await markRecoveryRequired("ZOMBIE_FGS");
+    return;
+  }
+
+  if (!taskRegistered) {
+    void appendErrorLog(`${context}: skip_fgs_start_while_background`, "info");
+    void notifyGpsStoppedIfBackgroundTaskDead().catch(() => undefined);
+    await markRecoveryRequired("TASK_DEAD");
+  }
+}
+
+/**
+ * App went to background: flush pending samples + health inspection only.
  * Do NOT call startLocationUpdatesAsync — Android 12+ rejects FGS start here.
- * Dead tasks are recovered when AppState becomes active.
+ * Dead / zombie tasks are recovered when AppState becomes active.
  */
 export async function maintainBackgroundTracking(): Promise<TrackingMode> {
   const shiftId = await AsyncStorage.getItem(STORAGE_KEYS.ACTIVE_SHIFT_ID);
@@ -850,13 +962,10 @@ export async function maintainBackgroundTracking(): Promise<TrackingMode> {
   }
 
   if (mode === "background") {
+    await inspectBackgroundTrackingHealth("maintainBackgroundTracking");
     const started = await Location.hasStartedLocationUpdatesAsync(FIELD_LOCATION_TASK).catch(
       () => false,
     );
-    if (!started) {
-      void appendErrorLog("maintainBackgroundTracking: skip_fgs_start_while_background", "info");
-      void notifyGpsStoppedIfBackgroundTaskDead().catch(() => undefined);
-    }
     return reportedModeAfterBackgroundRestartAttempt("background", started);
   }
 
@@ -870,8 +979,8 @@ export async function maintainBackgroundTracking(): Promise<TrackingMode> {
 }
 
 /**
- * Background-fetch watchdog: flush only. Never start FGS from background.
- * Foreground AppState / in-app watchdog perform the actual restart.
+ * Background-fetch watchdog: health inspection + flush only. Never start FGS.
+ * Secondary path — foreground AppState / in-app watchdog perform actual restart.
  */
 export async function runBackgroundTrackingWatchdog(): Promise<void> {
   const shiftId = await AsyncStorage.getItem(STORAGE_KEYS.ACTIVE_SHIFT_ID);
@@ -881,13 +990,7 @@ export async function runBackgroundTrackingWatchdog(): Promise<void> {
   if (mode !== "background") return;
 
   void flushPendingSamples().catch(() => undefined);
-  const started = await Location.hasStartedLocationUpdatesAsync(FIELD_LOCATION_TASK).catch(
-    () => false,
-  );
-  if (!started) {
-    void appendErrorLog("backgroundWatchdog: skip_fgs_start_while_background", "info");
-    void notifyGpsStoppedIfBackgroundTaskDead().catch(() => undefined);
-  }
+  await inspectBackgroundTrackingHealth("backgroundWatchdog");
 }
 
 /** Foreground recovery: dead or zombie background task → forceRestart + immediate fix. */
@@ -900,7 +1003,6 @@ export async function recoverDeadBackgroundTaskOnForeground(): Promise<TrackingM
 
   const mode = (await AsyncStorage.getItem(STORAGE_KEYS.TRACKING_MODE)) as TrackingMode | null;
   if (mode === "foreground") {
-    // Upgrade legacy foreground-only to background if Always was granted in Settings.
     return maybeUpgradeToBackgroundTracking();
   }
   if (mode !== "background") {
@@ -911,29 +1013,58 @@ export async function recoverDeadBackgroundTaskOnForeground(): Promise<TrackingM
     () => false,
   );
   const lastAcceptedAt = await getLastAcceptedAt();
-  const acceptStale = reconcileTrackingHealth("background", started, false, {
+  const lastGpsPointAt = await getLastGpsPointAt();
+  const health = reconcileTrackingHealth("background", started, false, {
     lastAcceptedAt,
+    lastGpsPointAt,
     requireRecentAccept: true,
-  }).acceptStale;
+  });
 
   // Dead FGS, or Expo #47595 zombie (notification alive, no location callbacks).
-  if (!started || acceptStale) {
+  if (!started || health.acceptStale || health.zombieFgs) {
+    const recoveryReason = health.zombieFgs
+      ? "ZOMBIE_FGS"
+      : !started
+        ? "TASK_DEAD"
+        : "ACCEPT_STALE";
+    await beginRecoveryAttempt(lastAcceptedAt, recoveryReason);
+    await recordRecoveryEvent("RESTART_REQUESTED");
+
     const restarted = await ensureBackgroundTaskRunning(shiftId, "foregroundRecover", {
       bypassCooldown: true,
       forceRecreate: true,
     });
+
     if (restarted === "background") {
+      await recordRecoveryEvent("TASK_RECREATED");
       startFlushTimer();
       clearStaleGpsFlushBlockIfNeeded();
-      void clearGpsStoppedNotificationDedupe().catch(() => undefined);
       await flushPendingSamples(shiftId).catch(() => undefined);
       await captureImmediateFixAndFlush().catch(() => false);
+
+      const newAcceptedAt = await getLastAcceptedAt();
+      const recovery = await evaluateRecoveryOutcome({
+        taskStarted: true,
+        lastAcceptedAt: newAcceptedAt,
+      });
+
+      if (
+        recovery.recoveryStartedAt &&
+        newAcceptedAt &&
+        newAcceptedAt > recovery.recoveryStartedAt
+      ) {
+        await recordRecoveryEvent("ACCEPT_RECEIVED");
+        await recordRecoveryEvent("RECOVERY_CONFIRMED");
+        void clearGpsStoppedNotificationDedupe().catch(() => undefined);
+        return "background";
+      }
+
+      await recordRecoveryEvent("RECOVERY_FAILED");
       return "background";
     }
     return restarted;
   }
 
-  // Always flush + immediate fix on foreground resume (even when task looks alive).
   void clearGpsStoppedNotificationDedupe().catch(() => undefined);
   await flushPendingSamples(shiftId).catch(() => undefined);
   await captureImmediateFixAndFlush().catch(() => false);

@@ -77,6 +77,9 @@ type ShiftTrackingCtx = {
   trackingHealthy: boolean;
   /** No successful GPS accept (created>0 / keepalive) for >10 min. */
   acceptStale: boolean;
+  pointStale: boolean;
+  zombieFgs: boolean;
+  recoveryState: string | null;
   /** Mapped CTA reason — never conflates unrestricted battery with dead task. */
   unhealthyReason: TrackingUnhealthyReason;
   flushBlockReason: string | null;
@@ -107,6 +110,9 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
   const [lastAcceptedAt, setLastAcceptedAt] = useState<string | null>(null);
   const [trackingHealthy, setTrackingHealthy] = useState(true);
   const [acceptStale, setAcceptStale] = useState(false);
+  const [pointStale, setPointStale] = useState(false);
+  const [zombieFgs, setZombieFgs] = useState(false);
+  const [recoveryState, setRecoveryState] = useState<string | null>(null);
   const [flushBlockReason, setFlushBlockReason] = useState<string | null>(null);
   const [backgroundTaskStarted, setBackgroundTaskStarted] = useState(false);
   const [foregroundWatchActive, setForegroundWatchActive] = useState(false);
@@ -143,6 +149,9 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
       setLastAcceptedAt(health.lastAcceptedAt ?? null);
       setTrackingHealthy(health.healthy);
       setAcceptStale(health.acceptStale === true);
+      setPointStale(health.pointStale === true);
+      setZombieFgs(health.zombieFgs === true);
+      setRecoveryState(health.recoveryState ?? null);
       setFlushBlockReason(health.flushBlockReason ?? null);
       setBackgroundTaskStarted(health.backgroundTaskStarted);
       setForegroundWatchActive(health.foregroundWatchActive);
@@ -161,6 +170,8 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
         backgroundTaskStarted,
         foregroundWatchActive,
         acceptStale,
+        pointStale,
+        zombieFgs,
         backgroundPermission,
         flushBlockReason,
         fgsRestartBlocked,
@@ -171,6 +182,8 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
       backgroundTaskStarted,
       foregroundWatchActive,
       acceptStale,
+      pointStale,
+      zombieFgs,
       backgroundPermission,
       flushBlockReason,
       fgsRestartBlocked,
@@ -241,8 +254,8 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
 
     let health = await getTrackingRuntimeHealth();
     if (health.claimedMode !== "background") return;
-    // Also recover Expo #47595 zombie: task "started" but accept stale.
-    if (health.backgroundTaskStarted && !health.acceptStale) return;
+    // Also recover Expo #47595 zombie: task "started" but accept/point stale.
+    if (health.backgroundTaskStarted && !health.acceptStale && !health.zombieFgs) return;
 
     const perms = await getTrackingPermissionStatus();
     if (perms.background !== "granted") return;
@@ -250,7 +263,7 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
     const mode = await recoverDeadBackgroundTaskOnForeground();
     setTrackingMode(mode);
     health = await syncTrackingHealth();
-    if (health.backgroundTaskStarted && !health.acceptStale) {
+    if (health.healthy && health.backgroundTaskStarted) {
       setShowBatteryHint(false);
       return;
     }
@@ -835,6 +848,9 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
       lastAcceptedAt,
       trackingHealthy,
       acceptStale,
+      pointStale,
+      zombieFgs,
+      recoveryState,
       unhealthyReason,
       flushBlockReason,
       backgroundTaskStarted,
@@ -859,6 +875,9 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
       lastAcceptedAt,
       trackingHealthy,
       acceptStale,
+      pointStale,
+      zombieFgs,
+      recoveryState,
       unhealthyReason,
       flushBlockReason,
       backgroundTaskStarted,

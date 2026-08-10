@@ -341,7 +341,20 @@ export default function MoreScreen() {
                 </Text>
                 <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 4 }]}>
                   {t("more.debugHealthy", { status: trackingDebug.healthy ? "yes" : "no" })}
-                  {trackingDebug.acceptStale ? " · stale" : ""}
+                  {trackingDebug.acceptStale ? " · accept stale" : ""}
+                  {trackingDebug.pointStale ? " · point stale" : ""}
+                  {trackingDebug.zombieFgs ? " · zombie FGS" : ""}
+                  {trackingDebug.healthKind ? ` · kind=${trackingDebug.healthKind}` : ""}
+                  {trackingDebug.recoveryState ? ` · recovery=${trackingDebug.recoveryState}` : ""}
+                </Text>
+                <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 4 }]}>
+                  Last GPS point:{" "}
+                  {trackingDebug.lastGpsPointAt
+                    ? new Date(trackingDebug.lastGpsPointAt).toLocaleString()
+                    : "—"}
+                  {trackingDebug.lastGpsPointAt
+                    ? ` · ${formatMinutesAgo(trackingDebug.lastGpsPointAt)}`
+                    : ""}
                 </Text>
                 <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 4 }]}>
                   {t("gps.lastAcceptedAt", {

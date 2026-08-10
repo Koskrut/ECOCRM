@@ -42,9 +42,12 @@ describe("restart decision aligns with reconcileTrackingHealth", () => {
 
   it("healthy background task does not need restart", () => {
     const now = Date.now();
+    const fresh = new Date(now).toISOString();
     const health = reconcileTrackingHealth("background", true, false, {
-      lastAcceptedAt: new Date(now).toISOString(),
+      lastAcceptedAt: fresh,
+      lastGpsPointAt: fresh,
       nowMs: now,
+      backgroundPermission: "granted",
     });
     assert.equal(shouldRestartBackgroundTask("background", true), false);
     assert.equal(health.shouldRestartBackground, false);

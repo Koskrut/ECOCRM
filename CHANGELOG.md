@@ -4,7 +4,30 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.146**.)_
+_(планируемые изменения после **0.2.147**.)_
+
+## [0.2.147] — 2026-08-10
+
+### Summary
+
+Патч **0.2.147**: mobile GPS health v4 — zombie FGS, point stale, recovery state machine.
+
+### Added
+
+- **Field shift snapshot**: persisted ACTIVE shift DTO for cold-wake / background task append.
+- **Tracking recovery state**: persisted recovery machine (`ZOMBIE_FGS`, `TASK_DEAD`, `RECOVERY_IN_PROGRESS`, etc.).
+- **Zombie FGS detection**: task registered but accept/point pipeline stale; separate `pointStale` vs `acceptStale`.
+
+### Changed
+
+- **GPS health**: `healthKind`, `zombieFgs`, `recoveryState` in context + debug panel; GPS-stopped alert for `zombie_fgs`.
+- **Background task**: shift snapshot resolve on append; last GPS point timestamps in buffer.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.147`** (образы без функциональных изменений backend/web).
+- **Миграций нет.**
+- **Mobile**: новый **EAS build** обязателен.
 
 ## [0.2.146] — 2026-08-10
 

@@ -18,6 +18,10 @@ import {
   type SampleRejectReasons,
 } from "./location-sample-reject";
 import { sortSamplesByTime } from "./location-sample-filter";
+import {
+  patchFieldShiftSnapshot,
+  resolveShiftIdForAppend,
+} from "./field-shift-snapshot";
 import { readActiveShiftId } from "./location-shift-bootstrap";
 import { enqueueOfflineJob } from "./offline-queue";
 import {
@@ -51,6 +55,7 @@ export const STORAGE_KEYS = {
   LAST_ACCEPTED_AT: "field_last_accepted_at",
   LAST_REJECT_REASON: "field_last_reject_reason",
   LAST_FLUSH_ERROR: "field_last_flush_error",
+  LAST_GPS_POINT_AT: "field_last_gps_point_at",
 } as const;
 
 export type PendingLocationSample = {
@@ -109,6 +114,15 @@ export async function getLastAcceptedAt(): Promise<string | null> {
   return AsyncStorage.getItem(STORAGE_KEYS.LAST_ACCEPTED_AT);
 }
 
+export async function getLastGpsPointAt(): Promise<string | null> {
+  return AsyncStorage.getItem(STORAGE_KEYS.LAST_GPS_POINT_AT);
+}
+
+async function markGpsPointReceived(at = new Date().toISOString()): Promise<void> {
+  await AsyncStorage.setItem(STORAGE_KEYS.LAST_GPS_POINT_AT, at);
+  void patchFieldShiftSnapshot({ lastKnownPointAt: at }).catch(() => undefined);
+}
+
 export async function getLastRejectReason(): Promise<string | null> {
   return AsyncStorage.getItem(STORAGE_KEYS.LAST_REJECT_REASON);
 }
@@ -127,7 +141,9 @@ async function clearFlushError(): Promise<void> {
 
 /** Only real server accepts (created>0 / keepalive accept) refresh healthy. */
 async function markPipelineAlive(): Promise<void> {
-  await AsyncStorage.setItem(STORAGE_KEYS.LAST_ACCEPTED_AT, new Date().toISOString());
+  const at = new Date().toISOString();
+  await AsyncStorage.setItem(STORAGE_KEYS.LAST_ACCEPTED_AT, at);
+  void patchFieldShiftSnapshot({ lastKnownAcceptAt: at }).catch(() => undefined);
 }
 
 async function rememberRejectReasons(
@@ -193,15 +209,17 @@ export async function appendPendingSample(sample: PendingLocationSample): Promis
     if (block === "auth_401" || block === "wrong_day" || block === "stale_gps") {
       return (await readPending()).length;
     }
-    const shiftId = await readActiveShiftId();
+    const storedShiftId = await readActiveShiftId();
+    const shiftId = await resolveShiftIdForAppend(storedShiftId);
+    if (shiftId && shiftId !== storedShiftId) {
+      await AsyncStorage.setItem(STORAGE_KEYS.ACTIVE_SHIFT_ID, shiftId);
+    }
     if (!shiftId) {
-      void appendErrorLog("append pending skipped: no active shift id", "warn");
-      return 0;
+      void appendErrorLog("append pending: no shift id yet (cold wake — queueing sample)", "warn");
     }
     const token = await getAuthToken();
     if (!token) {
-      void appendErrorLog("append pending skipped: no auth token", "warn");
-      return (await readPending()).length;
+      void appendErrorLog("append pending: no auth token (sample queued)", "warn");
     }
     const current = await readPending();
     if (current.length >= MAX_PENDING_SAMPLES) {
@@ -215,6 +233,7 @@ export async function appendPendingSample(sample: PendingLocationSample): Promis
     }
     const pending = trimPending([...current, sample]);
     await writePending(pending);
+    await markGpsPointReceived(sample.clientRecordedAt);
     return pending.length;
   });
 }
@@ -236,6 +255,11 @@ async function resolveFlushShiftId(
   if (shiftId) return shiftId;
   const stored = await AsyncStorage.getItem(STORAGE_KEYS.ACTIVE_SHIFT_ID);
   if (stored) return stored;
+  const fromSnapshot = await resolveShiftIdForAppend(null);
+  if (fromSnapshot) {
+    await AsyncStorage.setItem(STORAGE_KEYS.ACTIVE_SHIFT_ID, fromSnapshot);
+    return fromSnapshot;
+  }
   try {
     const activeRes = await fetchWithTimeout(`${getApiBaseUrl()}/field/shifts/active`, {
       headers: { Authorization: `Bearer ${token}` },

@@ -69,6 +69,8 @@ export function ShiftStatusCard({
     (unhealthyReason === "background_task_dead" ||
       unhealthyReason === "foreground_watch_dead" ||
       unhealthyReason === "accept_stale" ||
+      unhealthyReason === "zombie_fgs" ||
+      unhealthyReason === "point_stale" ||
       (unhealthyReason === "fgs_start_blocked_background" && appInForeground));
   // End+start only for wrong_day — never primary fix for dead FGS (empty-shift thrash).
   const showRestartShift = shouldOfferRestartShiftCta(unhealthyReason);

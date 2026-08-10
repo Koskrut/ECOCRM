@@ -1,4 +1,4 @@
-# Control Plane и сервер: манифест релиза (**0.2.146+**), compose, лицензия
+# Control Plane и сервер: манифест релиза (**0.2.147+**), compose, лицензия
 
 Кратко для операторов. Расширенный preflight по CP — в репозитории **Control Plane**: **`docs/releasing-manifest.md`** (в т.ч. §8 preflight CP, §9 события **`/rollouts/.../events`**), **`docs/deployment-manifest-compose-patch.md`**.
 
@@ -19,7 +19,7 @@
 
 1. **`composeFiles`** — полный список overlay под релиз: **`compose.base.yml`**, **`compose.client.yml`**, **`compose.modules.store.yml`**, затем module compose из релиза (не только base + client). Если в CP есть allowlist имён compose-файлов, добавьте **`compose.modules.store.yml`**.
 2. **`composeFileUrls`** — у **каждого** элемента **`composeFiles`** своя строка **`https://…`** (в т.ч. при политиках **`passthrough`** / **`ci_urls`** на PATCH — см. ниже).
-3. **`gitSha` vs URL в raw:** в raw-URL часто встречается ref вида **`v0.2.146`**, в манифесте — **полный коммит**; это **нормально**, если вы осознанно публикуете оба ref и **содержимое файлов** на GitHub совпадает с rелизом.
+3. **`gitSha` vs URL в raw:** в raw-URL часто встречается ref вида **`v0.2.147`**, в манифесте — **полный коммит**; это **нормально**, если вы осознанно публикуете оба ref и **содержимое файлов** на GitHub совпадает с rелизом.
 4. После **`POST …/releases/register`**: **`composeFileUrls`** и неизвестные корневые поля CI **не выкидываются молча** — в CP лишнее с корня может уходить в **`metadata.ci_unknown_root_fields`** (проверяйте при отладке).
 5. Клиентский путь (**`MANIFEST_URL`**, **`rollouts/next` → rollout.manifest**, админка) должен отдавать **те же** **`composeFiles`** / **`composeFileUrls`**, что сохранили после регистрации.
 
@@ -35,7 +35,7 @@
 
 ## Сервер (install bundle / Suprex)
 
-1. **Репозиторий и тег** — согласованы с релизом (например **`v0.2.146`**), есть **`scripts/sync-compose-from-manifest.mjs`** и **`suprex/client-pull-agent.sh`**.
+1. **Репозиторий и тег** — согласованы с релизом (например **`v0.2.147`**), есть **`scripts/sync-compose-from-manifest.mjs`** и **`suprex/client-pull-agent.sh`**.
 2. **Манифест на вход агента** — полный JSON с **`composeFileUrls`** (например **16** файлов для полного **0.2.x** с store и всеми модулями: base + client + **store** + overlays). Нормально **не** класть **`deployment-manifest.json`** в корень bundle, если всегда задаёте **`MANIFEST_URL`** или **`DEPLOYMENT_MANIFEST_PATH`**. Не подсовывать **старый** JSON без **`composeFileUrls`**, если sync должен тянуть YAML с GitHub.
 3. **`.env`** — **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION`** = версия релиза; **`CORS_ORIGIN`**, **`PUBLIC_BASE_URL`**, секреты БД; **`*_MODULE_IMAGE_NAME`** можно не задавать (дефолты в compose).
 4. **`MODULE_GATING_ENABLED`** — если не задан / пусто, гейтинг по env обычно не включает жёсткий режим; при **`true`** дополнительно проверяйте pilot / enabled в БД и health апстримов (как в вашем чеклисте).

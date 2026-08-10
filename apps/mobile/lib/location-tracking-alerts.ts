@@ -8,13 +8,18 @@ import { STORAGE_KEYS } from "./location-tracking-buffer";
 import {
   GPS_STOPPED_NOTIFY_COOLDOWN_MS,
   shouldSendGpsStoppedNotification,
+  type GpsStoppedNotifyReason,
 } from "./location-tracking-alerts-logic";
 
 export { GPS_STOPPED_NOTIFY_COOLDOWN_MS, shouldSendGpsStoppedNotification } from "./location-tracking-alerts-logic";
+export type { GpsStoppedNotifyReason } from "./location-tracking-alerts-logic";
 
 export const GPS_STOPPED_ALERT_CHANNEL_ID = "crm-gps-stopped-v1";
 
 const GPS_STOPPED_DEDUPE_KEY = "field_gps_stopped_notified_at";
+
+const GPS_ZOMBIE_BODY =
+  "GPS зупинено. Відкрийте CRM для відновлення відстеження.";
 
 async function ensureGpsStoppedAlertChannel(): Promise<void> {
   if (Platform.OS !== "android") return;
@@ -31,11 +36,7 @@ async function ensureGpsStoppedAlertChannel(): Promise<void> {
   }
 }
 
-/**
- * Local notification when background FGS died while app minimized.
- * Never starts FGS from here — user must open the app (Android 12+).
- */
-export async function notifyGpsStoppedIfBackgroundTaskDead(): Promise<boolean> {
+async function sendGpsStoppedNotification(reason: GpsStoppedNotifyReason): Promise<boolean> {
   if (Platform.OS !== "android") return false;
 
   const mode = await AsyncStorage.getItem(STORAGE_KEYS.TRACKING_MODE);
@@ -45,7 +46,6 @@ export async function notifyGpsStoppedIfBackgroundTaskDead(): Promise<boolean> {
   const taskStarted = await Location.hasStartedLocationUpdatesAsync(FIELD_LOCATION_TASK).catch(
     () => false,
   );
-  if (taskStarted) return false;
 
   const raw = await AsyncStorage.getItem(GPS_STOPPED_DEDUPE_KEY);
   const lastNotifiedAtMs = raw ? Number(raw) : null;
@@ -55,6 +55,7 @@ export async function notifyGpsStoppedIfBackgroundTaskDead(): Promise<boolean> {
       taskStarted,
       Number.isFinite(lastNotifiedAtMs) ? lastNotifiedAtMs : null,
       Date.now(),
+      reason,
     )
   ) {
     return false;
@@ -64,13 +65,16 @@ export async function notifyGpsStoppedIfBackgroundTaskDead(): Promise<boolean> {
   if (!perm.granted) return false;
 
   await ensureGpsStoppedAlertChannel();
+  const isZombie = reason === "zombie_fgs";
   try {
     await Notifications.scheduleNotificationAsync({
       content: {
-        title: "GPS зупинено — відкрийте CRM",
-        body: "Фоновий трек перервався. Відкрийте застосунок, щоб відновити запис маршруту.",
+        title: isZombie ? "GPS зупинено — відкрийте CRM" : "GPS зупинено — відкрийте CRM",
+        body: isZombie
+          ? GPS_ZOMBIE_BODY
+          : "Фоновий трек перервався. Відкрийте застосунок, щоб відновити запис маршруту.",
         sound: "default",
-        data: { type: "gps_stopped", screen: "today" },
+        data: { type: isZombie ? "gps_zombie" : "gps_stopped", screen: "today" },
         channelId: GPS_STOPPED_ALERT_CHANNEL_ID,
       } as Notifications.NotificationContentInput,
       trigger: null,
@@ -80,6 +84,22 @@ export async function notifyGpsStoppedIfBackgroundTaskDead(): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+/**
+ * Local notification when background FGS died while app minimized.
+ * Never starts FGS from here — user must open the app (Android 12+).
+ */
+export async function notifyGpsStoppedIfBackgroundTaskDead(): Promise<boolean> {
+  return sendGpsStoppedNotification("task_dead");
+}
+
+/**
+ * Zombie FGS: hasStartedLocationUpdatesAsync true but accept pipeline stale.
+ * Foreground-only recovery — never start FGS from background.
+ */
+export async function notifyGpsStoppedZombieFgs(): Promise<boolean> {
+  return sendGpsStoppedNotification("zombie_fgs");
 }
 
 export async function clearGpsStoppedNotificationDedupe(): Promise<void> {

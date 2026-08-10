@@ -9,6 +9,8 @@ import {
   maybeFlushAfterAppend,
   STORAGE_KEYS,
 } from "./location-tracking-buffer";
+import { readFieldShiftSnapshot } from "./field-shift-snapshot";
+import { bootstrapShiftTrackingContext } from "./location-shift-bootstrap";
 import { shouldFlushByInterval } from "./location-flush-schedule";
 import { processLocationUpdate } from "./location-tracking-processor";
 import { hydrateApiBaseUrl } from "./config";
@@ -26,6 +28,19 @@ let foregroundWatchStarter: ((tier: SamplingTier) => Promise<void>) | null = nul
 
 export function setForegroundWatchStarter(fn: (tier: SamplingTier) => Promise<void>): void {
   foregroundWatchStarter = fn;
+}
+
+/** Cold wake: re-bind shift id from persisted snapshot when React context is not ready. */
+async function hydrateShiftFromSnapshot(): Promise<void> {
+  const stored = await AsyncStorage.getItem(STORAGE_KEYS.ACTIVE_SHIFT_ID);
+  if (stored) return;
+  const snapshot = await readFieldShiftSnapshot();
+  if (snapshot?.status === "ACTIVE") {
+    await bootstrapShiftTrackingContext(snapshot.shiftId).catch(() => undefined);
+    if (snapshot.trackingMode) {
+      await AsyncStorage.setItem(STORAGE_KEYS.TRACKING_MODE, snapshot.trackingMode);
+    }
+  }
 }
 
 function isMockLocation(loc: Location.LocationObject): boolean {
@@ -87,6 +102,7 @@ if (!TaskManager.isTaskDefined(FIELD_LOCATION_TASK)) {
   TaskManager.defineTask(FIELD_LOCATION_TASK, async ({ data, error }) => {
     await hydrateApiBaseUrl();
     await hydrateSessionAuthFromStorage();
+    await hydrateShiftFromSnapshot();
 
     const tryIntervalFlush = async () => {
       const lastFlushAt = await AsyncStorage.getItem(STORAGE_KEYS.LAST_FLUSH_AT);
