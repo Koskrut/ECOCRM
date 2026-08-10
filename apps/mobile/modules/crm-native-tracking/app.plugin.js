@@ -36,34 +36,12 @@ function withKspSettings(config) {
   });
 }
 
-/** Ensure FGS location permissions + service type survive manifest merges. */
+/** Ensure FGS location permissions survive manifest merges (service lives in module AndroidManifest). */
 function withNativeTrackingManifest(config) {
   return withAndroidManifest(config, (mod) => {
     const manifest = mod.modResults;
     for (const permission of PERMISSIONS) {
       AndroidConfig.Permissions.ensurePermission(manifest, permission);
-    }
-
-    const app = AndroidConfig.Manifest.getMainApplicationOrThrow(manifest);
-    const services = app.service ?? [];
-    const serviceName = "expo.modules.crnativetracking.LocationForegroundService";
-    const existing = services.find(
-      (s) => s?.$?.["android:name"] === serviceName,
-    );
-    if (!existing) {
-      services.push({
-        $: {
-          "android:name": serviceName,
-          "android:exported": "false",
-          "android:foregroundServiceType": "location",
-          "android:stopWithTask": "false",
-        },
-      });
-      app.service = services;
-    } else {
-      existing.$["android:foregroundServiceType"] = "location";
-      existing.$["android:stopWithTask"] = "false";
-      existing.$["android:exported"] = "false";
     }
     return mod;
   });
