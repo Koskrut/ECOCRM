@@ -47,10 +47,13 @@ import {
   unregisterBackgroundTrackingWatchdog,
 } from "@/lib/location-tracking-watchdog";
 import {
+  ensureBackgroundLocationGranted,
   getTrackingPermissionStatus,
   isAndroid,
+  isBackgroundLocationGrantedStatus,
   openBatteryOptimizationSettings,
   openLocationPermissionSettings,
+  shouldShowBackgroundRequiredDialog,
 } from "@/lib/location-permissions";
 import {
   resolveTrackingUnhealthyReason,
@@ -95,6 +98,7 @@ type ShiftTrackingCtx = {
   endShift: () => Promise<void>;
   restartShift: () => Promise<void>;
   restartTracking: () => Promise<void>;
+  recheckPermissions: () => Promise<void>;
   isTracking: boolean;
 };
 
@@ -202,6 +206,35 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
       { text: t("common.later"), style: "cancel" },
     ]);
   }, []);
+
+  const promptBackgroundRequiredIfNeeded = useCallback(
+    async (perms?: { foreground: string; background: string | null }) => {
+      const status = perms ?? (await getTrackingPermissionStatus());
+      setBackgroundPermission(status.background);
+      if (!shouldShowBackgroundRequiredDialog(status)) return false;
+      Alert.alert(t("gps.backgroundRequiredTitle"), t("gps.backgroundRequiredHint"), [
+        { text: t("gps.openSettings"), onPress: () => void openLocationPermissionSettings() },
+        { text: t("common.later"), style: "cancel" },
+      ]);
+      return true;
+    },
+    [],
+  );
+
+  const tryStartTrackingForShift = useCallback(
+    async (shiftId: string): Promise<TrackingMode> => {
+      const boot = await bootstrapShiftTrackingContext(shiftId);
+      if (!boot.ok) return "none";
+      const mode = await startLocationTracking(shiftId);
+      setTrackingMode(mode);
+      if (mode === "background") {
+        void registerBackgroundTrackingWatchdog();
+      }
+      await syncTrackingHealth();
+      return mode;
+    },
+    [syncTrackingHealth],
+  );
 
   const maybePromptBatteryAfterFailedRestart = useCallback(async () => {
     if (!isAndroid()) return;
@@ -345,7 +378,16 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
         shift.status === "ACTIVE" &&
         AppState.currentState === "active"
       ) {
-        if (mode === "background" || mode === "none") {
+        const perms = await ensureBackgroundLocationGranted();
+        setBackgroundPermission(perms.background);
+        if (
+          mode === "none" &&
+          perms.foreground === "granted" &&
+          isBackgroundLocationGrantedStatus(perms.background) &&
+          canStartLocationForegroundService(AppState.currentState)
+        ) {
+          mode = await tryStartTrackingForShift(shift.id);
+        } else if (mode === "background" || mode === "none") {
           mode = await recoverDeadBackgroundTaskOnForeground();
         }
         await flushPendingSamples(shift.id).catch(() => undefined);
@@ -368,7 +410,7 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
     } finally {
       setLoading(false);
     }
-  }, [token, syncTrackingHealth, promptOpenSettings]);
+  }, [token, syncTrackingHealth, promptOpenSettings, tryStartTrackingForShift]);
 
   useEffect(() => {
     void hydrateSessionAuthFromStorage();
@@ -436,7 +478,7 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
             }
 
             // Re-read permissions after Settings return (expo can lag; native check wins).
-            const perms = await getTrackingPermissionStatus();
+            const perms = await ensureBackgroundLocationGranted();
             setBackgroundPermission(perms.background);
 
             const before = await getTrackingRuntimeHealth();
@@ -446,21 +488,15 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
               activeShift.trackingEnabled &&
               before.mode === "none" &&
               perms.foreground === "granted" &&
-              perms.background === "granted" &&
+              isBackgroundLocationGrantedStatus(perms.background) &&
               canStartLocationForegroundService(AppState.currentState)
             ) {
-              const boot = await bootstrapShiftTrackingContext(activeShift.id);
-              if (boot.ok) {
-                const mode = await startLocationTracking(activeShift.id);
-                setTrackingMode(mode);
-                if (mode === "background") {
-                  void registerBackgroundTrackingWatchdog();
-                  await flushPendingSamples(activeShift.id).catch(() => undefined);
-                  await captureImmediateFixAndFlush().catch(() => undefined);
-                }
-                await syncTrackingHealth();
-                return;
+              const mode = await tryStartTrackingForShift(activeShift.id);
+              if (mode === "background") {
+                await flushPendingSamples(activeShift.id).catch(() => undefined);
+                await captureImmediateFixAndFlush().catch(() => undefined);
               }
+              return;
             }
 
             if (before.claimedMode === "background" || before.mode === "background") {
@@ -505,6 +541,7 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
     syncTrackingHealth,
     promptOpenSettings,
     recoverDeadBackgroundTask,
+    tryStartTrackingForShift,
   ]);
 
   const startShift = useCallback(async () => {
@@ -519,7 +556,8 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
           Alert.alert(t("gps.openAppFirstTitle"), t("gps.openAppFirstHint"));
           return;
         }
-        const perms = await getTrackingPermissionStatus();
+        const perms = await ensureBackgroundLocationGranted();
+        setBackgroundPermission(perms.background);
         if (perms.foreground !== "granted") {
           Alert.alert(t("gps.title"), t("gps.noneHint"), [
             { text: t("gps.openSettings"), onPress: () => void openLocationPermissionSettings() },
@@ -527,11 +565,8 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
           ]);
           return;
         }
-        if (perms.background !== "granted") {
-          Alert.alert(t("gps.backgroundRequiredTitle"), t("gps.backgroundRequiredHint"), [
-            { text: t("gps.openSettings"), onPress: () => void openLocationPermissionSettings() },
-            { text: t("common.later"), style: "cancel" },
-          ]);
+        if (!isBackgroundLocationGrantedStatus(perms.background)) {
+          await promptBackgroundRequiredIfNeeded(perms);
           return;
         }
       }
@@ -555,10 +590,7 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
           await captureImmediateFixAndFlush();
           await syncTrackingHealth();
           if (mode === "none") {
-            Alert.alert(t("gps.backgroundRequiredTitle"), t("gps.backgroundRequiredHint"), [
-              { text: t("gps.openSettings"), onPress: () => void openLocationPermissionSettings() },
-              { text: t("common.later"), style: "cancel" },
-            ]);
+            await promptBackgroundRequiredIfNeeded();
           } else if (mode === "background") {
             void registerBackgroundTrackingWatchdog();
           }
@@ -605,10 +637,7 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
         const health = await syncTrackingHealth();
 
         if (mode === "none") {
-          Alert.alert(t("gps.backgroundRequiredTitle"), t("gps.backgroundRequiredHint"), [
-            { text: t("gps.openSettings"), onPress: () => void openLocationPermissionSettings() },
-            { text: t("common.later"), style: "cancel" },
-          ]);
+          await promptBackgroundRequiredIfNeeded();
         } else if (mode === "background") {
           alertBackgroundTaskStatus(health.backgroundTaskStarted);
           void registerBackgroundTrackingWatchdog();
@@ -630,7 +659,37 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
     alertBackgroundTaskStatus,
     beginShiftOp,
     endShiftOp,
+    promptBackgroundRequiredIfNeeded,
   ]);
+
+  const recheckPermissions = useCallback(async () => {
+    const perms = await ensureBackgroundLocationGranted();
+    setBackgroundPermission(perms.background);
+    if (
+      !activeShift ||
+      activeShift.status !== "ACTIVE" ||
+      !activeShift.trackingEnabled ||
+      AppState.currentState !== "active"
+    ) {
+      await syncTrackingHealth();
+      return;
+    }
+    const health = await getTrackingRuntimeHealth();
+    if (
+      health.mode === "none" &&
+      perms.foreground === "granted" &&
+      isBackgroundLocationGrantedStatus(perms.background) &&
+      canStartLocationForegroundService(AppState.currentState)
+    ) {
+      const mode = await tryStartTrackingForShift(activeShift.id);
+      if (mode === "background") {
+        await flushPendingSamples(activeShift.id).catch(() => undefined);
+        await captureImmediateFixAndFlush().catch(() => undefined);
+      }
+      return;
+    }
+    await syncTrackingHealth();
+  }, [activeShift, syncTrackingHealth, tryStartTrackingForShift]);
 
   const restartTracking = useCallback(async () => {
     if (AppState.currentState !== "active") {
@@ -733,10 +792,7 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
         await captureImmediateFixAndFlush();
         await syncTrackingHealth();
         if (mode === "none") {
-          Alert.alert(t("gps.backgroundRequiredTitle"), t("gps.backgroundRequiredHint"), [
-            { text: t("gps.openSettings"), onPress: () => void openLocationPermissionSettings() },
-            { text: t("common.later"), style: "cancel" },
-          ]);
+          await promptBackgroundRequiredIfNeeded();
         } else if (mode === "background") {
           void registerBackgroundTrackingWatchdog();
         }
@@ -921,6 +977,7 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
       endShift,
       restartShift,
       restartTracking,
+      recheckPermissions,
       isTracking,
     }),
     [
@@ -948,6 +1005,7 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
       endShift,
       restartShift,
       restartTracking,
+      recheckPermissions,
       isTracking,
     ],
   );

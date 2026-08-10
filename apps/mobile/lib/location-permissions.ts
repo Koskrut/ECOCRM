@@ -11,7 +11,9 @@ import {
 import { buildBatteryOptimizationPackageUri } from "./battery-intent";
 import { t } from "./i18n";
 import {
+  isBackgroundLocationGrantedStatus,
   resolveBackgroundPermissionStatus,
+  shouldShowBackgroundRequiredDialog,
   shouldSkipBackgroundPermissionPrompt,
 } from "./location-permissions-core";
 
@@ -19,6 +21,7 @@ export { buildBatteryOptimizationPackageUri } from "./battery-intent";
 export {
   isBackgroundLocationGrantedStatus,
   resolveBackgroundPermissionStatus,
+  shouldShowBackgroundRequiredDialog,
   shouldSkipBackgroundPermissionPrompt,
 } from "./location-permissions-core";
 
@@ -87,6 +90,32 @@ export async function getTrackingPermissionStatus(): Promise<TrackingPermissionS
     backgroundCanAskAgain = canAskAgain;
   }
   return { foreground: fgStatus, background, backgroundCanAskAgain };
+}
+
+/**
+ * Re-probe background permission on Android when expo/native read is a false-negative.
+ * If the user already chose «Allow all the time» in Settings, requestBackgroundPermissionsAsync
+ * returns granted without showing another dialog.
+ */
+export async function ensureBackgroundLocationGranted(): Promise<TrackingPermissionStatus> {
+  let status = await getTrackingPermissionStatus();
+  if (status.foreground !== "granted") return status;
+  if (isBackgroundLocationGrantedStatus(status.background)) return status;
+
+  if (Platform.OS !== "android") return status;
+
+  try {
+    const bg = await Location.requestBackgroundPermissionsAsync();
+    const nativeBg = await readNativeBackgroundGranted();
+    status = {
+      foreground: status.foreground,
+      background: asPermissionStatus(resolveBackgroundPermissionStatus(bg.status, nativeBg)),
+      backgroundCanAskAgain: bg.canAskAgain,
+    };
+  } catch {
+    /* keep prior status */
+  }
+  return status;
 }
 
 function showBackgroundRationale(): Promise<boolean> {

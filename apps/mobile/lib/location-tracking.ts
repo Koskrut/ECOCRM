@@ -41,7 +41,9 @@ import {
   resetLocationProcessorState,
 } from "./location-tracking-processor";
 import {
+  ensureBackgroundLocationGranted,
   getTrackingPermissionStatus,
+  isBackgroundLocationGrantedStatus,
   requestTrackingPermissionsWithRationale,
   type TrackingPermissionStatus,
 } from "./location-permissions";
@@ -449,6 +451,17 @@ async function stopExpoLocationWriters(): Promise<void> {
   }
 }
 
+async function resolvePermissionsForTrackingStart(): Promise<TrackingPermissionStatus> {
+  const probed = await ensureBackgroundLocationGranted();
+  if (
+    probed.foreground === "granted" &&
+    isBackgroundLocationGrantedStatus(probed.background)
+  ) {
+    return probed;
+  }
+  return requestTrackingPermissionsWithRationale();
+}
+
 export async function startLocationTracking(shiftId: string): Promise<TrackingMode> {
   try {
     if (shouldUseNativeTracking()) {
@@ -462,7 +475,7 @@ export async function startLocationTracking(shiftId: string): Promise<TrackingMo
 
       await ensureFieldTrackingNotificationChannel();
       await ensureTrackingNotificationPermission();
-      const { foreground, background } = await requestTrackingPermissionsWithRationale();
+      const { foreground, background } = await resolvePermissionsForTrackingStart();
       if (foreground !== "granted" || background !== "granted") {
         void appendErrorLog(
           "startLocationTracking(native): background permission required (Always)",
@@ -531,7 +544,7 @@ export async function startLocationTracking(shiftId: string): Promise<TrackingMo
     await resetLocationProcessorState();
     clearFlushBlockReason();
 
-    const { foreground, background } = await requestTrackingPermissionsWithRationale();
+    const { foreground, background } = await resolvePermissionsForTrackingStart();
     if (foreground !== "granted") {
       await AsyncStorage.setItem(STORAGE_KEYS.TRACKING_MODE, "none");
       return "none";

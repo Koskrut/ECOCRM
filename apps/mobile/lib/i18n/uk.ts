@@ -445,6 +445,7 @@ export const uk = {
     trackCollection: "Збір треку",
     trackBackground: "Фоновий трек",
     trackForeground: "Трек (лише у застосунку)",
+    trackStarting: "Запуск треку…",
     trackOff: "Трек вимкнено",
     shiftActive: "Зміна активна",
     queue: "в черзі",

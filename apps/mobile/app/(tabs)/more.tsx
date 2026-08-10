@@ -25,7 +25,7 @@ import { getTrackingDiagnostics, type TrackingDiagnostics } from "@/lib/location
 import {
   unhealthyReasonMessageKeys,
 } from "@/lib/location-tracking-health";
-import { openLocationPermissionSettings } from "@/lib/location-permissions";
+import { openLocationPermissionSettings, isBackgroundLocationGrantedStatus } from "@/lib/location-permissions";
 import { canStartLocationForegroundService } from "@/lib/location-tracking-restart";
 import { shouldOfferRestartShiftCta } from "@/lib/shift-ops-gate";
 
@@ -51,6 +51,7 @@ export default function MoreScreen() {
     endShift,
     restartShift,
     restartTracking,
+    recheckPermissions,
     isTracking,
     unhealthyReason,
     showBatteryHint,
@@ -61,7 +62,8 @@ export default function MoreScreen() {
   useFocusEffect(
     useCallback(() => {
       void getErrorLog().then(setErrorLog);
-    }, []),
+      void recheckPermissions();
+    }, [recheckPermissions]),
   );
 
   useEffect(() => {
@@ -88,7 +90,10 @@ export default function MoreScreen() {
       ? t("more.trackBackground")
       : trackingMode === "foreground"
         ? t("more.trackForeground")
-        : t("more.trackOff");
+        : activeShift?.trackingEnabled &&
+            isBackgroundLocationGrantedStatus(backgroundPermission)
+          ? t("more.trackStarting")
+          : t("more.trackOff");
 
   const trackingBroken =
     !!activeShift &&

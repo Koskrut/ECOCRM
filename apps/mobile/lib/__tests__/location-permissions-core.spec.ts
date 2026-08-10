@@ -5,6 +5,7 @@ const {
   resolveBackgroundPermissionStatus,
   isBackgroundLocationGrantedStatus,
   shouldSkipBackgroundPermissionPrompt,
+  shouldShowBackgroundRequiredDialog,
 } = require("../location-permissions-core");
 
 describe("resolveBackgroundPermissionStatus", () => {
@@ -43,5 +44,30 @@ describe("isBackgroundLocationGrantedStatus / shouldSkipBackgroundPermissionProm
     assert.equal(shouldSkipBackgroundPermissionPrompt("granted", false), true);
     assert.equal(shouldSkipBackgroundPermissionPrompt("denied", false), false);
     assert.equal(shouldSkipBackgroundPermissionPrompt("undetermined", null), false);
+  });
+});
+
+describe("shouldShowBackgroundRequiredDialog", () => {
+  it("shows dialog only when foreground granted but background is not", () => {
+    assert.equal(
+      shouldShowBackgroundRequiredDialog({ foreground: "granted", background: "denied" }),
+      true,
+    );
+    assert.equal(
+      shouldShowBackgroundRequiredDialog({ foreground: "granted", background: "undetermined" }),
+      true,
+    );
+    assert.equal(
+      shouldShowBackgroundRequiredDialog({ foreground: "granted", background: null }),
+      true,
+    );
+    assert.equal(
+      shouldShowBackgroundRequiredDialog({ foreground: "granted", background: "granted" }),
+      false,
+    );
+    assert.equal(
+      shouldShowBackgroundRequiredDialog({ foreground: "denied", background: "denied" }),
+      false,
+    );
   });
 });

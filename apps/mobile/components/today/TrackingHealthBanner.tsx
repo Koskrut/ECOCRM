@@ -9,6 +9,7 @@ import { useTheme } from "@/lib/design/theme-context";
 import { t } from "@/lib/i18n";
 import {
   isAndroid,
+  isBackgroundLocationGrantedStatus,
   openBatteryOptimizationSettings,
   openLocationPermissionSettings,
 } from "@/lib/location-permissions";
@@ -37,7 +38,9 @@ export function TrackingHealthBanner({
   const theme = useTheme();
 
   const needsBackground =
-    backgroundPermission != null && backgroundPermission !== "granted" && trackingMode !== "none";
+    backgroundPermission != null &&
+    !isBackgroundLocationGrantedStatus(backgroundPermission) &&
+    trackingMode !== "none";
   const needsBattery =
     isAndroid() &&
     shouldShowBatteryOptimizationWarning({

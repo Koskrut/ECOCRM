@@ -44,3 +44,12 @@ export function shouldSkipBackgroundPermissionPrompt(
     resolveBackgroundPermissionStatus(expoStatus, nativeGranted),
   );
 }
+
+/** Whether the «Always» / backgroundRequired dialog should be shown to the user. */
+export function shouldShowBackgroundRequiredDialog(input: {
+  foreground: PermissionStatusString;
+  background: PermissionStatusString | null;
+}): boolean {
+  if (input.foreground !== "granted") return false;
+  return !isBackgroundLocationGrantedStatus(input.background);
+}
