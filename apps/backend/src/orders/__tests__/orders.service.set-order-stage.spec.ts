@@ -271,6 +271,10 @@ describe("OrdersService.setOrderStage", () => {
       pipeline,
       {} as never,
       { notifyStageChanged: async () => undefined } as never,
+      {
+        applyReservationPolicy: async () => undefined,
+        syncActiveReservationsForOrder: async () => undefined,
+      } as never,
     );
 
     await svc.setOrderStage("o1", "CANCELED", undefined, "test cancel");

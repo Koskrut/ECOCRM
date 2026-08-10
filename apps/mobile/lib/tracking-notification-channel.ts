@@ -3,14 +3,14 @@ import { Platform } from "react-native";
 
 export const FIELD_TRACKING_CHANNEL_ID = "field-tracking";
 
-/** Best-effort low-importance channel for foreground location service notification. */
+/** Best-effort default-importance channel for foreground location service notification. */
 export async function ensureFieldTrackingNotificationChannel(): Promise<void> {
   if (Platform.OS !== "android") return;
 
   try {
     await Notifications.setNotificationChannelAsync(FIELD_TRACKING_CHANNEL_ID, {
       name: "GPS трекінг",
-      importance: Notifications.AndroidImportance.LOW,
+      importance: Notifications.AndroidImportance.DEFAULT,
       vibrationPattern: null,
       enableVibrate: false,
       showBadge: false,

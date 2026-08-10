@@ -30,6 +30,12 @@ export const REANCHOR_MIN_CLUSTER = 3;
 /** Max pairwise distance (m) among reanchor cluster members. */
 export const REANCHOR_MAX_SPREAD_M = 2_000;
 
+/**
+ * After this silence, next in-UA sample reanchors (single point).
+ * Aligns with mobile REANCHOR_GAP_MS — covers OEM FGS kill ~15–20 min.
+ */
+export const REANCHOR_GAP_MS = 15 * 60_000;
+
 export type GpsSamplePoint = {
   lat: number;
   lng: number;
@@ -156,20 +162,24 @@ export function filterGpsSampleRelative(
 
   const prevAt = toTimeMs(prev.clientRecordedAt);
   const nextAt = toTimeMs(next.clientRecordedAt);
+  const gapMs =
+    Number.isFinite(prevAt) && Number.isFinite(nextAt) ? nextAt - prevAt : NaN;
   const distM = haversineDistanceM(prev.lat, prev.lng, next.lat, next.lng);
+
+  // Long silence after FGS kill → accept (gap reanchor); do not require 3-point cluster.
+  if (Number.isFinite(gapMs) && gapMs >= REANCHOR_GAP_MS) {
+    return { accept: true };
+  }
+
   if (distM < MIN_DISTANCE_DEDUP_M) {
-    if (
-      Number.isFinite(prevAt) &&
-      Number.isFinite(nextAt) &&
-      nextAt - prevAt >= KEEPALIVE_INTERVAL_MS
-    ) {
+    if (Number.isFinite(gapMs) && gapMs >= KEEPALIVE_INTERVAL_MS) {
       return { accept: true };
     }
     return { accept: false, reason: "duplicate" };
   }
 
   if (Number.isFinite(prevAt) && Number.isFinite(nextAt)) {
-    const dtS = (nextAt - prevAt) / 1000;
+    const dtS = gapMs / 1000;
     if (dtS > 0) {
       const speedKmh = (distM / 1000 / dtS) * 3600;
       if (speedKmh > MAX_IMPLAUSIBLE_SPEED_KMH) {
@@ -246,10 +256,21 @@ export class GpsTrackFilterSession {
     }
     next = { ...next, lat: region.lat, lng: region.lng };
 
+    const prevAt = this.prev ? toTimeMs(this.prev.clientRecordedAt) : NaN;
+    const nextAt = toTimeMs(next.clientRecordedAt);
+    const gapMs =
+      Number.isFinite(prevAt) && Number.isFinite(nextAt) ? nextAt - prevAt : NaN;
+
     const verdict = filterGpsSampleRelative(this.prev, next);
     if (verdict.accept) {
+      const gapReanchor =
+        this.prev != null && Number.isFinite(gapMs) && gapMs >= REANCHOR_GAP_MS;
       this.prev = next;
       this.pendingTeleports = [];
+      if (gapReanchor) {
+        this.reanchorUsedFlag = true;
+        return { accept: true, reanchor: true };
+      }
       return verdict;
     }
 

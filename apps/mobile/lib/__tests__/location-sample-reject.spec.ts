@@ -84,6 +84,7 @@ describe("describeRejectBatch", () => {
 
   it("humanizes teleport after gap", () => {
     assert.match(describeRejectBatch({ teleport: 1 }), /teleport after gap/i);
+    assert.doesNotMatch(describeRejectBatch({ teleport: 1 }), /batch dropped/i);
   });
 });
 

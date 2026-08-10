@@ -10,7 +10,8 @@ export type NotificationType =
   | "TELEGRAM_MESSAGE"
   | "META_INSTAGRAM_MESSAGE"
   | "META_FACEBOOK_MESSAGE"
-  | "FIELD_SHIFT_CLOSE_REMINDER";
+  | "FIELD_SHIFT_CLOSE_REMINDER"
+  | "FIELD_GPS_STALE";
 
 export type UserNotification = {
   id: string;

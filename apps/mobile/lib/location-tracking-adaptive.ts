@@ -5,6 +5,7 @@ import { AppState } from "react-native";
 import { STORAGE_KEYS } from "./location-tracking-buffer";
 import { FIELD_LOCATION_TASK } from "./location-tracking-config";
 import {
+  BACKGROUND_FGS_TIER,
   DEFAULT_TIER,
   watchOptionsForTier,
   type SamplingTier,
@@ -40,8 +41,9 @@ export function locationOptionsForWatch(opts: WatchOptions): Location.LocationOp
   };
 }
 
-export function backgroundOptionsForTier(tier: SamplingTier): Location.LocationTaskOptions {
-  const opts = watchOptionsForTier(tier);
+/** Background FGS always uses a fixed city-tier profile (no idle / distanceInterval: 0). */
+export function backgroundOptionsForTier(_tier?: SamplingTier): Location.LocationTaskOptions {
+  const opts = watchOptionsForTier(BACKGROUND_FGS_TIER);
   return {
     accuracy: opts.accuracy,
     timeInterval: opts.timeInterval,
@@ -93,7 +95,6 @@ export async function applyAdaptiveTier(
           await setPendingAdaptiveTier(tier);
           return;
         }
-        await restartBackgroundWatch(tier);
         setCurrentForegroundTier(tier);
         await clearPendingAdaptiveTier();
         return;

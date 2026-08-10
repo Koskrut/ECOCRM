@@ -24,8 +24,20 @@ function mockReturnPackages() {
   } as unknown as ReturnPackagesSvc;
 }
 
+function mockMaterialReservations() {
+  return {
+    applyReservationPolicy: async () => undefined,
+    syncActiveReservationsForOrder: async () => undefined,
+  } as never;
+}
+
 function createService(prisma: PrismaSvc, integrations = mockIntegrations()) {
-  return new OrderReturnsService(prisma, integrations, mockReturnPackages());
+  return new OrderReturnsService(
+    prisma,
+    integrations,
+    mockMaterialReservations(),
+    mockReturnPackages(),
+  );
 }
 
 describe("OrderReturnsService", () => {
@@ -568,7 +580,12 @@ describe("OrderReturnsService", () => {
       syncLinkedReturnsLogistics: async () => {},
     } as unknown as ReturnPackagesSvc;
 
-    const svc = new OrderReturnsService(prisma, mockIntegrations(), returnPackages);
+    const svc = new OrderReturnsService(
+      prisma,
+      mockIntegrations(),
+      mockMaterialReservations(),
+      returnPackages,
+    );
     await svc.create("o1", { itemsPending: true, ttnNumber: "20450000000000" });
 
     assert.equal(createdPayload?.itemsPending, true);

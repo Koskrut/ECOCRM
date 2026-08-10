@@ -26,6 +26,7 @@ import {
   assertContactExternalCodeToLeaveNew,
   isNewOrderStage,
 } from "../orders/order-stage-prerequisites";
+import { OrderMaterialReservationService } from "../orders/order-material-reservation.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { SettingsService } from "../settings/settings.service";
 import { kyivWallToUtc } from "../crm-timezone";
@@ -71,6 +72,7 @@ export class NpTtnService {
     private readonly prisma: PrismaService,
     private readonly np: NpClient,
     private readonly settings: SettingsService,
+    private readonly materialReservations: OrderMaterialReservationService,
   ) {}
 
   // ======================
@@ -1090,6 +1092,12 @@ export class NpTtnService {
         ...statusUpdate,
       },
     });
+    if (statusUpdate.orderStage != null) {
+      await this.materialReservations.applyReservationPolicy(
+        order.id,
+        statusUpdate.orderStage as OrderStage,
+      );
+    }
   }
 
   // ======================
@@ -1943,6 +1951,9 @@ export class NpTtnService {
       updateData.financialStatus = newFields.financialStatus;
     }
 
+    const nextStage =
+      typeof updateData.orderStage === "string" ? (updateData.orderStage as OrderStage) : null;
+
     await this.prisma.$transaction(async (tx) => {
       await tx.order.update({
         where: { id: order.id },
@@ -1962,6 +1973,11 @@ export class NpTtnService {
             // updatedAt в Prisma @updatedAt обновится сам на update
           },
         });
+      }
+
+      // NP used to write orderStage directly and leave ACTIVE HARD reservations stuck.
+      if (nextStage) {
+        await this.materialReservations.applyReservationPolicy(order.id, nextStage, tx);
       }
     });
 

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { isForeignOrderCurrency, orderCurrencySymbol } from "@/lib/base-currency";
 import { formatOrderAmount } from "@/lib/formatOrderAmount";
 import { formatDate } from "@/lib/crmDatetime";
@@ -938,8 +938,15 @@ function AddCashPaymentModal({
   const [note, setNote] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const idempotencyKeyRef = useRef<string | null>(null);
+  const lastSubmitAtRef = useRef(0);
 
   const submit = async () => {
+    if (submitting) return;
+    const now = Date.now();
+    if (now - lastSubmitAtRef.current < 500) return;
+    lastSubmitAtRef.current = now;
+
     const num = parseFloat(amount.replace(/,/g, "."));
     if (!Number.isFinite(num) || num <= 0) {
       setError(pt.enterAmount);
@@ -948,9 +955,15 @@ function AddCashPaymentModal({
     setSubmitting(true);
     setError(null);
     try {
+      if (!idempotencyKeyRef.current) {
+        idempotencyKeyRef.current = crypto.randomUUID();
+      }
       const r = await fetch(`${apiBaseUrl}/payments/cash`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "Idempotency-Key": idempotencyKeyRef.current,
+        },
         credentials: "include",
         body: JSON.stringify({
           orderId,
@@ -964,6 +977,7 @@ function AddCashPaymentModal({
         const t = await r.text();
         throw new Error(t || `HTTP ${r.status}`);
       }
+      idempotencyKeyRef.current = null;
       onSaved();
     } catch (e) {
       setError(e instanceof Error ? e.message : pt.saveFailed);

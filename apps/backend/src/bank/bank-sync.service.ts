@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { Injectable, Logger } from "@nestjs/common";
 import { Prisma, TransactionDirection } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
@@ -7,20 +6,9 @@ import { BankStatementSkipError } from "./providers/types";
 import type { RawBankTransaction } from "./providers/types";
 import { MatchEngineService } from "./match-engine.service";
 import { BankTransactionClassifierService } from "./bank-transaction-classifier.service";
+import { computeTxHash, resolveBankTransactionDedupKey } from "./bank-dedup.util";
 
 const CURSOR_MAX_AGE_MS = 15 * 60 * 1000;
-
-function computeTxHash(tx: RawBankTransaction): string {
-  const payload = [
-    tx.bookedAt instanceof Date ? tx.bookedAt.toISOString() : String(tx.bookedAt),
-    tx.amount,
-    tx.currency,
-    tx.direction,
-    tx.description ?? "",
-    tx.counterpartyName ?? "",
-  ].join("|");
-  return createHash("sha256").update(payload).digest("hex");
-}
 
 @Injectable()
 export class BankSyncService {
@@ -249,8 +237,7 @@ export class BankSyncService {
     provider: { resolveStableDedupKey?(tx: RawBankTransaction): string | null } | undefined,
     tx: RawBankTransaction,
   ) {
-    const stableProviderKey = provider?.resolveStableDedupKey?.(tx) ?? null;
-    const dedupKey = stableProviderKey ?? tx.externalId ?? tx.hash ?? computeTxHash(tx);
+    const dedupKey = resolveBankTransactionDedupKey(provider, tx);
     const hash = tx.hash ?? computeTxHash(tx);
     const ownAccounts = await this.classifier.getOwnAccountHints();
     const classification = this.classifier.technicalCreateFields(
@@ -261,6 +248,26 @@ export class BankSyncService {
       },
       ownAccounts,
     );
+    const updateFields = {
+      externalId: tx.externalId ?? undefined,
+      hash,
+      dedupKey,
+      rawPayload: tx.rawPayload ? (tx.rawPayload as object) : undefined,
+    };
+
+    if (tx.externalId) {
+      const existing = await this.prisma.bankTransaction.findFirst({
+        where: { bankAccountId, externalId: tx.externalId },
+      });
+      if (existing) {
+        await this.prisma.bankTransaction.update({
+          where: { id: existing.id },
+          data: updateFields,
+        });
+        return;
+      }
+    }
+
     await this.prisma.bankTransaction.upsert({
       where: { bankAccountId_dedupKey: { bankAccountId, dedupKey } },
       create: {
@@ -281,11 +288,7 @@ export class BankSyncService {
         ignoreSource: classification.ignoreSource,
         ignoredAt: classification.ignoredAt,
       },
-      update: {
-        externalId: tx.externalId ?? undefined,
-        hash,
-        rawPayload: tx.rawPayload ? (tx.rawPayload as object) : undefined,
-      },
+      update: updateFields,
     });
   }
 }

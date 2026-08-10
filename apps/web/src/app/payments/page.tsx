@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Fragment, Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { apiHttp } from "@/lib/api/client";
 import { formatPhoneDisplay } from "@/lib/formatPhone";
@@ -398,6 +398,8 @@ function PaymentsContent() {
   );
   const [addCashNote, setAddCashNote] = useState("");
   const [addCashSubmitting, setAddCashSubmitting] = useState(false);
+  const addCashIdempotencyKeyRef = useRef<string | null>(null);
+  const addCashLastSubmitAtRef = useRef(0);
   const [splitTx, setSplitTx] = useState<BankTransaction | null>(null);
   const [splitFromEditPayment, setSplitFromEditPayment] = useState<PaymentItem | null>(null);
   const [splitRows, setSplitRows] = useState<{ orderId: string; orderNumber: string; amount: string }[]>([]);
@@ -1038,6 +1040,11 @@ function PaymentsContent() {
   }, [editContactId, fetchOrdersForEdit]);
 
   const submitAddCashPayment = async () => {
+    if (addCashSubmitting) return;
+    const now = Date.now();
+    if (now - addCashLastSubmitAtRef.current < 500) return;
+    addCashLastSubmitAtRef.current = now;
+
     if (!addCashOrderId) {
       pushToast(t.payments.errors.selectOrder, "error");
       return;
@@ -1049,13 +1056,21 @@ function PaymentsContent() {
     }
     setAddCashSubmitting(true);
     try {
-      await apiHttp.post("/payments/cash", {
-        orderId: addCashOrderId,
-        amount: num,
-        currency: addCashCurrency,
-        paidAt: new Date(addCashPaidAt).toISOString(),
-        note: addCashNote.trim() || undefined,
-      });
+      if (!addCashIdempotencyKeyRef.current) {
+        addCashIdempotencyKeyRef.current = crypto.randomUUID();
+      }
+      await apiHttp.post(
+        "/payments/cash",
+        {
+          orderId: addCashOrderId,
+          amount: num,
+          currency: addCashCurrency,
+          paidAt: new Date(addCashPaidAt).toISOString(),
+          note: addCashNote.trim() || undefined,
+        },
+        { headers: { "Idempotency-Key": addCashIdempotencyKeyRef.current } },
+      );
+      addCashIdempotencyKeyRef.current = null;
       setShowAddCashPayment(false);
       setAddCashContactId(null);
       setAddCashContactName("");

@@ -6,8 +6,11 @@ export const MIN_DISTANCE_DEDUP_M = 15;
 /** Accept a near-duplicate sample after this idle span (keepalive for coverage). */
 export const KEEPALIVE_INTERVAL_MS = 3 * 60_000;
 
-/** After this gap, next sample reanchors (no teleport vs stale prev) — aligns with backend reanchor. */
-export const REANCHOR_GAP_MS = 30 * 60_000;
+/**
+ * After this gap, next in-UA sample reanchors (no teleport vs stale prev).
+ * 15 min covers typical OEM FGS kill windows; keep in sync with backend gps-sample-filter.
+ */
+export const REANCHOR_GAP_MS = 15 * 60_000;
 
 function haversineDistanceM(aLat: number, aLng: number, bLat: number, bLng: number): number {
   const R = 6371000;
@@ -32,6 +35,10 @@ export type LocationSampleInput = {
 export type FilterLocationSampleResult = {
   accept: boolean;
   reason?: "bad_accuracy" | "duplicate" | "teleport";
+  /** True when accepted only because gap ≥ REANCHOR_GAP_MS. */
+  reanchor?: boolean;
+  gapMs?: number;
+  distM?: number;
 };
 
 function toTimeMs(value: string): number {
@@ -59,41 +66,69 @@ export function filterLocationSample(
 
   const prevAt = toTimeMs(prev.clientRecordedAt);
   const nextAt = toTimeMs(next.clientRecordedAt);
+  const gapMs =
+    Number.isFinite(prevAt) && Number.isFinite(nextAt) ? nextAt - prevAt : NaN;
+  const distM = haversineDistanceM(prev.lat, prev.lng, next.lat, next.lng);
 
-  if (
-    Number.isFinite(prevAt) &&
-    Number.isFinite(nextAt) &&
-    nextAt - prevAt >= REANCHOR_GAP_MS
-  ) {
-    return { accept: true };
+  // Long silence (FGS kill / minimize) → reanchor; do not treat as teleport.
+  if (Number.isFinite(gapMs) && gapMs >= REANCHOR_GAP_MS) {
+    return { accept: true, reanchor: true, gapMs, distM };
   }
 
-  const distM = haversineDistanceM(prev.lat, prev.lng, next.lat, next.lng);
   if (distM < MIN_DISTANCE_DEDUP_M) {
-    if (
-      Number.isFinite(prevAt) &&
-      Number.isFinite(nextAt) &&
-      nextAt - prevAt >= KEEPALIVE_INTERVAL_MS
-    ) {
-      return { accept: true };
+    if (Number.isFinite(gapMs) && gapMs >= KEEPALIVE_INTERVAL_MS) {
+      return { accept: true, gapMs, distM };
     }
-    return { accept: false, reason: "duplicate" };
+    return { accept: false, reason: "duplicate", gapMs, distM };
   }
 
   if (Number.isFinite(prevAt) && Number.isFinite(nextAt)) {
-    const dtS = (nextAt - prevAt) / 1000;
+    const dtS = gapMs / 1000;
     if (dtS > 0) {
       const speedKmh = (distM / 1000 / dtS) * 3600;
       if (speedKmh > MAX_IMPLAUSIBLE_SPEED_KMH) {
-        return { accept: false, reason: "teleport" };
+        return { accept: false, reason: "teleport", gapMs, distM };
       }
     } else {
       // Same-ts / older-ts jump — match backend (would otherwise skip speed check).
-      return { accept: false, reason: "teleport" };
+      return { accept: false, reason: "teleport", gapMs, distM };
     }
   }
 
-  return { accept: true };
+  return { accept: true, gapMs, distM };
+}
+
+/** Stable ascending time order before POST — matches backend sortGpsSamplesByTime. */
+export function sortSamplesByTime<T extends { clientRecordedAt: string }>(samples: T[]): T[] {
+  return [...samples].sort((a, b) => {
+    const ta = new Date(a.clientRecordedAt).getTime();
+    const tb = new Date(b.clientRecordedAt).getTime();
+    const aOk = Number.isFinite(ta);
+    const bOk = Number.isFinite(tb);
+    if (!aOk && !bOk) return 0;
+    if (!aOk) return 1;
+    if (!bOk) return -1;
+    return ta - tb;
+  });
+}
+
+/** Warn line for client teleport reject — prev/next + gap for Gumenyuk triage. */
+export function formatTeleportRejectLog(
+  prev: LocationSampleInput,
+  next: LocationSampleInput,
+  gapMs?: number,
+  distM?: number,
+): string {
+  const gapMin =
+    gapMs != null && Number.isFinite(gapMs) ? (gapMs / 60_000).toFixed(1) : "?";
+  const dist =
+    distM != null && Number.isFinite(distM) ? distM.toFixed(0) : "?";
+  return (
+    `location sample skipped: teleport after gap` +
+    ` gapMin=${gapMin} distM=${dist}` +
+    ` prev=${prev.lat.toFixed(5)},${prev.lng.toFixed(5)}` +
+    ` next=${next.lat.toFixed(5)},${next.lng.toFixed(5)}`
+  );
 }
 
 export function speedKmhBetween(

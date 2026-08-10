@@ -21,6 +21,7 @@ import {
   computeFinancialStatusFromOrder,
   orderStageToDeliveryStatus,
 } from "../../orders/order-status-sync.mapper";
+import { OrderMaterialReservationService } from "../../orders/order-material-reservation.service";
 import { ensureOrderTtnFromBitrix } from "./bitrix-order-ttn.helper";
 import {
   syncCompanyAddressesFromBitrixRow,
@@ -38,6 +39,7 @@ export class BitrixDeltaSyncService {
     private readonly prisma: PrismaService,
     private readonly syncState: BitrixSyncStateService,
     private readonly client: BitrixClient,
+    private readonly materialReservations: OrderMaterialReservationService,
     @Inject(ModuleStateService) private readonly modules: ModuleStateService,
   ) {}
 
@@ -316,6 +318,8 @@ export class BitrixDeltaSyncService {
           orderId = createdOrder.id;
           created++;
         }
+        // Bitrix writes orderStage directly — keep reservations in sync (consume/release).
+        await this.materialReservations.applyReservationPolicy(orderId, data.orderStage);
         if (data.ttnNumber) await ensureOrderTtnFromBitrix(this.prisma, orderId, data.ttnNumber);
       }
       if (items.length > 0) {
@@ -589,6 +593,9 @@ export class BitrixDeltaSyncService {
         },
       });
     }
+
+    // After stage + lines: consume/release stuck ACTIVE or rebuild open-pipeline qty.
+    await this.materialReservations.applyReservationPolicy(orderId, data.orderStage);
 
     return true;
   }

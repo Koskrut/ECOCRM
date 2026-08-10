@@ -5,6 +5,7 @@ import {
   GpsTrackFilterSession,
   MAX_IMPLAUSIBLE_SPEED_KMH,
   MIN_DISTANCE_DEDUP_M,
+  REANCHOR_GAP_MS,
   REANCHOR_MIN_CLUSTER,
   TRACK_MAX_ACCURACY_M,
   classifyUaFieldCoords,
@@ -133,6 +134,36 @@ describe("filterGpsSample", () => {
     const result = filterGpsSample(prev, next);
     assert.equal(result.accept, false);
     assert.equal(result.reason, "teleport");
+  });
+});
+
+describe("Gumenyuk gap reanchor (2026-08-07)", () => {
+  it("20 min gap same ~100m area → accept with reanchor (not mass teleport)", () => {
+    assert.equal(REANCHOR_GAP_MS, 15 * 60_000);
+    const session = new GpsTrackFilterSession(sample(46.4825, 30.7233, 0, 20));
+    const afterGap = sample(46.4832, 30.7235, 20 * 60, 25);
+    const verdict = session.consider(afterGap);
+    assert.equal(verdict.accept, true);
+    assert.equal(verdict.reanchor, true);
+
+    // Follow-up points nearby (beyond dedup) must not cascade teleport rejects.
+    const more = [
+      sample(46.4840, 30.7245, 20 * 60 + 90, 20),
+      sample(46.4850, 30.7255, 20 * 60 + 180, 20),
+    ];
+    for (const s of more) {
+      const v = session.consider(s);
+      assert.equal(v.accept, true, `expected accept got ${v.reason}`);
+    }
+    assert.equal(session.getDroppedReasons().teleport ?? 0, 0);
+  });
+
+  it("short gap far jump still teleports (real jump, no gap reanchor)", () => {
+    const session = new GpsTrackFilterSession(sample(50.45, 30.52, 0, 20));
+    const jump = sample(46.4825, 30.7233, 60, 20);
+    const verdict = session.consider(jump);
+    assert.equal(verdict.accept, false);
+    assert.equal(verdict.reason, "teleport");
   });
 });
 

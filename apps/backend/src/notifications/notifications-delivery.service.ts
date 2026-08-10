@@ -58,7 +58,12 @@ export class NotificationsDeliveryService {
       },
     });
     if (!pref?.mobile) {
-      return;
+      const defaultMobile =
+        notification.type === "FIELD_SHIFT_CLOSE_REMINDER" ||
+        notification.type === "FIELD_GPS_STALE";
+      if (!defaultMobile) {
+        return;
+      }
     }
 
     const devices = await this.prisma.userPushDevice.findMany({

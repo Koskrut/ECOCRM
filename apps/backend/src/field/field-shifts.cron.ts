@@ -42,6 +42,34 @@ export class FieldShiftsCron {
     );
   }
 
+  /** Notify owners when GPS on an active shift has been stale >10 min. */
+  @Cron("*/5 * * * *", { timeZone: "Europe/Kyiv" })
+  async notifyStaleGpsEveryFiveMinutes() {
+    if (process.env.CRON_ENABLED !== "true") return;
+    if (process.env.MODULE_GATING_ENABLED === "true") {
+      const ok = await this.modules.isEffective(ModuleIds.Visits);
+      if (!ok) return;
+    }
+    return withAuditSource(
+      "cron",
+      "cron:field-gps-stale",
+      async () => {
+        try {
+          const r = await this.shifts.notifyStaleGpsShifts();
+          if (r.notified > 0) {
+            this.logger.log(
+              `GPS stale push sent: ${r.notified} (skipped ${r.skipped})`,
+            );
+          }
+        } catch (e: unknown) {
+          const msg = e instanceof Error ? e.message : String(e);
+          this.logger.error(`Failed to send GPS stale notifications: ${msg}`);
+        }
+      },
+      { job: "field-gps-stale" },
+    );
+  }
+
   /** Close stale field shifts once a day (Kyiv calendar). */
   @Cron("5 0 * * *", { timeZone: "Europe/Kyiv" })
   async closeStaleNightly() {

@@ -733,12 +733,26 @@ export class PaymentMatchingService {
       });
       if (!bankTx) return false;
 
+      if (bankTx.externalId) {
+        const siblingWithPayments = await tx.bankTransaction.findFirst({
+          where: {
+            bankAccountId: bankTx.bankAccountId,
+            externalId: bankTx.externalId,
+            id: { not: bankTx.id },
+            payments: { some: { status: "COMPLETED" } },
+          },
+        });
+        if (siblingWithPayments) return false;
+      }
+
       const order = await tx.order.findUnique({ where: { id: orderId } });
       if (!order) return false;
 
       const txAmount = Number(bankTx.amount);
-      const amount = txAmount;
       const allocated = sumBankTransactionAllocations(bankTx.payments);
+      const remaining = txAmount - allocated;
+      if (remaining <= BANK_ALLOCATION_EPSILON) return false;
+      const amount = remaining;
       if (allocationExceedsTransaction(allocated, amount, txAmount)) return false;
 
       const payment = await tx.payment.create({

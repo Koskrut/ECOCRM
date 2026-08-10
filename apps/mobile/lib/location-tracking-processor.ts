@@ -29,6 +29,12 @@ export type ProcessLocationResult = {
   watchOptions: WatchOptions;
   tierChanged: boolean;
   speedKmh: number | null;
+  rejectReason?: "bad_accuracy" | "duplicate" | "teleport";
+  reanchor?: boolean;
+  /** For teleport/reanchor triage logs. */
+  prevSample?: LocationSampleInput | null;
+  gapMs?: number;
+  distM?: number;
 };
 
 let lastAcceptedMemory: LocationSampleInput | null = null;
@@ -100,6 +106,10 @@ export async function processLocationUpdate(raw: RawLocationInput): Promise<Proc
       watchOptions: watchOptionsForTier(currentTier),
       tierChanged: false,
       speedKmh: null,
+      rejectReason: filterResult.reason,
+      prevSample: prev,
+      gapMs: filterResult.gapMs,
+      distM: filterResult.distM,
     };
   }
 
@@ -126,6 +136,10 @@ export async function processLocationUpdate(raw: RawLocationInput): Promise<Proc
     watchOptions: watchOptionsForTier(tier),
     tierChanged,
     speedKmh,
+    reanchor: filterResult.reanchor === true,
+    prevSample: prev,
+    gapMs: filterResult.gapMs,
+    distM: filterResult.distM,
   };
 }
 

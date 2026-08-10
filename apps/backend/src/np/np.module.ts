@@ -2,6 +2,7 @@
 import { forwardRef, Module } from "@nestjs/common";
 import { ScheduleModule } from "@nestjs/schedule";
 import { IntegrationPortsModule } from "../integration-ports/integration-ports.module";
+import { OrderMaterialReservationModule } from "../orders/order-material-reservation.module";
 import { OrderReturnsModule } from "../order-returns/order-returns.module";
 import { PrismaModule } from "../prisma/prisma.module";
 import { SettingsServiceModule } from "../settings/settings-service.module";
@@ -24,6 +25,7 @@ import { StoreNpController } from "../store/np/store-np.controller";
     SystemModule,
     ScheduleModule.forRoot(),
     SettingsServiceModule,
+    OrderMaterialReservationModule,
     forwardRef(() => OrderReturnsModule),
   ],
   controllers: [

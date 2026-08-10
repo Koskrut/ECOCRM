@@ -20,6 +20,7 @@ const NOTIFICATION_TYPE_LABELS: Record<NotificationType, string> = {
   META_INSTAGRAM_MESSAGE: "Повідомлення в Instagram Inbox",
   META_FACEBOOK_MESSAGE: "Повідомлення в Facebook Messenger Inbox",
   FIELD_SHIFT_CLOSE_REMINDER: "Нагадування закрити зміну (поле)",
+  FIELD_GPS_STALE: "GPS зупинився (поле)",
 };
 
 const ALL_TYPES: NotificationType[] = [
@@ -33,6 +34,7 @@ const ALL_TYPES: NotificationType[] = [
   "META_INSTAGRAM_MESSAGE",
   "META_FACEBOOK_MESSAGE",
   "FIELD_SHIFT_CLOSE_REMINDER",
+  "FIELD_GPS_STALE",
 ];
 
 function prefFor(

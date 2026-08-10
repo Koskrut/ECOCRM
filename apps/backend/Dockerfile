@@ -48,6 +48,9 @@ COPY --from=builder /repo/apps/backend/dist ./dist
 COPY --from=builder /repo/apps/backend/prisma ./prisma
 COPY --from=builder /repo/apps/backend/prisma.config.cjs ./prisma.config.cjs
 COPY --from=builder /repo/apps/backend/assets ./assets
+# Flat /app/scripts for runtime helpers; also under apps/backend for workspace npm scripts.
+COPY apps/backend/scripts ./scripts
+COPY apps/backend/scripts ./apps/backend/scripts
 
 EXPOSE 3001
 

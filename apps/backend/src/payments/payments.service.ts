@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Inject,
   Injectable,
@@ -44,6 +45,7 @@ import { SettingsService } from "../settings/settings.service";
 import { toUsd } from "../common/currency.util";
 import { buildPaymentSearchWhere } from "./payment-search.util";
 import { computeOrderDebtAndCredit, roundMoney } from "./order-finance.utils";
+import { cashPaymentPaidAtWindow } from "./cash-payment-dedup.util";
 import { randomUUID } from "node:crypto";
 
 export type AllocateMatchMeta = AllocateMatchMetaDto;
@@ -482,16 +484,14 @@ export class PaymentsService {
     }
 
     const txAmount = Number(tx.amount);
-    const alreadyAllocated = sumBankTransactionAllocations(tx.payments);
     const remaining = remainingBankTransactionAmount(txAmount, tx.payments);
     if (remaining <= 0) {
       throw new BadRequestException("Transaction already fully allocated");
     }
-    const amount = dto.amount != null ? dto.amount : remaining;
-    if (amount <= 0) throw new BadRequestException("Amount must be positive");
+    const requestedAmount = dto.amount != null ? dto.amount : remaining;
+    if (requestedAmount <= 0) throw new BadRequestException("Amount must be positive");
 
     const rates = await this.settings.getExchangeRates();
-    const amountUsd = convertToUsd(amount, tx.currency, rates);
 
     let paymentId: string | null = null;
     await this.prisma.$transaction(async (db) => {
@@ -502,15 +502,19 @@ export class PaymentsService {
       });
       if (!lockedTx) throw new NotFoundException("Transaction not found");
       const allocated = sumBankTransactionAllocations(lockedTx.payments);
+      const lockedRemaining = remainingBankTransactionAmount(txAmount, lockedTx.payments);
+      if (lockedRemaining <= 0) {
+        throw new BadRequestException("Transaction already fully allocated");
+      }
+      const amount = dto.amount != null ? requestedAmount : lockedRemaining;
+      if (amount > lockedRemaining + BANK_ALLOCATION_EPSILON) {
+        throw new BadRequestException("Amount exceeds remaining allocation");
+      }
       if (allocationExceedsTransaction(allocated, amount, txAmount)) {
         throw new BadRequestException("Transaction amount would be exceeded");
       }
-      // First full allocation path still prefers empty tx when amount covers all
-      // and caller did not intend residual top-up — allow residual top-ups.
-      if (allocated > BANK_ALLOCATION_EPSILON && alreadyAllocated <= BANK_ALLOCATION_EPSILON) {
-        // race: another writer allocated between read and lock
-      }
 
+      const amountUsd = convertToUsd(amount, lockedTx.currency, rates);
       const payment = await db.payment.create({
         data: {
           orderId: dto.orderId,
@@ -689,23 +693,58 @@ export class PaymentsService {
     }
 
     const currency = (dto.currency && dto.currency.trim()) || order.currency;
-    const rates = await this.settings.getExchangeRates();
-    const amountUsd = convertToUsd(amount, currency, rates);
-    await this.prisma.payment.create({
-      data: {
+
+    const duplicate = await this.prisma.payment.findFirst({
+      where: {
         orderId: dto.orderId,
-        contactId: dto.contactId ?? null,
-        companyId: dto.companyId ?? null,
-        sourceType: PaymentSourceType.CASH,
         amount,
         currency,
-        amountUsd,
-        paidAt,
         status: PaymentStatus.COMPLETED,
-        createdByUserId: actor?.id ?? null,
-        note: dto.note ?? null,
+        bankTransactionId: null,
+        sourceType: PaymentSourceType.CASH,
+        paidAt: cashPaymentPaidAtWindow(paidAt),
       },
     });
+    if (duplicate) {
+      return this.listByOrderId(dto.orderId, actor);
+    }
+
+    const rates = await this.settings.getExchangeRates();
+    const amountUsd = convertToUsd(amount, currency, rates);
+    try {
+      await this.prisma.payment.create({
+        data: {
+          orderId: dto.orderId,
+          contactId: dto.contactId ?? null,
+          companyId: dto.companyId ?? null,
+          sourceType: PaymentSourceType.CASH,
+          amount,
+          currency,
+          amountUsd,
+          paidAt,
+          status: PaymentStatus.COMPLETED,
+          createdByUserId: actor?.id ?? null,
+          note: dto.note ?? null,
+        },
+      });
+    } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+        const raced = await this.prisma.payment.findFirst({
+          where: {
+            orderId: dto.orderId,
+            amount,
+            currency,
+            status: PaymentStatus.COMPLETED,
+            bankTransactionId: null,
+            sourceType: PaymentSourceType.CASH,
+            paidAt: cashPaymentPaidAtWindow(paidAt),
+          },
+        });
+        if (raced) return this.listByOrderId(dto.orderId, actor);
+        throw new ConflictException("Duplicate cash payment");
+      }
+      throw err;
+    }
 
     await this.recalcOrder(dto.orderId);
     return this.listByOrderId(dto.orderId, actor);

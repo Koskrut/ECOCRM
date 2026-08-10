@@ -49,6 +49,9 @@ export const SAMPLING_TIERS: Record<SamplingTier, WatchOptions> = {
 
 export const DEFAULT_TIER: SamplingTier = "moving";
 
+/** Fixed FGS profile in background — never idle (distanceInterval: 0). */
+export const BACKGROUND_FGS_TIER: SamplingTier = "city";
+
 /** Speed thresholds (km/h) between accepted samples. */
 export const TIER_SPEED_MOVING_KMH = 15;
 export const TIER_SPEED_CITY_KMH = 3;

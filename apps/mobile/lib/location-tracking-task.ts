@@ -2,7 +2,6 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Location from "expo-location";
 import * as TaskManager from "expo-task-manager";
 
-import { applyAdaptiveTier } from "./location-tracking-adaptive";
 import { FIELD_LOCATION_TASK, FLUSH_INTERVAL_MS } from "./location-tracking-config";
 import {
   appendPendingSample,
@@ -13,8 +12,11 @@ import {
 import { shouldFlushByInterval } from "./location-flush-schedule";
 import { processLocationUpdate } from "./location-tracking-processor";
 import { hydrateApiBaseUrl } from "./config";
+import { appendErrorLog } from "./error-log";
+import { validateRawLocationSample } from "./location-region-check";
 import { sendPresenceHeartbeatFromTask } from "./presence-heartbeat";
 import { getLastFlushBlockReason, hydrateSessionAuthFromStorage } from "./session-auth";
+import { setPendingAdaptiveTier } from "./location-tracking-restart";
 import type { SamplingTier } from "./location-tracking-config";
 
 export { FIELD_LOCATION_TASK };
@@ -24,6 +26,57 @@ let foregroundWatchStarter: ((tier: SamplingTier) => Promise<void>) | null = nul
 
 export function setForegroundWatchStarter(fn: (tier: SamplingTier) => Promise<void>): void {
   foregroundWatchStarter = fn;
+}
+
+function isMockLocation(loc: Location.LocationObject): boolean {
+  return (
+    (loc as { mocked?: boolean }).mocked === true ||
+    (loc as { isFromMockProvider?: boolean }).isFromMockProvider === true
+  );
+}
+
+/** Testable core of the background task location loop. */
+export async function processFieldLocationBatch(
+  locations: Location.LocationObject[],
+): Promise<void> {
+  const block = getLastFlushBlockReason();
+  if (block === "wrong_day" || block === "auth_401" || block === "stale_gps") {
+    return;
+  }
+
+  for (const loc of locations) {
+    const c = loc.coords;
+    const validated = validateRawLocationSample({
+      lat: c.latitude,
+      lng: c.longitude,
+      accuracyM:
+        typeof c.accuracy === "number" && Number.isFinite(c.accuracy) ? c.accuracy : undefined,
+      mocked: isMockLocation(loc),
+    });
+    if (!validated.ok) {
+      void appendErrorLog(validated.logLine, "warn");
+      continue;
+    }
+
+    const result = await processLocationUpdate({
+      lat: validated.lat,
+      lng: validated.lng,
+      accuracyM:
+        typeof c.accuracy === "number" && Number.isFinite(c.accuracy) ? c.accuracy : undefined,
+      clientRecordedAt: new Date(loc.timestamp).toISOString(),
+    });
+
+    if (result.accepted && result.sample) {
+      const count = await appendPendingSample(result.sample);
+      void maybeFlushAfterAppend(count).catch(() => undefined);
+      void sendPresenceHeartbeatFromTask().catch(() => undefined);
+    }
+
+    if (result.tierChanged) {
+      // Background task must never stop/start FGS — defer tier apply to AppState=active.
+      await setPendingAdaptiveTier(result.tier);
+    }
+  }
 }
 
 /**
@@ -49,60 +102,12 @@ if (!TaskManager.isTaskDefined(FIELD_LOCATION_TASK)) {
 
     const locations = (data as { locations?: Location.LocationObject[] } | undefined)?.locations;
 
-    const block = getLastFlushBlockReason();
-    if (block === "wrong_day" || block === "auth_401" || block === "stale_gps") {
-      await tryIntervalFlush().catch(() => undefined);
-      return;
-    }
-
     if (!locations?.length) {
       await tryIntervalFlush().catch(() => undefined);
       return;
     }
 
-    for (const loc of locations) {
-      const c = loc.coords;
-      const mocked =
-        (loc as { mocked?: boolean }).mocked === true ||
-        (loc as { isFromMockProvider?: boolean }).isFromMockProvider === true;
-      if (mocked) {
-        // Do not buffer mock/Lima emulator points (reason=mock).
-        continue;
-      }
-      const lat = c.latitude;
-      const lng = c.longitude;
-      if (
-        !Number.isFinite(lat) ||
-        !Number.isFinite(lng) ||
-        lat < 44 ||
-        lat > 53 ||
-        lng < 22 ||
-        lng > 41
-      ) {
-        continue;
-      }
-      const result = await processLocationUpdate({
-        lat,
-        lng,
-        accuracyM:
-          typeof c.accuracy === "number" && Number.isFinite(c.accuracy) ? c.accuracy : undefined,
-        clientRecordedAt: new Date(loc.timestamp).toISOString(),
-      });
-
-      if (result.accepted && result.sample) {
-        const count = await appendPendingSample(result.sample);
-        void maybeFlushAfterAppend(count).catch(() => undefined);
-        void sendPresenceHeartbeatFromTask().catch(() => undefined);
-      }
-
-      if (result.tierChanged) {
-        try {
-          await applyAdaptiveTier(result.tier, foregroundWatchStarter ?? (async () => {}));
-        } catch {
-          /* tier restart best-effort */
-        }
-      }
-    }
+    await processFieldLocationBatch(locations);
 
     try {
       await flushPendingSamples();

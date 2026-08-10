@@ -6,6 +6,8 @@ const {
   REANCHOR_GAP_MS,
   TRACK_MAX_ACCURACY_M,
   filterLocationSample,
+  formatTeleportRejectLog,
+  sortSamplesByTime,
 } = require("../location-sample-filter");
 
 function sample(lat: number, lng: number, seconds: number, accuracyM: number) {
@@ -58,11 +60,47 @@ describe("filterLocationSample", () => {
     assert.equal(result.reason, "teleport");
   });
 
-  it("reanchors after 30+ min gap (accept far point, no client teleport)", () => {
-    assert.equal(REANCHOR_GAP_MS, 30 * 60_000);
+  it("reanchors after 15+ min gap (accept far point, no client teleport)", () => {
+    assert.equal(REANCHOR_GAP_MS, 15 * 60_000);
     const prev = sample(50.45, 30.52, 0, 20);
-    const next = sample(50.55, 30.62, 31 * 60, 20);
+    const next = sample(50.55, 30.62, 16 * 60, 20);
     const result = filterLocationSample(prev, next);
     assert.equal(result.accept, true);
+    assert.equal(result.reanchor, true);
+  });
+
+  it("Gumenyuk: 20 min gap same ~100m area accepts (no teleport)", () => {
+    const prev = sample(46.48, 30.72, 0, 20);
+    // ~90m north after 20 min — speed ≪ 150 km/h; also gap ≥ REANCHOR
+    const next = sample(46.4808, 30.72, 20 * 60, 20);
+    const result = filterLocationSample(prev, next);
+    assert.equal(result.accept, true);
+  });
+
+  it("still rejects short-gap teleport (real jump)", () => {
+    const prev = sample(50.45, 30.52, 0, 20);
+    const next = sample(51.0, 31.0, 60, 20);
+    const result = filterLocationSample(prev, next);
+    assert.equal(result.accept, false);
+    assert.equal(result.reason, "teleport");
+  });
+
+  it("formatTeleportRejectLog includes prev/next and gapMin", () => {
+    const prev = sample(50.45, 30.52, 0, 20);
+    const next = sample(51.0, 31.0, 60, 20);
+    const line = formatTeleportRejectLog(prev, next, 60_000, 80_000);
+    assert.match(line, /teleport after gap/);
+    assert.match(line, /gapMin=1\.0/);
+    assert.match(line, /prev=50\.45000,30\.52000/);
+    assert.match(line, /next=51\.00000,31\.00000/);
+  });
+
+  it("sortSamplesByTime orders reverse flush batches", () => {
+    const a = sample(50.45, 30.52, 120, 20);
+    const b = sample(50.45, 30.52, 0, 20);
+    const c = sample(50.45, 30.52, 60, 20);
+    const sorted = sortSamplesByTime([a, b, c]);
+    assert.equal(sorted[0].clientRecordedAt, b.clientRecordedAt);
+    assert.equal(sorted[2].clientRecordedAt, a.clientRecordedAt);
   });
 });

@@ -1,9 +1,13 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import Constants from "expo-constants";
 import * as IntentLauncher from "expo-intent-launcher";
 import * as Location from "expo-location";
 import { Alert, Linking, Platform } from "react-native";
 
+import { buildBatteryOptimizationPackageUri } from "./battery-intent";
 import { t } from "./i18n";
+
+export { buildBatteryOptimizationPackageUri } from "./battery-intent";
 
 export type TrackingPermissionStatus = {
   foreground: Location.PermissionStatus;
@@ -13,6 +17,9 @@ export type TrackingPermissionStatus = {
 };
 
 const BATTERY_PROMPT_KEY = "field_battery_opt_prompted";
+
+const ANDROID_PACKAGE =
+  Constants.expoConfig?.android?.package ?? "dental.suprex.crm.manager";
 
 /** Read current permission status without showing any system dialog. */
 export async function getTrackingPermissionStatus(): Promise<TrackingPermissionStatus> {
@@ -110,17 +117,33 @@ export async function openLocationPermissionSettings(): Promise<void> {
 }
 
 /**
+ * Open per-app battery optimization whitelist dialog (Android).
+ * Falls back to generic optimization list, then app settings.
+ */
+export async function openAppBatteryOptimizationSettings(): Promise<void> {
+  if (Platform.OS !== "android") return;
+  await IntentLauncher.startActivityAsync(
+    "android.settings.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" as IntentLauncher.ActivityAction,
+    { data: buildBatteryOptimizationPackageUri(ANDROID_PACKAGE) },
+  );
+}
+
+/**
  * Open the Android battery-optimization settings so the user can mark the app
- * as "not optimized". No-op on iOS. Falls back to app settings on failure.
+ * as "not optimized". No-op on iOS. Falls back to generic list then app settings.
  */
 export async function openBatteryOptimizationSettings(): Promise<void> {
   if (Platform.OS !== "android") return;
   try {
-    await IntentLauncher.startActivityAsync(
-      IntentLauncher.ActivityAction.IGNORE_BATTERY_OPTIMIZATION_SETTINGS,
-    );
+    await openAppBatteryOptimizationSettings();
   } catch {
-    await openAppSettings();
+    try {
+      await IntentLauncher.startActivityAsync(
+        IntentLauncher.ActivityAction.IGNORE_BATTERY_OPTIMIZATION_SETTINGS,
+      );
+    } catch {
+      await openAppSettings();
+    }
   }
 }
 

@@ -4,7 +4,34 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.145**.)_
+_(планируемые изменения после **0.2.146**.)_
+
+## [0.2.146] — 2026-08-10
+
+### Summary
+
+Патч **0.2.146**: material reservation policy; cash/bank dedup; GPS teleport reanchor + stale push; voice-gateway hardening.
+
+### Added
+
+- **OrderMaterialReservationService**: centralized release/consume/resync on stage change (Orders, NP TTN, Bitrix delta, returns); `reconcile:reservations` script.
+- **Cash payment dedup**: unique index + ±1 min window; bank Privat24 re-import merge by `externalId`.
+- **FIELD_GPS_STALE**: push when active shift GPS stale >10 min; cron every 5 min; web/mobile notification settings.
+- **GPS teleport reanchor**: distant cluster reanchors prev instead of poisoning the day track.
+- **Voice gateway**: host-network FreeSWITCH prep, GA Realtime 24kHz, FIFO RTP queue, idempotent media attach.
+
+### Changed
+
+- **Mobile GPS**: `validateRawLocationSample` in background task; deferred adaptive tier; battery-intent permission flow.
+- **Web payments**: duplicate cash guard UX; payments list polish.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.146`**.
+- **Миграции:** `20260807120000_payment_cash_dedup`, `20260808120000_field_gps_stale_notification` — **`prisma migrate deploy`** до **`up`**.
+- **Post-deploy:** `npm run reconcile:reservations` в backend-контейнере (снять зависшие ACTIVE резервы).
+- **Mobile**: новый **EAS build** обязателен.
+- **Voice gateway** (если модуль включён): rebuild `gateway-service` / `sip-adapter` после pull.
 
 ## [0.2.145] — 2026-08-06
 

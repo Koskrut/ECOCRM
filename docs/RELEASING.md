@@ -1,6 +1,6 @@
 # Выпуск релиза в Git (чеклист)
 
-Актуальная линия registry: **`0.2.x`**. Рекомендуемый стабильный patch для продакшена: **`v0.2.145`** / **`0.2.145`** (образы после успешного **Publish Registry Release**). Более старые патчи **`0.2.0`** … **`0.2.91`** для **`crm-backend-core`** на бою не рекомендуются без причины — см. `CHANGELOG.md` **[0.2.145]** и предыдущие секции. Предыдущая линия **`0.1.x`** — для клиентов до перехода.
+Актуальная линия registry: **`0.2.x`**. Рекомендуемый стабильный patch для продакшена: **`v0.2.146`** / **`0.2.146`** (образы после успешного **Publish Registry Release**). Более старые патчи **`0.2.0`** … **`0.2.91`** для **`crm-backend-core`** на бою не рекомендуются без причины — см. `CHANGELOG.md` **[0.2.146]** и предыдущие секции. Предыдущая линия **`0.1.x`** — для клиентов до перехода.
 
 ## Перед тегом
 
@@ -18,22 +18,33 @@ git fetch origin
 git checkout <ваша-ветка-релиза>   # например main
 git pull origin <ваша-ветка-релиза>
 
-git tag -a v0.2.145 -m "Release 0.2.145"
-git push origin v0.2.145
+git tag -a v0.2.146 -m "Release 0.2.146"
+git push origin v0.2.146
 ```
 
-После `git push origin v0.2.145` запустится workflow **Publish Registry Release** (триггер `push` тегов `v*`). Для **`v0.2.*`** при пустом **modules** in dispatch собираются **все** module-образы и полный манифест compose.
+После `git push origin v0.2.146` запустится workflow **Publish Registry Release** (триггер `push` тегов `v*`). Для **`v0.2.*`** при пустом **modules** in dispatch собираются **все** module-образы и полный манифест compose.
 
 Для **`v0.2.*`** при пустом поле **modules** в workflow собираются **все** опциональные module-образы (см. `publish-release.yml` и `CHANGELOG.md`).
 
 ## Альтернатива: без тега
 
-**Actions → Publish Registry Release → Run workflow** — поле `version`: `0.2.145`, при необходимости поле **modules** (пусто для `0.2.x` = все модули), ветка с нужным коммитом.
+**Actions → Publish Registry Release → Run workflow** — поле `version`: `0.2.146`, при необходимости поле **modules** (пусто для `0.2.x` = все модули), ветка с нужным коммитом.
 
 ## После успешного CI
 
-- Обновить у клиентов **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION`** в `.env` на **`0.2.145`**, `docker compose pull` и перезапуск.
+- Обновить у клиентов **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION`** в `.env` на **`0.2.146`**, `docker compose pull` и перезапуск.
 - При наличии новых миграций в релизе: **`prisma migrate deploy`** на стороне клиента (или сервис `backend-migrate` в compose).
+
+### Post-deploy: material reservations
+
+После каждого деплоя backend с изменениями резервов (или после миграции/импорта из Bitrix) — one-shot reconcile в контейнере backend, чтобы снять «зависшие» ACTIVE резервы на уже отгруженных/отменённых заказах:
+
+```bash
+docker compose -f compose.base.yml -f compose.client.yml --env-file .env \
+  exec backend npm run reconcile:reservations
+```
+
+Новый код сам снимает резервы при смене стадии через NP/Bitrix (`OrderMaterialReservationService.applyReservationPolicy`). Reconcile нужен для уже накопленных строк и после bulk-импорта.
 
 ## Compose на сервере клиента (SUPREX / install bundle)
 

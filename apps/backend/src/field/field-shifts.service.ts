@@ -10,8 +10,10 @@ import { EventEmitter2 } from "@nestjs/event-emitter";
 import type { AuthUser } from "../auth/auth.types";
 import { instantToKyivYmd, kyivDayBounds, todayYmdKyiv } from "../crm-timezone";
 import { NotificationsService } from "../notifications/notifications.service";
+import { GPS_STALE_THRESHOLD_MS } from "../presence/presence.constants";
 import { PrismaService } from "../prisma/prisma.service";
 import { RoutePlansService } from "../visits/route-plans.service";
+import { haversineDistanceM } from "../visits/visit-gps.verification";
 import {
   assertCanAccessOwner,
   getAllowedOwnerIds,
@@ -30,6 +32,43 @@ import type { FieldShiftTeamItem, FieldTeamTrackingRestartReason } from "./field
 
 const MAX_SAMPLES_BATCH = 250;
 const MAX_SAMPLES_READ = 500;
+
+/** First teleport reject in batch — structured warn for field triage. */
+export function formatAppendSamplesTeleportWarn(params: {
+  shiftId: string;
+  ownerId: string;
+  candidate: { lat: number; lng: number; accuracyM?: number | null; clientRecordedAt: Date };
+  prev: { lat: number; lng: number; clientRecordedAt: Date | string } | null | undefined;
+}): string {
+  const gapMin =
+    params.prev != null
+      ? (
+          (params.candidate.clientRecordedAt.getTime() -
+            new Date(params.prev.clientRecordedAt).getTime()) /
+          60_000
+        ).toFixed(1)
+      : "?";
+  let speedPart = "";
+  if (params.prev != null && gapMin !== "?" && Number(gapMin) > 0) {
+    const distM = haversineDistanceM(
+      params.prev.lat,
+      params.prev.lng,
+      params.candidate.lat,
+      params.candidate.lng,
+    );
+    const speedKmh = distM / 1000 / (Number(gapMin) / 60);
+    if (Number.isFinite(speedKmh)) {
+      speedPart = ` speedKmh=${speedKmh.toFixed(1)}`;
+    }
+  }
+  return (
+    `appendSamples teleport shiftId=${params.shiftId} ownerId=${params.ownerId}` +
+    ` prev=${params.prev ? `${params.prev.lat},${params.prev.lng}` : "null"}` +
+    ` candidate=${params.candidate.lat},${params.candidate.lng}` +
+    ` gapMin=${gapMin}${speedPart}` +
+    ` accuracyM=${params.candidate.accuracyM ?? "null"}`
+  );
+}
 
 @Injectable()
 export class FieldShiftsService {
@@ -131,6 +170,76 @@ export class FieldShiftsService {
         userId: shift.ownerId,
         shiftId: shift.id,
         dateYmd,
+      });
+      notified += 1;
+    }
+
+    return { notified, skipped };
+  }
+
+  /** Push owner when GPS on an active shift has been stale >10 min (deduped per stale window). */
+  async notifyStaleGpsShifts(): Promise<{ notified: number; skipped: number }> {
+    if (!this.notifications) {
+      return { notified: 0, skipped: 0 };
+    }
+
+    const nowMs = Date.now();
+    const staleBefore = new Date(nowMs - GPS_STALE_THRESHOLD_MS);
+    const dateYmd = todayYmdKyiv();
+    const todayKey = this.calendarDateKey(dateYmd);
+
+    const active = await this.prisma.fieldShift.findMany({
+      where: {
+        status: FieldShiftStatus.ACTIVE,
+        trackingEnabled: true,
+        date: todayKey,
+      },
+      select: {
+        id: true,
+        ownerId: true,
+        samples: {
+          orderBy: { clientRecordedAt: "desc" },
+          take: 1,
+          select: { clientRecordedAt: true },
+        },
+      },
+      orderBy: { startedAt: "asc" },
+    });
+
+    if (active.length === 0) {
+      return { notified: 0, skipped: 0 };
+    }
+
+    let notified = 0;
+    let skipped = 0;
+    const dedupeSince = new Date(nowMs - GPS_STALE_THRESHOLD_MS);
+
+    for (const shift of active) {
+      const lastSample = shift.samples[0];
+      if (!lastSample || lastSample.clientRecordedAt > staleBefore) {
+        skipped += 1;
+        continue;
+      }
+
+      const alreadySent = await this.prisma.userNotification.findFirst({
+        where: {
+          type: "FIELD_GPS_STALE",
+          entityType: "FIELD_SHIFT",
+          entityId: shift.id,
+          createdAt: { gte: dedupeSince },
+        },
+        select: { id: true },
+      });
+      if (alreadySent) {
+        skipped += 1;
+        continue;
+      }
+
+      await this.notifications.notifyFieldGpsStale({
+        userId: shift.ownerId,
+        shiftId: shift.id,
+        dateYmd,
+        lastSampleAt: lastSample.clientRecordedAt.toISOString(),
       });
       notified += 1;
     }
@@ -319,14 +428,32 @@ export class FieldShiftsService {
         rejected += 1;
         const reason = verdict.reason ?? "unknown";
         rejectReasons[reason] = (rejectReasons[reason] ?? 0) + 1;
-        if (
+        if (reason === "teleport" && rejectReasons[reason] === 1) {
+          this.logger.warn(
+            formatAppendSamplesTeleportWarn({
+              shiftId,
+              ownerId: actor.id,
+              candidate,
+              prev: session.prevSample,
+            }),
+          );
+        } else if (
           (reason === "out_of_region" || reason === "invalid_coords") &&
           rejectReasons[reason] === 1
         ) {
+          const prev = session.prevSample;
           this.logger.warn(
             `appendSamples ${reason} shiftId=${shiftId} ownerId=${actor.id}` +
               ` lat=${candidate.lat} lng=${candidate.lng}` +
               ` accuracyM=${candidate.accuracyM ?? "null"}` +
+              (prev
+                ? ` prev=${prev.lat},${prev.lng}` +
+                  ` gapMin=${(
+                    (candidate.clientRecordedAt.getTime() -
+                      new Date(prev.clientRecordedAt).getTime()) /
+                    60_000
+                  ).toFixed(1)}`
+                : " prev=null") +
               ` typeofLat=${typeof it.lat} typeofLng=${typeof it.lng}`,
           );
         }

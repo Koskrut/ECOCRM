@@ -52,6 +52,12 @@ describe("OrdersService.addManualLine", () => {
       {} as SettingsSvc,
       {} as IntegrationsSvc,
       {} as PipelineSvc,
+      {} as never,
+      {} as never,
+      {
+        applyReservationPolicy: async () => undefined,
+        syncActiveReservationsForOrder: async () => undefined,
+      } as never,
     );
 
     await svc.addManualLine("order-1", { name: "Послуга з ліда", qty: 1, price: 1500 });

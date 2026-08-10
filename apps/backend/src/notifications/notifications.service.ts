@@ -365,6 +365,7 @@ export class NotificationsService {
     if (!pref) {
       if (channel === "inApp") return true;
       if (channel === "mobile" && type === "FIELD_SHIFT_CLOSE_REMINDER") return true;
+      if (channel === "mobile" && type === "FIELD_GPS_STALE") return true;
       return false;
     }
     return pref[channel];
@@ -489,6 +490,23 @@ export class NotificationsService {
       entityType: "FIELD_SHIFT",
       entityId: params.shiftId,
       meta: { dateYmd: params.dateYmd },
+    });
+  }
+
+  async notifyFieldGpsStale(params: {
+    userId: string;
+    shiftId: string;
+    dateYmd: string;
+    lastSampleAt: string;
+  }): Promise<void> {
+    await this.create({
+      userId: params.userId,
+      type: "FIELD_GPS_STALE",
+      title: "GPS зупинився",
+      body: "Відкрийте CRM — GPS зупинився",
+      entityType: "FIELD_SHIFT",
+      entityId: params.shiftId,
+      meta: { dateYmd: params.dateYmd, lastSampleAt: params.lastSampleAt },
     });
   }
 }

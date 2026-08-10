@@ -17,6 +17,7 @@ import {
   softRejectCountsAsAccept,
   type SampleRejectReasons,
 } from "./location-sample-reject";
+import { sortSamplesByTime } from "./location-sample-filter";
 import { readActiveShiftId } from "./location-shift-bootstrap";
 import { enqueueOfflineJob } from "./offline-queue";
 import {
@@ -282,7 +283,7 @@ export async function flushPendingSamples(shiftId?: string): Promise<number> {
     let authRetryAttempted = false;
 
     while (true) {
-      const pending = await readPending();
+      const pending = sortSamplesByTime(await readPending());
       if (pending.length === 0) break;
 
       const batch = pending.slice(0, MAX_BATCH);

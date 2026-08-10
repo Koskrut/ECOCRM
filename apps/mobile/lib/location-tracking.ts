@@ -25,11 +25,15 @@ import {
   backgroundOptionsForTier,
   getCurrentForegroundTier,
   locationOptionsForWatch,
-  restartBackgroundWatch,
   setCurrentForegroundTier,
   setForegroundSubscription,
 } from "./location-tracking-adaptive";
-import { DEFAULT_TIER, watchOptionsForTier, type SamplingTier } from "./location-tracking-config";
+import {
+  BACKGROUND_FGS_TIER,
+  DEFAULT_TIER,
+  watchOptionsForTier,
+  type SamplingTier,
+} from "./location-tracking-config";
 import {
   processLocationUpdate,
   resetLocationProcessorState,
@@ -40,10 +44,8 @@ import {
   type TrackingPermissionStatus,
 } from "./location-permissions";
 import { appendErrorLog } from "./error-log";
-import {
-  classifyUaFieldCoords,
-  formatUaRegionRejectLog,
-} from "./location-region-check";
+import { validateRawLocationSample } from "./location-region-check";
+import { formatTeleportRejectLog } from "./location-sample-filter";
 import { isAcceptStale, reconcileTrackingHealth } from "./location-tracking-health";
 import { clearFlushBlockReason, clearStaleGpsFlushBlockIfNeeded, getLastFlushBlockReason } from "./session-auth";
 import {
@@ -161,20 +163,12 @@ async function handleRawLocation(input: {
   clientRecordedAt: string;
   mocked?: boolean;
 }): Promise<void> {
-  if (input.mocked) {
-    void appendErrorLog("location sample skipped: reason=mock", "warn");
+  const validated = validateRawLocationSample(input);
+  if (!validated.ok) {
+    void appendErrorLog(validated.logLine, "warn");
     return;
   }
-  // Client-side UA bbox — don't buffer Lima/emulator / NaN (server would reject).
-  const region = classifyUaFieldCoords(input.lat, input.lng);
-  if (!region.ok) {
-    void appendErrorLog(
-      formatUaRegionRejectLog(region.reason, input.lat, input.lng, input.accuracyM),
-      "warn",
-    );
-    return;
-  }
-  input = { ...input, lat: region.lat, lng: region.lng };
+  input = { ...input, lat: validated.lat, lng: validated.lng };
   // Stop feeding a blocked shift (wrong_day / 401 / dead-shift 400).
   const block = getLastFlushBlockReason();
   if (block === "wrong_day" || block === "auth_401" || block === "stale_gps") {
@@ -182,9 +176,39 @@ async function handleRawLocation(input: {
   }
   const result = await processLocationUpdate(input);
   if (result.accepted && result.sample) {
+    if (result.reanchor && result.prevSample) {
+      const gapMin =
+        result.gapMs != null && Number.isFinite(result.gapMs)
+          ? (result.gapMs / 60_000).toFixed(1)
+          : "?";
+      void appendErrorLog(
+        `location sample reanchor after gap gapMin=${gapMin}` +
+          ` prev=${result.prevSample.lat.toFixed(5)},${result.prevSample.lng.toFixed(5)}` +
+          ` next=${result.sample.lat.toFixed(5)},${result.sample.lng.toFixed(5)}`,
+        "info",
+      );
+    }
     const count = await appendPendingSample(result.sample);
     // Threshold flush + 30s timer cover delivery; per-sample flush doubled network churn.
     void maybeFlushAfterAppend(count).catch(() => undefined);
+  } else if (
+    result.rejectReason === "teleport" &&
+    result.prevSample
+  ) {
+    void appendErrorLog(
+      formatTeleportRejectLog(
+        result.prevSample,
+        {
+          lat: input.lat,
+          lng: input.lng,
+          accuracyM: input.accuracyM,
+          clientRecordedAt: input.clientRecordedAt,
+        },
+        result.gapMs,
+        result.distM,
+      ),
+      "warn",
+    );
   }
   if (result.tierChanged) {
     void applyAdaptiveTier(result.tier, startForegroundWatch).catch(() => undefined);
@@ -261,7 +285,7 @@ async function startBackgroundUpdates(
   await ensureFieldTrackingNotificationChannel();
   await Location.startLocationUpdatesAsync(
     FIELD_LOCATION_TASK,
-    backgroundOptionsForTier(initialTier),
+    backgroundOptionsForTier(BACKGROUND_FGS_TIER),
   );
   return Location.hasStartedLocationUpdatesAsync(FIELD_LOCATION_TASK).catch(() => false);
 }
@@ -289,16 +313,9 @@ async function applyPendingAdaptiveTierIfNeeded(): Promise<void> {
     return;
   }
 
-  const attempt = await recordRestartAttempt("tier_change");
-  if (!attempt.allowed) return;
-
   try {
-    await restartBackgroundWatch(pendingTier);
+    setCurrentForegroundTier(pendingTier);
     await clearPendingAdaptiveTier();
-    const shiftId = await AsyncStorage.getItem(STORAGE_KEYS.ACTIVE_SHIFT_ID);
-    if (shiftId) {
-      void sendTrackingRestartEvent(shiftId, "tier_change");
-    }
     void appendErrorLog("applyPendingAdaptiveTier: tier applied", "info");
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);

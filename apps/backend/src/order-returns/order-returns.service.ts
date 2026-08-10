@@ -8,6 +8,7 @@ import {
   orderStageToDeliveryStatus,
 } from "../orders/order-status-sync.mapper";
 import { getOrderCompletionBlockers } from "../orders/order-completion-guards";
+import { OrderMaterialReservationService } from "../orders/order-material-reservation.service";
 import { PrismaService } from "../prisma/prisma.service";
 import type { CreateOrderReturnDto } from "./dto/create-order-return.dto";
 import type { ListOrderReturnsQueryDto } from "./dto/list-order-returns-query.dto";
@@ -65,6 +66,7 @@ export class OrderReturnsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly integrations: IntegrationPortsService,
+    private readonly materialReservations: OrderMaterialReservationService,
     @Inject(forwardRef(() => ReturnPackagesService))
     private readonly returnPackages: ReturnPackagesService,
   ) {}
@@ -185,6 +187,7 @@ export class OrderReturnsService {
         financialStatus,
       },
     });
+    await this.materialReservations.applyReservationPolicy(orderId, nextStage);
   }
 
   private assertAccess(order: { ownerId: string | null }, actor?: AuthUser) {

@@ -19,6 +19,7 @@
     "dev:updater": "node scripts/updater/agent.mjs",
     "import:characteristics": "npm run import:characteristics --workspace=backend --",
     "import:characteristic": "npm run import:characteristic --workspace=backend --",
+    "reconcile:reservations": "node apps/backend/scripts/reconcile-material-reservations.cjs",
     "license:issue": "node scripts/issue-file-license.mjs"
   },
   "devDependencies": {

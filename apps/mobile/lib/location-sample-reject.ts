@@ -73,7 +73,7 @@ export function describeRejectBatch(
         parts.push(`${count} keepalive`);
         break;
       case "teleport":
-        parts.push(`${count} teleport after gap — batch dropped`);
+        parts.push(`${count} teleport after gap (speed>150km/h; reanchor needs gap≥15m or cluster)`);
         break;
       case "wrong_day":
         parts.push(`${count} wrong_day — shift date mismatch`);

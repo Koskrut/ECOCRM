@@ -16,15 +16,13 @@ import {
   OrderPaymentStatus,
   OrderSource,
   OrderStatus,
-  ReservationHardness,
   ReservationStatus,
   UserRole,
 } from "@prisma/client";
 import type { AuthUser } from "../auth/auth.types";
-import { DemandRulesService } from "../production-planning/demand-rules.service";
 import { computePaymentStatus, isPaymentClosed } from "./order-payment-guards";
-import { reservationHardnessForStage } from "./reservation-hardness.util";
 import { computeOrderDebtAndCredit } from "../payments/order-finance.utils";
+import { OrderMaterialReservationService } from "./order-material-reservation.service";
 import {
   assertWarehouseOrderItemQtyUpdate,
   assertWarehouseOrderMutation,
@@ -119,25 +117,6 @@ const SPLIT_BLOCKED_ORDER_STAGES: OrderStage[] = [
 @Injectable()
 export class OrdersService {
   private readonly logger = new Logger(OrdersService.name);
-  private static readonly STAGES_WITH_ACTIVE_RESERVATION = new Set<OrderStage>([
-    "NEW",
-    "CONFIRMED",
-    "AWAITING_PAYMENT",
-    "AWAITING_STOCK",
-    "READY_TO_SHIP",
-  ]);
-  private static readonly STAGES_RELEASE_RESERVATION = new Set<OrderStage>([
-    "CANCELED",
-    "REFUSED",
-    "RETURN_IN_PROGRESS",
-    "FULLY_RETURNED",
-  ]);
-  private static readonly STAGES_CONSUME_RESERVATION = new Set<OrderStage>([
-    "SHIPPED",
-    "AWAITING_RECEIPT",
-    "RECEIVED",
-    "COMPLETED",
-  ]);
 
   constructor(
     private readonly prisma: PrismaService,
@@ -147,7 +126,7 @@ export class OrdersService {
     private readonly ordersPipelineConfig: OrdersPipelineConfigService,
     private readonly workflowEmitter: WorkflowDomainEmitterService,
     private readonly warehouseNotifier: OrderWarehouseNotifierService,
-    private readonly demandRules: DemandRulesService,
+    private readonly materialReservations: OrderMaterialReservationService,
     @Optional() @Inject(RiskPolicyService) private readonly riskPolicy?: RiskPolicyService,
     @Optional() @Inject(ModuleStateService) private readonly modules?: ModuleStateService,
   ) {}
@@ -372,63 +351,6 @@ export class OrdersService {
     const total = Math.max(0, s - d);
     const debt = Math.max(0, total - p);
     return { subtotal: s, discount: d, total, paid: p, debt };
-  }
-
-  private async syncActiveReservationsForOrder(
-    orderId: string,
-    tx?: Prisma.TransactionClient,
-  ): Promise<void> {
-    const db = tx ?? this.prisma;
-    const order = await db.order.findUnique({
-      where: { id: orderId },
-      select: {
-        id: true,
-        warehouseId: true,
-        orderStage: true,
-        items: {
-          select: {
-            productId: true,
-            qty: true,
-            qtyShipped: true,
-          },
-        },
-      },
-    });
-    if (!order) return;
-    const stage = order.orderStage ?? "NEW";
-    const shouldKeepActive = OrdersService.STAGES_WITH_ACTIVE_RESERVATION.has(stage);
-
-    await db.materialReservation.updateMany({
-      where: { orderId, status: ReservationStatus.ACTIVE },
-      data: {
-        status: shouldKeepActive ? ReservationStatus.RELEASED : ReservationStatus.CONSUMED,
-      },
-    });
-
-    if (!shouldKeepActive) return;
-
-    const qtyByProduct = new Map<string, number>();
-    for (const item of order.items) {
-      if (!item.productId) continue;
-      const remainingQty = Math.max(0, Number(item.qty) - Number(item.qtyShipped ?? 0));
-      if (remainingQty <= 0) continue;
-      qtyByProduct.set(item.productId, (qtyByProduct.get(item.productId) ?? 0) + remainingQty);
-    }
-    if (qtyByProduct.size === 0) return;
-
-    const rules = await this.demandRules.getRules();
-    const hardness = reservationHardnessForStage(stage as OrderStage, rules);
-
-    await db.materialReservation.createMany({
-      data: Array.from(qtyByProduct.entries()).map(([productId, qty]) => ({
-        productId,
-        warehouseId: order.warehouseId ?? null,
-        qty,
-        hardness,
-        status: ReservationStatus.ACTIVE,
-        orderId,
-      })),
-    });
   }
 
   async list(q: ListOrdersQueryDto, actor?: AuthUser) {
@@ -1249,7 +1171,7 @@ export class OrdersService {
       data,
       include: ORDER_INCLUDE,
     });
-    await this.syncActiveReservationsForOrder(id);
+    await this.materialReservations.syncActiveReservationsForOrder(id);
     const next = this.mapToEntity(updated as unknown as Record<string, unknown>);
     const keys = Object.keys(dto);
     const b = before as unknown as Record<string, unknown>;
@@ -1317,7 +1239,7 @@ export class OrdersService {
       });
     }
 
-    await this.syncActiveReservationsForOrder(orderId, tx);
+    await this.materialReservations.syncActiveReservationsForOrder(orderId, tx);
     return this.recalcAndReturn(orderId, tx);
   }
 
@@ -1397,7 +1319,7 @@ export class OrdersService {
       },
     });
 
-    await this.syncActiveReservationsForOrder(orderId);
+    await this.materialReservations.syncActiveReservationsForOrder(orderId);
     const updated = await this.recalcAndReturn(orderId);
 
     void this.warehouseNotifier.notifyQtyChanged({
@@ -1428,7 +1350,7 @@ export class OrdersService {
     if (!item) throw new NotFoundException("Order item not found");
 
     await this.prisma.orderItem.delete({ where: { id: itemId } });
-    await this.syncActiveReservationsForOrder(orderId);
+    await this.materialReservations.syncActiveReservationsForOrder(orderId);
     return this.recalcAndReturn(orderId);
   }
 
@@ -1775,8 +1697,8 @@ export class OrdersService {
 
     await this.recalcAndReturn(orderId);
     await this.recalcAndReturn(childId);
-    await this.syncActiveReservationsForOrder(orderId);
-    await this.syncActiveReservationsForOrder(childId);
+    await this.materialReservations.syncActiveReservationsForOrder(orderId);
+    await this.materialReservations.syncActiveReservationsForOrder(childId);
 
     const [parentEntity, childEntity] = await Promise.all([
       this.getById(orderId, actor),
@@ -1964,19 +1886,7 @@ export class OrdersService {
     if (toStage === "CANCELED") {
       await this.integrations.recalcOrderFinance(id);
     }
-    if (OrdersService.STAGES_RELEASE_RESERVATION.has(toStage)) {
-      await this.prisma.materialReservation.updateMany({
-        where: { orderId: id, status: ReservationStatus.ACTIVE },
-        data: { status: ReservationStatus.RELEASED },
-      });
-    } else if (OrdersService.STAGES_CONSUME_RESERVATION.has(toStage)) {
-      await this.prisma.materialReservation.updateMany({
-        where: { orderId: id, status: ReservationStatus.ACTIVE },
-        data: { status: ReservationStatus.CONSUMED },
-      });
-    } else {
-      await this.syncActiveReservationsForOrder(id);
-    }
+    await this.materialReservations.applyReservationPolicy(id, toStage);
 
     if (toStage === "READY_TO_SHIP") {
       this.settings.getGoogleSheetSecrets().then(({ sendOnReadyToShip }) => {
