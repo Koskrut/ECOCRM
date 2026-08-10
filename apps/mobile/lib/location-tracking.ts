@@ -94,6 +94,7 @@ import {
   syncNativeTrackingSessionDetailed,
 } from "./native-tracking-session";
 import { markTrackingWarmup, isTrackingWarmupActive } from "./tracking-warmup";
+import { resolveNativeRuntimeAcceptHealth } from "./native-tracking-gates";
 import { sendGpsZombieDetectedEvent, sendTrackingRestartEvent } from "./tracking-telemetry";
 import {
   beginRecoveryAttempt,
@@ -201,10 +202,13 @@ async function buildNativeRuntimeHealth(
     (nativeHealth == null && state.mode === "background" && !!activeShiftId);
   const mode: TrackingMode =
     state.mode !== "none" ? state.mode : serviceRunning ? "background" : "none";
-  const lastAcceptedAt = nativeHealth?.lastServerAcceptAt ?? (await getLastAcceptedAt());
-  const lastGpsPointAt = nativeHealth?.lastGpsCapturedAt ?? null;
   const inWarmup = await isTrackingWarmupActive();
-  const acceptStale = inWarmup ? false : isAcceptStale(lastAcceptedAt);
+  const { lastAcceptedAt, acceptStale } = resolveNativeRuntimeAcceptHealth(
+    nativeHealth,
+    await getLastAcceptedAt(),
+    inWarmup,
+  );
+  const lastGpsPointAt = nativeHealth?.lastGpsCapturedAt ?? null;
   const pointStale = inWarmup ? false : isTimestampStale(lastGpsPointAt, LAST_POINT_STALE_MS);
   const healthState = nativeHealth?.trackingHealthState;
   const healthy =
@@ -214,7 +218,7 @@ async function buildNativeRuntimeHealth(
     mode,
     claimedMode: mode,
     actualMode: serviceRunning ? "background" : "none",
-    pendingSamples: nativeHealth?.pendingUploadCount ?? state.pendingSamples,
+    pendingSamples: nativeHealth?.pendingUploadCount ?? 0,
     lastFlushAt: state.lastFlushAt,
     activeShiftId,
     foregroundPermission: perms.foreground,
@@ -279,6 +283,9 @@ async function handleRawLocation(input: {
   clientRecordedAt: string;
   mocked?: boolean;
 }): Promise<void> {
+  if (shouldUseNativeTracking()) {
+    return;
+  }
   const validated = validateRawLocationSample(input);
   if (!validated.ok) {
     void appendErrorLog(validated.logLine, "warn");
@@ -471,10 +478,8 @@ async function resolvePermissionsForTrackingStart(): Promise<TrackingPermissionS
 export async function startLocationTracking(shiftId: string): Promise<TrackingMode> {
   try {
     if (shouldUseNativeTracking()) {
-      const previousShiftId = await AsyncStorage.getItem(STORAGE_KEYS.ACTIVE_SHIFT_ID);
-      if (previousShiftId && previousShiftId !== shiftId) {
-        await purgePendingSamples();
-      }
+      // Drop legacy Expo buffer — native FGS owns capture + upload.
+      await purgePendingSamples();
 
       // Never leave Expo FGS running alongside native (dual writers).
       await stopExpoLocationWriters();
@@ -601,6 +606,10 @@ export async function startLocationTracking(shiftId: string): Promise<TrackingMo
 
 /** One-shot foreground GPS + buffer append + flush (does not wait for background task). */
 export async function captureImmediateFixAndFlush(): Promise<boolean> {
+  if (shouldUseNativeTracking()) {
+    void flushNativePendingSamples().catch(() => undefined);
+    return false;
+  }
   try {
     await hydrateSessionAuthFromStorage();
     const block = getLastFlushBlockReason();
@@ -797,7 +806,7 @@ export async function stopLocationTracking(): Promise<void> {
     }
     await stopExpoLocationWriters();
     const shiftId = await AsyncStorage.getItem(STORAGE_KEYS.ACTIVE_SHIFT_ID);
-    if (shiftId) {
+    if (shiftId && !shouldUseNativeTracking()) {
       try {
         await flushPendingSamples(shiftId);
       } catch {
@@ -873,6 +882,7 @@ export async function resumeTrackingIfNeeded(
     if (shouldUseNativeTracking()) {
       const mode = await AsyncStorage.getItem(STORAGE_KEYS.TRACKING_MODE);
       if (activeId === shift.id && mode === "background") {
+        await purgePendingSamples();
         await syncNativeTrackingSession();
         const health = await getNativeTrackingHealth();
         if (!health?.serviceRunning) {
@@ -1329,11 +1339,11 @@ export async function recoverDeadBackgroundTaskOnForeground(): Promise<TrackingM
     if (!shiftId) return "none";
     await syncNativeTrackingSession();
     const health = await getNativeTrackingHealth();
-    if (
-      health?.serviceRunning &&
-      mapNativeHealthStateToHealthy(health.trackingHealthState) &&
-      !isAcceptStale(health.lastServerAcceptAt)
-    ) {
+    const nativeHealthy =
+      health?.serviceRunning === true &&
+      mapNativeHealthStateToHealthy(health.trackingHealthState);
+    if (nativeHealthy) {
+      void flushNativePendingSamples().catch(() => undefined);
       return "background";
     }
     await stopNativeTracking();

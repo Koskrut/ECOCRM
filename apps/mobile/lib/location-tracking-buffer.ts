@@ -31,6 +31,7 @@ import {
   validateAuthToken,
 } from "./session-auth";
 import { buildFlushTelemetryPayload } from "./location-flush-telemetry";
+import { isJsLocationPipelineDisabled } from "./native-tracking-gates";
 
 const MAX_BATCH = 100;
 export const MAX_PENDING_SAMPLES = 500;
@@ -217,6 +218,9 @@ async function applyFlushFailure(
 }
 
 export async function appendPendingSample(sample: PendingLocationSample): Promise<number> {
+  if (isJsLocationPipelineDisabled()) {
+    return 0;
+  }
   return withBufferLock(async () => {
     const { getLastFlushBlockReason } = await import("./session-auth");
     const block = getLastFlushBlockReason();
@@ -296,6 +300,9 @@ async function resolveFlushShiftId(
 }
 
 export async function flushPendingSamples(shiftId?: string): Promise<number> {
+  if (isJsLocationPipelineDisabled()) {
+    return 0;
+  }
   return withBufferLock(async () => {
     await hydrateApiBaseUrl();
     // Headless / cold-wake: rehydrate block flags + retry SecureStore before giving up.

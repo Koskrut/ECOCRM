@@ -29,6 +29,16 @@ export function shouldShowBatteryOptimizationWarning(input: {
     return false;
   }
 
+  // Restricted API read is common on Samsung/Xiaomi — hide when native/legacy tracking is clearly alive.
+  if (
+    input.healthy &&
+    input.backgroundTaskStarted &&
+    freshAccept &&
+    input.batteryStatus === "restricted"
+  ) {
+    return false;
+  }
+
   if (input.batteryStatus === "restricted") return true;
   if (input.batteryStatus === "unknown" && input.showBatteryHint) return true;
   if (input.batteryStatus === "unknown" && !freshAccept && input.trackingMode === "background") {

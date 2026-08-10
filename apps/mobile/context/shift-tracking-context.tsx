@@ -64,6 +64,11 @@ import {
   shouldReuseActiveShift,
 } from "@/lib/shift-ops-gate";
 import { markTrackingWarmup } from "@/lib/tracking-warmup";
+import {
+  shouldSuppressNativeAcceptStaleAlert,
+  shouldSuppressNativeFlushRetryAlert,
+} from "@/lib/native-tracking-gates";
+import { shouldUseNativeTracking } from "@/lib/tracking-feature-flag";
 import type { FieldShift } from "@/types/crm";
 
 const WATCHDOG_INTERVAL_MS = 2 * 60 * 1000;
@@ -200,6 +205,19 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
     return applyHealth(health);
   }, [applyHealth]);
 
+  const maybeFlushJsBuffer = useCallback(
+    async (shiftId: string) => {
+      if (shouldUseNativeTracking()) return;
+      await flushPendingSamples(shiftId).catch(() => undefined);
+    },
+    [],
+  );
+
+  const maybeCaptureImmediateFix = useCallback(async () => {
+    if (shouldUseNativeTracking()) return false;
+    return captureImmediateFixAndFlush().catch(() => false);
+  }, []);
+
   const promptOpenSettings = useCallback((message: string) => {
     Alert.alert(t("gps.title"), message, [
       { text: t("gps.openSettings"), onPress: () => void openLocationPermissionSettings() },
@@ -290,6 +308,7 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
     if (health.claimedMode !== "background") return;
     // Also recover Expo #47595 zombie: task "started" but accept/point stale.
     if (health.backgroundTaskStarted && !health.acceptStale && !health.zombieFgs) return;
+    if (shouldSuppressNativeAcceptStaleAlert(health)) return;
 
     const perms = await getTrackingPermissionStatus();
     if (perms.background !== "granted") return;
@@ -390,8 +409,8 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
         } else if (mode === "background" || mode === "none") {
           mode = await recoverDeadBackgroundTaskOnForeground();
         }
-        await flushPendingSamples(shift.id).catch(() => undefined);
-        await captureImmediateFixAndFlush().catch(() => false);
+        await maybeFlushJsBuffer(shift.id);
+        await maybeCaptureImmediateFix();
       }
       setTrackingMode(mode);
       if (mode === "background") {
@@ -470,10 +489,10 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
             await hydrateSessionAuthFromStorage();
             // Token is available in React — drain buffer immediately if SecureStore race
             // left pending samples with a stale "no auth token" flush error.
-            if (token && !isAuthRequired()) {
+            if (token && !isAuthRequired() && !shouldUseNativeTracking()) {
               const pending = await getPendingCount().catch(() => 0);
               if (pending > 0) {
-                await flushPendingSamples(activeShift.id).catch(() => undefined);
+                await maybeFlushJsBuffer(activeShift.id);
               }
             }
 
@@ -493,8 +512,8 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
             ) {
               const mode = await tryStartTrackingForShift(activeShift.id);
               if (mode === "background") {
-                await flushPendingSamples(activeShift.id).catch(() => undefined);
-                await captureImmediateFixAndFlush().catch(() => undefined);
+                await maybeFlushJsBuffer(activeShift.id);
+                await maybeCaptureImmediateFix();
               }
               return;
             }
@@ -542,6 +561,8 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
     promptOpenSettings,
     recoverDeadBackgroundTask,
     tryStartTrackingForShift,
+    maybeFlushJsBuffer,
+    maybeCaptureImmediateFix,
   ]);
 
   const startShift = useCallback(async () => {
@@ -586,8 +607,8 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
           }
           const mode = await startLocationTracking(activeShift.id);
           setTrackingMode(mode);
-          await flushPendingSamples(activeShift.id);
-          await captureImmediateFixAndFlush();
+          await maybeFlushJsBuffer(activeShift.id);
+          await maybeCaptureImmediateFix();
           await syncTrackingHealth();
           if (mode === "none") {
             await promptBackgroundRequiredIfNeeded();
@@ -632,8 +653,8 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
         }
         const mode = await startLocationTracking(res.shift.id);
         setTrackingMode(mode);
-        await flushPendingSamples(res.shift.id);
-        await captureImmediateFixAndFlush();
+        await maybeFlushJsBuffer(res.shift.id);
+        await maybeCaptureImmediateFix();
         const health = await syncTrackingHealth();
 
         if (mode === "none") {
@@ -683,8 +704,8 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
     ) {
       const mode = await tryStartTrackingForShift(activeShift.id);
       if (mode === "background") {
-        await flushPendingSamples(activeShift.id).catch(() => undefined);
-        await captureImmediateFixAndFlush().catch(() => undefined);
+        await maybeFlushJsBuffer(activeShift.id);
+        await maybeCaptureImmediateFix();
       }
       return;
     }
@@ -788,8 +809,8 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
         }
         const mode = await startLocationTracking(res.shift.id);
         setTrackingMode(mode);
-        await flushPendingSamples(res.shift.id);
-        await captureImmediateFixAndFlush();
+        await maybeFlushJsBuffer(res.shift.id);
+        await maybeCaptureImmediateFix();
         await syncTrackingHealth();
         if (mode === "none") {
           await promptBackgroundRequiredIfNeeded();
@@ -831,22 +852,24 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
 
       const health = await syncTrackingHealth();
 
+      const acceptStaleForRecovery =
+        health.acceptStale === true && !shouldSuppressNativeAcceptStaleAlert(health);
+
       // Dead / poison background task → forceRestart before any battery blame.
       if (
         health.claimedMode === "background" &&
-        (!health.backgroundTaskStarted || health.acceptStale)
+        (!health.backgroundTaskStarted || acceptStaleForRecovery)
       ) {
         await recoverDeadBackgroundTask();
       } else if (!health.healthy && health.claimedMode !== "none") {
         const mode = await ensureTrackingContinuity();
         setTrackingMode(mode);
-        if (health.acceptStale && activeShift?.id && !watchdogTelemetrySentRef.current) {
+        if (acceptStaleForRecovery && activeShift?.id && !watchdogTelemetrySentRef.current) {
           watchdogTelemetrySentRef.current = true;
           void sendTrackingRestartEvent(activeShift.id, "watchdog");
         }
-        if (health.acceptStale) {
-          // ACTIVE + 0 accepts: poke native pipeline + one foreground fix.
-          void captureImmediateFixAndFlush().catch(() => undefined);
+        if (acceptStaleForRecovery) {
+          void maybeCaptureImmediateFix();
         }
         await syncTrackingHealth();
       } else if (health.healthy) {
@@ -857,6 +880,7 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
       applyHealth(after);
 
       const flushStale =
+        !shouldSuppressNativeFlushRetryAlert(after) &&
         after.pendingSamples > 0 &&
         (!after.lastFlushAt ||
           Date.now() - new Date(after.lastFlushAt).getTime() > FLUSH_STALE_MS);
@@ -864,7 +888,7 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
       if (flushStale && !flushAlertShownRef.current) {
         flushAlertShownRef.current = true;
         try {
-          await flushPendingSamples();
+          await maybeFlushJsBuffer(activeShift.id);
           await syncTrackingHealth();
         } catch {
           /* retry next watchdog tick */
@@ -876,7 +900,11 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
 
       // ACTIVE + no accepted samples >10 min → CTA (banner is persistent; alert once).
       const blockReason = after.flushBlockReason ?? getLastFlushBlockReason();
-      if (after.acceptStale === true && !staleAlertShownRef.current) {
+      if (
+        after.acceptStale === true &&
+        !staleAlertShownRef.current &&
+        !shouldSuppressNativeAcceptStaleAlert(after)
+      ) {
         staleAlertShownRef.current = true;
         if (blockReason === "auth_401") {
           Alert.alert(t("gps.sessionExpiredTitle"), t("gps.sessionExpiredHint"), [
@@ -924,8 +952,8 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
     try {
       // Flush tail BEFORE ending: server rejects samples for ENDED shifts.
       await stopLocationTracking();
-      if ((await getPendingCount()) > 0) {
-        await flushPendingSamples(activeShift.id).catch(() => undefined);
+      if ((await getPendingCount()) > 0 && !shouldUseNativeTracking()) {
+        await maybeFlushJsBuffer(activeShift.id);
       }
       await apiFetch(`/field/shifts/${activeShift.id}/end`, { method: "POST", token });
       // Purge only after the shift is ended for real — a failed end keeps the buffer.

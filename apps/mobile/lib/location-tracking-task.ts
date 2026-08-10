@@ -17,8 +17,9 @@ import { hydrateApiBaseUrl } from "./config";
 import { appendErrorLog } from "./error-log";
 import { validateRawLocationSample } from "./location-region-check";
 import { sendPresenceHeartbeatFromTask } from "./presence-heartbeat";
-import { getLastFlushBlockReason, hydrateSessionAuthFromStorage } from "./session-auth";
+import { hydrateSessionAuthFromStorage, getLastFlushBlockReason } from "./session-auth";
 import { setPendingAdaptiveTier } from "./location-tracking-restart";
+import { isJsLocationPipelineDisabled } from "./native-tracking-gates";
 import type { SamplingTier } from "./location-tracking-config";
 
 export { FIELD_LOCATION_TASK };
@@ -100,6 +101,9 @@ export async function processFieldLocationBatch(
  */
 if (!TaskManager.isTaskDefined(FIELD_LOCATION_TASK)) {
   TaskManager.defineTask(FIELD_LOCATION_TASK, async ({ data, error }) => {
+    if (isJsLocationPipelineDisabled()) {
+      return;
+    }
     // Order matters on headless cold wake: API URL + session flags before any flush.
     await hydrateApiBaseUrl();
     await hydrateSessionAuthFromStorage();

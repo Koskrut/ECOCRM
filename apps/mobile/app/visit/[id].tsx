@@ -31,6 +31,7 @@ import { resolveMapsApiKey } from "@/lib/maps-config";
 import { useTheme } from "@/lib/design/theme-context";
 import { captureGpsForVisitRequest } from "@/lib/gps-capture";
 import { appendPendingSample, flushPendingSamples } from "@/lib/location-tracking";
+import { shouldUseNativeTracking } from "@/lib/tracking-feature-flag";
 import { visitDayKey } from "@/lib/visit-history";
 import {
   gpsVerificationLabel,
@@ -180,13 +181,15 @@ export default function VisitDetailScreen() {
           clientRecordedAt?: string;
         };
         try {
-          await appendPendingSample({
-            lat: g.lat,
-            lng: g.lng,
-            accuracyM: g.accuracyM,
-            clientRecordedAt: g.clientRecordedAt ?? new Date().toISOString(),
-          });
-          await flushPendingSamples().catch(() => undefined);
+          if (!shouldUseNativeTracking()) {
+            await appendPendingSample({
+              lat: g.lat,
+              lng: g.lng,
+              accuracyM: g.accuracyM,
+              clientRecordedAt: g.clientRecordedAt ?? new Date().toISOString(),
+            });
+            await flushPendingSamples().catch(() => undefined);
+          }
         } catch {
           /* best-effort — backend already dual-wrote when possible */
         }
