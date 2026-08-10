@@ -10,6 +10,11 @@ version = '1.0.0'
 android {
   namespace "expo.modules.crnativetracking"
 
+  defaultConfig {
+    versionCode 1
+    versionName "1.0.0"
+  }
+
   // Room KSP generates TrackingDatabase_Impl — keep Java/Kotlin toolchain aligned with Expo SDK 54.
   compileOptions {
     sourceCompatibility JavaVersion.VERSION_17
