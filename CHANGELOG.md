@@ -4,7 +4,22 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.150**.)_
+_(планируемые изменения после **0.2.151**.)_
+
+## [0.2.151] — 2026-08-10
+
+### Summary
+
+Hotfix **0.2.151**: web notification labels for planning due types (0.2.150 CI fail).
+
+### Fixed
+
+- **Web notifications settings**: `PLANNING_FACTORY_DUE` / `PLANNING_PACKING_DUE` labels in `NOTIFICATION_TYPE_LABELS`.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.151`**.
+- **Do not use 0.2.149 / 0.2.150 images** — CI failed.
 
 ## [0.2.150] — 2026-08-10
 

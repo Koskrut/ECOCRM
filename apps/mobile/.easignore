@@ -1,4 +1,6 @@
 # Monorepo: не загружать остальные приложения
+android/
+ios/
 ../../apps/web
 ../../apps/backend
 ../../apps/store

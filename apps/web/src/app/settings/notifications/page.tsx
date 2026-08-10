@@ -21,6 +21,8 @@ const NOTIFICATION_TYPE_LABELS: Record<NotificationType, string> = {
   META_FACEBOOK_MESSAGE: "Повідомлення в Facebook Messenger Inbox",
   FIELD_SHIFT_CLOSE_REMINDER: "Нагадування закрити зміну (поле)",
   FIELD_GPS_STALE: "GPS зупинився (поле)",
+  PLANNING_FACTORY_DUE: "Завод: термін виробництва",
+  PLANNING_PACKING_DUE: "Пакування: термін циклу",
 };
 
 const ALL_TYPES: NotificationType[] = [
@@ -35,6 +37,8 @@ const ALL_TYPES: NotificationType[] = [
   "META_FACEBOOK_MESSAGE",
   "FIELD_SHIFT_CLOSE_REMINDER",
   "FIELD_GPS_STALE",
+  "PLANNING_FACTORY_DUE",
+  "PLANNING_PACKING_DUE",
 ];
 
 function prefFor(

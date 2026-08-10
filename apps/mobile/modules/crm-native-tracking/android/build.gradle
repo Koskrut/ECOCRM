@@ -1,29 +1,17 @@
 plugins {
-  id("com.android.library")
-  id("org.jetbrains.kotlin.android")
-  id("com.google.devtools.ksp") version "2.1.20-2.0.1"
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+  id 'com.google.devtools.ksp'
 }
 
+group = 'expo.modules.crnativetracking'
+version = '1.0.0'
+
 android {
-  namespace = "expo.modules.crnativetracking"
-  compileSdk = 36
-
-  defaultConfig {
-    minSdk = 24
-  }
-
-  compileOptions {
-    sourceCompatibility JavaVersion.VERSION_17
-    targetCompatibility JavaVersion.VERSION_17
-  }
-
-  kotlinOptions {
-    jvmTarget = "17"
-  }
+  namespace "expo.modules.crnativetracking"
 }
 
 dependencies {
-  implementation project(":expo-modules-core")
   implementation "com.google.android.gms:play-services-location:21.3.0"
   implementation "androidx.room:room-runtime:2.6.1"
   implementation "androidx.room:room-ktx:2.6.1"
