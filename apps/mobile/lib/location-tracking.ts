@@ -393,6 +393,12 @@ async function startBackgroundUpdates(
 }
 
 async function applyPendingAdaptiveTierIfNeeded(): Promise<void> {
+  // Adaptive Expo tiers are irrelevant for native FGS.
+  if (shouldUseNativeTracking()) {
+    await clearPendingAdaptiveTier();
+    return;
+  }
+
   const pendingTier = await getPendingAdaptiveTier();
   if (!pendingTier) return;
 
@@ -425,6 +431,18 @@ async function applyPendingAdaptiveTierIfNeeded(): Promise<void> {
   }
 }
 
+/** Stop Expo TaskManager / foreground watch so native and legacy never dual-write. */
+async function stopExpoLocationWriters(): Promise<void> {
+  stopFlushTimer();
+  await stopForegroundWatch().catch(() => undefined);
+  const started = await Location.hasStartedLocationUpdatesAsync(FIELD_LOCATION_TASK).catch(
+    () => false,
+  );
+  if (started) {
+    await Location.stopLocationUpdatesAsync(FIELD_LOCATION_TASK).catch(() => undefined);
+  }
+}
+
 export async function startLocationTracking(shiftId: string): Promise<TrackingMode> {
   try {
     if (shouldUseNativeTracking()) {
@@ -432,7 +450,26 @@ export async function startLocationTracking(shiftId: string): Promise<TrackingMo
       if (previousShiftId && previousShiftId !== shiftId) {
         await purgePendingSamples();
       }
-      await syncNativeTrackingSession();
+
+      // Never leave Expo FGS running alongside native (dual writers).
+      await stopExpoLocationWriters();
+
+      await ensureFieldTrackingNotificationChannel();
+      await ensureTrackingNotificationPermission();
+      const { foreground, background } = await requestTrackingPermissionsWithRationale();
+      if (foreground !== "granted" || background !== "granted") {
+        void appendErrorLog(
+          "startLocationTracking(native): background permission required (Always)",
+          "warn",
+        );
+        await AsyncStorage.setItem(STORAGE_KEYS.TRACKING_MODE, "none");
+        return "none";
+      }
+
+      const synced = await syncNativeTrackingSession();
+      if (!synced) {
+        void appendErrorLog("startLocationTracking(native): syncSession failed", "warn");
+      }
       const ok = await startNativeTracking(shiftId);
       await AsyncStorage.setItem(STORAGE_KEYS.ACTIVE_SHIFT_ID, shiftId);
       await AsyncStorage.setItem(STORAGE_KEYS.TRACKING_MODE, ok ? "background" : "none");
@@ -443,6 +480,7 @@ export async function startLocationTracking(shiftId: string): Promise<TrackingMo
           startedAt: new Date().toISOString(),
         });
         await markTrackingWarmup();
+        void flushNativePendingSamples().catch(() => undefined);
       }
       return ok ? "background" : "none";
     }
@@ -702,15 +740,9 @@ export async function stopLocationTracking(): Promise<void> {
   try {
     if (shouldUseNativeTracking()) {
       await stopNativeTracking();
+      await flushNativePendingSamples().catch(() => undefined);
     }
-    stopFlushTimer();
-    await stopForegroundWatch();
-    const started = await Location.hasStartedLocationUpdatesAsync(FIELD_LOCATION_TASK).catch(
-      () => false,
-    );
-    if (started) {
-      await Location.stopLocationUpdatesAsync(FIELD_LOCATION_TASK);
-    }
+    await stopExpoLocationWriters();
     const shiftId = await AsyncStorage.getItem(STORAGE_KEYS.ACTIVE_SHIFT_ID);
     if (shiftId) {
       try {
@@ -742,14 +774,7 @@ export async function pauseLocationTrackingKeepBuffer(): Promise<void> {
     if (shouldUseNativeTracking()) {
       await stopNativeTracking();
     }
-    stopFlushTimer();
-    await stopForegroundWatch();
-    const started = await Location.hasStartedLocationUpdatesAsync(FIELD_LOCATION_TASK).catch(
-      () => false,
-    );
-    if (started) {
-      await Location.stopLocationUpdatesAsync(FIELD_LOCATION_TASK);
-    }
+    await stopExpoLocationWriters();
     // Keep ACTIVE_SHIFT_ID + PENDING_SAMPLES; only mark mode none so UI/watchdogs idle.
     await AsyncStorage.setItem(STORAGE_KEYS.TRACKING_MODE, "none");
   } catch {
@@ -996,6 +1021,22 @@ async function ensureBackgroundTaskRunning(
   context: string,
   opts?: { bypassCooldown?: boolean; forceRecreate?: boolean },
 ): Promise<TrackingMode> {
+  // Native Android uses LocationForegroundService — never start Expo TaskManager here.
+  if (shouldUseNativeTracking()) {
+    await syncNativeTrackingSession();
+    const health = await getNativeTrackingHealth();
+    if (health?.serviceRunning && !opts?.forceRecreate) {
+      return "background";
+    }
+    if (!canStartLocationForegroundService(AppState.currentState)) {
+      return health?.serviceRunning ? "background" : "none";
+    }
+    await stopExpoLocationWriters();
+    await stopNativeTracking();
+    const ok = await startNativeTracking(shiftId);
+    return ok ? "background" : "none";
+  }
+
   const mode = (await AsyncStorage.getItem(STORAGE_KEYS.TRACKING_MODE)) as TrackingMode | null;
   if (mode !== "background") {
     return mode ?? "none";
@@ -1060,6 +1101,25 @@ async function ensureBackgroundTaskRunning(
 export async function ensureTrackingContinuity(opts?: {
   bypassCooldown?: boolean;
 }): Promise<TrackingMode> {
+  if (shouldUseNativeTracking()) {
+    const shiftId = await AsyncStorage.getItem(STORAGE_KEYS.ACTIVE_SHIFT_ID);
+    if (!shiftId) return "none";
+    const mode = (await AsyncStorage.getItem(STORAGE_KEYS.TRACKING_MODE)) as TrackingMode | null;
+    if (mode !== "background") return mode ?? "none";
+    await stopExpoLocationWriters();
+    await syncNativeTrackingSession();
+    const health = await getNativeTrackingHealth();
+    if (
+      health?.serviceRunning &&
+      mapNativeHealthStateToHealthy(health.trackingHealthState) &&
+      !opts?.bypassCooldown
+    ) {
+      void flushNativePendingSamples().catch(() => undefined);
+      return "background";
+    }
+    return ensureBackgroundTaskRunning(shiftId, "ensureTrackingContinuity", opts);
+  }
+
   await applyPendingAdaptiveTierIfNeeded();
 
   const upgraded = await maybeUpgradeToBackgroundTracking();
@@ -1149,6 +1209,16 @@ export async function maintainBackgroundTracking(): Promise<TrackingMode> {
 
   const mode = (await AsyncStorage.getItem(STORAGE_KEYS.TRACKING_MODE)) as TrackingMode | null;
 
+  if (shouldUseNativeTracking()) {
+    // Native FGS uploads without JS — only nudge flush; never start Expo writers.
+    if (mode === "background") {
+      void flushNativePendingSamples().catch(() => undefined);
+      const health = await getNativeTrackingHealth();
+      return health?.serviceRunning ? "background" : "none";
+    }
+    return mode ?? "none";
+  }
+
   if (mode === "background" || mode === "foreground") {
     void flushPendingSamples().catch(() => undefined);
   }
@@ -1180,6 +1250,11 @@ export async function runBackgroundTrackingWatchdog(): Promise<void> {
 
   const mode = (await AsyncStorage.getItem(STORAGE_KEYS.TRACKING_MODE)) as TrackingMode | null;
   if (mode !== "background") return;
+
+  if (shouldUseNativeTracking()) {
+    void flushNativePendingSamples().catch(() => undefined);
+    return;
+  }
 
   void flushPendingSamples().catch(() => undefined);
   await inspectBackgroundTrackingHealth("backgroundWatchdog");

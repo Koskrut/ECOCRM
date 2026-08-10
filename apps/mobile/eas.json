@@ -16,6 +16,20 @@
       "autoIncrement": true,
       "android": {
         "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_FIELD_TRACKING_MODE": "legacy_expo"
+      }
+    },
+    "preview-native": {
+      "extends": "preview",
+      "distribution": "internal",
+      "autoIncrement": true,
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_FIELD_TRACKING_MODE": "native_android"
       }
     },
     "production": {

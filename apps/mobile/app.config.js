@@ -21,6 +21,12 @@ const googleMapsApiKey = (
 const hasNativeGoogleMapsKey = googleMapsApiKey.length > 0;
 const expo = appJson.expo;
 
+/** Bake tracking mode into Constants.extra (EAS profile env → runtime flag). Default stays legacy_expo. */
+const fieldTrackingMode =
+  process.env.EXPO_PUBLIC_FIELD_TRACKING_MODE === "native_android"
+    ? "native_android"
+    : "legacy_expo";
+
 module.exports = {
   expo: {
     ...expo,
@@ -53,6 +59,7 @@ module.exports = {
       ...(expo.extra ?? {}),
       /** Runtime gate for DayRouteMapPanel — true only when key was baked at native build time. */
       enableInteractiveGoogleMaps: hasNativeGoogleMapsKey,
+      fieldTrackingMode,
     },
   },
 };

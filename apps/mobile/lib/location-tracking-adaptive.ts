@@ -17,6 +17,7 @@ import {
   setPendingAdaptiveTier,
 } from "./location-tracking-restart";
 import { shouldDeferAdaptiveTierApply } from "./shift-ops-gate";
+import { shouldUseNativeTracking } from "./tracking-feature-flag";
 
 let currentForegroundTier: SamplingTier = DEFAULT_TIER;
 let foregroundSubscription: Location.LocationSubscription | null = null;
@@ -80,6 +81,12 @@ export async function applyAdaptiveTier(
   tier: SamplingTier,
   startForegroundWatch: (tier: SamplingTier) => Promise<void>,
 ): Promise<void> {
+  // Native FGS owns sampling intervals — do not start Expo writers.
+  if (shouldUseNativeTracking()) {
+    setCurrentForegroundTier(tier);
+    await clearPendingAdaptiveTier();
+    return;
+  }
   const mode = (await AsyncStorage.getItem(STORAGE_KEYS.TRACKING_MODE)) as
     | "background"
     | "foreground"

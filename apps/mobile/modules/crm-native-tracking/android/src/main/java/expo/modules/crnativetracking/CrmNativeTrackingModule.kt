@@ -27,7 +27,10 @@ class CrmNativeTrackingModule : Module() {
     AsyncFunction("syncSession") { authToken: String, apiBaseUrl: String ->
       val context = appContext.reactContext ?: return@AsyncFunction false
       runBlocking {
-        TrackingStateStore(context).setSessionCredentials(authToken, apiBaseUrl)
+        val store = TrackingStateStore(context)
+        store.setSessionCredentials(authToken, apiBaseUrl)
+        // Seed stable deviceId before FGS uploads.
+        store.getDeviceId()
       }
       true
     }
@@ -42,7 +45,13 @@ class CrmNativeTrackingModule : Module() {
 
     AsyncFunction("startTracking") { shiftId: String ->
       val context = appContext.reactContext ?: return@AsyncFunction false
-      TrackingStateStore(context).setActiveShift(shiftId)
+      if (shiftId.isBlank()) return@AsyncFunction false
+      runBlocking {
+        val store = TrackingStateStore(context)
+        store.getDeviceId()
+        store.setActiveShift(shiftId)
+        store.recordRecoveryEvent("RESTART_REQUESTED")
+      }
       startForegroundService(context, shiftId)
       true
     }
@@ -50,7 +59,9 @@ class CrmNativeTrackingModule : Module() {
     AsyncFunction("stopTracking") {
       val context = appContext.reactContext ?: return@AsyncFunction false
       context.stopService(Intent(context, LocationForegroundService::class.java))
-      TrackingStateStore(context).clearActiveShift()
+      runBlocking {
+        TrackingStateStore(context).clearActiveShift()
+      }
       true
     }
 

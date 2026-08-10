@@ -1,6 +1,7 @@
 package expo.modules.crnativetracking
 
 import android.content.Context
+import android.util.Log
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
@@ -13,6 +14,10 @@ import kotlin.math.min
  * WorkManager [TrackingFlushWorker] is fallback when inline flush fails.
  */
 class NativeSampleUploader(private val context: Context) {
+  companion object {
+    private const val TAG = "CrmNativeTracking"
+  }
+
   private val db = TrackingDatabase.get(context)
   private val state = TrackingStateStore(context)
 
@@ -24,11 +29,18 @@ class NativeSampleUploader(private val context: Context) {
     val grouped = batch.groupBy { it.shiftId }
     var uploaded = 0
 
-    val deviceId = state.getDeviceIdBlocking()
+    val deviceId = state.getDeviceId()
     val healthState =
       TrackingHealthEvaluator(context).evaluate()["trackingHealthState"] as? String
         ?: "TRACKING_HEALTHY"
     val snap = state.snapshot()
+    val apiBase = snap["apiBaseUrl"]
+    val token = snap["authToken"]
+    if (apiBase.isNullOrBlank() || token.isNullOrBlank()) {
+      Log.w(TAG, "flushPending skipped: missing auth/api credentials in DataStore")
+      TrackingFlushWorker.schedule(context)
+      return 0
+    }
 
     for ((shiftId, items) in grouped) {
       val payload = JSONObject().apply {
@@ -53,6 +65,7 @@ class NativeSampleUploader(private val context: Context) {
         put(
           "telemetry",
           JSONObject().apply {
+            // B1 surface + native heartbeat for supervisor team API
             put("nativeLastSeenAt", nowIso)
             put("lastGpsCapturedAt", snap["lastGpsCapturedAt"])
             put("trackingHealthState", healthState)
@@ -61,13 +74,15 @@ class NativeSampleUploader(private val context: Context) {
         )
       }
 
-      val result = postSamples(shiftId, payload.toString())
+      val result = postSamples(apiBase, token, shiftId, payload.toString())
       if (result.created > 0 || result.duplicate > 0) {
+        // B3 — server accepted (created or idempotent duplicate)
         for (sample in items) {
           db.sampleDao().markUploaded(sample.sampleId)
         }
         uploaded += result.created + result.duplicate
         state.setLastServerAcceptAt(nowIso)
+        state.setNativeLastSeen(nowIso)
         state.recordRecoveryEvent("ACCEPT_RECEIVED")
         state.recordRecoveryEvent("RECOVERY_CONFIRMED")
       } else if (result.retryable) {
@@ -85,27 +100,31 @@ class NativeSampleUploader(private val context: Context) {
 
   private data class UploadResult(val created: Int, val duplicate: Int, val retryable: Boolean)
 
-  private fun postSamples(shiftId: String, body: String): UploadResult {
-    // Auth/api URL must be synced from JS via TrackingStateStore before native-only operation.
-    val snap = kotlinx.coroutines.runBlocking { state.snapshot() }
-    val apiBase = snap["apiBaseUrl"] ?: return UploadResult(0, 0, true)
-    val token = snap["authToken"] ?: return UploadResult(0, 0, true)
-
+  private fun postSamples(
+    apiBase: String,
+    token: String,
+    shiftId: String,
+    body: String,
+  ): UploadResult {
     return try {
-      val conn = (URL("$apiBase/field/shifts/$shiftId/samples").openConnection() as HttpURLConnection).apply {
-        requestMethod = "POST"
-        setRequestProperty("Content-Type", "application/json")
-        setRequestProperty("Authorization", "Bearer $token")
-        doOutput = true
-        connectTimeout = 25_000
-        readTimeout = 25_000
-      }
-      conn.outputStream.use { it.write(body.toByteArray()) }
+      val conn =
+        (URL("$apiBase/field/shifts/$shiftId/samples").openConnection() as HttpURLConnection).apply {
+          requestMethod = "POST"
+          setRequestProperty("Content-Type", "application/json")
+          setRequestProperty("Authorization", "Bearer $token")
+          doOutput = true
+          connectTimeout = 25_000
+          readTimeout = 25_000
+        }
+      conn.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
       val code = conn.responseCode
-      val text = (if (code in 200..299) conn.inputStream else conn.errorStream)
-        ?.bufferedReader()?.readText() ?: ""
+      val text =
+        (if (code in 200..299) conn.inputStream else conn.errorStream)
+          ?.bufferedReader()?.readText() ?: ""
       if (code !in 200..299) {
-        return UploadResult(0, 0, code >= 500 || code == 408)
+        Log.w(TAG, "upload HTTP $code for shift=$shiftId")
+        // 401/403 — not retryable until JS syncs a fresh token
+        return UploadResult(0, 0, code >= 500 || code == 408 || code == 429)
       }
       val json = JSONObject(text)
       UploadResult(
@@ -113,7 +132,8 @@ class NativeSampleUploader(private val context: Context) {
         duplicate = json.optInt("duplicate", 0),
         retryable = false,
       )
-    } catch (_: Exception) {
+    } catch (e: Exception) {
+      Log.w(TAG, "upload failed for shift=$shiftId: ${e.message}")
       UploadResult(0, 0, true)
     }
   }
