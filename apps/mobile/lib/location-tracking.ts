@@ -86,7 +86,10 @@ import {
   flushNativePendingSamples,
   type NativeTrackingHealth,
 } from "../modules/crm-native-tracking";
-import { syncNativeTrackingSession } from "./native-tracking-session";
+import {
+  syncNativeTrackingSession,
+  syncNativeTrackingSessionDetailed,
+} from "./native-tracking-session";
 import { markTrackingWarmup, isTrackingWarmupActive } from "./tracking-warmup";
 import { sendGpsZombieDetectedEvent, sendTrackingRestartEvent } from "./tracking-telemetry";
 import {
@@ -186,7 +189,10 @@ async function buildNativeRuntimeHealth(
 ): Promise<TrackingRuntimeHealth> {
   const batteryStatus = batteryDetailed.status;
   void setBatteryOptimizationStatus(batteryStatus);
-  const serviceRunning = nativeHealth?.serviceRunning === true;
+  // Prefer native FGS flag; if bridge briefly returns null, trust JS claimed background + shift.
+  const serviceRunning =
+    nativeHealth?.serviceRunning === true ||
+    (nativeHealth == null && state.mode === "background" && !!activeShiftId);
   const mode: TrackingMode =
     state.mode !== "none" ? state.mode : serviceRunning ? "background" : "none";
   const lastAcceptedAt = nativeHealth?.lastServerAcceptAt ?? (await getLastAcceptedAt());
@@ -466,23 +472,47 @@ export async function startLocationTracking(shiftId: string): Promise<TrackingMo
         return "none";
       }
 
-      const synced = await syncNativeTrackingSession();
-      if (!synced) {
-        void appendErrorLog("startLocationTracking(native): syncSession failed", "warn");
+      // Credentials must land in Kotlin DataStore before FGS upload; retry once on race.
+      const sync = await syncNativeTrackingSessionDetailed({ retries: 1 });
+      if (!sync.ok) {
+        void appendErrorLog(
+          `startLocationTracking(native): syncSession failed (${sync.reason})`,
+          "warn",
+        );
+        await AsyncStorage.setItem(STORAGE_KEYS.TRACKING_MODE, "none");
+        return "none";
       }
-      const ok = await startNativeTracking(shiftId);
+
+      let ok = await startNativeTracking(shiftId);
+      if (!ok) {
+        // One more sync+start after a prior bridge miss (module/context race).
+        const retrySync = await syncNativeTrackingSessionDetailed({ retries: 0 });
+        if (!retrySync.ok) {
+          void appendErrorLog(
+            `startLocationTracking(native): syncSession failed after start miss (${retrySync.reason})`,
+            "warn",
+          );
+          await AsyncStorage.setItem(STORAGE_KEYS.TRACKING_MODE, "none");
+          return "none";
+        }
+        ok = await startNativeTracking(shiftId);
+      }
+      if (!ok) {
+        void appendErrorLog("startLocationTracking(native): startTracking failed", "warn");
+        await AsyncStorage.setItem(STORAGE_KEYS.TRACKING_MODE, "none");
+        return "none";
+      }
+
       await AsyncStorage.setItem(STORAGE_KEYS.ACTIVE_SHIFT_ID, shiftId);
-      await AsyncStorage.setItem(STORAGE_KEYS.TRACKING_MODE, ok ? "background" : "none");
-      if (ok) {
-        await writeFieldShiftSnapshot({
-          shiftId,
-          trackingMode: "background",
-          startedAt: new Date().toISOString(),
-        });
-        await markTrackingWarmup();
-        void flushNativePendingSamples().catch(() => undefined);
-      }
-      return ok ? "background" : "none";
+      await AsyncStorage.setItem(STORAGE_KEYS.TRACKING_MODE, "background");
+      await writeFieldShiftSnapshot({
+        shiftId,
+        trackingMode: "background",
+        startedAt: new Date().toISOString(),
+      });
+      await markTrackingWarmup();
+      void flushNativePendingSamples().catch(() => undefined);
+      return "background";
     }
 
     if (!shouldUseExpoTracking()) {

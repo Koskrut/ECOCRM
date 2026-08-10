@@ -24,25 +24,37 @@ export type NativeTrackingHealth = {
 type CrmNativeTrackingModule = {
   startTracking(shiftId: string): Promise<boolean>;
   stopTracking(): Promise<boolean>;
-  getTrackingHealth(): Promise<NativeTrackingHealth>;
+  getTrackingHealth(): Promise<Partial<NativeTrackingHealth> | Record<string, unknown>>;
   flushPendingSamples(): Promise<number>;
   isNativeTrackingAvailable(): Promise<boolean>;
   syncSession(authToken: string, apiBaseUrl: string): Promise<boolean>;
   clearSession(): Promise<boolean>;
 };
 
+/**
+ * Cache only a successful require. Import-time / early require can throw before the
+ * native registry is ready — a sticky null caused syncSession failed + no FGS.
+ */
 let nativeModule: CrmNativeTrackingModule | null = null;
 
-try {
-  if (Platform.OS === "android") {
+function getNativeModule(): CrmNativeTrackingModule | null {
+  if (Platform.OS !== "android") return null;
+  if (nativeModule) return nativeModule;
+  try {
     nativeModule = requireNativeModule<CrmNativeTrackingModule>("CrmNativeTracking");
+  } catch {
+    return null;
   }
-} catch {
+  return nativeModule;
+}
+
+/** Test helper — drop cached bridge so the next call re-requires. */
+export function resetNativeTrackingModuleCacheForTests(): void {
   nativeModule = null;
 }
 
 export function isNativeTrackingModuleLoaded(): boolean {
-  return nativeModule != null;
+  return getNativeModule() != null;
 }
 
 export function getActiveTrackingMode(): FieldTrackingModeFlag {
@@ -53,35 +65,103 @@ export async function syncNativeTrackingCredentials(
   authToken: string,
   apiBaseUrl: string,
 ): Promise<boolean> {
-  if (!nativeModule || Platform.OS !== "android") return false;
+  const mod = getNativeModule();
+  if (!mod || Platform.OS !== "android") return false;
   const base = apiBaseUrl.trim().replace(/\/+$/, "");
   if (!authToken || !base) return false;
-  return nativeModule.syncSession(authToken, base);
+  try {
+    return await mod.syncSession(authToken, base);
+  } catch {
+    nativeModule = null;
+    return false;
+  }
 }
 
 export async function clearNativeTrackingCredentials(): Promise<boolean> {
-  if (!nativeModule || Platform.OS !== "android") return false;
-  return nativeModule.clearSession();
+  const mod = getNativeModule();
+  if (!mod || Platform.OS !== "android") return false;
+  try {
+    return await mod.clearSession();
+  } catch {
+    nativeModule = null;
+    return false;
+  }
 }
 
 export async function startNativeTracking(shiftId: string): Promise<boolean> {
-  if (!nativeModule || getFieldTrackingMode() !== "native_android") return false;
-  return nativeModule.startTracking(shiftId);
+  const mod = getNativeModule();
+  if (!mod || getFieldTrackingMode() !== "native_android") return false;
+  try {
+    return await mod.startTracking(shiftId);
+  } catch {
+    nativeModule = null;
+    return false;
+  }
 }
 
 export async function stopNativeTracking(): Promise<boolean> {
-  if (!nativeModule) return false;
-  return nativeModule.stopTracking();
+  const mod = getNativeModule();
+  if (!mod) return false;
+  try {
+    return await mod.stopTracking();
+  } catch {
+    nativeModule = null;
+    return false;
+  }
+}
+
+function normalizeNativeHealth(
+  raw: Partial<NativeTrackingHealth> | Record<string, unknown> | null | undefined,
+): NativeTrackingHealth | null {
+  if (!raw || typeof raw !== "object") return null;
+  const serviceRunning = raw.serviceRunning;
+  const trackingHealthState = raw.trackingHealthState;
+  const activeShiftId = raw.activeShiftId;
+  // Empty map from Kotlin when context was null — treat as unavailable.
+  if (
+    serviceRunning == null &&
+    trackingHealthState == null &&
+    (activeShiftId == null || activeShiftId === "")
+  ) {
+    return null;
+  }
+  return {
+    trackingHealthState:
+      typeof trackingHealthState === "string" ? trackingHealthState : "SERVICE_DEAD",
+    lastGpsCapturedAt:
+      typeof raw.lastGpsCapturedAt === "string" ? raw.lastGpsCapturedAt : null,
+    lastServerAcceptAt:
+      typeof raw.lastServerAcceptAt === "string" ? raw.lastServerAcceptAt : null,
+    nativeLastSeenAt:
+      typeof raw.nativeLastSeenAt === "string" ? raw.nativeLastSeenAt : null,
+    pendingUploadCount:
+      typeof raw.pendingUploadCount === "number" ? raw.pendingUploadCount : 0,
+    serviceRunning: serviceRunning === true,
+    activeShiftId: typeof activeShiftId === "string" ? activeShiftId : null,
+    recoveryState: typeof raw.recoveryState === "string" ? raw.recoveryState : null,
+  };
 }
 
 export async function getNativeTrackingHealth(): Promise<NativeTrackingHealth | null> {
-  if (!nativeModule) return null;
-  return nativeModule.getTrackingHealth();
+  const mod = getNativeModule();
+  if (!mod) return null;
+  try {
+    return normalizeNativeHealth(await mod.getTrackingHealth());
+  } catch {
+    nativeModule = null;
+    return null;
+  }
 }
 
 export async function flushNativePendingSamples(): Promise<number> {
-  if (!nativeModule) return 0;
-  return nativeModule.flushPendingSamples();
+  const mod = getNativeModule();
+  if (!mod) return 0;
+  try {
+    return await mod.flushPendingSamples();
+  } catch {
+    nativeModule = null;
+    return 0;
+  }
 }
 
 /** Acceptance test hooks (Phase 8 — tests A–E). */

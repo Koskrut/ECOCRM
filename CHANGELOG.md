@@ -8,6 +8,7 @@
 
 - **`crm-native-tracking`**: harden FGS (`START_STICKY`, typed foreground notification, `stopWithTask=false`), Room/KSP plugin, uploader `sampleId`/`deviceId`/`source=native_android` + B1/B2/B3 telemetry.
 - **JS**: when `EXPO_PUBLIC_FIELD_TRACKING_MODE=native_android`, start/stop native only — stop Expo TaskManager writers (no dual-write); sync credentials before start; clear on logout.
+- **Fix `syncSession failed`**: lazy native-module require (no sticky null), `getAuthTokenWithRetry` + `hydrateApiBaseUrl` before sync, reason-coded logs, sync retry then start FGS; Kotlin context fallback + `isForegroundRunning` for Background task health.
 - **EAS**: new profile `preview-native` sets `native_android`; default `preview` stays `legacy_expo`.
 - **Docs**: Test B 2h minimize checklist in `docs/rfc/native-field-tracking.md`.
 - **Not enabled for prod users** — install `preview-native` APK for Smoke + 1–2 field devices only.

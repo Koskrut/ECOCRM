@@ -3,6 +3,7 @@ package expo.modules.crnativetracking
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.util.Log
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 import kotlinx.coroutines.runBlocking
@@ -17,6 +18,10 @@ import kotlinx.coroutines.runBlocking
  * - B3 lastServerAcceptAt — POST /field/shifts/:id/samples returned created>0 or duplicate
  */
 class CrmNativeTrackingModule : Module() {
+  companion object {
+    private const val TAG = "CrmNativeTracking"
+  }
+
   override fun definition() = ModuleDefinition {
     Name("CrmNativeTracking")
 
@@ -25,7 +30,14 @@ class CrmNativeTrackingModule : Module() {
     }
 
     AsyncFunction("syncSession") { authToken: String, apiBaseUrl: String ->
-      val context = appContext.reactContext ?: return@AsyncFunction false
+      val context = resolveAppContext() ?: run {
+        Log.w(TAG, "syncSession: no Android context")
+        return@AsyncFunction false
+      }
+      if (authToken.isBlank() || apiBaseUrl.isBlank()) {
+        Log.w(TAG, "syncSession: blank token or apiBaseUrl")
+        return@AsyncFunction false
+      }
       runBlocking {
         val store = TrackingStateStore(context)
         store.setSessionCredentials(authToken, apiBaseUrl)
@@ -36,7 +48,7 @@ class CrmNativeTrackingModule : Module() {
     }
 
     AsyncFunction("clearSession") {
-      val context = appContext.reactContext ?: return@AsyncFunction false
+      val context = resolveAppContext() ?: return@AsyncFunction false
       runBlocking {
         TrackingStateStore(context).clearSessionCredentials()
       }
@@ -44,7 +56,10 @@ class CrmNativeTrackingModule : Module() {
     }
 
     AsyncFunction("startTracking") { shiftId: String ->
-      val context = appContext.reactContext ?: return@AsyncFunction false
+      val context = resolveAppContext() ?: run {
+        Log.w(TAG, "startTracking: no Android context")
+        return@AsyncFunction false
+      }
       if (shiftId.isBlank()) return@AsyncFunction false
       runBlocking {
         val store = TrackingStateStore(context)
@@ -57,27 +72,41 @@ class CrmNativeTrackingModule : Module() {
     }
 
     AsyncFunction("stopTracking") {
-      val context = appContext.reactContext ?: return@AsyncFunction false
+      val context = resolveAppContext() ?: return@AsyncFunction false
       context.stopService(Intent(context, LocationForegroundService::class.java))
       runBlocking {
         TrackingStateStore(context).clearActiveShift()
       }
+      LocationForegroundService.markStopped()
       true
     }
 
     AsyncFunction("getTrackingHealth") {
-      val context = appContext.reactContext ?: return@AsyncFunction emptyMap<String, Any?>()
+      val context = resolveAppContext() ?: return@AsyncFunction emptyMap<String, Any?>()
       runBlocking {
         TrackingHealthEvaluator(context).evaluate()
       }
     }
 
     AsyncFunction("flushPendingSamples") {
-      val context = appContext.reactContext ?: return@AsyncFunction 0
+      val context = resolveAppContext() ?: return@AsyncFunction 0
       runBlocking {
         NativeSampleUploader(context).flushPending()
       }
     }
+  }
+
+  /**
+   * reactContext can be briefly null during bridge races; fall back to activity
+   * applicationContext so syncSession/startTracking do not fail while AppState=active.
+   */
+  private fun resolveAppContext(): Context? {
+    val react = appContext.reactContext
+    if (react != null) return react.applicationContext
+    val activity = appContext.currentActivity
+    if (activity != null) return activity.applicationContext
+    Log.w(TAG, "resolveAppContext: reactContext and currentActivity both null")
+    return null
   }
 
   private fun startForegroundService(context: Context, shiftId: String) {

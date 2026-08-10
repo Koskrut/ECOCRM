@@ -27,13 +27,16 @@ class TrackingHealthEvaluator(private val context: Context) {
       else -> "TRACKING_HEALTHY"
     }
 
+    val serviceRunning =
+      LocationForegroundService.isForegroundRunning || !snap["activeShiftId"].isNullOrBlank()
+
     return mapOf(
       "trackingHealthState" to health,
       "lastGpsCapturedAt" to snap["lastGpsCapturedAt"],
       "lastServerAcceptAt" to snap["lastServerAcceptAt"],
       "nativeLastSeenAt" to snap["nativeLastSeenAt"],
       "pendingUploadCount" to pending,
-      "serviceRunning" to !snap["activeShiftId"].isNullOrBlank(),
+      "serviceRunning" to serviceRunning,
       "activeShiftId" to snap["activeShiftId"],
       "recoveryState" to snap["recoveryState"],
     )

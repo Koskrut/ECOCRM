@@ -36,6 +36,15 @@ class LocationForegroundService : Service() {
     private const val CHANNEL_ID = "crm_field_tracking_native"
     private const val NOTIFICATION_ID = 61001
     private const val TAG = "CrmNativeTracking"
+
+    /** True while FGS is alive — used by getTrackingHealth (not DataStore alone). */
+    @Volatile
+    var isForegroundRunning: Boolean = false
+      private set
+
+    fun markStopped() {
+      isForegroundRunning = false
+    }
   }
 
   private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -77,6 +86,7 @@ class LocationForegroundService : Service() {
     stateStore.recordRecoveryEventBlocking("TASK_RECREATED")
 
     promoteToForeground()
+    isForegroundRunning = true
     startLocationUpdates()
     scope.launch {
       NativeSampleUploader(this@LocationForegroundService).flushPending()
@@ -95,6 +105,7 @@ class LocationForegroundService : Service() {
 
   override fun onDestroy() {
     locationUpdatesStarted = false
+    isForegroundRunning = false
     try {
       fusedClient.removeLocationUpdates(locationCallback)
     } catch (_: Exception) {
