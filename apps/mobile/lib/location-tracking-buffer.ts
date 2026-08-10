@@ -1,6 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-import { getAuthToken } from "./auth-token";
+import { getAuthToken, getAuthTokenWithRetry } from "./auth-token";
 import { FLUSH_INTERVAL_MS, FLUSH_WHEN_PENDING_GTE } from "./location-tracking-config";
 import { getApiBaseUrl, hydrateApiBaseUrl } from "./config";
 import { appendErrorLog } from "./error-log";
@@ -25,6 +25,7 @@ import {
 import { readActiveShiftId } from "./location-shift-bootstrap";
 import { enqueueOfflineJob } from "./offline-queue";
 import {
+  hydrateSessionAuthFromStorage,
   setAuthRequired,
   setFlushBlockReason,
   validateAuthToken,
@@ -141,6 +142,14 @@ async function rememberFlushError(message: string): Promise<void> {
 
 async function clearFlushError(): Promise<void> {
   await AsyncStorage.removeItem(STORAGE_KEYS.LAST_FLUSH_ERROR);
+}
+
+/** Drop stale SecureStore-race diagnostic once a flush HTTP call succeeded. */
+async function clearStaleNoAuthTokenFlushError(): Promise<void> {
+  const prev = await AsyncStorage.getItem(STORAGE_KEYS.LAST_FLUSH_ERROR);
+  if (prev === "no auth token") {
+    await clearFlushError();
+  }
 }
 
 /** Only real server accepts (created>0 / keepalive accept) refresh healthy. */
@@ -289,7 +298,9 @@ async function resolveFlushShiftId(
 export async function flushPendingSamples(shiftId?: string): Promise<number> {
   return withBufferLock(async () => {
     await hydrateApiBaseUrl();
-    let token = await getAuthToken();
+    // Headless / cold-wake: rehydrate block flags + retry SecureStore before giving up.
+    await hydrateSessionAuthFromStorage();
+    let token = await getAuthTokenWithRetry();
     if (!token) {
       // Do NOT setAuthRequired here — empty SecureStore also happens on voluntary logout.
       // auth_required is only set from a real HTTP 401 response.
@@ -437,6 +448,7 @@ export async function flushPendingSamples(shiftId?: string): Promise<number> {
           await writePending(rest);
           await AsyncStorage.setItem(STORAGE_KEYS.LAST_FLUSH_AT, new Date().toISOString());
           await AsyncStorage.removeItem(STORAGE_KEYS.LAST_ACCEPTED_AT);
+          await clearStaleNoAuthTokenFlushError();
           setFlushBlockReason("wrong_day");
           void appendErrorLog(
             `flush samples wrong_day purged count=${rejected} shiftId=${sid} rejectReasons=${formatRejectReasons(rejectReasons)}`,
@@ -454,6 +466,8 @@ export async function flushPendingSamples(shiftId?: string): Promise<number> {
 
         if (created > 0 || duplicate > 0) {
           await clearFlushError();
+        } else {
+          await clearStaleNoAuthTokenFlushError();
         }
 
         if (created === 0 && rejected > 0) {

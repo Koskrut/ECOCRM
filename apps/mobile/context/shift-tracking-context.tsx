@@ -425,6 +425,15 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
       if (state === "active") {
         void (async () => {
           try {
+            await hydrateSessionAuthFromStorage();
+            // Token is available in React — drain buffer immediately if SecureStore race
+            // left pending samples with a stale "no auth token" flush error.
+            if (token && !isAuthRequired()) {
+              const pending = await getPendingCount().catch(() => 0);
+              if (pending > 0) {
+                await flushPendingSamples(activeShift.id).catch(() => undefined);
+              }
+            }
             const before = await getTrackingRuntimeHealth();
             if (before.claimedMode === "background" || before.mode === "background") {
               // Always force-recover on foreground (dead FGS + poison #47595 + flush).

@@ -100,11 +100,14 @@ export async function processFieldLocationBatch(
  */
 if (!TaskManager.isTaskDefined(FIELD_LOCATION_TASK)) {
   TaskManager.defineTask(FIELD_LOCATION_TASK, async ({ data, error }) => {
+    // Order matters on headless cold wake: API URL + session flags before any flush.
     await hydrateApiBaseUrl();
     await hydrateSessionAuthFromStorage();
     await hydrateShiftFromSnapshot();
 
     const tryIntervalFlush = async () => {
+      // Re-hydrate immediately before flush — SecureStore / flags may lag first wake.
+      await hydrateSessionAuthFromStorage();
       const lastFlushAt = await AsyncStorage.getItem(STORAGE_KEYS.LAST_FLUSH_AT);
       if (shouldFlushByInterval(lastFlushAt)) {
         await flushPendingSamples();
@@ -126,6 +129,7 @@ if (!TaskManager.isTaskDefined(FIELD_LOCATION_TASK)) {
     await processFieldLocationBatch(locations);
 
     try {
+      await hydrateSessionAuthFromStorage();
       await flushPendingSamples();
     } catch {
       /* buffered for next flush */

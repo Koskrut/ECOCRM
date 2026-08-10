@@ -140,6 +140,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     void syncNativeTrackingSession();
   }, [token, apiUrl]);
 
+  // Cold start / session restore: if JWT is available and buffer has points, flush now
+  // (covers SecureStore race that left "no auth token" while user stayed logged in).
+  useEffect(() => {
+    if (!ready || !token || sessionExpired) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const { getPendingCount } = await import("@/lib/location-tracking-buffer");
+        const pending = await getPendingCount();
+        if (cancelled || pending <= 0) return;
+        await flushPendingSamples();
+      } catch {
+        /* watchdog / AppState recover retry */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [ready, token, sessionExpired]);
+
   const login = useCallback(async (loginStr: string, password: string) => {
     const data = await apiFetch<LoginResponse>("/auth/login", {
       method: "POST",

@@ -49,7 +49,12 @@ import { appendErrorLog } from "./error-log";
 import { validateRawLocationSample } from "./location-region-check";
 import { formatTeleportRejectLog } from "./location-sample-filter";
 import { isAcceptStale, reconcileTrackingHealth, LAST_POINT_STALE_MS } from "./location-tracking-health";
-import { clearFlushBlockReason, clearStaleGpsFlushBlockIfNeeded, getLastFlushBlockReason } from "./session-auth";
+import {
+  clearFlushBlockReason,
+  clearStaleGpsFlushBlockIfNeeded,
+  getLastFlushBlockReason,
+  hydrateSessionAuthFromStorage,
+} from "./session-auth";
 import {
   canStartLocationForegroundService,
   clearPendingAdaptiveTier,
@@ -506,6 +511,7 @@ export async function startLocationTracking(shiftId: string): Promise<TrackingMo
 /** One-shot foreground GPS + buffer append + flush (does not wait for background task). */
 export async function captureImmediateFixAndFlush(): Promise<boolean> {
   try {
+    await hydrateSessionAuthFromStorage();
     const block = getLastFlushBlockReason();
     if (block === "wrong_day" || block === "auth_401" || block === "stale_gps") {
       return false;
@@ -1181,6 +1187,8 @@ export async function runBackgroundTrackingWatchdog(): Promise<void> {
 
 /** Foreground recovery: dead or zombie background task → forceRestart + immediate fix. */
 export async function recoverDeadBackgroundTaskOnForeground(): Promise<TrackingMode> {
+  await hydrateSessionAuthFromStorage();
+
   if (shouldUseNativeTracking()) {
     if (!canStartLocationForegroundService(AppState.currentState)) {
       return "none";
