@@ -1,6 +1,7 @@
 const {
   withSettingsGradle,
   withAndroidManifest,
+  withGradleProperties,
   AndroidConfig,
 } = require("@expo/config-plugins");
 
@@ -36,6 +37,18 @@ function withKspSettings(config) {
   });
 }
 
+/** Room 2.6.x + KSP2 crashes on suspend DAO returning Unit — pin KSP1 until Room 2.7+ stable on EAS. */
+function withKsp1ForRoom(config) {
+  return withGradleProperties(config, (mod) => {
+    const key = "ksp.useKSP2";
+    const existing = mod.modResults.find((item) => item.type === "property" && item.key === key);
+    if (!existing) {
+      mod.modResults.push({ type: "property", key, value: "false" });
+    }
+    return mod;
+  });
+}
+
 /** Ensure FGS location permissions survive manifest merges (service lives in module AndroidManifest). */
 function withNativeTrackingManifest(config) {
   return withAndroidManifest(config, (mod) => {
@@ -49,6 +62,7 @@ function withNativeTrackingManifest(config) {
 
 module.exports = function withCrmNativeTracking(config) {
   config = withKspSettings(config);
+  config = withKsp1ForRoom(config);
   config = withNativeTrackingManifest(config);
   return config;
 };
