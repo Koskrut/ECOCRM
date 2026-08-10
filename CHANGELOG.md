@@ -4,7 +4,24 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.152**.)_
+_(планируемые изменения после **0.2.153**.)_
+
+## [0.2.153] — 2026-08-10
+
+### Summary
+
+Patch **0.2.153**: Expo flush telemetry for supervisor observability; ghost-duplicate accept fix; purge pending buffer on shift change.
+
+### Fixed
+
+- **Mobile Expo flush**: POST `/field/shifts/:id/samples` includes `telemetry` (`appLastSeenAt`, `lastGpsCapturedAt`) so supervisors see GPS pipeline state when FGS is alive but samples stall.
+- **Mobile shift change**: `purgePendingSamples()` before binding a new `ACTIVE_SHIFT_ID` (bootstrap / resume / native start) — prevents owner-scoped duplicate ghost accepts (Gumenyuk).
+- **Backend `appendSamples`**: `lastServerAcceptAt` only when `created > 0` or duplicate sampleIds exist on **current** shiftId; ghost duplicate from prior shift logs warn; telemetry-only path still updates `appLastSeenAt` / `lastGpsCapturedAt`.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.153`**.
+- **Mobile:** OTA or EAS build; no native Android flag change.
 
 ## [0.2.152] — 2026-08-10
 

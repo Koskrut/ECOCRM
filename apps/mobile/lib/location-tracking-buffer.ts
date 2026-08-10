@@ -29,6 +29,7 @@ import {
   setFlushBlockReason,
   validateAuthToken,
 } from "./session-auth";
+import { buildFlushTelemetryPayload } from "./location-flush-telemetry";
 
 const MAX_BATCH = 100;
 export const MAX_PENDING_SAMPLES = 500;
@@ -321,6 +322,12 @@ export async function flushPendingSamples(shiftId?: string): Promise<number> {
       const batch = pending.slice(0, MAX_BATCH);
       const rest = pending.slice(MAX_BATCH);
 
+      const lastGpsCapturedAt = await getLastGpsPointAt();
+      const telemetry = buildFlushTelemetryPayload({
+        lastGpsCapturedAt,
+        nowIso: new Date().toISOString(),
+      });
+
       try {
         const res = await fetchWithTimeout(`${getApiBaseUrl()}/field/shifts/${sid}/samples`, {
           method: "POST",
@@ -333,6 +340,7 @@ export async function flushPendingSamples(shiftId?: string): Promise<number> {
               ...s,
               source: "expo",
             })),
+            telemetry,
           }),
         });
 

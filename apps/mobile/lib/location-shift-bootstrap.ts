@@ -22,6 +22,12 @@ export async function bootstrapShiftTrackingContext(shiftId: string): Promise<Sh
   const gate = validateShiftBootstrapPrerequisites(shiftId, !!token);
   if (!gate.ok) return gate;
 
+  const previousShiftId = await AsyncStorage.getItem(STORAGE_KEYS.ACTIVE_SHIFT_ID);
+  if (previousShiftId && previousShiftId !== shiftId) {
+    const { purgePendingSamples } = await import("./location-tracking-buffer");
+    await purgePendingSamples();
+  }
+
   await AsyncStorage.multiSet([
     [STORAGE_KEYS.ACTIVE_SHIFT_ID, shiftId],
     [STORAGE_KEYS.ACTIVE_SHIFT_DAY_KEY, formatKyivDateKey()],

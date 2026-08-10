@@ -168,4 +168,98 @@ describe("FieldShiftsService.appendSamples idempotency", () => {
 
     assert.equal(lookups[0]?.ownerId, "owner-A");
   });
+
+  it("does not refresh lastServerAcceptAt on ghost duplicate from another shift", async () => {
+    const sampleId = "33333333-3333-4333-8333-333333333333";
+    const sessionUpdates: Array<Record<string, unknown>> = [];
+    let findFirstCalls = 0;
+    const prisma = {
+      fieldShift: {
+        findFirst: async () => shiftRow,
+      },
+      fieldLocationSample: {
+        findFirst: async (args: { where: { shiftId?: string; sampleId?: unknown } }) => {
+          findFirstCalls += 1;
+          if (findFirstCalls === 1) return null;
+          if (args.where.shiftId && args.where.sampleId) return null;
+          return null;
+        },
+        findMany: async () => [{ sampleId, ownerId: "owner-1", deviceId: "dev-1" }],
+        createMany: async () => {
+          throw new Error("should not insert ghost duplicates");
+        },
+      },
+      userActivitySession: {
+        findFirst: async () => ({ id: "sess-1" }),
+        update: async ({ data }: { data: Record<string, unknown> }) => {
+          sessionUpdates.push(data);
+          return {};
+        },
+      },
+    };
+
+    const svc = new FieldShiftsService(
+      prisma as never,
+      {} as never,
+      { emitAsync: async () => undefined } as never,
+    );
+    const res = await svc.appendSamples(
+      actor(),
+      "shift-1",
+      [{ ...uaSample, sampleId, deviceId: "dev-1" }],
+      {
+        appLastSeenAt: "2026-08-10T10:00:00.000Z",
+        lastGpsCapturedAt: "2026-08-10T09:55:00.000Z",
+      },
+    );
+
+    assert.equal(res.created, 0);
+    assert.equal(res.duplicate, 1);
+    assert.equal(sessionUpdates.length, 1);
+    assert.equal(sessionUpdates[0]?.lastServerAcceptAt, undefined);
+    assert.ok(sessionUpdates[0]?.appLastSeenAt);
+    assert.ok(sessionUpdates[0]?.lastGpsCapturedAt);
+  });
+
+  it("refreshes lastServerAcceptAt when duplicate exists on current shift", async () => {
+    const sampleId = "44444444-4444-4444-8444-444444444444";
+    const sessionUpdates: Array<Record<string, unknown>> = [];
+    let findFirstCalls = 0;
+    const prisma = {
+      fieldShift: {
+        findFirst: async () => shiftRow,
+      },
+      fieldLocationSample: {
+        findFirst: async (args: { where: { shiftId?: string; sampleId?: unknown } }) => {
+          findFirstCalls += 1;
+          if (findFirstCalls === 1) return null;
+          if (args.where.shiftId && args.where.sampleId) return { id: "on-shift-row" };
+          return null;
+        },
+        findMany: async () => [{ sampleId, ownerId: "owner-1", deviceId: "dev-1" }],
+        createMany: async () => ({ count: 0 }),
+      },
+      userActivitySession: {
+        findFirst: async () => ({ id: "sess-1" }),
+        update: async ({ data }: { data: Record<string, unknown> }) => {
+          sessionUpdates.push(data);
+          return {};
+        },
+      },
+    };
+
+    const svc = new FieldShiftsService(
+      prisma as never,
+      {} as never,
+      { emitAsync: async () => undefined } as never,
+    );
+    const res = await svc.appendSamples(actor(), "shift-1", [
+      { ...uaSample, sampleId, deviceId: "dev-1" },
+    ]);
+
+    assert.equal(res.created, 0);
+    assert.equal(res.duplicate, 1);
+    assert.equal(sessionUpdates.length, 1);
+    assert.ok(sessionUpdates[0]?.lastServerAcceptAt);
+  });
 });

@@ -423,6 +423,10 @@ async function applyPendingAdaptiveTierIfNeeded(): Promise<void> {
 export async function startLocationTracking(shiftId: string): Promise<TrackingMode> {
   try {
     if (shouldUseNativeTracking()) {
+      const previousShiftId = await AsyncStorage.getItem(STORAGE_KEYS.ACTIVE_SHIFT_ID);
+      if (previousShiftId && previousShiftId !== shiftId) {
+        await purgePendingSamples();
+      }
       await syncNativeTrackingSession();
       const ok = await startNativeTracking(shiftId);
       await AsyncStorage.setItem(STORAGE_KEYS.ACTIVE_SHIFT_ID, shiftId);
@@ -768,6 +772,10 @@ export async function resumeTrackingIfNeeded(
       return "none";
     }
     await markTrackingWarmup();
+    const activeId = await AsyncStorage.getItem(STORAGE_KEYS.ACTIVE_SHIFT_ID);
+    if (activeId && activeId !== shift.id) {
+      await purgePendingSamples();
+    }
     const boundDay = await AsyncStorage.getItem(STORAGE_KEYS.ACTIVE_SHIFT_DAY_KEY);
     // Local day rolled over but shift is still today (timezone edge) — rebind cleanly.
     if (boundDay && boundDay !== todayKey) {
@@ -780,7 +788,6 @@ export async function resumeTrackingIfNeeded(
     }
     if (shouldUseNativeTracking()) {
       const mode = await AsyncStorage.getItem(STORAGE_KEYS.TRACKING_MODE);
-      const activeId = await AsyncStorage.getItem(STORAGE_KEYS.ACTIVE_SHIFT_ID);
       if (activeId === shift.id && mode === "background") {
         await syncNativeTrackingSession();
         const health = await getNativeTrackingHealth();
@@ -794,7 +801,6 @@ export async function resumeTrackingIfNeeded(
     await registerFieldLocationTask();
     setForegroundWatchStarter(startForegroundWatch);
     const mode = await AsyncStorage.getItem(STORAGE_KEYS.TRACKING_MODE);
-    const activeId = await AsyncStorage.getItem(STORAGE_KEYS.ACTIVE_SHIFT_ID);
     if (activeId === shift.id && mode && mode !== "none") {
       startFlushTimer();
       if (mode === "background") {

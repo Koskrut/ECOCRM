@@ -366,6 +366,7 @@ export class FieldShiftsService {
     }[],
     telemetry?: {
       nativeLastSeenAt?: string;
+      appLastSeenAt?: string;
       lastGpsCapturedAt?: string;
       trackingHealthState?: string;
       deviceId?: string;
@@ -417,6 +418,7 @@ export class FieldShiftsService {
     let duplicate = 0;
     const rejectReasons: Record<string, number> = {};
     let reanchorCount = 0;
+    const duplicateSampleIds: string[] = [];
     const shiftDayYmd = instantToKyivYmd(shift.date);
     const sortedItems = sortGpsSamplesByTime(items);
 
@@ -442,6 +444,7 @@ export class FieldShiftsService {
       const deviceId = normalizeDeviceId(it, telemetry?.deviceId);
       if (isDuplicateSample(actor.id, deviceId, sampleId, existingKeys)) {
         duplicate += 1;
+        if (sampleId) duplicateSampleIds.push(sampleId);
         continue;
       }
 
@@ -543,19 +546,38 @@ export class FieldShiftsService {
       duplicate += rows.length - created;
     }
 
-    if (created > 0 || duplicate > 0) {
+    let acceptDuplicateOnShift = false;
+    if (duplicate > 0 && created === 0 && duplicateSampleIds.length > 0) {
+      const onShift = await this.prisma.fieldLocationSample.findFirst({
+        where: { shiftId, sampleId: { in: duplicateSampleIds } },
+        select: { id: true },
+      });
+      acceptDuplicateOnShift = onShift != null;
+    }
+
+    const shouldRefreshServerAccept = created > 0 || acceptDuplicateOnShift;
+
+    if (shouldRefreshServerAccept) {
       await this.touchTrackingTelemetry(actor.id, {
         lastServerAcceptAt: new Date(),
         nativeLastSeenAt: telemetry?.nativeLastSeenAt,
+        appLastSeenAt: telemetry?.appLastSeenAt,
         lastGpsCapturedAt: telemetry?.lastGpsCapturedAt,
         trackingHealthState: parseTrackingHealthState(telemetry?.trackingHealthState),
       });
     } else if (telemetry) {
       await this.touchTrackingTelemetry(actor.id, {
         nativeLastSeenAt: telemetry.nativeLastSeenAt,
+        appLastSeenAt: telemetry.appLastSeenAt,
         lastGpsCapturedAt: telemetry.lastGpsCapturedAt,
         trackingHealthState: parseTrackingHealthState(telemetry.trackingHealthState),
       });
+    }
+
+    if (duplicate > 0 && created === 0 && !acceptDuplicateOnShift) {
+      this.logger.warn(
+        `appendSamples ghost duplicate shiftId=${shiftId} ownerId=${actor.id} duplicate=${duplicate} (owner-scoped ids from other shift)`,
+      );
     }
 
     if (rejected > 0 || created > 0 || duplicate > 0 || reanchorCount > 0) {

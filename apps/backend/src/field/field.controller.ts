@@ -104,6 +104,7 @@ export class FieldController {
       }[];
       telemetry?: {
         nativeLastSeenAt?: string;
+        appLastSeenAt?: string;
         lastGpsCapturedAt?: string;
         trackingHealthState?: string;
         deviceId?: string;
