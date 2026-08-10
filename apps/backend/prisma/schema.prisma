@@ -1250,6 +1250,7 @@ model UserActivitySession {
   /// Last batch with created>0 or idempotent duplicate accept (B3).
   lastServerAcceptAt DateTime?
   trackingHealthState FieldTrackingHealthState?
+  deviceId      String?
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
 
@@ -1303,8 +1304,8 @@ model FieldTrackingEvent {
 model FieldLocationSample {
   id               String   @id @default(cuid())
   shiftId          String
-  /// Denormalized for owner-scoped idempotency (see migration partial unique index).
-  ownerId          String
+  /// Denormalized for owner-scoped idempotency (nullable — prod hotfix 2026-08-10).
+  ownerId          String?
   /// Client UUID — idempotent retries must reuse the same value.
   sampleId         String?
   deviceId         String?
@@ -1316,10 +1317,11 @@ model FieldLocationSample {
   createdAt        DateTime @default(now())
 
   shift FieldShift @relation(fields: [shiftId], references: [id], onDelete: Cascade)
-  owner User       @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  owner User?      @relation(fields: [ownerId], references: [id], onDelete: Cascade)
 
   @@index([shiftId, clientRecordedAt])
   @@index([ownerId, sampleId])
+  @@unique([ownerId, deviceId, sampleId])
 }
 
 /// Дневной отчёт по топливу/компенсации для менеджера.

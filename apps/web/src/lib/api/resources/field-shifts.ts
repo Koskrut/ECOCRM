@@ -66,7 +66,23 @@ export type FieldShiftTeamItem = {
   gpsWarning?: FieldTeamGpsWarning;
   trackingRestart: FieldTeamTrackingRestart | null;
   trackingTelemetry?: FieldTeamTrackingTelemetry | null;
+  /** @deprecated use trackingTelemetry */
+  telemetry?: FieldTeamTrackingTelemetry | null;
 };
+
+export function resolveTeamTelemetry(
+  item: Pick<FieldShiftTeamItem, "trackingTelemetry" | "telemetry">,
+): FieldTeamTrackingTelemetry | null | undefined {
+  return item.trackingTelemetry ?? item.telemetry;
+}
+
+export function resolveTeamTrackingHealthState(
+  item: Pick<FieldShiftTeamItem, "trackingTelemetry" | "telemetry">,
+): string | null {
+  const t = resolveTeamTelemetry(item);
+  if (!t) return null;
+  return t.trackingHealthState ?? t.derivedHealthState;
+}
 
 export type FieldLocationSampleRow = {
   id: string;

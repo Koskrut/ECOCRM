@@ -64,4 +64,6 @@ export type FieldShiftTeamItem = {
   trackingRestart: FieldTeamTrackingRestart | null;
   /** Split telemetry — supervisors must not infer GPS from device.lastSeenAt alone. */
   trackingTelemetry: FieldTeamTrackingTelemetry | null;
+  /** @deprecated use trackingTelemetry — alias for clients expecting `telemetry` (0.2.150) */
+  telemetry?: FieldTeamTrackingTelemetry | null;
 };

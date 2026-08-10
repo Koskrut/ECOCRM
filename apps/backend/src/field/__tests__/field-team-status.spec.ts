@@ -6,7 +6,8 @@ import {
   GPS_STALE_THRESHOLD_MS,
   PRESENCE_ONLINE_THRESHOLD_MS,
 } from "../../presence/presence.constants";
-import { deriveDevicePresence, deriveGpsStatus } from "../field-team-status";
+import { deriveDevicePresence, deriveGpsStatus, deriveTrackingTelemetry } from "../field-team-status";
+import { FieldTrackingHealthState } from "@prisma/client";
 
 describe("deriveGpsStatus", () => {
   const now = Date.parse("2026-06-29T12:00:00.000Z");
@@ -65,5 +66,28 @@ describe("deriveDevicePresence", () => {
     const result = deriveDevicePresence(session, now);
     assert.equal(result?.appState, null);
     assert.equal(result?.trackingMode, "foreground");
+  });
+});
+
+describe("deriveTrackingTelemetry", () => {
+  const now = Date.parse("2026-08-10T12:00:00.000Z");
+
+  it("formats session timestamps and derived health", () => {
+    const session = {
+      lastSeenAt: new Date(now - 60_000),
+      appLastSeenAt: new Date(now - 60_000),
+      nativeLastSeenAt: null,
+      lastGpsCapturedAt: new Date(now - 60_000),
+      lastServerAcceptAt: new Date(now - 60_000),
+      trackingHealthState: null as FieldTrackingHealthState | null,
+    };
+    const result = deriveTrackingTelemetry(session, {
+      trackingEnabled: true,
+      lastSampleAt: new Date(now - 60_000),
+      nowMs: now,
+    });
+    assert.ok(result);
+    assert.equal(result?.derivedHealthState, "TRACKING_HEALTHY");
+    assert.equal(result?.appLastSeenAt, session.appLastSeenAt.toISOString());
   });
 });

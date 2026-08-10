@@ -4,7 +4,28 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.151**.)_
+_(планируемые изменения после **0.2.152**.)_
+
+## [0.2.152] — 2026-08-10
+
+### Summary
+
+Coherent **field GPS tracking** release: idempotent sample upload, split telemetry on team API, web health badges, mobile login/recovery UX. Aligns repo with prod hotfix schema (`ownerId` nullable, `20260810133000` migration).
+
+### Fixed
+
+- **Backend `appendSamples`**: always sets `ownerId`; idempotent `(ownerId, deviceId, sampleId)`; response includes `duplicate`; `POST /field/shifts/:id/tracking-telemetry`.
+- **Team API**: `trackingTelemetry` + deprecated `telemetry` alias; health states via `deriveTrackingTelemetry`.
+- **Migration `20260810133000`**: IF NOT EXISTS columns, MOBILE backfill `appLastSeenAt` + `lastServerAcceptAt`, no `SET NOT NULL ownerId`.
+- **Web `/visits/team`**: `resolveTeamTelemetry()` / health badge labels.
+- **Mobile**: 3 min warmup after login (no instant «GPS не пишеться»); login refresh bootstrap + FGS recover + flush; restart shows «очікуємо точку» when FGS up but accept pending.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.152`**.
+- **Prod:** migrations `20260810133000` likely already applied — deploy code only; staging: `prisma migrate deploy`.
+- **Mobile:** OTA or EAS build with this commit; native Android cutover (`native_android`) **not** enabled.
+- **Do not use 0.2.149–0.2.151** for field GPS without this patch — prod incident 2026-08-10 (see `docs/rfc/native-field-tracking.md`).
 
 ## [0.2.151] — 2026-08-10
 

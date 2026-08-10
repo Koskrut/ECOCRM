@@ -3,6 +3,23 @@ import {
   GPS_STALE_THRESHOLD_MS,
   PRESENCE_ONLINE_THRESHOLD_MS,
 } from "../presence/presence.constants";
+import {
+  deriveTrackingHealthState,
+  formatTrackingTelemetry,
+  type FieldTeamTrackingTelemetry,
+  type TrackingTelemetryTimestamps,
+} from "./field-tracking-telemetry";
+
+export type { FieldTeamTrackingTelemetry, TrackingTelemetryTimestamps };
+export { deriveTrackingHealthState };
+
+/** Alias for team API — formats session row + shift context into supervisor telemetry. */
+export function deriveTrackingTelemetry(
+  row: Parameters<typeof formatTrackingTelemetry>[0],
+  opts: Parameters<typeof formatTrackingTelemetry>[1],
+): FieldTeamTrackingTelemetry | null {
+  return formatTrackingTelemetry(row, opts);
+}
 
 export type GpsTeamStatus = "ok" | "stale" | "none" | "disabled";
 

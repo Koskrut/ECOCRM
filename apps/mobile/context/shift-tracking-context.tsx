@@ -60,6 +60,7 @@ import {
   canRunShiftOperation,
   shouldReuseActiveShift,
 } from "@/lib/shift-ops-gate";
+import { markTrackingWarmup } from "@/lib/tracking-warmup";
 import type { FieldShift } from "@/types/crm";
 
 const WATCHDOG_INTERVAL_MS = 2 * 60 * 1000;
@@ -334,7 +335,22 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
       if (shift?.trackingEnabled !== undefined) {
         setTrackingEnabled(shift.trackingEnabled);
       }
-      const mode = await resumeTrackingIfNeeded(shift);
+      if (shift?.trackingEnabled && shift.status === "ACTIVE") {
+        await bootstrapShiftTrackingContext(shift.id);
+        await markTrackingWarmup();
+      }
+      let mode = await resumeTrackingIfNeeded(shift);
+      if (
+        shift?.trackingEnabled &&
+        shift.status === "ACTIVE" &&
+        AppState.currentState === "active"
+      ) {
+        if (mode === "background" || mode === "none") {
+          mode = await recoverDeadBackgroundTaskOnForeground();
+        }
+        await flushPendingSamples(shift.id).catch(() => undefined);
+        await captureImmediateFixAndFlush().catch(() => false);
+      }
       setTrackingMode(mode);
       if (mode === "background") {
         void registerBackgroundTrackingWatchdog();
@@ -602,6 +618,11 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
       if (result.errorCode === "app_not_active") {
         setFgsRestartBlocked(true);
         Alert.alert(t("gps.openAppFirstTitle"), t("gps.openAppFirstHint"));
+        return;
+      }
+      if (health.backgroundTaskStarted && result.mode === "background") {
+        setShowBatteryHint(false);
+        Alert.alert(t("gps.restartPendingTitle"), t("gps.restartPendingHint"));
         return;
       }
       await maybePromptBatteryAfterFailedRestart();

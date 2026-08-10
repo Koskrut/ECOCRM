@@ -29,12 +29,23 @@ import {
   sortGpsSamplesByTime,
 } from "./gps-sample-filter";
 import { SHIFT_ENDED_EVENT } from "./field.events";
-import { deriveDevicePresence, deriveGpsStatus } from "./field-team-status";
 import {
-  formatTrackingTelemetry,
+  deriveDevicePresence,
+  deriveGpsStatus,
+  deriveTrackingTelemetry,
+} from "./field-team-status";
+import {
   parseSampleSource,
   parseTrackingHealthState,
 } from "./field-tracking-telemetry";
+import {
+  buildExistingKeySet,
+  collectSampleIds,
+  isDuplicateSample,
+  markSampleAccepted,
+  normalizeDeviceId,
+  normalizeSampleId,
+} from "./field-samples-idempotency";
 import type { FieldShiftTeamItem, FieldTeamTrackingRestartReason } from "./field-shifts.types";
 
 const MAX_SAMPLES_BATCH = 250;
@@ -409,17 +420,15 @@ export class FieldShiftsService {
     const shiftDayYmd = instantToKyivYmd(shift.date);
     const sortedItems = sortGpsSamplesByTime(items);
 
-    const sampleIds = sortedItems
-      .map((it) => (typeof it.sampleId === "string" && it.sampleId.trim() ? it.sampleId.trim() : null))
-      .filter((id): id is string => id != null);
-    const existingSampleIds = new Set<string>();
+    const sampleIds = collectSampleIds(sortedItems);
+    const existingKeys = new Set<string>();
     if (sampleIds.length > 0) {
       const existing = await this.prisma.fieldLocationSample.findMany({
         where: { ownerId: actor.id, sampleId: { in: sampleIds } },
-        select: { sampleId: true },
+        select: { sampleId: true, deviceId: true, ownerId: true },
       });
-      for (const row of existing) {
-        if (row.sampleId) existingSampleIds.add(row.sampleId);
+      for (const key of buildExistingKeySet(existing, actor.id)) {
+        existingKeys.add(key);
       }
     }
 
@@ -429,9 +438,9 @@ export class FieldShiftsService {
         throw new BadRequestException("Invalid clientRecordedAt");
       }
 
-      const sampleId =
-        typeof it.sampleId === "string" && it.sampleId.trim() ? it.sampleId.trim() : null;
-      if (sampleId && existingSampleIds.has(sampleId)) {
+      const sampleId = normalizeSampleId(it.sampleId);
+      const deviceId = normalizeDeviceId(it, telemetry?.deviceId);
+      if (isDuplicateSample(actor.id, deviceId, sampleId, existingKeys)) {
         duplicate += 1;
         continue;
       }
@@ -514,19 +523,14 @@ export class FieldShiftsService {
         shiftId,
         ownerId: actor.id,
         sampleId,
-        deviceId:
-          typeof it.deviceId === "string" && it.deviceId.trim()
-            ? it.deviceId.trim()
-            : telemetry?.deviceId?.trim() || null,
+        deviceId,
         source: parseSampleSource(it.source) as FieldLocationSampleSource | undefined,
         lat: candidate.lat,
         lng: candidate.lng,
         accuracyM: candidate.accuracyM,
         clientRecordedAt,
       });
-      if (sampleId) {
-        existingSampleIds.add(sampleId);
-      }
+      markSampleAccepted(actor.id, deviceId, sampleId, existingKeys);
     }
 
     let created = 0;
@@ -563,6 +567,42 @@ export class FieldShiftsService {
     return { created, duplicate, rejected, rejectReasons };
   }
 
+  /** Heartbeat-only telemetry update (no GPS samples). */
+  async updateTrackingTelemetry(
+    actor: AuthUser | undefined,
+    shiftId: string,
+    body: {
+      nativeLastSeenAt?: string;
+      lastGpsCapturedAt?: string;
+      trackingHealthState?: string;
+      deviceId?: string;
+      appLastSeenAt?: string;
+    },
+  ) {
+    if (!actor) {
+      throw new BadRequestException("User is required");
+    }
+    const shift = await this.prisma.fieldShift.findFirst({
+      where: { id: shiftId, ownerId: actor.id },
+    });
+    if (!shift) {
+      throw new NotFoundException("Shift not found");
+    }
+    if (shift.status !== FieldShiftStatus.ACTIVE) {
+      throw new BadRequestException("Shift is not active");
+    }
+
+    await this.touchTrackingTelemetry(actor.id, {
+      nativeLastSeenAt: body.nativeLastSeenAt,
+      lastGpsCapturedAt: body.lastGpsCapturedAt,
+      trackingHealthState: parseTrackingHealthState(body.trackingHealthState),
+      appLastSeenAt: body.appLastSeenAt,
+      deviceId: body.deviceId,
+    });
+
+    return { ok: true };
+  }
+
   /** Update mobile session telemetry without conflating app heartbeat with GPS accept. */
   private async touchTrackingTelemetry(
     ownerId: string,
@@ -571,6 +611,8 @@ export class FieldShiftsService {
       nativeLastSeenAt?: string;
       lastGpsCapturedAt?: string;
       trackingHealthState?: FieldTrackingHealthState;
+      appLastSeenAt?: string;
+      deviceId?: string;
     },
   ) {
     const session = await this.prisma.userActivitySession.findFirst({
@@ -593,6 +635,13 @@ export class FieldShiftsService {
     }
     if (patch.trackingHealthState) {
       data.trackingHealthState = patch.trackingHealthState;
+    }
+    if (patch.appLastSeenAt) {
+      const at = new Date(patch.appLastSeenAt);
+      if (!Number.isNaN(at.getTime())) data.appLastSeenAt = at;
+    }
+    if (patch.deviceId?.trim()) {
+      data.deviceId = patch.deviceId.trim();
     }
     if (Object.keys(data).length === 0) return;
 
@@ -856,7 +905,7 @@ export class FieldShiftsService {
                 lastRestartReason: this.toApiRestartReason(lastRestart?.reason ?? null),
               }
             : null,
-        trackingTelemetry: formatTrackingTelemetry(presence ?? null, {
+        trackingTelemetry: deriveTrackingTelemetry(presence ?? null, {
           trackingEnabled: shift.trackingEnabled,
           lastSampleAt: last?.clientRecordedAt ?? null,
           nowMs,
@@ -864,7 +913,13 @@ export class FieldShiftsService {
       };
     });
 
-    return { items };
+    return {
+      items: items.map((item) => ({
+        ...item,
+        /** @deprecated use trackingTelemetry — kept for web clients on 0.2.150 and earlier */
+        telemetry: item.trackingTelemetry,
+      })),
+    };
   }
 
   private toApiRestartReason(

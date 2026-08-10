@@ -12,6 +12,9 @@ export const enGps = {
     "Background tracking did not start. Keep CRM open and tap Restart tracking again. If that fails, close and reopen the shift. Do not open battery settings if Unrestricted is already set.",
   restartFailedForceCloseHint:
     "Background GPS did not start. Force-close CRM completely and open it again, then tap Restart tracking.",
+  restartPendingTitle: "GPS service started",
+  restartPendingHint:
+    "Waiting for the first point on the server. Keep CRM open for 1–2 minutes — if the warning persists, check network or sign in again.",
   restartShiftConfirmTitle: "Close and reopen shift?",
   restartShiftConfirmHint:
     "This ends the current shift and starts a new one. Try Restart tracking first. Continue only if GPS is still dead or the server rejects points (wrong_day).",

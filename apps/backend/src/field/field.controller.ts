@@ -115,6 +115,22 @@ export class FieldController {
     return this.shifts.appendSamples(req.user, id, items, body?.telemetry);
   }
 
+  @Post("shifts/:id/tracking-telemetry")
+  async trackingTelemetry(
+    @Param("id") id: string,
+    @Body()
+    body: {
+      nativeLastSeenAt?: string;
+      lastGpsCapturedAt?: string;
+      trackingHealthState?: string;
+      deviceId?: string;
+      appLastSeenAt?: string;
+    },
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.shifts.updateTrackingTelemetry(req.user, id, body ?? {});
+  }
+
   @Post("shifts/:id/tracking-events")
   async trackingEvents(
     @Param("id") id: string,

@@ -5,6 +5,10 @@ import type {
   FieldTeamDevicePresence,
   FieldTeamGpsStatus,
 } from "@/lib/api/resources/field-shifts";
+import {
+  resolveTeamTelemetry,
+  resolveTeamTrackingHealthState,
+} from "@/lib/api/resources/field-shifts";
 import { visitStatusLabel } from "@/lib/status-labels";
 import { strings } from "@/locales";
 
@@ -74,6 +78,44 @@ function restartReasonLabel(reason: string | null | undefined): string {
   }
 }
 
+function trackingHealthLabel(state: string | null | undefined): string | null {
+  if (!state) return null;
+  switch (state) {
+    case "TRACKING_HEALTHY":
+      return t.trackingHealthHealthy;
+    case "NETWORK_DEGRADED":
+      return t.trackingHealthNetworkDegraded;
+    case "LOCATION_STALE":
+      return t.trackingHealthLocationStale;
+    case "SERVICE_DEAD":
+      return t.trackingHealthServiceDead;
+    case "RECOVERY_IN_PROGRESS":
+      return t.trackingHealthRecoveryInProgress;
+    case "RECOVERY_FAILED":
+      return t.trackingHealthRecoveryFailed;
+    default:
+      return state;
+  }
+}
+
+function trackingHealthClass(state: string | null | undefined): string {
+  switch (state) {
+    case "TRACKING_HEALTHY":
+      return "bg-emerald-100 text-emerald-800";
+    case "NETWORK_DEGRADED":
+      return "bg-sky-100 text-sky-800";
+    case "LOCATION_STALE":
+      return "bg-amber-100 text-amber-800";
+    case "SERVICE_DEAD":
+    case "RECOVERY_FAILED":
+      return "bg-red-100 text-red-800";
+    case "RECOVERY_IN_PROGRESS":
+      return "bg-violet-100 text-violet-800";
+    default:
+      return "bg-zinc-100 text-zinc-600";
+  }
+}
+
 function gpsStatusClass(status: FieldTeamGpsStatus): string {
   switch (status) {
     case "ok":
@@ -140,12 +182,14 @@ export function TeamFieldList({ items, selectedOwnerId, onSelect }: TeamFieldLis
           item.sampleCountToday > 0
             ? t.gpsSamplesSuffix.replace("{count}", String(item.sampleCountToday))
             : "";
-        const heartbeatAgo = formatAgo(item.trackingTelemetry?.appLastSeenAt ?? item.device?.lastSeenAt);
-        const nativeAgo = formatAgo(item.trackingTelemetry?.nativeLastSeenAt);
+        const telemetry = resolveTeamTelemetry(item);
+        const heartbeatAgo = formatAgo(telemetry?.appLastSeenAt ?? item.device?.lastSeenAt);
+        const nativeAgo = formatAgo(telemetry?.nativeLastSeenAt);
         const gpsAgo = formatAgo(
-          item.trackingTelemetry?.lastServerAcceptAt ?? item.lastSample?.clientRecordedAt,
+          telemetry?.lastServerAcceptAt ?? item.lastSample?.clientRecordedAt,
         );
-        const healthState = item.trackingTelemetry?.derivedHealthState;
+        const healthState = resolveTeamTrackingHealthState(item);
+        const healthLabel = trackingHealthLabel(healthState);
         const restartDetail =
           item.trackingRestart && item.trackingRestart.restartCountToday > 0
             ? t.trackingRestartDetail
@@ -206,9 +250,15 @@ export function TeamFieldList({ items, selectedOwnerId, onSelect }: TeamFieldLis
                     .replace("{samples}", samplesSuffix)}
                 </p>
                 {nativeAgo !== t.gpsNoSignal ? (
-                  <p className="text-zinc-500">
-                    Native: {nativeAgo}
-                    {healthState ? ` · ${healthState}` : ""}
+                  <p className="text-zinc-500">Native: {nativeAgo}</p>
+                ) : null}
+                {healthLabel ? (
+                  <p>
+                    <span
+                      className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${trackingHealthClass(healthState)}`}
+                      title={t.badgeTrackingHealth}>
+                      {healthLabel}
+                    </span>
                   </p>
                 ) : null}
                 {restartDetail ? <p className="text-amber-700">{restartDetail}</p> : null}

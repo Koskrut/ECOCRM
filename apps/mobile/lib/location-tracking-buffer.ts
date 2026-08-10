@@ -56,6 +56,8 @@ export const STORAGE_KEYS = {
   LAST_REJECT_REASON: "field_last_reject_reason",
   LAST_FLUSH_ERROR: "field_last_flush_error",
   LAST_GPS_POINT_AT: "field_last_gps_point_at",
+  /** ISO timestamp — suppress accept_stale banner during post-login recovery. */
+  TRACKING_WARMUP_UNTIL: "field_tracking_warmup_until",
 } as const;
 
 export type PendingLocationSample = {
@@ -145,6 +147,8 @@ async function markPipelineAlive(): Promise<void> {
   const at = new Date().toISOString();
   await AsyncStorage.setItem(STORAGE_KEYS.LAST_ACCEPTED_AT, at);
   void patchFieldShiftSnapshot({ lastKnownAcceptAt: at }).catch(() => undefined);
+  const { clearTrackingWarmup } = await import("./tracking-warmup");
+  await clearTrackingWarmup();
 }
 
 async function rememberRejectReasons(

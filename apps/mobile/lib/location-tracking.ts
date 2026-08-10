@@ -82,6 +82,7 @@ import {
   type NativeTrackingHealth,
 } from "../modules/crm-native-tracking";
 import { syncNativeTrackingSession } from "./native-tracking-session";
+import { markTrackingWarmup, isTrackingWarmupActive } from "./tracking-warmup";
 import { sendGpsZombieDetectedEvent, sendTrackingRestartEvent } from "./tracking-telemetry";
 import {
   beginRecoveryAttempt,
@@ -185,8 +186,9 @@ async function buildNativeRuntimeHealth(
     state.mode !== "none" ? state.mode : serviceRunning ? "background" : "none";
   const lastAcceptedAt = nativeHealth?.lastServerAcceptAt ?? (await getLastAcceptedAt());
   const lastGpsPointAt = nativeHealth?.lastGpsCapturedAt ?? null;
-  const acceptStale = isAcceptStale(lastAcceptedAt);
-  const pointStale = isTimestampStale(lastGpsPointAt, LAST_POINT_STALE_MS);
+  const inWarmup = await isTrackingWarmupActive();
+  const acceptStale = inWarmup ? false : isAcceptStale(lastAcceptedAt);
+  const pointStale = inWarmup ? false : isTimestampStale(lastGpsPointAt, LAST_POINT_STALE_MS);
   const healthState = nativeHealth?.trackingHealthState;
   const healthy =
     mapNativeHealthStateToHealthy(healthState) && !acceptStale && serviceRunning;
@@ -431,6 +433,7 @@ export async function startLocationTracking(shiftId: string): Promise<TrackingMo
           trackingMode: "background",
           startedAt: new Date().toISOString(),
         });
+        await markTrackingWarmup();
       }
       return ok ? "background" : "none";
     }
@@ -486,6 +489,7 @@ export async function startLocationTracking(shiftId: string): Promise<TrackingMo
     clearStaleGpsFlushBlockIfNeeded();
     void clearGpsStoppedNotificationDedupe().catch(() => undefined);
     void captureImmediateFixAndFlush().catch(() => undefined);
+    await markTrackingWarmup();
     return "background";
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
@@ -543,6 +547,7 @@ export type RestartTrackingResult = {
  * Success requires hasStartedLocationUpdatesAsync === true when claiming background.
  */
 export async function restartTrackingPipeline(): Promise<RestartTrackingResult> {
+  await markTrackingWarmup();
   const shiftId = await AsyncStorage.getItem(STORAGE_KEYS.ACTIVE_SHIFT_ID);
   const claimed =
     ((await AsyncStorage.getItem(STORAGE_KEYS.TRACKING_MODE)) as TrackingMode | null) ?? "none";
@@ -762,6 +767,7 @@ export async function resumeTrackingIfNeeded(
       await purgePendingSamples();
       return "none";
     }
+    await markTrackingWarmup();
     const boundDay = await AsyncStorage.getItem(STORAGE_KEYS.ACTIVE_SHIFT_DAY_KEY);
     // Local day rolled over but shift is still today (timezone edge) — rebind cleanly.
     if (boundDay && boundDay !== todayKey) {
@@ -879,10 +885,11 @@ export async function getTrackingRuntimeHealth(): Promise<TrackingRuntimeHealth>
   void setBatteryOptimizationStatus(batteryStatus);
   const { getForegroundSubscription } = await import("./location-tracking-adaptive");
   const foregroundWatchActive = !!getForegroundSubscription();
+  const inWarmup = await isTrackingWarmupActive();
   let health = reconcileTrackingHealth(state.mode, backgroundTaskStarted, foregroundWatchActive, {
     lastAcceptedAt,
     lastGpsPointAt,
-    requireRecentAccept: !!activeShiftId && state.mode !== "none",
+    requireRecentAccept: !!activeShiftId && state.mode !== "none" && !inWarmup,
     backgroundPermission: perms.background,
   });
 
