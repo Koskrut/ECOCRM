@@ -4,10 +4,23 @@ import * as IntentLauncher from "expo-intent-launcher";
 import * as Location from "expo-location";
 import { Alert, Linking, Platform } from "react-native";
 
+import {
+  hasBackgroundLocationPermission,
+  hasFineLocationPermission,
+} from "../modules/crm-battery";
 import { buildBatteryOptimizationPackageUri } from "./battery-intent";
 import { t } from "./i18n";
+import {
+  resolveBackgroundPermissionStatus,
+  shouldSkipBackgroundPermissionPrompt,
+} from "./location-permissions-core";
 
 export { buildBatteryOptimizationPackageUri } from "./battery-intent";
+export {
+  isBackgroundLocationGrantedStatus,
+  resolveBackgroundPermissionStatus,
+  shouldSkipBackgroundPermissionPrompt,
+} from "./location-permissions-core";
 
 export type TrackingPermissionStatus = {
   foreground: Location.PermissionStatus;
@@ -21,17 +34,59 @@ const BATTERY_PROMPT_KEY = "field_battery_opt_prompted";
 const ANDROID_PACKAGE =
   Constants.expoConfig?.android?.package ?? "dental.suprex.crm.manager";
 
+async function readNativeBackgroundGranted(): Promise<boolean | null> {
+  if (Platform.OS !== "android") return null;
+  return hasBackgroundLocationPermission();
+}
+
+async function readNativeForegroundGranted(): Promise<boolean | null> {
+  if (Platform.OS !== "android") return null;
+  return hasFineLocationPermission();
+}
+
+function asPermissionStatus(value: string | null): Location.PermissionStatus | null {
+  if (value == null) return null;
+  if (value === "granted") return Location.PermissionStatus.GRANTED;
+  if (value === "denied") return Location.PermissionStatus.DENIED;
+  if (value === "undetermined") return Location.PermissionStatus.UNDETERMINED;
+  return value as Location.PermissionStatus;
+}
+
 /** Read current permission status without showing any system dialog. */
 export async function getTrackingPermissionStatus(): Promise<TrackingPermissionStatus> {
-  const fg = await Location.getForegroundPermissionsAsync();
+  let fgStatus: Location.PermissionStatus = Location.PermissionStatus.UNDETERMINED;
+  let fgCanAskAgain = true;
+  try {
+    const fg = await Location.getForegroundPermissionsAsync();
+    fgStatus = fg.status;
+    fgCanAskAgain = fg.canAskAgain;
+  } catch {
+    fgStatus = Location.PermissionStatus.UNDETERMINED;
+  }
+
+  const nativeFg = await readNativeForegroundGranted();
+  if (fgStatus !== "granted" && nativeFg === true) {
+    fgStatus = Location.PermissionStatus.GRANTED;
+  }
+
   let background: Location.PermissionStatus | null = null;
   let backgroundCanAskAgain = false;
-  if (fg.status === "granted") {
-    const bg = await Location.getBackgroundPermissionsAsync();
-    background = bg.status;
-    backgroundCanAskAgain = bg.canAskAgain;
+  if (fgStatus === "granted") {
+    let expoBg: string = Location.PermissionStatus.UNDETERMINED;
+    let canAskAgain = true;
+    try {
+      const bg = await Location.getBackgroundPermissionsAsync();
+      expoBg = bg.status;
+      canAskAgain = bg.canAskAgain;
+    } catch {
+      expoBg = Location.PermissionStatus.UNDETERMINED;
+      canAskAgain = true;
+    }
+    const nativeBg = await readNativeBackgroundGranted();
+    background = asPermissionStatus(resolveBackgroundPermissionStatus(expoBg, nativeBg));
+    backgroundCanAskAgain = canAskAgain;
   }
-  return { foreground: fg.status, background, backgroundCanAskAgain };
+  return { foreground: fgStatus, background, backgroundCanAskAgain };
 }
 
 function showBackgroundRationale(): Promise<boolean> {
@@ -46,18 +101,27 @@ function showBackgroundRationale(): Promise<boolean> {
 /** Request foreground then background permission, reporting whether we may still ask. */
 export async function requestTrackingPermissions(): Promise<TrackingPermissionStatus> {
   const fg = await Location.requestForegroundPermissionsAsync();
-  if (fg.status !== "granted") {
+  let foreground = fg.status;
+  const nativeFg = await readNativeForegroundGranted();
+  if (foreground !== "granted" && nativeFg === true) {
+    foreground = Location.PermissionStatus.GRANTED;
+  }
+  if (foreground !== "granted") {
     return {
-      foreground: fg.status,
+      foreground,
       background: null,
       backgroundCanAskAgain: fg.canAskAgain,
     };
   }
 
   const bg = await Location.requestBackgroundPermissionsAsync();
+  const nativeBg = await readNativeBackgroundGranted();
+  const background = asPermissionStatus(
+    resolveBackgroundPermissionStatus(bg.status, nativeBg),
+  );
   return {
-    foreground: fg.status,
-    background: bg.status,
+    foreground,
+    background,
     backgroundCanAskAgain: bg.canAskAgain,
   };
 }
@@ -68,36 +132,56 @@ export async function requestTrackingPermissions(): Promise<TrackingPermissionSt
  */
 export async function requestTrackingPermissionsWithRationale(): Promise<TrackingPermissionStatus> {
   const fg = await Location.requestForegroundPermissionsAsync();
-  if (fg.status !== "granted") {
+  let foreground = fg.status;
+  const nativeFg = await readNativeForegroundGranted();
+  if (foreground !== "granted" && nativeFg === true) {
+    foreground = Location.PermissionStatus.GRANTED;
+  }
+  if (foreground !== "granted") {
     return {
-      foreground: fg.status,
+      foreground,
       background: null,
       backgroundCanAskAgain: fg.canAskAgain,
     };
   }
 
-  const existingBg = await Location.getBackgroundPermissionsAsync();
-  if (existingBg.status === "granted") {
+  let expoBgStatus: string = Location.PermissionStatus.UNDETERMINED;
+  let canAskAgain = true;
+  try {
+    const existingBg = await Location.getBackgroundPermissionsAsync();
+    expoBgStatus = existingBg.status;
+    canAskAgain = existingBg.canAskAgain;
+  } catch {
+    expoBgStatus = Location.PermissionStatus.UNDETERMINED;
+    canAskAgain = true;
+  }
+
+  const nativeBg = await readNativeBackgroundGranted();
+  if (shouldSkipBackgroundPermissionPrompt(expoBgStatus, nativeBg)) {
     return {
-      foreground: fg.status,
-      background: existingBg.status,
-      backgroundCanAskAgain: existingBg.canAskAgain,
+      foreground,
+      background: Location.PermissionStatus.GRANTED,
+      backgroundCanAskAgain: canAskAgain,
     };
   }
 
   const proceed = await showBackgroundRationale();
   if (!proceed) {
     return {
-      foreground: fg.status,
-      background: existingBg.status,
-      backgroundCanAskAgain: existingBg.canAskAgain,
+      foreground,
+      background: asPermissionStatus(resolveBackgroundPermissionStatus(expoBgStatus, nativeBg)),
+      backgroundCanAskAgain: canAskAgain,
     };
   }
 
   const bg = await Location.requestBackgroundPermissionsAsync();
+  // Re-check native after Settings return (Android 11+ opens app location settings).
+  const nativeAfter = await readNativeBackgroundGranted();
   return {
-    foreground: fg.status,
-    background: bg.status,
+    foreground,
+    background: asPermissionStatus(
+      resolveBackgroundPermissionStatus(bg.status, nativeAfter),
+    ),
     backgroundCanAskAgain: bg.canAskAgain,
   };
 }

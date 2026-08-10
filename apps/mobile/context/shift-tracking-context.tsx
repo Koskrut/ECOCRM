@@ -434,7 +434,35 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
                 await flushPendingSamples(activeShift.id).catch(() => undefined);
               }
             }
+
+            // Re-read permissions after Settings return (expo can lag; native check wins).
+            const perms = await getTrackingPermissionStatus();
+            setBackgroundPermission(perms.background);
+
             const before = await getTrackingRuntimeHealth();
+
+            // Shift wants GPS but mode stayed none (false-negative Always / settings grant).
+            if (
+              activeShift.trackingEnabled &&
+              before.mode === "none" &&
+              perms.foreground === "granted" &&
+              perms.background === "granted" &&
+              canStartLocationForegroundService(AppState.currentState)
+            ) {
+              const boot = await bootstrapShiftTrackingContext(activeShift.id);
+              if (boot.ok) {
+                const mode = await startLocationTracking(activeShift.id);
+                setTrackingMode(mode);
+                if (mode === "background") {
+                  void registerBackgroundTrackingWatchdog();
+                  await flushPendingSamples(activeShift.id).catch(() => undefined);
+                  await captureImmediateFixAndFlush().catch(() => undefined);
+                }
+                await syncTrackingHealth();
+                return;
+              }
+            }
+
             if (before.claimedMode === "background" || before.mode === "background") {
               // Always force-recover on foreground (dead FGS + poison #47595 + flush).
               const mode = await recoverDeadBackgroundTaskOnForeground();
