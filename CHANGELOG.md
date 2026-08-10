@@ -4,7 +4,24 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.147**.)_
+_(планируемые изменения после **0.2.148**.)_
+
+## [0.2.148] — 2026-08-10
+
+### Summary
+
+Hotfix **0.2.148**: mobile GPS health TS fixes from EAS build.
+
+### Fixed
+
+- **Mobile tracking health**: `no_permission` check without redundant `claimedMode` guard.
+- **Shift ops gate**: `shouldOfferRestartShiftCta` uses shared `TrackingUnhealthyReason` type.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.148`** (образы без функциональных изменений backend/web).
+- **Миграций нет.**
+- **Mobile**: новый **EAS build** обязателен (заменяет 0.2.147 mobile).
 
 ## [0.2.147] — 2026-08-10
 

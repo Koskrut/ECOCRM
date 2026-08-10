@@ -189,11 +189,7 @@ export function deriveTrackingHealthKind(input: {
   backgroundPermission?: string | null;
 }): TrackingHealthKind {
   if (input.claimedMode === "none") return "inactive";
-  if (
-    input.claimedMode !== "none" &&
-    input.backgroundPermission != null &&
-    input.backgroundPermission !== "granted"
-  ) {
+  if (input.backgroundPermission != null && input.backgroundPermission !== "granted") {
     return "no_permission";
   }
   if (input.claimedMode === "foreground") return "foreground_only";

@@ -2,6 +2,8 @@
  * Pure gates for shift / tracking mutations — testable without RN AppState.
  */
 
+import type { TrackingUnhealthyReason } from "./location-tracking-health";
+
 export type ShiftOpBusyReason = "busy" | "app_not_active";
 
 /** Prevent thrash: Smoke User created 3 empty shifts in ~2 min. */
@@ -17,17 +19,7 @@ export function shouldReuseActiveShift(status: string | null | undefined): boole
  * End+start shift is NOT the primary GPS fix (creates empty FieldShift rows).
  * Only wrong_day requires a new shift row.
  */
-export function shouldOfferRestartShiftCta(
-  unhealthyReason:
-    | "none"
-    | "background_permission"
-    | "background_task_dead"
-    | "foreground_watch_dead"
-    | "accept_stale"
-    | "accept_stale_wrong_day"
-    | "accept_stale_auth_401"
-    | "fgs_start_blocked_background",
-): boolean {
+export function shouldOfferRestartShiftCta(unhealthyReason: TrackingUnhealthyReason): boolean {
   return unhealthyReason === "accept_stale_wrong_day";
 }
 
