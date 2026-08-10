@@ -1,11 +1,11 @@
-# Deploy to Netcup VPS on push to main.
+# Legacy direct Netcup deploy — DISABLED on push (prod via Control Plane / client-pull-agent).
+# Manual only: Actions → Deploy to Netcup → Run workflow.
 # Required repo secrets: SSH_PRIVATE_KEY, SERVER_HOST, SERVER_USER
 
 name: Deploy to Netcup
 
 on:
-  push:
-    branches: [main]
+  workflow_dispatch:
 
 jobs:
   deploy:
