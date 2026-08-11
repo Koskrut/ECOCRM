@@ -54,3 +54,8 @@ export function assertManagerPackageCreate(actor: AuthUser | undefined): void {
     throw new ForbiddenException("Кладовщик не може реєструвати вхідні посилки");
   }
 }
+
+export function assertWarehouseReturnExternalCodeUpdate(actor: AuthUser | undefined): void {
+  if (!isWarehouseRole(actor)) return;
+  throw new ForbiddenException("Кладовщик не може редагувати номер документа 1С");
+}

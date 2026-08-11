@@ -17,7 +17,10 @@ import { mixKitDemand, uncoveredKitDemand } from "./demand-mix.util";
 import { ForecastService } from "./forecast.service";
 import { PlanningCalculationService } from "./planning-calculation.service";
 import { PlanningSettingsService } from "./planning-settings.service";
+import { filterPackableProposedLines } from "./planning-packable-lines.util";
 import { assertFreshSnapshot, evaluateSnapshotFreshness } from "./snapshot-freshness.util";
+
+type BomPartLine = { componentProductId: string; qtyPerKit: number; sku: string };
 
 type PackLineDraft = {
   kitProductId: string;
@@ -189,64 +192,16 @@ export class PackingListService {
     }
 
     const partStock = new Map<string, number>();
-    const bomByKit = new Map<
-      string,
-      Array<{ componentProductId: string; qtyPerKit: number; sku: string }>
-    >();
-
-    const loadBom = async (kitProductId: string) => {
-      let bom = bomByKit.get(kitProductId);
-      if (bom) return bom;
-      const row = await this.prisma.kitBom.findFirst({
-        where: { kitProductId, isActive: true },
-        include: {
-          lines: { include: { component: { select: { sku: true, name: true } } } },
-        },
-        orderBy: [{ effectiveFrom: "desc" }, { revision: "desc" }],
-      });
-      // PKG:* packaging is not in 1C snapshots — ignore for parts capacity.
-      bom =
-        row?.lines
-          .filter((l) => constrainsKitCapacity({ sku: l.component?.sku, name: l.component?.name }))
-          .map((l) => ({
-            componentProductId: l.componentProductId,
-            qtyPerKit: l.qtyPerKit.toNumber(),
-            sku: l.component?.sku ?? "",
-          })) ?? [];
-      bomByKit.set(kitProductId, bom);
-      return bom;
-    };
-
-    const maxBuildFromParts = async (kitProductId: string, desired: number) => {
-      const bom = await loadBom(kitProductId);
-      if (bom.length === 0) return 0;
-      const ratios: number[] = [];
-      for (const line of bom) {
-        let avail = partStock.get(line.componentProductId);
-        if (avail == null) {
-          avail = (await this.calculations.getAvailability(line.componentProductId)).available;
-          partStock.set(line.componentProductId, avail);
-        }
-        ratios.push(line.qtyPerKit > 0 ? Math.floor(avail / line.qtyPerKit) : 0);
-      }
-      return Math.min(desired, ...ratios);
-    };
-
-    const consumeParts = async (kitProductId: string, qty: number) => {
-      const bom = await loadBom(kitProductId);
-      for (const line of bom) {
-        const prev = partStock.get(line.componentProductId) ?? 0;
-        partStock.set(line.componentProductId, Math.max(0, prev - qty * line.qtyPerKit));
-      }
-    };
+    const bomByKit = new Map<string, BomPartLine[]>();
 
     const lines: PackLineDraft[] = [];
 
     for (const c of candidates) {
       const desired = allocated.get(c.kitProductId) ?? 0;
       if (desired <= 0) continue;
-      const maxFromParts = await maxBuildFromParts(c.kitProductId, desired);
-      if (maxFromParts > 0) await consumeParts(c.kitProductId, maxFromParts);
+      const maxFromParts = await this.maxBuildFromParts(c.kitProductId, desired, partStock, bomByKit);
+      if (maxFromParts <= 0) continue;
+      await this.consumeParts(c.kitProductId, maxFromParts, partStock, bomByKit);
       lines.push({
         kitProductId: c.kitProductId,
         qtySuggested: maxFromParts,
@@ -268,9 +223,14 @@ export class PackingListService {
         if (leftover <= 0) break;
         const roomToTarget = Math.max(0, line.targetPack - line.qtyApproved);
         if (roomToTarget <= 0) continue;
-        const extraCap = await maxBuildFromParts(line.kitProductId, Math.min(roomToTarget, leftover));
+        const extraCap = await this.maxBuildFromParts(
+          line.kitProductId,
+          Math.min(roomToTarget, leftover),
+          partStock,
+          bomByKit,
+        );
         if (extraCap <= 0) continue;
-        await consumeParts(line.kitProductId, extraCap);
+        await this.consumeParts(line.kitProductId, extraCap, partStock, bomByKit);
         line.qtyApproved += extraCap;
         line.qtySuggested += extraCap;
         line.maxFromParts += extraCap;
@@ -278,6 +238,12 @@ export class PackingListService {
         used += extraCap;
       }
     }
+
+    const persisted = filterPackableProposedLines(lines);
+    if (persisted.length === 0) {
+      throw new BadRequestException("No kits can be packed from current part stock");
+    }
+    used = persisted.reduce((s, l) => s + l.qtyApproved, 0);
 
     const created = await this.prisma.packingList.create({
       data: {
@@ -288,7 +254,7 @@ export class PackingListService {
         capacityLimit,
         snapshotId: posted!.id,
         lines: {
-          create: lines.map((l) => ({
+          create: persisted.map((l) => ({
             kitProductId: l.kitProductId,
             qtySuggested: l.qtySuggested,
             qtyApproved: l.qtyApproved,
@@ -381,6 +347,7 @@ export class PackingListService {
       orderBy: { postedAt: "desc" },
     });
     assertFreshSnapshot(evaluateSnapshotFreshness(posted, settings.snapshotMaxAgeDays));
+    await this.assertApprovedQtyFeasible(list.lines);
 
     const approved = await this.prisma.packingList.update({
       where: { id },
@@ -433,6 +400,86 @@ export class PackingListService {
       },
     });
     return { ...updated, lines: await this.enrichLines(updated.lines) };
+  }
+
+  private async loadInventoriableBom(
+    kitProductId: string,
+    bomByKit: Map<string, BomPartLine[]>,
+  ): Promise<BomPartLine[]> {
+    const cached = bomByKit.get(kitProductId);
+    if (cached) return cached;
+    const row = await this.prisma.kitBom.findFirst({
+      where: { kitProductId, isActive: true },
+      include: {
+        lines: { include: { component: { select: { sku: true, name: true } } } },
+      },
+      orderBy: [{ effectiveFrom: "desc" }, { revision: "desc" }],
+    });
+    const bom =
+      row?.lines
+        .filter((l) => constrainsKitCapacity({ sku: l.component?.sku, name: l.component?.name }))
+        .map((l) => ({
+          componentProductId: l.componentProductId,
+          qtyPerKit: l.qtyPerKit.toNumber(),
+          sku: l.component?.sku ?? "",
+        })) ?? [];
+    bomByKit.set(kitProductId, bom);
+    return bom;
+  }
+
+  private async maxBuildFromParts(
+    kitProductId: string,
+    desired: number,
+    partStock: Map<string, number>,
+    bomByKit: Map<string, BomPartLine[]>,
+  ): Promise<number> {
+    const bom = await this.loadInventoriableBom(kitProductId, bomByKit);
+    if (bom.length === 0) return 0;
+    const ratios: number[] = [];
+    for (const line of bom) {
+      let avail = partStock.get(line.componentProductId);
+      if (avail == null) {
+        avail = (await this.calculations.getAvailability(line.componentProductId)).available;
+        partStock.set(line.componentProductId, avail);
+      }
+      ratios.push(line.qtyPerKit > 0 ? Math.floor(avail / line.qtyPerKit) : 0);
+    }
+    return Math.min(desired, ...ratios);
+  }
+
+  private async consumeParts(
+    kitProductId: string,
+    qty: number,
+    partStock: Map<string, number>,
+    bomByKit: Map<string, BomPartLine[]>,
+  ): Promise<void> {
+    const bom = await this.loadInventoriableBom(kitProductId, bomByKit);
+    for (const line of bom) {
+      const prev = partStock.get(line.componentProductId) ?? 0;
+      partStock.set(line.componentProductId, Math.max(0, prev - qty * line.qtyPerKit));
+    }
+  }
+
+  private async assertApprovedQtyFeasible(
+    lines: Array<{ kitProductId: string; qtyApproved: number; kitProduct: { sku: string } }>,
+  ): Promise<void> {
+    const partStock = new Map<string, number>();
+    const bomByKit = new Map<string, BomPartLine[]>();
+    for (const line of lines) {
+      if (line.qtyApproved <= 0) continue;
+      const max = await this.maxBuildFromParts(
+        line.kitProductId,
+        line.qtyApproved,
+        partStock,
+        bomByKit,
+      );
+      if (max < line.qtyApproved) {
+        throw new BadRequestException(
+          `Not enough parts for ${line.kitProduct.sku}: can pack ${max}, listed ${line.qtyApproved}`,
+        );
+      }
+      await this.consumeParts(line.kitProductId, line.qtyApproved, partStock, bomByKit);
+    }
   }
 
   async exportExcel(id: string): Promise<StreamableFile> {

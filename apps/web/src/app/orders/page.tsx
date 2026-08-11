@@ -744,6 +744,7 @@ function OrdersPageContent() {
             onOpenReturn={(returnId) => openReturn(returnId)}
             refreshKey={returnsRefreshKey}
             onRegisterIncoming={() => setShowIncomingReturnPackage(true)}
+            warehouseMode={isWarehouse}
           />
         ) : view === "financial" ? (
           <div className="space-y-3">

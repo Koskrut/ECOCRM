@@ -62,7 +62,9 @@ export class PlanningRemindersService {
         kind: "factory",
         dueAt: order.dueAt.toISOString(),
         status: order.status,
-        label: "Замовлення на завод",
+        label: order.externalCode
+          ? `Замовлення на завод ${order.externalCode}`
+          : "Замовлення на завод",
         isOverdue: dueYmd < todayYmd,
         lineCount: order.lines.length,
         totalQty: order.lines.reduce((s, l) => s + l.qtyOrdered, 0),

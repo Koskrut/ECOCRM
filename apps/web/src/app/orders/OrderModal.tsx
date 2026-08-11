@@ -32,6 +32,10 @@ import { FxWriteOffModal } from "@/app/payments/FxWriteOffModal";
 import { riskApi, type RiskGateResult } from "@/lib/api/resources/risk";
 import { strings } from "@/locales";
 import {
+  isOperationalDebtOrder,
+  orderUnpaidAmountClassName,
+} from "@/lib/operational-debt";
+import {
   REPLACEMENT_MODE_OPTIONS,
   RETURN_REASON_OPTIONS,
   returnStatusLabel,
@@ -848,6 +852,7 @@ export function OrderModal({
       id: string;
       status: ReturnStatus;
       requestedAt: string;
+      externalCode?: string | null;
       creditAmount?: number | null;
       refundAmount?: number | null;
       settledAt?: string | null;
@@ -2114,6 +2119,11 @@ export function OrderModal({
                             <span className="min-w-0 flex-1 text-sm">
                               Повернення від {formatDate(ret.requestedAt)} —{" "}
                               {returnStatusLabel(ret.status)}
+                              {ret.externalCode ? (
+                                <span className="ml-1 text-xs text-zinc-500">
+                                  · {tr.externalCodeLabel}: {ret.externalCode}
+                                </span>
+                              ) : null}
                             </span>
                             <button
                               type="button"
@@ -3278,7 +3288,9 @@ export function OrderModal({
                     </div>
 
                     <div className="min-w-0">
-                      <div className="text-xs text-zinc-500">{t.paidDebt}</div>
+                      <div className="text-xs text-zinc-500">
+                        {order && isOperationalDebtOrder(order) ? t.paidDebt : t.paidAmountDue}
+                      </div>
                       <div className="mt-1 min-h-9 break-all leading-6 text-zinc-700">
                         {formatOrderAmount(
                           Number(order.paidAmount ?? 0),
@@ -3286,11 +3298,18 @@ export function OrderModal({
                           order.exchangeRate,
                         )}{" "}
                         /{" "}
-                        {formatOrderAmount(
-                          Number(order.debtAmount ?? 0),
-                          order.currency ?? "UAH",
-                          order.exchangeRate,
-                        )}
+                        <span
+                          className={orderUnpaidAmountClassName(
+                            order,
+                            Number(order.debtAmount ?? 0),
+                          )}
+                        >
+                          {formatOrderAmount(
+                            Number(order.debtAmount ?? 0),
+                            order.currency ?? "UAH",
+                            order.exchangeRate,
+                          )}
+                        </span>
                       </div>
                       {Number(order.returnAdjustmentAmount ?? 0) > 0 && (
                         <div className="mt-0.5 text-xs text-zinc-500">

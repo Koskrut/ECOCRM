@@ -17,6 +17,11 @@ import { mixKitDemand, uncoveredKitDemand } from "./demand-mix.util";
 import { ForecastService } from "./forecast.service";
 import { PlanningCalculationService } from "./planning-calculation.service";
 import { PlanningSettingsService } from "./planning-settings.service";
+import {
+  canApproveFactoryOrder,
+  canAssignFactoryExternalCode,
+  canEditFactoryOrder,
+} from "./factory-order-draft.util";
 import { assertFreshSnapshot, evaluateSnapshotFreshness } from "./snapshot-freshness.util";
 
 export type FactoryRecommendationLine = {
@@ -199,7 +204,7 @@ export class FactoryOrderService {
     const order = await this.prisma.factoryOrder.create({
       data: {
         dueAt: dueAtIso ? parseDueDate(dueAtIso) : rec.dueAt,
-        status: FactoryOrderStatus.OPEN,
+        status: FactoryOrderStatus.DRAFT,
         note: note ?? null,
         lines: {
           create: normalized.map((l) => ({
@@ -216,6 +221,82 @@ export class FactoryOrderService {
       },
     });
     return order;
+  }
+
+  async updateLines(id: string, lines: Array<{ partProductId: string; qtyOrdered: number }>) {
+    const order = await this.get(id);
+    if (!canEditFactoryOrder(order.status)) {
+      throw new BadRequestException("Only DRAFT factory orders can be edited");
+    }
+
+    const nextQty = new Map(order.lines.map((l) => [l.partProductId, l.qtyOrdered]));
+    for (const line of lines) {
+      if (!nextQty.has(line.partProductId)) continue;
+      nextQty.set(line.partProductId, Math.max(0, Math.round(line.qtyOrdered)));
+    }
+    if ([...nextQty.values()].every((qty) => qty <= 0)) {
+      throw new BadRequestException("Factory order must keep at least one line");
+    }
+
+    const ops = [];
+    for (const existing of order.lines) {
+      const qty = nextQty.get(existing.partProductId) ?? existing.qtyOrdered;
+      if (qty <= 0) {
+        ops.push(this.prisma.factoryOrderLine.delete({ where: { id: existing.id } }));
+      } else if (qty !== existing.qtyOrdered) {
+        ops.push(
+          this.prisma.factoryOrderLine.update({
+            where: { id: existing.id },
+            data: { qtyOrdered: qty },
+          }),
+        );
+      }
+    }
+    if (ops.length > 0) await this.prisma.$transaction(ops);
+    return this.get(id);
+  }
+
+  async approve(id: string, approvedById: string) {
+    const order = await this.get(id);
+    if (!canApproveFactoryOrder(order.status)) {
+      throw new BadRequestException("Only DRAFT factory orders can be approved");
+    }
+    const remaining = order.lines.filter((l) => l.qtyOrdered > 0);
+    if (remaining.length === 0) {
+      throw new BadRequestException("Cannot approve a factory order with no lines");
+    }
+    return this.prisma.factoryOrder.update({
+      where: { id },
+      data: {
+        status: FactoryOrderStatus.OPEN,
+        approvedAt: new Date(),
+        approvedById,
+      },
+      include: {
+        lines: {
+          include: { partProduct: { select: { id: true, sku: true, name: true } } },
+          orderBy: { qtyOrdered: "desc" },
+        },
+      },
+    });
+  }
+
+  async updateExternalCode(id: string, externalCode: string) {
+    const order = await this.get(id);
+    if (!canAssignFactoryExternalCode(order.status)) {
+      throw new BadRequestException("1C order code can be set only after approval");
+    }
+    const trimmed = externalCode.trim();
+    return this.prisma.factoryOrder.update({
+      where: { id },
+      data: { externalCode: trimmed.length > 0 ? trimmed : null },
+      include: {
+        lines: {
+          include: { partProduct: { select: { id: true, sku: true, name: true } } },
+          orderBy: { qtyOrdered: "desc" },
+        },
+      },
+    });
   }
 
   async updateStatus(id: string, status: FactoryOrderStatus) {
@@ -292,6 +373,7 @@ export class FactoryOrderService {
       qtyReceived: l.qtyReceived,
       dueAt: order.dueAt.toISOString().slice(0, 10),
       status: order.status,
+      externalCode: order.externalCode,
     }));
     const wb = XLSX.utils.book_new();
     const ws = XLSX.utils.json_to_sheet(rows);

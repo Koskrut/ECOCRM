@@ -483,6 +483,49 @@ describe("OrderReturnsService", () => {
     assert.ok(stageUpdates.includes("FULLY_RETURNED"));
   });
 
+  it("rejects CLOSED without settlement before persisting status", async () => {
+    let statusUpdated = false;
+    const integrations = {
+      recalcOrderFinance: async () => {},
+      getReturnSettlementPreview: async () => ({
+        requiresSettlement: true,
+        alreadySettled: false,
+        maxSettleAmount: 50,
+      }),
+      settleReturn: async () => ({}),
+    } as unknown as IntegrationPorts;
+
+    const prisma = {
+      orderReturn: {
+        findUnique: async () => ({
+          id: "r1",
+          orderId: "o1",
+          status: "REFUND_OR_ADJUSTMENT",
+          reason: "CUSTOMER_CHANGE",
+          order: { ownerId: "u1" },
+          itemsPending: false,
+          outboundWaivedAt: null,
+          items: [
+            {
+              orderItemId: "i1",
+              qtyReturned: 1,
+              orderItem: { qty: 2, lineTotal: 200, price: 100 },
+            },
+          ],
+        }),
+        update: async () => {
+          statusUpdated = true;
+          return { id: "r1", status: "CLOSED", orderId: "o1", items: [], order: {} };
+        },
+      },
+    } as unknown as PrismaSvc;
+
+    const svc = createService(prisma, integrations);
+
+    await assert.rejects(() => svc.updateStatus("r1", "CLOSED"), BadRequestException);
+    assert.equal(statusUpdated, false);
+  });
+
   it("list filters by status and pageSize", async () => {
     const findManyArgs: Array<Record<string, unknown>> = [];
     const countArgs: Array<Record<string, unknown>> = [];
@@ -612,5 +655,51 @@ describe("OrderReturnsService", () => {
       () => svc.updateStatus("r1", "CLOSED"),
       BadRequestException,
     );
+  });
+
+  it("updateExternalCode trims and persists value", async () => {
+    let updatedData: Record<string, unknown> | undefined;
+    const prisma = {
+      orderReturn: {
+        findUnique: async () => ({
+          id: "r1",
+          order: { id: "o1", ownerId: "u1" },
+        }),
+        update: async (args: { data: Record<string, unknown> }) => {
+          updatedData = args.data;
+          return { id: "r1", externalCode: args.data.externalCode, order: { id: "o1" } };
+        },
+      },
+    } as unknown as PrismaSvc;
+
+    const svc = createService(prisma);
+    const result = await svc.updateExternalCode("r1", "  DOC-123  ", {
+      id: "u1",
+      role: "MANAGER",
+    });
+
+    assert.equal(updatedData?.externalCode, "DOC-123");
+    assert.equal(result.externalCode, "DOC-123");
+  });
+
+  it("updateExternalCode clears value when blank", async () => {
+    let updatedData: Record<string, unknown> | undefined;
+    const prisma = {
+      orderReturn: {
+        findUnique: async () => ({
+          id: "r1",
+          order: { id: "o1", ownerId: "u1" },
+        }),
+        update: async (args: { data: Record<string, unknown> }) => {
+          updatedData = args.data;
+          return { id: "r1", externalCode: null, order: { id: "o1" } };
+        },
+      },
+    } as unknown as PrismaSvc;
+
+    const svc = createService(prisma);
+    await svc.updateExternalCode("r1", "   ", { id: "u1", role: "MANAGER" });
+
+    assert.equal(updatedData?.externalCode, null);
   });
 });

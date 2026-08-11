@@ -5,6 +5,11 @@ import { apiHttp } from "@/lib/api/client";
 import { formatOrderAmount } from "@/lib/formatOrderAmount";
 import { formatDateTime } from "@/lib/crmDatetime";
 import { strings } from "@/locales";
+import {
+  isOperationalDebtOrder,
+  isOrderFinancialOverdue,
+  orderUnpaidAmountClassName,
+} from "@/lib/operational-debt";
 import { StatusBadge } from "@/components/StatusBadge";
 import {
   OrderMovementSections,
@@ -162,10 +167,17 @@ function OrderMovementRow({
     });
   }
 
+  const unpaidLabel =
+    order.debtAmount > 0
+      ? isOperationalDebtOrder(order)
+        ? t.debt
+        : t.amountDue
+      : null;
+
   const financeBits = [
     `${t.paid} ${formatOrderAmount(order.paidAmount, order.currency, order.exchangeRate)}`,
-    order.debtAmount > 0
-      ? `${t.debt} ${formatOrderAmount(order.debtAmount, order.currency, order.exchangeRate)}`
+    unpaidLabel
+      ? `${unpaidLabel} ${formatOrderAmount(order.debtAmount, order.currency, order.exchangeRate)}`
       : null,
     order.creditAmount > 0
       ? `${t.credit} ${formatOrderAmount(order.creditAmount, order.currency, order.exchangeRate)}`
@@ -271,10 +283,17 @@ function OrderMovementRow({
                   </span>
                   {order.debtAmount > 0 ? (
                     <span>
-                      {t.debt}{" "}
-                      <span className="font-medium tabular-nums">
+                      {isOperationalDebtOrder(order) ? t.debt : t.amountDue}{" "}
+                      <span
+                        className={orderUnpaidAmountClassName(order, order.debtAmount)}
+                      >
                         {formatOrderAmount(order.debtAmount, order.currency, order.exchangeRate)}
                       </span>
+                      {isOrderFinancialOverdue(order.financialStatus) ? (
+                        <span className="ml-1 text-[10px] font-semibold uppercase text-red-700">
+                          · {t.overdue}
+                        </span>
+                      ) : null}
                     </span>
                   ) : null}
                   {order.creditAmount > 0 ? (

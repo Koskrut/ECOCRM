@@ -64,6 +64,7 @@ type ReturnDetails = {
   refundAmount?: number | null;
   settledAt?: string | null;
   settlementType?: string | null;
+  externalCode?: string | null;
   warehouse?: { id: string; name: string } | null;
   replacementOrder?: {
     id: string;
@@ -168,6 +169,8 @@ export function ReturnModal({
   const [waiveLeg, setWaiveLeg] = useState<"inbound" | "outbound" | null>(null);
   const [waiveReason, setWaiveReason] = useState("");
   const [waiveSubmitting, setWaiveSubmitting] = useState(false);
+  const [externalCodeEdit, setExternalCodeEdit] = useState("");
+  const [externalCodeSaving, setExternalCodeSaving] = useState(false);
 
   const loadReturn = useCallback(async () => {
     setLoading(true);
@@ -184,6 +187,7 @@ export function ReturnModal({
       const data = (await r.json()) as ReturnDetails;
       setRet(data);
       setSelectedStatus(data.status);
+      setExternalCodeEdit(data.externalCode ?? "");
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Не вдалося завантажити повернення");
       setRet(null);
@@ -322,6 +326,34 @@ export function ReturnModal({
     }
   }, [ret, waiveLeg, waiveReason, returnId, loadReturn, onSaved]);
 
+  const saveExternalCode = useCallback(async () => {
+    if (!ret) return;
+    setExternalCodeSaving(true);
+    setErr(null);
+    try {
+      const r = await fetch(`/api/order-returns/${returnId}/external-code`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ externalCode: externalCodeEdit }),
+        credentials: "include",
+      });
+      if (!r.ok) {
+        const body = await r.json().catch(() => ({}));
+        throw new Error(
+          (body as { message?: string }).message ?? "Не вдалося зберегти номер документа 1С",
+        );
+      }
+      const data = (await r.json()) as ReturnDetails;
+      setRet(data);
+      setExternalCodeEdit(data.externalCode ?? "");
+      onSaved?.();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Помилка збереження номера документа 1С");
+    } finally {
+      setExternalCodeSaving(false);
+    }
+  }, [ret, returnId, externalCodeEdit, onSaved]);
+
   const left = loading ? (
     <p className="text-sm text-zinc-500">{strings.common.loading}</p>
   ) : err && !ret ? (
@@ -373,6 +405,14 @@ export function ReturnModal({
               {tr.returnWarehouseLabel}
             </div>
             <div className="mt-1 text-sm text-zinc-800">{ret.warehouse.name}</div>
+          </div>
+        ) : null}
+        {ret.externalCode ? (
+          <div>
+            <div className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+              {tr.externalCodeLabel}
+            </div>
+            <div className="mt-1 text-sm font-medium text-zinc-900">{ret.externalCode}</div>
           </div>
         ) : null}
       </div>
@@ -502,6 +542,34 @@ export function ReturnModal({
 
   const right = ret ? (
     <div className="space-y-4">
+      <div>
+        <div className="mb-2 text-xs font-medium uppercase tracking-wide text-zinc-500">
+          {tr.externalCodeLabel}
+        </div>
+        <div className="flex flex-col gap-2">
+          <input
+            type="text"
+            value={externalCodeEdit}
+            onChange={(e) => setExternalCodeEdit(e.target.value)}
+            placeholder={tr.externalCodePlaceholder}
+            disabled={externalCodeSaving || statusUpdating}
+            className="w-full rounded-md border border-zinc-300 bg-white px-2 py-2 text-sm"
+          />
+          <button
+            type="button"
+            disabled={
+              externalCodeSaving ||
+              statusUpdating ||
+              externalCodeEdit.trim() === (ret.externalCode ?? "").trim()
+            }
+            onClick={() => void saveExternalCode()}
+            className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+          >
+            {externalCodeSaving ? strings.common.loading : tr.saveExternalCode}
+          </button>
+        </div>
+      </div>
+
       <div>
         <div className="mb-2 text-xs font-medium uppercase tracking-wide text-zinc-500">Статус</div>
         <div className="flex flex-col gap-2">

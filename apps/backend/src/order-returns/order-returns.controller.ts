@@ -6,6 +6,7 @@ import { OrderReturnsService } from "./order-returns.service";
 import { ListOrderReturnsQueryDto } from "./dto/list-order-returns-query.dto";
 import { UpdateReturnItemsDto, WaiveMisPickChecklistDto } from "./dto/mis-pick.dto";
 import { UpdateReturnStatusDto } from "./dto/update-return-status.dto";
+import { UpdateOrderReturnExternalCodeDto } from "./dto/update-order-return-external-code.dto";
 
 @Controller("order-returns")
 export class OrderReturnsController {
@@ -56,5 +57,14 @@ export class OrderReturnsController {
     @Req() req: Request & { user?: AuthUser },
   ) {
     return this.orderReturns.waiveChecklist(id, dto, req.user);
+  }
+
+  @Patch(":id/external-code")
+  updateExternalCode(
+    @Param("id") id: string,
+    @Body() dto: UpdateOrderReturnExternalCodeDto,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.orderReturns.updateExternalCode(id, dto.externalCode, req.user);
   }
 }

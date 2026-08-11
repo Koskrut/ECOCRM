@@ -386,6 +386,33 @@ export class ProductionPlanningController {
     return this.factoryOrders.createFromRecommendations(body?.lines, body?.note, body?.dueAt);
   }
 
+  @Patch("factory/orders/:id/lines")
+  @Roles(UserRole.ADMIN, UserRole.LEAD)
+  updateFactoryLines(
+    @Param("id") id: string,
+    @Body() body: { lines: Array<{ partProductId: string; qtyOrdered: number }> },
+  ) {
+    if (!Array.isArray(body?.lines)) throw new BadRequestException("lines array is required");
+    return this.factoryOrders.updateLines(id, body.lines);
+  }
+
+  @Post("factory/orders/:id/approve")
+  @Roles(UserRole.ADMIN, UserRole.LEAD)
+  approveFactoryOrder(@Param("id") id: string, @Req() req: Request & { user?: AuthUser }) {
+    const userId = req.user?.id;
+    if (!userId) throw new BadRequestException("User not found in request");
+    return this.factoryOrders.approve(id, userId);
+  }
+
+  @Patch("factory/orders/:id/external-code")
+  @Roles(UserRole.ADMIN, UserRole.LEAD)
+  updateFactoryExternalCode(@Param("id") id: string, @Body() body: { externalCode: string }) {
+    if (typeof body?.externalCode !== "string") {
+      throw new BadRequestException("externalCode is required");
+    }
+    return this.factoryOrders.updateExternalCode(id, body.externalCode);
+  }
+
   @Patch("factory/orders/:id/due-at")
   @Roles(UserRole.ADMIN, UserRole.LEAD, UserRole.WAREHOUSE)
   updateFactoryDueAt(@Param("id") id: string, @Body() body: { dueAt: string }) {

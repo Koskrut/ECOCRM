@@ -5,6 +5,7 @@ import Link from "next/link";
 import { strings } from "@/locales";
 import {
   planningApi,
+  resolvePlanningUploadError,
   type FactoryOrder,
   type FactoryRecommendation,
   type MrpForecastView,
@@ -21,7 +22,7 @@ import {
   type StockProjection,
 } from "@/lib/api/resources/planning";
 import { formatDateTime } from "@/lib/crmDatetime";
-import { planningCycleStatusLabel } from "@/lib/status-labels";
+import { planningCycleStatusLabel, planningDocStatusLabel } from "@/lib/status-labels";
 
 function toDateInputValue(iso: string | null | undefined): string {
   if (!iso) return "";
@@ -289,6 +290,7 @@ export function ForecastPanel({ onError }: { onError: (msg: string) => void }) {
   const [stagedUploadId, setStagedUploadId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [file, setFile] = useState<File | null>(null);
+  const [salesUploadError, setSalesUploadError] = useState<string | null>(null);
   const [uploadInfo, setUploadInfo] = useState<string | null>(null);
   const [unresolvedSku, setUnresolvedSku] = useState<string[]>([]);
 
@@ -319,7 +321,10 @@ export function ForecastPanel({ onError }: { onError: (msg: string) => void }) {
           <input
             type="file"
             accept=".xlsx,.xls,.csv"
-            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+            onChange={(e) => {
+              setFile(e.target.files?.[0] ?? null);
+              setSalesUploadError(null);
+            }}
           />
           <button
             type="button"
@@ -329,6 +334,7 @@ export function ForecastPanel({ onError }: { onError: (msg: string) => void }) {
               if (!file) return;
               void (async () => {
                 setBusy(true);
+                setSalesUploadError(null);
                 try {
                   const res = await planningApi.uploadSalesHistory(file);
                   setStagedUploadId(res.upload.id);
@@ -341,7 +347,12 @@ export function ForecastPanel({ onError }: { onError: (msg: string) => void }) {
                     ),
                   );
                 } catch (e) {
-                  reportError(e instanceof Error ? e.message : t.errors.forecast);
+                  setSalesUploadError(
+                    resolvePlanningUploadError(e, {
+                      fileTooLarge: t.errors.fileTooLarge,
+                      fallback: t.errors.forecast,
+                    }),
+                  );
                 } finally {
                   setBusy(false);
                 }
@@ -406,6 +417,7 @@ export function ForecastPanel({ onError }: { onError: (msg: string) => void }) {
             {t.actions.refresh}
           </button>
         </div>
+        {salesUploadError ? <p className="mt-2 text-sm text-red-600">{salesUploadError}</p> : null}
         {uploadInfo ? <p className="mt-2 text-sm text-zinc-600">{uploadInfo}</p> : null}
         {unresolvedSku.length > 0 ? (
           <p className="mt-1 text-sm text-amber-800">
@@ -589,7 +601,7 @@ export function PackingPanel({ onError }: { onError: (msg: string) => void }) {
             t.labels.actions,
           ]}
           rows={lists.map((list) => [
-            list.status,
+            planningDocStatusLabel(list.status),
             formatDateTime(list.cycleEnd),
             `${list.capacityUsed} / ${list.capacityLimit}`,
             formatDateTime(list.createdAt),
@@ -686,21 +698,34 @@ export function PackingPanel({ onError }: { onError: (msg: string) => void }) {
   );
 }
 
+function isFactoryDueOverdue(dueAt: string): boolean {
+  return dueAt.slice(0, 10) < new Date().toISOString().slice(0, 10);
+}
+
 export function FactoryPanel({ onError }: { onError: (msg: string) => void }) {
   const t = strings.planning;
   const reportError = useStableErrorHandler(onError);
   const [recs, setRecs] = useState<FactoryRecommendation[]>([]);
+  const [recQtys, setRecQtys] = useState<Record<string, string>>({});
   const [orders, setOrders] = useState<FactoryOrder[]>([]);
+  const [active, setActive] = useState<FactoryOrder | null>(null);
   const [dueAt, setDueAt] = useState<string | null>(null);
   const [createDueAt, setCreateDueAt] = useState("");
-  const [orderDueEdits, setOrderDueEdits] = useState<Record<string, string>>({});
+  const [activeDueEdit, setActiveDueEdit] = useState("");
+  const [lineQtys, setLineQtys] = useState<Record<string, string>>({});
+  const [externalCodeEdit, setExternalCodeEdit] = useState("");
   const [freshness, setFreshness] = useState<SnapshotFreshness | null>(null);
   const [busy, setBusy] = useState(false);
 
+  const applyActive = useCallback((order: FactoryOrder) => {
+    setActive(order);
+    setActiveDueEdit(toDateInputValue(order.dueAt));
+    setExternalCodeEdit(order.externalCode ?? "");
+    setLineQtys(Object.fromEntries((order.lines ?? []).map((l) => [l.partProductId, String(l.qtyOrdered)])));
+  }, []);
+
   const reloadOrders = useCallback(async () => {
-    const next = await planningApi.listFactoryOrders(30);
-    setOrders(next);
-    setOrderDueEdits(Object.fromEntries(next.map((o) => [o.id, toDateInputValue(o.dueAt)])));
+    setOrders(await planningApi.listFactoryOrders(30));
   }, []);
 
   useEffect(() => {
@@ -726,6 +751,9 @@ export function FactoryPanel({ onError }: { onError: (msg: string) => void }) {
               try {
                 const res = await planningApi.getFactoryRecommendations();
                 setRecs(res.recommendations);
+                setRecQtys(
+                  Object.fromEntries(res.recommendations.map((r) => [r.partProductId, String(r.suggestedQty)])),
+                );
                 setDueAt(res.dueAt);
                 setCreateDueAt(toDateInputValue(res.dueAt));
                 setFreshness(res.freshness);
@@ -747,13 +775,14 @@ export function FactoryPanel({ onError }: { onError: (msg: string) => void }) {
             void (async () => {
               setBusy(true);
               try {
-                await planningApi.createFactoryOrder({
+                const created = await planningApi.createFactoryOrder({
                   lines: recs.map((r) => ({
                     partProductId: r.partProductId,
-                    qtyOrdered: r.suggestedQty,
+                    qtyOrdered: Number(recQtys[r.partProductId]) || r.suggestedQty,
                   })),
                   dueAt: createDueAt || undefined,
                 });
+                applyActive(created);
                 await reloadOrders();
               } catch (e) {
                 reportError(e instanceof Error ? e.message : t.errors.factory);
@@ -798,7 +827,14 @@ export function FactoryPanel({ onError }: { onError: (msg: string) => void }) {
             String(r.onHand),
             String(r.openPoQty),
             String(r.safetyStock),
-            String(r.suggestedQty),
+            <input
+              key={r.partProductId}
+              className="w-24 rounded border border-zinc-200 px-2 py-1"
+              value={recQtys[r.partProductId] ?? String(r.suggestedQty)}
+              onChange={(e) =>
+                setRecQtys((prev) => ({ ...prev, [r.partProductId]: e.target.value }))
+              }
+            />,
           ])}
           noDataLabel={t.states.noFactoryRecs}
         />
@@ -807,79 +843,40 @@ export function FactoryPanel({ onError }: { onError: (msg: string) => void }) {
         <SimpleTable
           headers={[
             t.labels.status,
+            t.labels.externalCode,
             t.labels.dueAt,
             t.labels.lineCount,
             t.labels.qtyOrderedSum,
             t.labels.actions,
           ]}
           rows={orders.map((o) => [
-            o.status,
-            o.status === "CLOSED" || o.status === "CANCELLED" ? (
-              formatDateTime(o.dueAt)
-            ) : (
-              <input
-                key={`due-${o.id}`}
-                type="date"
-                className="rounded border border-zinc-200 px-2 py-1"
-                value={orderDueEdits[o.id] ?? toDateInputValue(o.dueAt)}
-                onChange={(e) =>
-                  setOrderDueEdits((prev) => ({ ...prev, [o.id]: e.target.value }))
-                }
-              />
-            ),
+            planningDocStatusLabel(o.status),
+            o.externalCode ?? "—",
+            <span
+              key={`due-${o.id}`}
+              className={isFactoryDueOverdue(o.dueAt) ? "font-medium text-rose-700" : undefined}
+            >
+              {formatDateTime(o.dueAt)}
+              {isFactoryDueOverdue(o.dueAt) ? ` (${t.labels.dueOverdue})` : ""}
+            </span>,
             String(o.lines?.length ?? o._count?.lines ?? 0),
             String((o.lines ?? []).reduce((s, l) => s + l.qtyOrdered, 0)),
             <span key={o.id} className="flex flex-wrap gap-2">
-              {o.status !== "CLOSED" && o.status !== "CANCELLED" ? (
-                <>
-                  <button
-                    type="button"
-                    className="text-cyan-700 underline"
-                    onClick={() => {
-                      void (async () => {
-                        setBusy(true);
-                        try {
-                          const nextDue = orderDueEdits[o.id] ?? toDateInputValue(o.dueAt);
-                          if (!nextDue) return;
-                          await planningApi.updateFactoryDueAt(o.id, nextDue);
-                          await reloadOrders();
-                        } catch (e) {
-                          reportError(e instanceof Error ? e.message : t.errors.factory);
-                        } finally {
-                          setBusy(false);
-                        }
-                      })();
-                    }}
-                  >
-                    {t.actions.saveDueAt}
-                  </button>
-                  <button
-                    type="button"
-                    className="text-emerald-700 underline"
-                    onClick={() => {
-                      void (async () => {
-                        setBusy(true);
-                        try {
-                          await planningApi.updateFactoryReceived(
-                            o.id,
-                            (o.lines ?? []).map((l) => ({
-                              partProductId: l.partProductId,
-                              qtyReceived: l.qtyOrdered,
-                            })),
-                          );
-                          await reloadOrders();
-                        } catch (e) {
-                          reportError(e instanceof Error ? e.message : t.errors.factory);
-                        } finally {
-                          setBusy(false);
-                        }
-                      })();
-                    }}
-                  >
-                    {t.actions.markFactoryReceived}
-                  </button>
-                </>
-              ) : null}
+              <button
+                type="button"
+                className="text-cyan-700 underline"
+                onClick={() => {
+                  void (async () => {
+                    try {
+                      applyActive(await planningApi.getFactoryOrder(o.id));
+                    } catch (e) {
+                      reportError(e instanceof Error ? e.message : t.errors.factory);
+                    }
+                  })();
+                }}
+              >
+                {t.actions.open}
+              </button>
               <button
                 type="button"
                 className="text-cyan-700 underline"
@@ -894,6 +891,179 @@ export function FactoryPanel({ onError }: { onError: (msg: string) => void }) {
           noDataLabel={t.states.noFactoryOrders}
         />
       </Panel>
+
+      {active ? (
+        <Panel title={`${planningDocStatusLabel(active.status)} · ${formatDateTime(active.orderedAt)}`}>
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            {active.status !== "CLOSED" && active.status !== "CANCELLED" ? (
+              <>
+                <label className="flex items-center gap-2 text-sm text-zinc-700">
+                  <span>{t.labels.dueAt}</span>
+                  <input
+                    type="date"
+                    className="rounded border border-zinc-200 px-2 py-1"
+                    value={activeDueEdit}
+                    onChange={(e) => setActiveDueEdit(e.target.value)}
+                  />
+                </label>
+                <button
+                  type="button"
+                  disabled={busy || !activeDueEdit}
+                  className="rounded-lg border border-zinc-200 bg-white px-3 py-1 text-sm disabled:opacity-50"
+                  onClick={() => {
+                    void (async () => {
+                      setBusy(true);
+                      try {
+                        applyActive(await planningApi.updateFactoryDueAt(active.id, activeDueEdit));
+                        await reloadOrders();
+                      } catch (e) {
+                        reportError(e instanceof Error ? e.message : t.errors.factory);
+                      } finally {
+                        setBusy(false);
+                      }
+                    })();
+                  }}
+                >
+                  {t.actions.saveDueAt}
+                </button>
+              </>
+            ) : null}
+            {active.status === "DRAFT" ? (
+              <>
+                <button
+                  type="button"
+                  disabled={busy}
+                  className="rounded-lg border border-zinc-200 bg-white px-3 py-1 text-sm disabled:opacity-50"
+                  onClick={() => {
+                    void (async () => {
+                      setBusy(true);
+                      try {
+                        const lines = Object.entries(lineQtys).map(([partProductId, qty]) => ({
+                          partProductId,
+                          qtyOrdered: Number(qty) || 0,
+                        }));
+                        applyActive(await planningApi.updateFactoryLines(active.id, lines));
+                        await reloadOrders();
+                      } catch (e) {
+                        reportError(e instanceof Error ? e.message : t.errors.factory);
+                      } finally {
+                        setBusy(false);
+                      }
+                    })();
+                  }}
+                >
+                  {t.actions.saveFactoryLines}
+                </button>
+                <button
+                  type="button"
+                  disabled={busy}
+                  className="rounded-lg bg-emerald-600 px-3 py-1 text-sm font-medium text-white disabled:opacity-50"
+                  onClick={() => {
+                    void (async () => {
+                      setBusy(true);
+                      try {
+                        applyActive(await planningApi.approveFactoryOrder(active.id));
+                        await reloadOrders();
+                      } catch (e) {
+                        reportError(e instanceof Error ? e.message : t.errors.factory);
+                      } finally {
+                        setBusy(false);
+                      }
+                    })();
+                  }}
+                >
+                  {t.actions.approveFactory}
+                </button>
+              </>
+            ) : null}
+            {active.status === "OPEN" || active.status === "PARTIAL" || active.status === "CLOSED" ? (
+              <>
+                <label className="flex items-center gap-2 text-sm text-zinc-700">
+                  <span>{t.labels.externalCode}</span>
+                  <input
+                    className="rounded border border-zinc-200 px-2 py-1"
+                    value={externalCodeEdit}
+                    onChange={(e) => setExternalCodeEdit(e.target.value)}
+                  />
+                </label>
+                <button
+                  type="button"
+                  disabled={busy}
+                  className="rounded-lg border border-zinc-200 bg-white px-3 py-1 text-sm disabled:opacity-50"
+                  onClick={() => {
+                    void (async () => {
+                      setBusy(true);
+                      try {
+                        applyActive(
+                          await planningApi.updateFactoryExternalCode(active.id, externalCodeEdit),
+                        );
+                        await reloadOrders();
+                      } catch (e) {
+                        reportError(e instanceof Error ? e.message : t.errors.factory);
+                      } finally {
+                        setBusy(false);
+                      }
+                    })();
+                  }}
+                >
+                  {t.actions.saveExternalCode}
+                </button>
+              </>
+            ) : null}
+            {active.status === "OPEN" || active.status === "PARTIAL" ? (
+              <button
+                type="button"
+                disabled={busy}
+                className="rounded-lg border border-zinc-200 bg-white px-3 py-1 text-sm disabled:opacity-50"
+                onClick={() => {
+                  void (async () => {
+                    setBusy(true);
+                    try {
+                      applyActive(
+                        await planningApi.updateFactoryReceived(
+                          active.id,
+                          (active.lines ?? []).map((l) => ({
+                            partProductId: l.partProductId,
+                            qtyReceived: l.qtyOrdered,
+                          })),
+                        ),
+                      );
+                      await reloadOrders();
+                    } catch (e) {
+                      reportError(e instanceof Error ? e.message : t.errors.factory);
+                    } finally {
+                      setBusy(false);
+                    }
+                  })();
+                }}
+              >
+                {t.actions.markFactoryReceived}
+              </button>
+            ) : null}
+            <p className="text-xs text-zinc-500">{t.labels.factoryDueHint}</p>
+          </div>
+          <SimpleTable
+            headers={[t.labels.sku, t.labels.qty, t.labels.qtyOrderedSum]}
+            rows={(active.lines ?? []).map((line) => [
+              `${line.partProduct.sku} — ${line.partProduct.name}`,
+              active.status === "DRAFT" ? (
+                <input
+                  key={line.id}
+                  className="w-24 rounded border border-zinc-200 px-2 py-1"
+                  value={lineQtys[line.partProductId] ?? String(line.qtyOrdered)}
+                  onChange={(e) =>
+                    setLineQtys((prev) => ({ ...prev, [line.partProductId]: e.target.value }))
+                  }
+                />
+              ) : (
+                String(line.qtyOrdered)
+              ),
+              String(line.qtyReceived),
+            ])}
+            noDataLabel={t.states.noData}
+          />
+        </Panel>
+      ) : null}
     </div>
   );
 }

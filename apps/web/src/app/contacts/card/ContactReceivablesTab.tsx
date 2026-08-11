@@ -50,9 +50,14 @@ function KpiCard({
 }: {
   title: string;
   value: string;
-  variant?: "default" | "risk";
+  variant?: "default" | "amber" | "risk";
 }) {
-  const ring = variant === "risk" ? "border-red-200 bg-red-50" : "border-zinc-200 bg-white";
+  const ring =
+    variant === "risk"
+      ? "border-red-200 bg-red-50"
+      : variant === "amber"
+        ? "border-amber-200 bg-amber-50"
+        : "border-zinc-200 bg-white";
   return (
     <div className={`rounded-lg border p-3 ${ring}`}>
       <div className="text-[10px] font-medium uppercase tracking-wide text-zinc-500">{title}</div>
@@ -148,11 +153,39 @@ export function ContactReceivablesTab({
         </div>
       </div>
 
+      {data.kpi.overdueDebt > 0 ? (
+        <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-800">
+          <div className="font-semibold">{strings.contacts.card.kpi.overdueAlertTitle}</div>
+          <div className="mt-1 space-y-0.5 tabular-nums">
+            <div>
+              {strings.contacts.card.kpi.overdueAmount}:{" "}
+              <span className="font-semibold">
+                {formatMoney(data.kpi.overdueDebt, currency)}
+              </span>
+            </div>
+            {data.kpi.debtTotal > 0 ? (
+              <div>
+                {strings.contacts.card.kpi.clientTotalDebt}:{" "}
+                <span className="font-semibold">
+                  {formatMoney(data.kpi.debtTotal, currency)}
+                </span>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+
       <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
         <KpiCard
           title={t.kpiDebtOperational}
           value={formatMoney(data.kpi.debtTotal, currency)}
-          variant={data.kpi.debtTotal > 0 ? "risk" : "default"}
+          variant={
+            data.kpi.overdueDebt > 0
+              ? "risk"
+              : data.kpi.debtTotal > 0
+                ? "amber"
+                : "default"
+          }
         />
         <KpiCard
           title={t.kpiOverdue}

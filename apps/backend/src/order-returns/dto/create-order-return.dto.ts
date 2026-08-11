@@ -52,4 +52,8 @@ export class CreateOrderReturnDto {
   @IsOptional()
   @IsString()
   warehouseId?: string;
+
+  @IsOptional()
+  @IsString()
+  externalCode?: string;
 }

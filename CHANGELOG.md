@@ -4,7 +4,32 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.154**.)_
+_(планируемые изменения после **0.2.155**.)_
+
+## [0.2.155] — 2026-08-11
+
+### Summary
+
+Патч **0.2.155**: factory/return external codes; returns kanban transitions; planning packable-only + factory draft approve; contact operational debt; native FGS restart.
+
+### Added
+
+- **Factory order**: `externalCode`, `approvedAt`/`approvedById`; draft-only edit; approve then assign 1C code.
+- **Order return**: `externalCode` + PATCH; warehouse-role create guard.
+- **Planning**: packable-from-parts filter for proposed packing lines; factory draft lifecycle helpers.
+
+### Changed
+
+- **Web returns kanban**: allowed status transitions (mis-pick checklist).
+- **Web contacts/orders**: operational debt vs «до оплати» KPI.
+- **Planning UI**: factory approve / external code; packable packing lists.
+- **Mobile native GPS**: restart tracking actually recovers FGS; clear accept telemetry + restart counter.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.155`**.
+- **Миграции:** `20260811140000_factory_order_external_code`, `20260811150000_order_return_external_code` — **`prisma migrate deploy`**.
+- **Mobile:** новый EAS если нужен native FGS restart fix (`preview-native`).
 
 ## [0.2.154] — 2026-08-11
 

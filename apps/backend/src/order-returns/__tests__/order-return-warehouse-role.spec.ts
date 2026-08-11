@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import { ForbiddenException } from "@nestjs/common";
 import {
   assertWarehouseReturnCreate,
+  assertWarehouseReturnExternalCodeUpdate,
   assertWarehouseReturnSettlement,
   assertWarehouseReturnStatusUpdate,
 } from "../order-return-warehouse-role";
@@ -33,5 +34,12 @@ describe("order-return-warehouse-role", () => {
 
   it("allows manager settlement actions", () => {
     assert.doesNotThrow(() => assertWarehouseReturnSettlement(manager));
+  });
+
+  it("blocks warehouse from editing 1C document number", () => {
+    assert.throws(
+      () => assertWarehouseReturnExternalCodeUpdate(warehouse),
+      ForbiddenException,
+    );
   });
 });

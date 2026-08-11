@@ -1,15 +1,36 @@
 import { apiHttp } from "../client";
 
-/** Turn nginx/HTML error pages into a short message (e.g. 413 body size). */
-function uploadErrorMessage(status: number, body: string, fallback: string): string {
+export class PlanningUploadError extends Error {
+  constructor(
+    readonly kind: "file_too_large" | "generic",
+    message: string,
+  ) {
+    super(message);
+    this.name = "PlanningUploadError";
+  }
+}
+
+/** Turn nginx/HTML error pages into a typed upload error (e.g. 413 body size). */
+function throwOnUploadFailure(status: number, body: string, fallback: string): never {
   const text = body.trim();
   if (status === 413 || /413|Request Entity Too Large/i.test(text)) {
-    return "File is too large for the server upload limit (nginx 413). Ask admin to set client_max_body_size 50M on crm.suprex.dental HTTPS and reload nginx.";
+    throw new PlanningUploadError("file_too_large", "");
   }
   if (text.startsWith("<") || text.includes("<html")) {
-    return `${fallback} (HTTP ${status})`;
+    throw new PlanningUploadError("generic", `${fallback} (HTTP ${status})`);
   }
-  return text || `${fallback} (HTTP ${status})`;
+  throw new PlanningUploadError("generic", text || `${fallback} (HTTP ${status})`);
+}
+
+export function resolvePlanningUploadError(
+  e: unknown,
+  messages: { fileTooLarge: string; fallback: string },
+): string {
+  if (e instanceof PlanningUploadError) {
+    if (e.kind === "file_too_large") return messages.fileTooLarge;
+    return e.message || messages.fallback;
+  }
+  return e instanceof Error ? e.message : messages.fallback;
 }
 
 export type DemandRules = {
@@ -408,6 +429,9 @@ export type FactoryOrder = {
   dueAt: string;
   status: "DRAFT" | "OPEN" | "PARTIAL" | "CLOSED" | "CANCELLED";
   note: string | null;
+  externalCode?: string | null;
+  approvedAt?: string | null;
+  approvedById?: string | null;
   lines?: FactoryOrderLine[];
   _count?: { lines: number };
 };
@@ -514,7 +538,7 @@ export const planningApi = {
     });
     if (!res.ok) {
       const text = await res.text();
-      throw new Error(uploadErrorMessage(res.status, text, "Snapshot upload failed"));
+      throwOnUploadFailure(res.status, text, "Snapshot upload failed");
     }
     return res.json() as Promise<UploadSnapshotResult>;
   },
@@ -566,7 +590,7 @@ export const planningApi = {
     });
     if (!res.ok) {
       const text = await res.text();
-      throw new Error(uploadErrorMessage(res.status, text, "BOM import failed"));
+      throwOnUploadFailure(res.status, text, "BOM import failed");
     }
     return res.json() as Promise<BomImportResult>;
   },
@@ -646,7 +670,7 @@ export const planningApi = {
     });
     if (!res.ok) {
       const text = await res.text();
-      throw new Error(uploadErrorMessage(res.status, text, "Sales history import failed"));
+      throwOnUploadFailure(res.status, text, "Sales history import failed");
     }
     return res.json();
   },
@@ -670,7 +694,7 @@ export const planningApi = {
     });
     if (!res.ok) {
       const text = await res.text();
-      throw new Error(uploadErrorMessage(res.status, text, "Sales history upload failed"));
+      throwOnUploadFailure(res.status, text, "Sales history upload failed");
     }
     return res.json();
   },
@@ -742,12 +766,33 @@ export const planningApi = {
     const res = await apiHttp.get<FactoryOrder[]>("/planning/factory/orders", { params: { limit } });
     return res.data;
   },
+  getFactoryOrder: async (id: string): Promise<FactoryOrder> => {
+    const res = await apiHttp.get<FactoryOrder>(`/planning/factory/orders/${id}`);
+    return res.data;
+  },
   createFactoryOrder: async (payload?: {
     lines?: Array<{ partProductId: string; qtyOrdered: number }>;
     note?: string;
     dueAt?: string;
   }): Promise<FactoryOrder> => {
     const res = await apiHttp.post<FactoryOrder>("/planning/factory/orders", payload ?? {});
+    return res.data;
+  },
+  updateFactoryLines: async (
+    id: string,
+    lines: Array<{ partProductId: string; qtyOrdered: number }>,
+  ): Promise<FactoryOrder> => {
+    const res = await apiHttp.patch<FactoryOrder>(`/planning/factory/orders/${id}/lines`, { lines });
+    return res.data;
+  },
+  approveFactoryOrder: async (id: string): Promise<FactoryOrder> => {
+    const res = await apiHttp.post<FactoryOrder>(`/planning/factory/orders/${id}/approve`);
+    return res.data;
+  },
+  updateFactoryExternalCode: async (id: string, externalCode: string): Promise<FactoryOrder> => {
+    const res = await apiHttp.patch<FactoryOrder>(`/planning/factory/orders/${id}/external-code`, {
+      externalCode,
+    });
     return res.data;
   },
   updateFactoryDueAt: async (id: string, dueAt: string): Promise<FactoryOrder> => {

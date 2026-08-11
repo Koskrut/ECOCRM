@@ -30,6 +30,7 @@ import {
 } from "./order-return-replacement.utils";
 import {
   assertWarehouseReturnCreate,
+  assertWarehouseReturnExternalCodeUpdate,
   assertWarehouseReturnSettlement,
   assertWarehouseReturnStatusUpdate,
 } from "./order-return-warehouse-role";
@@ -309,6 +310,7 @@ export class OrderReturnsService {
       warehouseId: dto.warehouseId,
       orderId,
     });
+    const externalCode = dto.externalCode?.trim();
 
     const created = await this.prisma.$transaction(async (tx) => {
       let returnPackageId: string | undefined;
@@ -344,6 +346,7 @@ export class OrderReturnsService {
           itemsPending,
           returnPackageId,
           warehouseId: returnWarehouseId,
+          externalCode: externalCode && externalCode.length > 0 ? externalCode : null,
           ...(returnItems.length
             ? {
                 items: {
@@ -404,6 +407,7 @@ export class OrderReturnsService {
               debtAmount: true,
               paidAmount: true,
               currency: true,
+              exchangeRate: true,
               company: { select: { id: true, name: true } },
               client: { select: { id: true, firstName: true, lastName: true } },
             },
@@ -475,6 +479,24 @@ export class OrderReturnsService {
     );
   }
 
+  async updateExternalCode(id: string, externalCode: string, actor?: AuthUser) {
+    assertWarehouseReturnExternalCodeUpdate(actor);
+
+    const r = await this.prisma.orderReturn.findUnique({
+      where: { id },
+      include: { order: { select: { id: true, ownerId: true } } },
+    });
+    if (!r) throw new NotFoundException("Return not found");
+    this.assertAccess(r.order, actor);
+
+    const trimmed = externalCode.trim();
+    return this.prisma.orderReturn.update({
+      where: { id },
+      data: { externalCode: trimmed.length > 0 ? trimmed : null },
+      include: RETURN_DETAIL_INCLUDE,
+    });
+  }
+
   async updateStatus(
     id: string,
     status: ReturnStatus,
@@ -522,17 +544,7 @@ export class OrderReturnsService {
       );
     }
 
-    const updates: { status: ReturnStatus; closedAt?: Date } = { status };
-    if (status === CLOSED_RETURN_STATUS) updates.closedAt = new Date();
-
-    const updated = await this.prisma.orderReturn.update({
-      where: { id },
-      data: updates,
-      include: RETURN_DETAIL_INCLUDE,
-    });
-
-    await this.syncOrderStateFromReturns(r.orderId);
-
+    let settlementToApply: SettleReturnDto | undefined;
     if (status === CLOSED_RETURN_STATUS) {
       let preview: { requiresSettlement?: boolean; maxSettleAmount?: number; alreadySettled?: boolean };
       const skipSettlement =
@@ -551,10 +563,25 @@ export class OrderReturnsService {
             `Return closure created overpayment (max ${preview.maxSettleAmount ?? 0}). Provide settlement (credit/refund).`,
           );
         }
-        await this.integrations.settleReturn(id, settlement, actor);
+        settlementToApply = settlement;
       } else if (settlement) {
-        await this.integrations.settleReturn(id, settlement, actor);
+        settlementToApply = settlement;
       }
+    }
+
+    const updates: { status: ReturnStatus; closedAt?: Date } = { status };
+    if (status === CLOSED_RETURN_STATUS) updates.closedAt = new Date();
+
+    const updated = await this.prisma.orderReturn.update({
+      where: { id },
+      data: updates,
+      include: RETURN_DETAIL_INCLUDE,
+    });
+
+    await this.syncOrderStateFromReturns(r.orderId);
+
+    if (status === CLOSED_RETURN_STATUS && settlementToApply) {
+      await this.integrations.settleReturn(id, settlementToApply, actor);
     }
 
     return this.prisma.orderReturn.findUnique({

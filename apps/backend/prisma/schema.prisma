@@ -2171,6 +2171,8 @@ model OrderReturn {
   returnPackageId  String?
   warehouseId      String?
   itemsPending     Boolean      @default(false)
+  /// 1C return document number, entered manually by manager.
+  externalCode     String?
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
 
@@ -3106,13 +3108,17 @@ model PackingListLine {
 }
 
 model FactoryOrder {
-  id         String             @id @default(cuid())
-  orderedAt  DateTime           @default(now())
-  dueAt      DateTime
-  status     FactoryOrderStatus @default(DRAFT)
-  note       String?
-  createdAt  DateTime           @default(now())
-  updatedAt  DateTime           @updatedAt
+  id            String             @id @default(cuid())
+  orderedAt     DateTime           @default(now())
+  dueAt         DateTime
+  status        FactoryOrderStatus @default(DRAFT)
+  note          String?
+  /// 1C production / factory order number, entered after approve.
+  externalCode  String?
+  approvedAt    DateTime?
+  approvedById  String?
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
 
   lines FactoryOrderLine[]
 

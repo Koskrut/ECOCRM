@@ -681,6 +681,7 @@ export function ContactModal({
 
       setOrderId(createdId);
       setOrdersReloadKey((k) => k + 1);
+      void cardSummary.refetch();
     } catch (e) {
       const msg =
         (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
@@ -689,7 +690,7 @@ export function ContactModal({
     } finally {
       setCreatingOrder(false);
     }
-  }, [contact?.companyId, effectiveContactId, creatingOrder, isCreate]);
+  }, [contact?.companyId, effectiveContactId, creatingOrder, isCreate, cardSummary]);
 
   const enqueueDialer = useCallback(async () => {
     setQueueingDialer(true);

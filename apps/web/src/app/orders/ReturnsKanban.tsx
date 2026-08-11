@@ -6,24 +6,28 @@ import { formatOrderAmount } from "@/lib/formatOrderAmount";
 import { isTextSelected } from "@/lib/dom";
 import { formatDate } from "@/lib/crmDatetime";
 import { TtnStatusBadge } from "@/components/TtnStatusBadge";
-import { returnReasonLabel } from "@/lib/returns/return-labels";
+import { returnReasonLabel, returnStatusLabel, type ReturnStatusCode } from "@/lib/returns/return-labels";
+import {
+  getAllowedReturnStatusTransitions,
+  isWarehouseReturnTransitionAllowed,
+  WAREHOUSE_FORBIDDEN_RETURN_STATUSES,
+  WAREHOUSE_RETURN_COLUMNS,
+} from "@/lib/returns/return-transitions";
 import {
   KanbanLoadSentinel,
   KANBAN_COLUMN_BODY_CLASS,
 } from "@/components/kanban/KanbanLoadSentinel";
-import { useKanbanInfiniteColumns } from "@/components/kanban/useKanbanInfiniteColumns";
+import {
+  KANBAN_PAGE_SIZE,
+  useKanbanInfiniteColumns,
+} from "@/components/kanban/useKanbanInfiniteColumns";
 import { strings } from "@/locales";
+import { OrderReturnSettlementDialog } from "./OrderClientBalancePanel";
 
-/** Phase 5: Returns kanban — columns by ReturnStatus, drag-and-drop to change status (validated on backend). */
+const tr = strings.kanban;
+const planningStages = strings.planning.orderStages;
 
-type ReturnStatus =
-  | "REQUESTED"
-  | "APPROVED"
-  | "IN_TRANSIT_BACK"
-  | "RECEIVED_BY_WAREHOUSE"
-  | "INSPECTION"
-  | "REFUND_OR_ADJUSTMENT"
-  | "CLOSED";
+type ReturnStatus = ReturnStatusCode;
 
 type ReturnOrder = {
   id: string;
@@ -50,10 +54,15 @@ type ReturnCard = {
   orderId?: string;
   status: ReturnStatus;
   reason?: string;
+  externalCode?: string | null;
   requestedAt: string;
   closedAt?: string | null;
   createdAt: string;
   itemsPending?: boolean;
+  inboundDoneAt?: string | null;
+  outboundDoneAt?: string | null;
+  inboundWaivedAt?: string | null;
+  outboundWaivedAt?: string | null;
   order: ReturnOrder & { id?: string };
   items: ReturnItem[];
   returnPackage?: {
@@ -72,7 +81,7 @@ type ReturnsListResponse = {
   pageSize?: number;
 };
 
-const COLUMN_ORDER: ReturnStatus[] = [
+const ALL_COLUMN_ORDER: ReturnStatus[] = [
   "REQUESTED",
   "APPROVED",
   "IN_TRANSIT_BACK",
@@ -82,37 +91,51 @@ const COLUMN_ORDER: ReturnStatus[] = [
   "CLOSED",
 ];
 
-const STATUS_LABELS: Record<ReturnStatus, string> = {
-  REQUESTED: "Заявлено",
-  APPROVED: "Погоджено",
-  IN_TRANSIT_BACK: "В дорозі назад",
-  RECEIVED_BY_WAREHOUSE: "Прийнято на склад",
-  INSPECTION: "Перевірка",
-  REFUND_OR_ADJUSTMENT: "Повернення коштів",
-  CLOSED: "Закрито",
-};
+function orderStageLabel(stage: string | null | undefined): string {
+  if (!stage) return "—";
+  const label = planningStages[stage as keyof typeof planningStages];
+  return label ?? stage;
+}
 
 export function ReturnsKanban({
   onOpenOrder,
   onOpenReturn,
   refreshKey = 0,
   onRegisterIncoming,
+  warehouseMode = false,
 }: {
   onOpenOrder: (orderId: string) => void;
   onOpenReturn?: (returnId: string) => void;
   /** Increment to force refetch (e.g. after creating a return from order modal). */
   refreshKey?: number;
   onRegisterIncoming?: () => void;
+  /** Warehouse staff: limited columns and transitions. */
+  warehouseMode?: boolean;
 }) {
   const [dragging, setDragging] = useState<{ returnId: string; from: ReturnStatus } | null>(null);
   const [dragOver, setDragOver] = useState<ReturnStatus | null>(null);
+  const [pendingSettlement, setPendingSettlement] = useState<{
+    returnId: string;
+    from: ReturnStatus;
+    to: ReturnStatus;
+    currency: string;
+  } | null>(null);
 
-  const buildParams = useCallback((status: ReturnStatus, page: number): Record<string, string> => {
-    return {
+  const columnOrder = warehouseMode ? WAREHOUSE_RETURN_COLUMNS : ALL_COLUMN_ORDER;
+
+  const kanbanResetKey = useMemo(
+    () => JSON.stringify({ refreshKey, warehouseMode }),
+    [refreshKey, warehouseMode],
+  );
+
+  const buildParams = useCallback(
+    (status: ReturnStatus, page: number): Record<string, string> => ({
       status,
       page: String(page),
-    };
-  }, []);
+      pageSize: String(KANBAN_PAGE_SIZE),
+    }),
+    [],
+  );
 
   const fetchPage = useCallback(async (params: Record<string, string>) => {
     const res = await apiHttp.get<ReturnsListResponse>("/order-returns", { params });
@@ -123,55 +146,150 @@ export function ReturnsKanban({
     };
   }, []);
 
-  const { columns: columnStates, loadMore, moveItem, reloadAll, anyInitialLoading, firstError } =
-    useKanbanInfiniteColumns<ReturnCard, ReturnStatus>({
-      columnIds: COLUMN_ORDER,
-      buildParams,
-      fetchPage,
-      resetKey: refreshKey,
-    });
+  const {
+    columns: columnStates,
+    loadMore,
+    moveItem,
+    reloadColumn,
+    anyInitialLoading,
+    firstError,
+  } = useKanbanInfiniteColumns<ReturnCard, ReturnStatus>({
+    columnIds: columnOrder,
+    buildParams,
+    fetchPage,
+    resetKey: kanbanResetKey,
+  });
 
   const columns = useMemo(
     () =>
-      COLUMN_ORDER.map((id) => ({
+      columnOrder.map((id) => ({
         id,
-        title: STATUS_LABELS[id],
+        title: returnStatusLabel(id),
         items: columnStates[id]?.items ?? [],
         state: columnStates[id],
       })),
+    [columnOrder, columnStates],
+  );
+
+  const findReturn = useCallback(
+    (returnId: string): ReturnCard | undefined => {
+      for (const col of Object.values(columnStates)) {
+        const found = col.items.find((x) => x.id === returnId);
+        if (found) return found;
+      }
+      return undefined;
+    },
     [columnStates],
   );
 
-  const patchStatus = useCallback(async (returnId: string, status: ReturnStatus) => {
-    await apiHttp.patch(`/order-returns/${returnId}/status`, { status });
-  }, []);
+  const isDropAllowed = useCallback(
+    (ret: ReturnCard, from: ReturnStatus, to: ReturnStatus): boolean => {
+      if (warehouseMode) {
+        if (WAREHOUSE_FORBIDDEN_RETURN_STATUSES.includes(to)) return false;
+        return isWarehouseReturnTransitionAllowed(from, to);
+      }
+      return getAllowedReturnStatusTransitions(from, ret).includes(to);
+    },
+    [warehouseMode],
+  );
+
+  const patchStatus = useCallback(
+    async (
+      returnId: string,
+      status: ReturnStatus,
+      settlement?: {
+        type: "CREDIT" | "REFUND" | "SPLIT";
+        creditAmount?: number;
+        refundAmount?: number;
+      },
+    ) => {
+      await apiHttp.patch(`/order-returns/${returnId}/status`, { status, settlement });
+    },
+    [],
+  );
+
+  const applyStatusChange = useCallback(
+    async (
+      returnId: string,
+      from: ReturnStatus,
+      to: ReturnStatus,
+      settlement?: {
+        type: "CREDIT" | "REFUND" | "SPLIT";
+        creditAmount?: number;
+        refundAmount?: number;
+      },
+    ) => {
+      moveItem(returnId, from, to, (r) => ({ ...r, status: to }));
+      try {
+        await patchStatus(returnId, to, settlement);
+      } catch (e) {
+        alert(e instanceof Error ? e.message : tr.statusUpdateFailed);
+        reloadColumn(from);
+        reloadColumn(to);
+      }
+    },
+    [moveItem, patchStatus, reloadColumn],
+  );
 
   const handleDrop = useCallback(
     async (returnId: string, to: ReturnStatus) => {
       const from = dragging?.from;
-      if (from === to) {
+      if (!from || from === to) {
         setDragging(null);
         return;
       }
-      if (from) {
-        moveItem(returnId, from, to, (r) => ({ ...r, status: to }));
-      }
-      try {
-        await patchStatus(returnId, to);
-        reloadAll();
-      } catch (e) {
-        alert(e instanceof Error ? e.message : strings.kanban.statusUpdateFailed);
-        reloadAll();
-      } finally {
+
+      const ret = findReturn(returnId);
+      if (!ret) {
         setDragging(null);
+        return;
       }
+
+      if (!isDropAllowed(ret, from, to)) {
+        alert(tr.returnsInvalidTransition(returnStatusLabel(from), returnStatusLabel(to)));
+        setDragging(null);
+        return;
+      }
+
+      if (to === "CLOSED") {
+        if (ret.itemsPending || ret.items.length === 0) {
+          alert(tr.returnsCloseBlockedItems);
+          setDragging(null);
+          return;
+        }
+
+        try {
+          const previewRes = await fetch(`/api/order-returns/${returnId}/settlement-preview`, {
+            credentials: "include",
+            cache: "no-store",
+          });
+          if (previewRes.ok) {
+            const preview = (await previewRes.json()) as { requiresSettlement?: boolean };
+            if (preview.requiresSettlement) {
+              setPendingSettlement({
+                returnId,
+                from,
+                to,
+                currency: ret.order.currency ?? "UAH",
+              });
+              setDragging(null);
+              return;
+            }
+          }
+        } catch {
+          /* proceed without preview */
+        }
+      }
+
+      await applyStatusChange(returnId, from, to);
+      setDragging(null);
     },
-    [dragging, moveItem, patchStatus, reloadAll],
+    [applyStatusChange, dragging?.from, findReturn, isDropAllowed],
   );
 
   const boardEmpty = columns.every((col) => col.items.length === 0);
   if (anyInitialLoading && boardEmpty) {
-    return <div className="text-sm text-zinc-500">Завантаження повернень…</div>;
+    return <div className="text-sm text-zinc-500">{tr.returnsLoadingBoard}</div>;
   }
   if (firstError && boardEmpty) {
     return <div className="text-sm text-red-600">{firstError}</div>;
@@ -183,9 +301,7 @@ export function ReturnsKanban({
   return (
     <div className="max-w-full min-w-0 space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-xs text-zinc-500">
-          Канбан повернень. Перетягування змінює статус (переходи валідуються на сервері).
-        </p>
+        <p className="text-xs text-zinc-500">{tr.returnsHint}</p>
         {onRegisterIncoming ? (
           <button
             type="button"
@@ -212,8 +328,14 @@ export function ReturnsKanban({
               className={KANBAN_COLUMN_BODY_CLASS}
               onDragOver={(e) => {
                 e.preventDefault();
-                e.dataTransfer.dropEffect = "move";
-                setDragOver(col.id);
+                const from = dragging?.from;
+                const ret = dragging ? findReturn(dragging.returnId) : undefined;
+                const allowed =
+                  from && ret && dragging
+                    ? isDropAllowed(ret, from, col.id)
+                    : !warehouseMode || !WAREHOUSE_FORBIDDEN_RETURN_STATUSES.includes(col.id);
+                e.dataTransfer.dropEffect = allowed ? "move" : "none";
+                if (allowed) setDragOver(col.id);
               }}
               onDragLeave={() => setDragOver((c) => (c === col.id ? null : c))}
               onDrop={(e) => {
@@ -224,7 +346,7 @@ export function ReturnsKanban({
               }}
             >
               {col.state?.initialLoading ? (
-                <div className="text-xs text-zinc-500">Завантаження…</div>
+                <div className="text-xs text-zinc-500">{tr.loadingColumn}</div>
               ) : col.items.length === 0 ? (
                 <div className="text-xs text-zinc-500">—</div>
               ) : (
@@ -270,13 +392,13 @@ export function ReturnsKanban({
                       <div className="mt-1.5 text-xs text-zinc-500">
                         {formatDate(r.requestedAt)} ·{" "}
                         {r.itemsPending && r.items.length === 0
-                          ? "очікує розбору"
-                          : `${r.items.length} поз. · ${totalUnits(r)} од.`}
+                          ? tr.itemsPendingBreakdown
+                          : tr.positionsUnits(r.items.length, totalUnits(r))}
                       </div>
                       {r.returnPackage?.ttnNumber ? (
                         <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                           <span className="text-[11px] text-zinc-500">
-                            ТТН {r.returnPackage.ttnNumber}
+                            {tr.ttnPrefix} {r.returnPackage.ttnNumber}
                           </span>
                           <TtnStatusBadge
                             statusCode={r.returnPackage.ttnStatusCode}
@@ -284,9 +406,14 @@ export function ReturnsKanban({
                           />
                         </div>
                       ) : null}
+                      {r.externalCode ? (
+                        <div className="mt-1 text-[11px] text-zinc-500">
+                          {strings.returns.externalCodeLabel}: {r.externalCode}
+                        </div>
+                      ) : null}
                       {r.order.debtAmount != null && (
                         <div className="mt-1 text-xs text-amber-700">
-                          Борг:{" "}
+                          {strings.contacts.card.kpi.debt}:{" "}
                           {formatOrderAmount(
                             r.order.debtAmount,
                             r.order.currency ?? "UAH",
@@ -295,7 +422,7 @@ export function ReturnsKanban({
                         </div>
                       )}
                       <div className="mt-1 text-xs text-zinc-400">
-                        Заказ: {r.order.orderStage ?? "—"}
+                        {tr.returnsOrderStage(orderStageLabel(r.order.orderStage))}
                       </div>
                     </button>
                   );
@@ -308,12 +435,25 @@ export function ReturnsKanban({
                 />
               ) : null}
               {col.state?.loadingMore ? (
-                <div className="py-1 text-center text-xs text-zinc-400">Завантаження…</div>
+                <div className="py-1 text-center text-xs text-zinc-400">{tr.loadingColumn}</div>
               ) : null}
             </div>
           </div>
         ))}
       </div>
+
+      {pendingSettlement ? (
+        <OrderReturnSettlementDialog
+          returnId={pendingSettlement.returnId}
+          currency={pendingSettlement.currency}
+          onCancel={() => setPendingSettlement(null)}
+          onConfirm={async (settlement) => {
+            const { returnId, from, to } = pendingSettlement;
+            setPendingSettlement(null);
+            await applyStatusChange(returnId, from, to, settlement);
+          }}
+        />
+      ) : null}
     </div>
   );
 }

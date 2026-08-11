@@ -7,6 +7,7 @@ import { strings } from "@/locales";
 import { HelpHint } from "@/components/help/HelpHint";
 import {
   planningApi,
+  resolvePlanningUploadError,
   type ActiveBom,
   type BomImportResult,
   type DemandRules,
@@ -24,13 +25,15 @@ import {
 import { productsApi, type ProductCatalogItem } from "@/lib/api/resources/products";
 import { formatDateTime } from "@/lib/crmDatetime";
 import {
+  FactoryPanel,
   ForecastPanel,
+  PackingPanel,
   PlanningFreshnessBanners,
   MrpConfigPanel,
   PlanningHowToPanel,
   PlanningSettingsPanel,
 } from "./PlanningOpsPanels";
-import { MakeOrderScreen, PackScreen, TodayScreen } from "./PlanningScreens";
+import { TodayScreen } from "./PlanningScreens";
 
 type PlanningScreen = "today" | "pack" | "make" | "data";
 
@@ -97,7 +100,6 @@ function PlanningPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const tabParam = searchParams.get("tab");
-  const skuFilter = searchParams.get("sku");
   const activeScreen = resolveScreen(tabParam);
   const [dataSection, setDataSection] = useState<string>("snapshots");
   const setScreen = useCallback(
@@ -160,6 +162,8 @@ function PlanningPageInner() {
   const [snapshotFile, setSnapshotFile] = useState<File | null>(null);
   const [snapshotNote, setSnapshotNote] = useState("");
   const [uploadingSnapshot, setUploadingSnapshot] = useState(false);
+  const [snapshotUploadError, setSnapshotUploadError] = useState<string | null>(null);
+  const [bomUploadError, setBomUploadError] = useState<string | null>(null);
   const [uploadResult, setUploadResult] = useState<{
     snapshotId: string;
     rowsInFile: number;
@@ -398,10 +402,11 @@ function PlanningPageInner() {
 
   const handleUploadSnapshot = async () => {
     if (!snapshotFile) {
-      setError(t.errors.selectFile);
+      setSnapshotUploadError(t.errors.selectFile);
       return;
     }
     setUploadingSnapshot(true);
+    setSnapshotUploadError(null);
     try {
       const res = await planningApi.uploadSnapshot(snapshotFile, snapshotNote.trim() || undefined);
       setUploadResult({
@@ -417,7 +422,12 @@ function PlanningPageInner() {
       setSnapshotNote("");
       await handleRefresh();
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : t.errors.uploadSnapshot);
+      setSnapshotUploadError(
+        resolvePlanningUploadError(e, {
+          fileTooLarge: t.errors.fileTooLarge,
+          fallback: t.errors.uploadSnapshot,
+        }),
+      );
     } finally {
       setUploadingSnapshot(false);
     }
@@ -461,10 +471,11 @@ function PlanningPageInner() {
 
   const handleImportBomFile = async () => {
     if (!bomImportFile) {
-      setError(t.errors.selectFile);
+      setBomUploadError(t.errors.selectFile);
       return;
     }
     setImportingBom(true);
+    setBomUploadError(null);
     try {
       const result = await planningApi.importBomFile(bomImportFile);
       setBomImportResult(result);
@@ -475,7 +486,12 @@ function PlanningPageInner() {
       }
       await handleRefresh();
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : t.errors.uploadBom);
+      setBomUploadError(
+        resolvePlanningUploadError(e, {
+          fileTooLarge: t.errors.fileTooLarge,
+          fallback: t.errors.uploadBom,
+        }),
+      );
     } finally {
       setImportingBom(false);
     }
@@ -619,20 +635,28 @@ function PlanningPageInner() {
           {strings.common.loading}
         </div>
       )}
-      {error && <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>}
+      {error && (
+        <div className="flex items-start justify-between gap-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+          <span>{error}</span>
+          <button
+            type="button"
+            onClick={() => setError(null)}
+            className="shrink-0 leading-none text-red-500 hover:text-red-800"
+            aria-label={strings.common.close}
+          >
+            ×
+          </button>
+        </div>
+      )}
 
       <>
         {activeScreen === "today" && (
           <TodayScreen onError={handleOpsError} onNavigate={setScreen} />
         )}
 
-        {activeScreen === "pack" && (
-          <PackScreen onError={handleOpsError} skuFilter={skuFilter} />
-        )}
+        {activeScreen === "pack" && <PackingPanel onError={handleOpsError} />}
 
-        {activeScreen === "make" && (
-          <MakeOrderScreen onError={handleOpsError} skuFilter={skuFilter} />
-        )}
+        {activeScreen === "make" && <FactoryPanel onError={handleOpsError} />}
 
         {activeScreen === "data" && (
           <div className="space-y-3">
@@ -739,7 +763,10 @@ function PlanningPageInner() {
                   <input
                     type="file"
                     accept=".xlsx,.xls,.csv"
-                    onChange={(e) => setSnapshotFile(e.target.files?.[0] ?? null)}
+                    onChange={(e) => {
+                      setSnapshotFile(e.target.files?.[0] ?? null);
+                      setSnapshotUploadError(null);
+                    }}
                     className="rounded-lg border border-zinc-200 px-3 py-2 text-sm"
                   />
                   <input
@@ -757,6 +784,9 @@ function PlanningPageInner() {
                     {uploadingSnapshot ? strings.common.loading : t.actions.uploadSnapshot}
                   </button>
                 </div>
+                {snapshotUploadError && (
+                  <p className="mt-2 text-sm text-red-600">{snapshotUploadError}</p>
+                )}
                 <p className="mt-3 text-sm text-zinc-500">{t.messages.uploadHint}</p>
                 {uploadResult && (
                   <div className="mt-4 rounded-lg border border-zinc-200 bg-zinc-50 p-4 text-sm">
@@ -829,7 +859,10 @@ function PlanningPageInner() {
                   <input
                     type="file"
                     accept=".xlsx,.xls,.csv"
-                    onChange={(e) => setBomImportFile(e.target.files?.[0] ?? null)}
+                    onChange={(e) => {
+                      setBomImportFile(e.target.files?.[0] ?? null);
+                      setBomUploadError(null);
+                    }}
                     className="rounded-lg border border-zinc-200 px-3 py-2 text-sm"
                   />
                   <button
@@ -841,6 +874,7 @@ function PlanningPageInner() {
                     {importingBom ? strings.common.loading : t.actions.uploadBom}
                   </button>
                 </div>
+                {bomUploadError && <p className="mt-2 text-sm text-red-600">{bomUploadError}</p>}
                 <p className="mt-3 text-sm text-zinc-500">{t.messages.bomUploadHint}</p>
                 {bomImportResult && (
                   <div className="mt-4 space-y-4 rounded-lg border border-zinc-200 bg-zinc-50 p-4 text-sm">
