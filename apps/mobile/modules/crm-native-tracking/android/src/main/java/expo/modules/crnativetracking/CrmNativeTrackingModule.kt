@@ -65,6 +65,7 @@ class CrmNativeTrackingModule : Module() {
         val store = TrackingStateStore(context)
         store.getDeviceId()
         store.setActiveShift(shiftId)
+        store.clearLastRejectReasons()
         store.recordRecoveryEvent("RESTART_REQUESTED")
       }
       startForegroundService(context, shiftId)

@@ -754,16 +754,20 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
         setTrackingMode(result.mode);
       }
       const health = await syncTrackingHealth();
-      if (result.ok && health.backgroundTaskStarted && result.mode === "background") {
-        setShowBatteryHint(false);
-        return;
-      }
       if (result.errorCode === "app_not_active") {
         setFgsRestartBlocked(true);
         Alert.alert(t("gps.openAppFirstTitle"), t("gps.openAppFirstHint"));
         return;
       }
-      if (health.backgroundTaskStarted && result.mode === "background") {
+      if (result.ok && health.healthy && health.backgroundTaskStarted && result.mode === "background") {
+        setShowBatteryHint(false);
+        Alert.alert(t("gps.title"), t("gps.restartTrackingOk"));
+        return;
+      }
+      if (
+        result.errorCode === "recovery_failed" ||
+        (health.backgroundTaskStarted && result.mode === "background" && !health.healthy)
+      ) {
         setShowBatteryHint(false);
         Alert.alert(t("gps.restartPendingTitle"), t("gps.restartPendingHint"));
         return;

@@ -76,6 +76,12 @@ class TrackingStateStore(private val context: Context) {
     context.trackingDataStore.edit { it[KEY_LAST_REJECT] = json }
   }
 
+  suspend fun clearLastRejectReasons() {
+    context.trackingDataStore.edit { it.remove(KEY_LAST_REJECT) }
+  }
+
+  fun clearLastRejectReasonsBlocking() = runBlocking { clearLastRejectReasons() }
+
   suspend fun setNativeLastSeen(iso: String) {
     context.trackingDataStore.edit { it[KEY_NATIVE_SEEN] = iso }
   }

@@ -208,6 +208,8 @@ export default function MoreScreen() {
                     {unhealthyReason === "background_task_dead" ||
                     unhealthyReason === "foreground_watch_dead" ||
                     unhealthyReason === "accept_stale" ||
+                    unhealthyReason === "zombie_fgs" ||
+                    unhealthyReason === "point_stale" ||
                     (unhealthyReason === "fgs_start_blocked_background" &&
                       AppState.currentState === "active") ? (
                       <AppButton

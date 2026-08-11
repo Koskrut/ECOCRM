@@ -27,8 +27,7 @@ class TrackingHealthEvaluator(private val context: Context) {
       else -> "TRACKING_HEALTHY"
     }
 
-    val serviceRunning =
-      LocationForegroundService.isForegroundRunning || !snap["activeShiftId"].isNullOrBlank()
+    val serviceRunning = LocationForegroundService.isForegroundRunning
 
     return mapOf(
       "trackingHealthState" to health,

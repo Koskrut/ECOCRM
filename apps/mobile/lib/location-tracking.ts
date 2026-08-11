@@ -97,6 +97,8 @@ import {
 import { markTrackingWarmup, isTrackingWarmupActive } from "./tracking-warmup";
 import {
   displayPendingSamples,
+  deriveNativeHealthKind,
+  isNativeAcceptTimestampStale,
   resolveNativeRuntimeAcceptHealth,
 } from "./native-tracking-gates";
 import { sendGpsZombieDetectedEvent, sendTrackingRestartEvent } from "./tracking-telemetry";
@@ -219,12 +221,16 @@ async function buildNativeRuntimeHealth(
   );
   const lastGpsPointAt = nativeHealth?.lastGpsCapturedAt ?? null;
   const pointStale = inWarmup ? false : isTimestampStale(lastGpsPointAt, LAST_POINT_STALE_MS);
+  const rawAcceptStale = isNativeAcceptTimestampStale(
+    nativeHealth?.lastServerAcceptAt ?? lastAcceptedAt,
+  );
   const healthState = nativeHealth?.trackingHealthState;
   const healthy =
-    mapNativeHealthStateToHealthy(healthState) && !acceptStale && serviceRunning;
+    mapNativeHealthStateToHealthy(healthState) && !rawAcceptStale && serviceRunning;
   const nativePending = nativeHealth?.pendingUploadCount ?? 0;
   const nativeLastFlush = nativeHealth?.lastFlushAt ?? null;
   const nativeLastReject = nativeHealth?.lastRejectReasons ?? null;
+  const zombieFgs = serviceRunning && rawAcceptStale && mode === "background";
 
   return {
     mode,
@@ -240,8 +246,13 @@ async function buildNativeRuntimeHealth(
     healthy,
     acceptStale,
     pointStale,
-    healthKind: acceptStale ? "accept_stale" : healthy ? "healthy" : "task_dead",
-    zombieFgs: false,
+    healthKind: deriveNativeHealthKind({
+      serviceRunning,
+      acceptStale: rawAcceptStale,
+      pointStale: inWarmup ? false : isTimestampStale(lastGpsPointAt, LAST_POINT_STALE_MS),
+      trackingHealthState: healthState,
+    }),
+    zombieFgs,
     recoveryState: parseRecoveryStateKind(nativeHealth?.recoveryState),
     lastGpsPointAt,
     flushBlockReason: getLastFlushBlockReason(),
@@ -672,7 +683,6 @@ export type RestartTrackingResult = {
  * Success requires hasStartedLocationUpdatesAsync === true when claiming background.
  */
 export async function restartTrackingPipeline(): Promise<RestartTrackingResult> {
-  await markTrackingWarmup();
   const shiftId = await AsyncStorage.getItem(STORAGE_KEYS.ACTIVE_SHIFT_ID);
   const claimed =
     ((await AsyncStorage.getItem(STORAGE_KEYS.TRACKING_MODE)) as TrackingMode | null) ?? "none";
@@ -690,26 +700,80 @@ export async function restartTrackingPipeline(): Promise<RestartTrackingResult> 
         errorCode: "app_not_active",
       };
     }
-    await syncNativeTrackingSession();
+
+    const attempt = await recordRestartAttempt("os_kill", Date.now(), { bypassCooldown: true });
+    if (!attempt.allowed) {
+      void appendErrorLog("manualRestart(native): skipped (cooldown)", "info");
+    }
+
+    await purgeNativePendingSamples();
+    const sync = await syncNativeTrackingSessionDetailed({ retries: 1 });
+    if (!sync.ok) {
+      void appendErrorLog(
+        `manualRestart(native): syncSession failed (${sync.reason})`,
+        sync.reason === "module_missing" ? "error" : "warn",
+      );
+      return {
+        ok: false,
+        mode: claimed,
+        backgroundTaskStarted: taskStartedNow,
+        errorCode: "start_failed",
+        errorDetail: sync.reason,
+      };
+    }
+
     await stopNativeTracking();
     const started = await startNativeTracking(shiftId);
+    if (!started) {
+      return {
+        ok: false,
+        mode: "none",
+        backgroundTaskStarted: false,
+        errorCode: "start_failed",
+        errorDetail: "native_start_rejected",
+      };
+    }
+
+    await AsyncStorage.setItem(STORAGE_KEYS.TRACKING_MODE, "background");
+    void sendTrackingRestartEvent(shiftId, "os_kill");
     await flushNativePendingSamples();
+
     const nativeHealth = await getNativeTrackingHealth();
-    const serviceRunning = nativeHealth?.serviceRunning === true || started;
+    const serviceRunning = nativeHealth?.serviceRunning === true;
     const lastAccept = nativeHealth?.lastServerAcceptAt;
     const acceptFresh = !!lastAccept && !isAcceptStale(lastAccept);
+    const recoveryState = parseRecoveryStateKind(nativeHealth?.recoveryState);
+
     if (serviceRunning && acceptFresh) {
-      return { ok: true, mode: "background", backgroundTaskStarted: true, recoveryState: "RECOVERED" };
+      await markTrackingWarmup();
+      return {
+        ok: true,
+        mode: "background",
+        backgroundTaskStarted: true,
+        recoveryState: "RECOVERED",
+      };
+    }
+    if (serviceRunning) {
+      return {
+        ok: false,
+        mode: "background",
+        backgroundTaskStarted: true,
+        errorCode: "recovery_failed",
+        errorDetail: "no_new_accept",
+        recoveryState,
+      };
     }
     return {
-      ok: serviceRunning,
-      mode: serviceRunning ? "background" : "none",
-      backgroundTaskStarted: serviceRunning,
-      errorCode: serviceRunning && !acceptFresh ? "recovery_failed" : "start_failed",
-      errorDetail: serviceRunning && !acceptFresh ? "no_new_accept" : "native_service_failed",
-      recoveryState: parseRecoveryStateKind(nativeHealth?.recoveryState),
+      ok: false,
+      mode: "none",
+      backgroundTaskStarted: false,
+      errorCode: "start_failed",
+      errorDetail: "native_service_failed",
+      recoveryState,
     };
   }
+
+  await markTrackingWarmup();
 
   const taskStartedNow = await Location.hasStartedLocationUpdatesAsync(FIELD_LOCATION_TASK).catch(
     () => false,
@@ -1368,11 +1432,13 @@ export async function recoverDeadBackgroundTaskOnForeground(): Promise<TrackingM
     const nativeHealthy =
       health?.serviceRunning === true &&
       mapNativeHealthStateToHealthy(health.trackingHealthState) &&
-      (inWarmup || !isTimestampStale(health.lastGpsCapturedAt, LAST_POINT_STALE_MS));
+      (inWarmup || !isTimestampStale(health.lastGpsCapturedAt, LAST_POINT_STALE_MS)) &&
+      !isNativeAcceptTimestampStale(health.lastServerAcceptAt);
     if (nativeHealthy) {
       void flushNativePendingSamples().catch(() => undefined);
       return "background";
     }
+    await purgeNativePendingSamples();
     await stopNativeTracking();
     const ok = await startNativeTracking(shiftId);
     await flushNativePendingSamples();

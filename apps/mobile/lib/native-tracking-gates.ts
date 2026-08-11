@@ -12,7 +12,9 @@ export type {
 } from "./native-tracking-gates-core";
 
 export {
+  deriveNativeHealthKind,
   displayPendingSamples,
+  isNativeAcceptTimestampStale,
   isNativeTrackingPipelineHealthy,
   resolveNativeRuntimeAcceptHealth,
   shouldShowJsPendingQueue,

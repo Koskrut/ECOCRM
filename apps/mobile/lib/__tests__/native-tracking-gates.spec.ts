@@ -5,6 +5,8 @@ const {
   resolveNativeRuntimeAcceptHealth,
   shouldSuppressNativeAcceptStaleAlert,
   shouldSuppressNativeFlushRetryAlert,
+  deriveNativeHealthKind,
+  isNativeAcceptTimestampStale,
 } = require("../native-tracking-gates-core");
 const {
   shouldUseNativeTracking,
@@ -119,6 +121,44 @@ describe("native-tracking-gates", () => {
     assert.equal(
       shouldSuppressNativeFlushRetryAlert({ fieldTrackingMode: "legacy_expo" }),
       false,
+    );
+  });
+
+  it("does not suppress alert when native state is LOCATION_STALE", () => {
+    assert.equal(
+      shouldSuppressNativeAcceptStaleAlert({
+        fieldTrackingMode: "native_android",
+        healthy: false,
+        backgroundTaskStarted: true,
+        acceptStale: true,
+        nativeTrackingHealthState: "LOCATION_STALE",
+        nativeServiceRunning: true,
+      }),
+      false,
+    );
+  });
+
+  it("labels zombie_fgs when FGS runs but accept is stale (not task_dead)", () => {
+    assert.equal(
+      deriveNativeHealthKind({
+        serviceRunning: true,
+        acceptStale: true,
+        pointStale: false,
+        trackingHealthState: "LOCATION_STALE",
+      }),
+      "zombie_fgs",
+    );
+  });
+
+  it("labels task_dead only when FGS is not running", () => {
+    assert.equal(
+      deriveNativeHealthKind({
+        serviceRunning: false,
+        acceptStale: true,
+        pointStale: false,
+        trackingHealthState: "LOCATION_STALE",
+      }),
+      "task_dead",
     );
   });
 });
