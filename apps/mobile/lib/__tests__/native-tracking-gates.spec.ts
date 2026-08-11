@@ -5,8 +5,11 @@ const {
   resolveNativeRuntimeAcceptHealth,
   shouldSuppressNativeAcceptStaleAlert,
   shouldSuppressNativeFlushRetryAlert,
-  isJsLocationPipelineDisabled,
-} = require("../native-tracking-gates");
+} = require("../native-tracking-gates-core");
+const {
+  shouldUseNativeTracking,
+  shouldUseExpoTracking,
+} = require("../tracking-feature-flag-core");
 
 describe("native-tracking-gates", () => {
   const now = Date.parse("2026-08-10T18:00:00.000Z");
@@ -15,8 +18,8 @@ describe("native-tracking-gates", () => {
   const freshGps = new Date(now - 30_000).toISOString();
 
   it("disables JS pipeline only in native_android mode", () => {
-    assert.equal(isJsLocationPipelineDisabled("legacy_expo"), false);
-    assert.equal(isJsLocationPipelineDisabled("native_android"), true);
+    assert.equal(shouldUseExpoTracking("legacy_expo"), true);
+    assert.equal(shouldUseNativeTracking("native_android"), true);
   });
 
   it("trusts native healthy FGS over stale JS lastAcceptedAt", () => {
@@ -71,6 +74,8 @@ describe("native-tracking-gates", () => {
         healthy: true,
         backgroundTaskStarted: true,
         acceptStale: true,
+        nativeTrackingHealthState: "TRACKING_HEALTHY",
+        nativeServiceRunning: true,
       }),
       true,
     );
@@ -83,6 +88,15 @@ describe("native-tracking-gates", () => {
       }),
       false,
     );
+  });
+
+  it("does not treat stale JS accept as stale before native bridge responds", () => {
+    const now = Date.parse("2026-08-10T18:00:00.000Z");
+    const staleJsAccept = new Date(now - 53 * 60_000).toISOString();
+    const result = resolveNativeRuntimeAcceptHealth(null, staleJsAccept, false, {
+      nativeMode: true,
+    });
+    assert.equal(result.acceptStale, false);
   });
 
   it("suppresses flush retry alert in native_android", () => {

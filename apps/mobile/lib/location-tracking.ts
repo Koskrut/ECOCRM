@@ -94,7 +94,10 @@ import {
   syncNativeTrackingSessionDetailed,
 } from "./native-tracking-session";
 import { markTrackingWarmup, isTrackingWarmupActive } from "./tracking-warmup";
-import { resolveNativeRuntimeAcceptHealth } from "./native-tracking-gates";
+import {
+  displayPendingSamples,
+  resolveNativeRuntimeAcceptHealth,
+} from "./native-tracking-gates";
 import { sendGpsZombieDetectedEvent, sendTrackingRestartEvent } from "./tracking-telemetry";
 import {
   beginRecoveryAttempt,
@@ -162,6 +165,9 @@ export type TrackingDiagnostics = {
   /** Baked at build time via EXPO_PUBLIC_FIELD_TRACKING_MODE / app.config.js extra. */
   fieldTrackingMode?: "legacy_expo" | "native_android";
   nativeModuleLoaded?: boolean;
+  /** Native FGS health snapshot — used for alert/UI gating independent of JS accept. */
+  nativeTrackingHealthState?: string;
+  nativeServiceRunning?: boolean;
   claimedMode?: TrackingMode;
   actualMode?: TrackingMode;
 };
@@ -203,10 +209,12 @@ async function buildNativeRuntimeHealth(
   const mode: TrackingMode =
     state.mode !== "none" ? state.mode : serviceRunning ? "background" : "none";
   const inWarmup = await isTrackingWarmupActive();
+  const fieldTrackingMode = getFieldTrackingMode();
   const { lastAcceptedAt, acceptStale } = resolveNativeRuntimeAcceptHealth(
     nativeHealth,
     await getLastAcceptedAt(),
     inWarmup,
+    { nativeMode: fieldTrackingMode === "native_android" },
   );
   const lastGpsPointAt = nativeHealth?.lastGpsCapturedAt ?? null;
   const pointStale = inWarmup ? false : isTimestampStale(lastGpsPointAt, LAST_POINT_STALE_MS);
@@ -218,7 +226,7 @@ async function buildNativeRuntimeHealth(
     mode,
     claimedMode: mode,
     actualMode: serviceRunning ? "background" : "none",
-    pendingSamples: nativeHealth?.pendingUploadCount ?? 0,
+    pendingSamples: displayPendingSamples(fieldTrackingMode, nativeHealth?.pendingUploadCount ?? 0),
     lastFlushAt: state.lastFlushAt,
     activeShiftId,
     foregroundPermission: perms.foreground,
@@ -239,8 +247,10 @@ async function buildNativeRuntimeHealth(
     batteryOptimizationStatus: batteryStatus,
     batteryModuleLoaded: batteryDetailed.moduleLoaded,
     batteryRawIgnoring: batteryDetailed.rawIgnoring,
-    fieldTrackingMode: getFieldTrackingMode(),
+    fieldTrackingMode,
     nativeModuleLoaded: isNativeTrackingModuleLoaded(),
+    nativeTrackingHealthState: healthState,
+    nativeServiceRunning: serviceRunning,
     lastAcceptedAt,
     lastRejectReason: await getLastRejectReason(),
     lastFlushError: await getLastFlushError(),
@@ -1058,6 +1068,8 @@ export async function getTrackingDiagnostics(): Promise<TrackingDiagnostics> {
     batteryRawIgnoring: health.batteryRawIgnoring,
     fieldTrackingMode: health.fieldTrackingMode,
     nativeModuleLoaded: health.nativeModuleLoaded,
+    nativeTrackingHealthState: health.nativeTrackingHealthState,
+    nativeServiceRunning: health.nativeServiceRunning,
   };
 }
 

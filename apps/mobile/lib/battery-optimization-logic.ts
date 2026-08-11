@@ -10,6 +10,8 @@ export function shouldShowBatteryOptimizationWarning(input: {
   showBatteryHint?: boolean;
   freshAcceptThresholdMs?: number;
   nowMs?: number;
+  fieldTrackingMode?: "legacy_expo" | "native_android";
+  nativeServiceRunning?: boolean;
 }): boolean {
   if (input.trackingMode === "none") return false;
   if (input.batteryStatus === "unrestricted") return false;
@@ -19,6 +21,16 @@ export function shouldShowBatteryOptimizationWarning(input: {
   const acceptAt = input.lastAcceptedAt ? new Date(input.lastAcceptedAt).getTime() : NaN;
   const freshAccept =
     Number.isFinite(acceptAt) && now - acceptAt <= threshold;
+
+  const nativeAlive =
+    input.fieldTrackingMode === "native_android" &&
+    (input.nativeServiceRunning === true || input.backgroundTaskStarted) &&
+    input.healthy &&
+    freshAccept;
+
+  if (nativeAlive && (input.batteryStatus === "unknown" || input.batteryStatus === "restricted")) {
+    return false;
+  }
 
   if (
     input.healthy &&

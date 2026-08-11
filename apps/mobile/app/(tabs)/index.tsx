@@ -40,7 +40,7 @@ import {
   findNearestVisit,
   visitProgress,
 } from "@/lib/visit-utils";
-import type { VisitSummary } from "@/types/crm";
+import { getFieldTrackingMode } from "@/lib/tracking-feature-flag";
 
 const TOP_N = 3;
 
@@ -365,6 +365,8 @@ export default function TodayScreen() {
             backgroundTaskStarted={backgroundTaskStarted}
             lastAcceptedAt={lastAcceptedAt}
             showBatteryHint={showBatteryHint}
+            fieldTrackingMode={getFieldTrackingMode()}
+            nativeServiceRunning={backgroundTaskStarted}
           />
         ) : null}
 

@@ -24,6 +24,8 @@ type Props = {
   lastAcceptedAt?: string | null;
   /** Extra nudge after a failed foreground restart (in addition to ACTIVE-shift battery warn). */
   showBatteryHint?: boolean;
+  fieldTrackingMode?: "legacy_expo" | "native_android";
+  nativeServiceRunning?: boolean;
 };
 
 export function TrackingHealthBanner({
@@ -34,6 +36,8 @@ export function TrackingHealthBanner({
   backgroundTaskStarted = false,
   lastAcceptedAt = null,
   showBatteryHint = false,
+  fieldTrackingMode,
+  nativeServiceRunning,
 }: Props) {
   const theme = useTheme();
 
@@ -50,6 +54,8 @@ export function TrackingHealthBanner({
       backgroundTaskStarted,
       lastAcceptedAt,
       showBatteryHint,
+      fieldTrackingMode,
+      nativeServiceRunning: nativeServiceRunning ?? backgroundTaskStarted,
     });
 
   if (!needsBackground && !needsBattery) {

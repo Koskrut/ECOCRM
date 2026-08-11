@@ -28,6 +28,7 @@ import {
 import { openLocationPermissionSettings, isBackgroundLocationGrantedStatus } from "@/lib/location-permissions";
 import { canStartLocationForegroundService } from "@/lib/location-tracking-restart";
 import { shouldOfferRestartShiftCta } from "@/lib/shift-ops-gate";
+import { getFieldTrackingMode } from "@/lib/tracking-feature-flag";
 
 export default function MoreScreen() {
   const router = useRouter();
@@ -57,6 +58,9 @@ export default function MoreScreen() {
     showBatteryHint,
     backgroundPermission,
     batteryOptimizationStatus,
+    trackingHealthy,
+    backgroundTaskStarted,
+    lastAcceptedAt,
   } = useShiftTracking();
 
   useFocusEffect(
@@ -143,10 +147,12 @@ export default function MoreScreen() {
                 backgroundPermission={backgroundPermission}
                 batteryOptimizationStatus={batteryOptimizationStatus}
                 trackingMode={trackingMode}
-                healthy={!trackingBroken && trackingMode === "background"}
-                backgroundTaskStarted={trackingDebug?.backgroundTaskStarted ?? false}
-                lastAcceptedAt={trackingDebug?.lastAcceptedAt ?? null}
+                healthy={trackingHealthy}
+                backgroundTaskStarted={backgroundTaskStarted}
+                lastAcceptedAt={lastAcceptedAt}
                 showBatteryHint={showBatteryHint}
+                fieldTrackingMode={getFieldTrackingMode()}
+                nativeServiceRunning={backgroundTaskStarted}
               />
             ) : null}
             {isTracking ? (

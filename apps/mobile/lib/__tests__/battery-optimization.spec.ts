@@ -34,6 +34,22 @@ describe("shouldShowBatteryOptimizationWarning", () => {
     );
   });
 
+  it("suppresses restricted for native_android when FGS is alive", () => {
+    assert.equal(
+      shouldShowBatteryOptimizationWarning({
+        batteryStatus: "restricted",
+        trackingMode: "background",
+        healthy: true,
+        backgroundTaskStarted: true,
+        lastAcceptedAt: new Date(now - 60_000).toISOString(),
+        fieldTrackingMode: "native_android",
+        nativeServiceRunning: true,
+        nowMs: now,
+      }),
+      false,
+    );
+  });
+
   it("shows restricted when tracking unhealthy", () => {
     assert.equal(
       shouldShowBatteryOptimizationWarning({

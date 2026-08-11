@@ -3,8 +3,10 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { getAuthToken } from "./auth-token";
 import { formatKyivDateKey } from "./date";
 import { writeFieldShiftSnapshot } from "./field-shift-snapshot";
+import { purgeLegacyJsBufferForNativeMode } from "./native-buffer-migration";
 import { STORAGE_KEYS } from "./location-tracking-buffer";
 import type { TrackingMode } from "./location-tracking-health";
+import { shouldUseNativeTracking } from "./tracking-feature-flag";
 import {
   validateShiftBootstrapPrerequisites,
   type ShiftBootstrapResult,
@@ -21,6 +23,10 @@ export async function bootstrapShiftTrackingContext(shiftId: string): Promise<Sh
   const token = await getAuthToken();
   const gate = validateShiftBootstrapPrerequisites(shiftId, !!token);
   if (!gate.ok) return gate;
+
+  if (shouldUseNativeTracking()) {
+    await purgeLegacyJsBufferForNativeMode();
+  }
 
   const previousShiftId = await AsyncStorage.getItem(STORAGE_KEYS.ACTIVE_SHIFT_ID);
   if (previousShiftId && previousShiftId !== shiftId) {

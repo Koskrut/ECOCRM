@@ -68,6 +68,7 @@ import {
   shouldSuppressNativeAcceptStaleAlert,
   shouldSuppressNativeFlushRetryAlert,
 } from "@/lib/native-tracking-gates";
+import { purgeLegacyJsBufferForNativeMode } from "@/lib/native-buffer-migration";
 import { shouldUseNativeTracking } from "@/lib/tracking-feature-flag";
 import type { FieldShift } from "@/types/crm";
 
@@ -157,8 +158,17 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
       setPendingSamples(health.pendingSamples);
       setLastFlushAt(health.lastFlushAt);
       setLastAcceptedAt(health.lastAcceptedAt ?? null);
-      setTrackingHealthy(health.healthy);
-      setAcceptStale(health.acceptStale === true);
+      const suppressedAcceptStale = shouldSuppressNativeAcceptStaleAlert({
+        fieldTrackingMode: health.fieldTrackingMode,
+        healthy: health.healthy,
+        backgroundTaskStarted: health.backgroundTaskStarted,
+        acceptStale: health.acceptStale,
+        nativeTrackingHealthState: health.nativeTrackingHealthState,
+        nativeServiceRunning: health.nativeServiceRunning,
+      });
+      const acceptStaleForUi = health.acceptStale === true && !suppressedAcceptStale;
+      setTrackingHealthy(health.healthy || suppressedAcceptStale);
+      setAcceptStale(acceptStaleForUi);
       setPointStale(health.pointStale === true);
       setZombieFgs(health.zombieFgs === true);
       setRecoveryState(health.recoveryState ?? null);
@@ -308,7 +318,18 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
     if (health.claimedMode !== "background") return;
     // Also recover Expo #47595 zombie: task "started" but accept/point stale.
     if (health.backgroundTaskStarted && !health.acceptStale && !health.zombieFgs) return;
-    if (shouldSuppressNativeAcceptStaleAlert(health)) return;
+    if (
+      shouldSuppressNativeAcceptStaleAlert({
+        fieldTrackingMode: health.fieldTrackingMode,
+        healthy: health.healthy,
+        backgroundTaskStarted: health.backgroundTaskStarted,
+        acceptStale: health.acceptStale,
+        nativeTrackingHealthState: health.nativeTrackingHealthState,
+        nativeServiceRunning: health.nativeServiceRunning,
+      })
+    ) {
+      return;
+    }
 
     const perms = await getTrackingPermissionStatus();
     if (perms.background !== "granted") return;
@@ -359,6 +380,9 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
     }
     setLoading(true);
     try {
+      if (shouldUseNativeTracking()) {
+        await purgeLegacyJsBufferForNativeMode();
+      }
       const res = await apiFetch<{ shift: FieldShift | null }>("/field/shifts/active", { token });
       let shift = res.shift;
 
@@ -853,7 +877,15 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
       const health = await syncTrackingHealth();
 
       const acceptStaleForRecovery =
-        health.acceptStale === true && !shouldSuppressNativeAcceptStaleAlert(health);
+        health.acceptStale === true &&
+        !shouldSuppressNativeAcceptStaleAlert({
+          fieldTrackingMode: health.fieldTrackingMode,
+          healthy: health.healthy,
+          backgroundTaskStarted: health.backgroundTaskStarted,
+          acceptStale: health.acceptStale,
+          nativeTrackingHealthState: health.nativeTrackingHealthState,
+          nativeServiceRunning: health.nativeServiceRunning,
+        });
 
       // Dead / poison background task → forceRestart before any battery blame.
       if (
@@ -903,7 +935,14 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
       if (
         after.acceptStale === true &&
         !staleAlertShownRef.current &&
-        !shouldSuppressNativeAcceptStaleAlert(after)
+        !shouldSuppressNativeAcceptStaleAlert({
+          fieldTrackingMode: after.fieldTrackingMode,
+          healthy: after.healthy,
+          backgroundTaskStarted: after.backgroundTaskStarted,
+          acceptStale: after.acceptStale,
+          nativeTrackingHealthState: after.nativeTrackingHealthState,
+          nativeServiceRunning: after.nativeServiceRunning,
+        })
       ) {
         staleAlertShownRef.current = true;
         if (blockReason === "auth_401") {
