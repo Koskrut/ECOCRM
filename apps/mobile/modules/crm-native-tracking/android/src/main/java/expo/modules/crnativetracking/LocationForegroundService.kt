@@ -23,6 +23,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import java.util.UUID
 
 /**
@@ -82,7 +83,10 @@ class LocationForegroundService : Service() {
     }
 
     activeShiftId = shiftId
-    stateStore.setActiveShiftBlocking(shiftId)
+    val shiftChanged = stateStore.prepareActiveShiftBlocking(shiftId)
+    if (shiftChanged) {
+      runBlocking { database.sampleDao().deleteAllPending() }
+    }
     stateStore.recordRecoveryEventBlocking("TASK_RECREATED")
 
     promoteToForeground()

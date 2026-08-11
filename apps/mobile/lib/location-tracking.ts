@@ -226,11 +226,17 @@ async function buildNativeRuntimeHealth(
   );
   const healthState = nativeHealth?.trackingHealthState;
   const healthy =
-    mapNativeHealthStateToHealthy(healthState) && !rawAcceptStale && serviceRunning;
+    mapNativeHealthStateToHealthy(healthState) &&
+    serviceRunning &&
+    healthState !== "LOCATION_STALE";
   const nativePending = nativeHealth?.pendingUploadCount ?? 0;
   const nativeLastFlush = nativeHealth?.lastFlushAt ?? null;
   const nativeLastReject = nativeHealth?.lastRejectReasons ?? null;
-  const zombieFgs = serviceRunning && rawAcceptStale && mode === "background";
+  const zombieFgs =
+    serviceRunning &&
+    rawAcceptStale &&
+    mode === "background" &&
+    healthState === "LOCATION_STALE";
 
   return {
     mode,
@@ -1187,9 +1193,19 @@ async function ensureBackgroundTaskRunning(
     if (!canStartLocationForegroundService(AppState.currentState)) {
       return health?.serviceRunning ? "background" : "none";
     }
+    const reason = mapRestartContextToReason(context);
+    const attempt = await recordRestartAttempt(reason, Date.now(), {
+      bypassCooldown: opts?.bypassCooldown === true,
+    });
+    if (!attempt.allowed) {
+      void appendErrorLog(`${context}(native): restart skipped (cooldown)`, "info");
+    }
     await stopExpoLocationWriters();
     await stopNativeTracking();
     const ok = await startNativeTracking(shiftId);
+    if (ok) {
+      void sendTrackingRestartEvent(shiftId, reason);
+    }
     return ok ? "background" : "none";
   }
 
@@ -1438,9 +1454,18 @@ export async function recoverDeadBackgroundTaskOnForeground(): Promise<TrackingM
       void flushNativePendingSamples().catch(() => undefined);
       return "background";
     }
+    const attempt = await recordRestartAttempt("watchdog", Date.now(), {
+      bypassCooldown: true,
+    });
+    if (!attempt.allowed) {
+      void appendErrorLog("foregroundRecover(native): restart skipped (cooldown)", "info");
+    }
     await purgeNativePendingSamples();
     await stopNativeTracking();
     const ok = await startNativeTracking(shiftId);
+    if (ok) {
+      void sendTrackingRestartEvent(shiftId, "watchdog");
+    }
     await flushNativePendingSamples();
     return ok ? "background" : "none";
   }

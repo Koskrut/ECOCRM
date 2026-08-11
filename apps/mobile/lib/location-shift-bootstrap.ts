@@ -32,6 +32,10 @@ export async function bootstrapShiftTrackingContext(shiftId: string): Promise<Sh
   if (previousShiftId && previousShiftId !== shiftId) {
     const { purgePendingSamples } = await import("./location-tracking-buffer");
     await purgePendingSamples();
+    if (shouldUseNativeTracking()) {
+      const { purgeNativePendingSamples } = await import("../modules/crm-native-tracking");
+      await purgeNativePendingSamples();
+    }
   }
 
   await AsyncStorage.multiSet([

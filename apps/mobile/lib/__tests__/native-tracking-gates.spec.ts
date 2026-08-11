@@ -150,6 +150,18 @@ describe("native-tracking-gates", () => {
     );
   });
 
+  it("does not label zombie_fgs when evaluator reports TRACKING_HEALTHY (soft dedup)", () => {
+    assert.equal(
+      deriveNativeHealthKind({
+        serviceRunning: true,
+        acceptStale: true,
+        pointStale: false,
+        trackingHealthState: "TRACKING_HEALTHY",
+      }),
+      "healthy",
+    );
+  });
+
   it("labels task_dead only when FGS is not running", () => {
     assert.equal(
       deriveNativeHealthKind({

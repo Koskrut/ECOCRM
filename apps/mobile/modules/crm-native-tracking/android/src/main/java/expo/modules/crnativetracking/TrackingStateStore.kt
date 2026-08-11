@@ -47,6 +47,36 @@ class TrackingStateStore(private val context: Context) {
     context.trackingDataStore.edit { it[KEY_SHIFT] = shiftId }
   }
 
+  /** Drop B3 accept + reject telemetry when binding a different shift (avoid cross-shift stale mask). */
+  suspend fun clearAcceptTelemetry() {
+    context.trackingDataStore.edit {
+      it.remove(KEY_LAST_ACCEPT)
+      it.remove(KEY_LAST_REJECT)
+    }
+  }
+
+  fun clearAcceptTelemetryBlocking() = runBlocking { clearAcceptTelemetry() }
+
+  /**
+   * Persist shift id; when it changes, clear accept/reject timestamps from the prior shift.
+   */
+  suspend fun prepareActiveShift(shiftId: String): Boolean {
+    val prefs = context.trackingDataStore.data.first()
+    val previous = prefs[KEY_SHIFT]
+    val changed = !previous.isNullOrBlank() && previous != shiftId
+    context.trackingDataStore.edit {
+      it[KEY_SHIFT] = shiftId
+      if (changed) {
+        it.remove(KEY_LAST_ACCEPT)
+        it.remove(KEY_LAST_REJECT)
+      }
+    }
+    return changed
+  }
+
+  fun prepareActiveShiftBlocking(shiftId: String): Boolean =
+    runBlocking { prepareActiveShift(shiftId) }
+
   fun setActiveShiftBlocking(shiftId: String) = runBlocking { setActiveShift(shiftId) }
 
   suspend fun clearActiveShift() {

@@ -63,8 +63,12 @@ class CrmNativeTrackingModule : Module() {
       if (shiftId.isBlank()) return@AsyncFunction false
       runBlocking {
         val store = TrackingStateStore(context)
+        val db = TrackingDatabase.get(context)
         store.getDeviceId()
-        store.setActiveShift(shiftId)
+        val shiftChanged = store.prepareActiveShift(shiftId)
+        if (shiftChanged) {
+          db.sampleDao().deleteAllPending()
+        }
         store.clearLastRejectReasons()
         store.recordRecoveryEvent("RESTART_REQUESTED")
       }

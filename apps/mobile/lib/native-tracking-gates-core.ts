@@ -33,6 +33,12 @@ export function deriveNativeHealthKind(input: {
   trackingHealthState?: string;
 }): TrackingHealthKind {
   if (!input.serviceRunning) return "task_dead";
+  if (
+    input.trackingHealthState === "TRACKING_HEALTHY" ||
+    input.trackingHealthState === "NETWORK_DEGRADED"
+  ) {
+    return "healthy";
+  }
   if (input.pointStale && !input.acceptStale) return "point_stale";
   if (input.acceptStale || input.trackingHealthState === "LOCATION_STALE") {
     return input.serviceRunning ? "zombie_fgs" : "accept_stale";
@@ -42,12 +48,6 @@ export function deriveNativeHealthKind(input: {
     input.trackingHealthState === "RECOVERY_FAILED"
   ) {
     return "task_dead";
-  }
-  if (
-    input.trackingHealthState === "TRACKING_HEALTHY" ||
-    input.trackingHealthState === "NETWORK_DEGRADED"
-  ) {
-    return "healthy";
   }
   return input.serviceRunning ? "accept_stale" : "task_dead";
 }
