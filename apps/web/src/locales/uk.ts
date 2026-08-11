@@ -2233,6 +2233,17 @@ export const uk = {
     loadFailed: "Не вдалося завантажити",
     moveFailed: "Не вдалося перемістити",
     statusUpdateFailed: "Не вдалося оновити статус",
+    returnsInvalidTransition: (from: string, to: string) =>
+      `Не можна змінити статус з «${from}» на «${to}»`,
+    returnsCloseBlockedItems: "Не можна закрити повернення без позицій",
+    returnsLoadingBoard: "Завантаження повернень…",
+    returnsHint: "Перетягніть картку в наступний дозволений статус",
+    loadingColumn: "Завантаження…",
+    itemsPendingBreakdown: "Позиції ще не розкладені",
+    positionsUnits: (positions: number, units: number) =>
+      `${positions} поз. · ${units} од.`,
+    ttnPrefix: "ТТН",
+    returnsOrderStage: (stage: string) => `Замовлення: ${stage}`,
   },
   monitoring: {
     pageTitle: "Моніторинг співробітників",

@@ -4,7 +4,22 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.155**.)_
+_(планируемые изменения после **0.2.156**.)_
+
+## [0.2.156] — 2026-08-11
+
+### Summary
+
+Hotfix **0.2.156**: web kanban locale keys for returns board (0.2.155 CI fail).
+
+### Fixed
+
+- **Web ReturnsKanban**: `returnsInvalidTransition` and related `kanban.*` strings in en/uk.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.156`**.
+- **Do not use 0.2.155 images** — CI failed on web build.
 
 ## [0.2.155] — 2026-08-11
 

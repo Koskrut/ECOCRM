@@ -2223,6 +2223,17 @@ export const en = {
     loadFailed: "Failed to load",
     moveFailed: "Failed to move",
     statusUpdateFailed: "Failed to update status",
+    returnsInvalidTransition: (from: string, to: string) =>
+      `Cannot change status from “${from}” to “${to}”`,
+    returnsCloseBlockedItems: "Cannot close a return without line items",
+    returnsLoadingBoard: "Loading returns…",
+    returnsHint: "Drag a card to the next allowed status",
+    loadingColumn: "Loading…",
+    itemsPendingBreakdown: "Items not broken down yet",
+    positionsUnits: (positions: number, units: number) =>
+      `${positions} lines · ${units} units`,
+    ttnPrefix: "TTN",
+    returnsOrderStage: (stage: string) => `Order: ${stage}`,
   },
   monitoring: {
     pageTitle: "Employee monitoring",
