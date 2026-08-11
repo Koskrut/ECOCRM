@@ -202,13 +202,13 @@ async function buildNativeRuntimeHealth(
 ): Promise<TrackingRuntimeHealth> {
   const batteryStatus = batteryDetailed.status;
   void setBatteryOptimizationStatus(batteryStatus);
-  // Prefer native FGS flag; if bridge briefly returns null, trust JS claimed background + shift.
+  const inWarmup = await isTrackingWarmupActive();
+  // Prefer native FGS flag; only trust claimed background during warmup when bridge lags.
   const serviceRunning =
     nativeHealth?.serviceRunning === true ||
-    (nativeHealth == null && state.mode === "background" && !!activeShiftId);
+    (inWarmup && nativeHealth == null && state.mode === "background" && !!activeShiftId);
   const mode: TrackingMode =
     state.mode !== "none" ? state.mode : serviceRunning ? "background" : "none";
-  const inWarmup = await isTrackingWarmupActive();
   const fieldTrackingMode = getFieldTrackingMode();
   const { lastAcceptedAt, acceptStale } = resolveNativeRuntimeAcceptHealth(
     nativeHealth,
@@ -895,7 +895,14 @@ export async function resumeTrackingIfNeeded(
         await purgePendingSamples();
         await syncNativeTrackingSession();
         const health = await getNativeTrackingHealth();
-        if (!health?.serviceRunning) {
+        const inWarmup = await isTrackingWarmupActive();
+        const pipelineHealthy =
+          health != null &&
+          health.serviceRunning === true &&
+          mapNativeHealthStateToHealthy(health.trackingHealthState);
+        const gpsStale =
+          !inWarmup && isTimestampStale(health?.lastGpsCapturedAt ?? null, LAST_POINT_STALE_MS);
+        if (!pipelineHealthy || gpsStale) {
           await startNativeTracking(shift.id);
         }
         return "background";
@@ -1351,9 +1358,11 @@ export async function recoverDeadBackgroundTaskOnForeground(): Promise<TrackingM
     if (!shiftId) return "none";
     await syncNativeTrackingSession();
     const health = await getNativeTrackingHealth();
+    const inWarmup = await isTrackingWarmupActive();
     const nativeHealthy =
       health?.serviceRunning === true &&
-      mapNativeHealthStateToHealthy(health.trackingHealthState);
+      mapNativeHealthStateToHealthy(health.trackingHealthState) &&
+      (inWarmup || !isTimestampStale(health.lastGpsCapturedAt, LAST_POINT_STALE_MS));
     if (nativeHealthy) {
       void flushNativePendingSamples().catch(() => undefined);
       return "background";

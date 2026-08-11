@@ -317,7 +317,9 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
     let health = await getTrackingRuntimeHealth();
     if (health.claimedMode !== "background") return;
     // Also recover Expo #47595 zombie: task "started" but accept/point stale.
-    if (health.backgroundTaskStarted && !health.acceptStale && !health.zombieFgs) return;
+    if (health.backgroundTaskStarted && !health.acceptStale && !health.zombieFgs && !health.pointStale) {
+      return;
+    }
     if (
       shouldSuppressNativeAcceptStaleAlert({
         fieldTrackingMode: health.fieldTrackingMode,

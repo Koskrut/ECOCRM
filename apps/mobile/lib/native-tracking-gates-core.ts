@@ -46,7 +46,9 @@ export function resolveNativeRuntimeAcceptHealth(
   if (nativeMode && nativeHealth == null) {
     return {
       lastAcceptedAt: jsLastAcceptedAt,
-      acceptStale: false,
+      // Warmup: bridge may lag on cold start. After warmup, missing bridge + no accept
+      // must stay stale so watchdog/restart paths are not silenced (v81 purge clears JS accept).
+      acceptStale: inWarmup ? false : isAcceptStale(jsLastAcceptedAt),
     };
   }
 

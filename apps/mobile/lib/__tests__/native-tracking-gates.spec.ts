@@ -91,12 +91,24 @@ describe("native-tracking-gates", () => {
   });
 
   it("does not treat stale JS accept as stale before native bridge responds", () => {
-    const now = Date.parse("2026-08-10T18:00:00.000Z");
-    const staleJsAccept = new Date(now - 53 * 60_000).toISOString();
-    const result = resolveNativeRuntimeAcceptHealth(null, staleJsAccept, false, {
+    const result = resolveNativeRuntimeAcceptHealth(null, staleJsAccept, true, {
       nativeMode: true,
     });
     assert.equal(result.acceptStale, false);
+  });
+
+  it("treats missing bridge + cleared JS accept as stale after warmup", () => {
+    const result = resolveNativeRuntimeAcceptHealth(null, null, false, {
+      nativeMode: true,
+    });
+    assert.equal(result.acceptStale, true);
+  });
+
+  it("treats stale JS accept as stale after warmup when native bridge is null", () => {
+    const result = resolveNativeRuntimeAcceptHealth(null, staleJsAccept, false, {
+      nativeMode: true,
+    });
+    assert.equal(result.acceptStale, true);
   });
 
   it("suppresses flush retry alert in native_android", () => {
