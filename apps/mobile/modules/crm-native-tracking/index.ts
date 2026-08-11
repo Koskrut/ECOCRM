@@ -14,6 +14,8 @@ export type NativeTrackingHealth = {
   trackingHealthState: string;
   lastGpsCapturedAt: string | null;
   lastServerAcceptAt: string | null;
+  lastFlushAt: string | null;
+  lastRejectReasons: string | null;
   nativeLastSeenAt: string | null;
   pendingUploadCount: number;
   serviceRunning: boolean;
@@ -26,6 +28,7 @@ type CrmNativeTrackingModule = {
   stopTracking(): Promise<boolean>;
   getTrackingHealth(): Promise<Partial<NativeTrackingHealth> | Record<string, unknown>>;
   flushPendingSamples(): Promise<number>;
+  purgePendingSamples(): Promise<number>;
   isNativeTrackingAvailable(): Promise<boolean>;
   syncSession(authToken: string, apiBaseUrl: string): Promise<boolean>;
   clearSession(): Promise<boolean>;
@@ -132,6 +135,9 @@ function normalizeNativeHealth(
       typeof raw.lastGpsCapturedAt === "string" ? raw.lastGpsCapturedAt : null,
     lastServerAcceptAt:
       typeof raw.lastServerAcceptAt === "string" ? raw.lastServerAcceptAt : null,
+    lastFlushAt: typeof raw.lastFlushAt === "string" ? raw.lastFlushAt : null,
+    lastRejectReasons:
+      typeof raw.lastRejectReasons === "string" ? raw.lastRejectReasons : null,
     nativeLastSeenAt:
       typeof raw.nativeLastSeenAt === "string" ? raw.nativeLastSeenAt : null,
     pendingUploadCount:
@@ -158,6 +164,17 @@ export async function flushNativePendingSamples(): Promise<number> {
   if (!mod) return 0;
   try {
     return await mod.flushPendingSamples();
+  } catch {
+    nativeModule = null;
+    return 0;
+  }
+}
+
+export async function purgeNativePendingSamples(): Promise<number> {
+  const mod = getNativeModule();
+  if (!mod) return 0;
+  try {
+    return await mod.purgePendingSamples();
   } catch {
     nativeModule = null;
     return 0;

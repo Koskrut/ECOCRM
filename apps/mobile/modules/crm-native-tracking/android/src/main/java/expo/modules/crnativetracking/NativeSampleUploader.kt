@@ -12,6 +12,9 @@ import kotlin.math.min
  * Upload pending Room samples to POST /field/shifts/:id/samples WITHOUT JS.
  * B3 confirmed when response has created>0 or duplicate>0.
  * WorkManager [TrackingFlushWorker] is fallback when inline flush fails.
+ *
+ * Rejected batches (geo/accuracy/dedup) must leave Room — same as JS flush drops the batch
+ * on HTTP 200 even when created=0, or uploads would retry the same poison forever.
  */
 class NativeSampleUploader(private val context: Context) {
   companion object {
@@ -65,7 +68,6 @@ class NativeSampleUploader(private val context: Context) {
         put(
           "telemetry",
           JSONObject().apply {
-            // B1 surface + native heartbeat for supervisor team API
             put("nativeLastSeenAt", nowIso)
             put("lastGpsCapturedAt", snap["lastGpsCapturedAt"])
             put("trackingHealthState", healthState)
@@ -75,30 +77,67 @@ class NativeSampleUploader(private val context: Context) {
       }
 
       val result = postSamples(apiBase, token, shiftId, payload.toString())
-      if (result.created > 0 || result.duplicate > 0) {
-        // B3 — server accepted (created or idempotent duplicate)
-        for (sample in items) {
-          db.sampleDao().markUploaded(sample.sampleId)
+      when {
+        result.httpCode in 200..299 -> {
+          dropBatch(items)
+          uploaded += result.created + result.duplicate
+          state.setLastFlushAt(nowIso)
+          if (result.created > 0 || result.duplicate > 0) {
+            state.setLastServerAcceptAt(nowIso)
+            state.setNativeLastSeen(nowIso)
+            state.recordRecoveryEvent("ACCEPT_RECEIVED")
+            state.recordRecoveryEvent("RECOVERY_CONFIRMED")
+          } else if (result.rejected > 0) {
+            state.recordRejectReasons(result.rejectReasons)
+            Log.i(
+              TAG,
+              "flush dropped rejected batch shift=$shiftId rejected=${result.rejected} reasons=${result.rejectReasons}",
+            )
+          }
         }
-        uploaded += result.created + result.duplicate
-        state.setLastServerAcceptAt(nowIso)
-        state.setNativeLastSeen(nowIso)
-        state.recordRecoveryEvent("ACCEPT_RECEIVED")
-        state.recordRecoveryEvent("RECOVERY_CONFIRMED")
-      } else if (result.retryable) {
-        val backoffMs = min(300_000L, 5_000L * (items.first().attemptCount + 1))
-        val nextRetry = TrackingHealthEvaluator.futureIso(backoffMs)
-        for (sample in items) {
-          db.sampleDao().markRetry(sample.sampleId, nextRetry)
+        result.discardBatch -> {
+          dropBatch(items)
+          state.setLastFlushAt(nowIso)
+          Log.w(TAG, "flush discarded batch HTTP ${result.httpCode} shift=$shiftId")
         }
-        TrackingFlushWorker.schedule(context)
+        result.retryable -> {
+          val backoffMs = min(300_000L, 5_000L * (items.first().attemptCount + 1))
+          val nextRetry = TrackingHealthEvaluator.futureIso(backoffMs)
+          for (sample in items) {
+            db.sampleDao().markRetry(sample.sampleId, nextRetry)
+          }
+          TrackingFlushWorker.schedule(context)
+        }
+        else -> {
+          // 401/403 — keep batch until JS syncSession refreshes token
+          Log.w(TAG, "flush blocked HTTP ${result.httpCode} shift=$shiftId (batch kept)")
+          TrackingFlushWorker.schedule(context)
+        }
       }
     }
 
     return uploaded
   }
 
-  private data class UploadResult(val created: Int, val duplicate: Int, val retryable: Boolean)
+  private suspend fun dropBatch(items: List<TrackingSampleEntity>) {
+    for (sample in items) {
+      db.sampleDao().markUploaded(sample.sampleId)
+    }
+  }
+
+  private data class UploadResult(
+    val created: Int,
+    val duplicate: Int,
+    val rejected: Int,
+    val rejectReasons: String?,
+    val httpCode: Int,
+  ) {
+    val retryable: Boolean
+      get() = httpCode >= 500 || httpCode == 408 || httpCode == 429 || httpCode <= 0
+
+    val discardBatch: Boolean
+      get() = httpCode == 400 || httpCode == 404
+  }
 
   private fun postSamples(
     apiBase: String,
@@ -123,18 +162,20 @@ class NativeSampleUploader(private val context: Context) {
           ?.bufferedReader()?.readText() ?: ""
       if (code !in 200..299) {
         Log.w(TAG, "upload HTTP $code for shift=$shiftId")
-        // 401/403 — not retryable until JS syncs a fresh token
-        return UploadResult(0, 0, code >= 500 || code == 408 || code == 429)
+        return UploadResult(0, 0, 0, null, code)
       }
       val json = JSONObject(text)
+      val reasons = json.optJSONObject("rejectReasons")
       UploadResult(
         created = json.optInt("created", 0),
         duplicate = json.optInt("duplicate", 0),
-        retryable = false,
+        rejected = json.optInt("rejected", 0),
+        rejectReasons = reasons?.toString(),
+        httpCode = code,
       )
     } catch (e: Exception) {
       Log.w(TAG, "upload failed for shift=$shiftId: ${e.message}")
-      UploadResult(0, 0, true)
+      UploadResult(0, 0, 0, null, 0)
     }
   }
 }

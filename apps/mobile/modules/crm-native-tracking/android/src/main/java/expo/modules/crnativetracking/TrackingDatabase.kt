@@ -45,6 +45,10 @@ interface TrackingSampleDao {
 
   @Query("SELECT COUNT(*) FROM tracking_samples WHERE uploadState = 'PENDING'")
   suspend fun pendingCount(): Int
+
+  /** Drop stuck / rejected samples so fresh points can upload (matches JS buffer purge). */
+  @Query("DELETE FROM tracking_samples WHERE uploadState = 'PENDING'")
+  suspend fun deleteAllPending()
 }
 
 @Database(entities = [TrackingSampleEntity::class], version = 1, exportSchema = false)

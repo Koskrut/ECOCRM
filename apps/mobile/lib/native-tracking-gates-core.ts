@@ -106,9 +106,13 @@ export function shouldShowJsPendingQueue(
 
 export function displayPendingSamples(
   fieldTrackingMode: FieldTrackingModeFlag | undefined,
-  pendingSamples: number,
+  jsPendingSamples: number,
+  nativePendingSamples?: number,
 ): number {
-  return shouldShowJsPendingQueue(fieldTrackingMode) ? pendingSamples : 0;
+  if (fieldTrackingMode === "native_android") {
+    return nativePendingSamples ?? 0;
+  }
+  return jsPendingSamples;
 }
 
 export function shouldSuppressNativeFlushRetryAlert(health: NativeWatchdogHealthInput): boolean {

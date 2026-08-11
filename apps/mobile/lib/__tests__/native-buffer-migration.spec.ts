@@ -30,7 +30,8 @@ describe("shouldClearStaleJsLastAcceptedAt", () => {
 });
 
 describe("native UI gates", () => {
-  it("hides JS pending queue in native_android", () => {
+  it("shows native Room pending count in native_android", () => {
+    assert.equal(displayPendingSamples("native_android", 473, 12), 12);
     assert.equal(displayPendingSamples("native_android", 473), 0);
     assert.equal(displayPendingSamples("legacy_expo", 473), 473);
   });

@@ -24,6 +24,8 @@ class TrackingStateStore(private val context: Context) {
     private val KEY_API = stringPreferencesKey("api_base_url")
     private val KEY_BACKOFF = longPreferencesKey("upload_backoff_ms")
     private val KEY_DEVICE_ID = stringPreferencesKey("device_id")
+    private val KEY_LAST_FLUSH = stringPreferencesKey("last_flush_at")
+    private val KEY_LAST_REJECT = stringPreferencesKey("last_reject_reasons")
   }
 
   /** Stable install id for sample idempotency / backend deviceId field. */
@@ -65,6 +67,15 @@ class TrackingStateStore(private val context: Context) {
     context.trackingDataStore.edit { it[KEY_LAST_ACCEPT] = iso }
   }
 
+  suspend fun setLastFlushAt(iso: String) {
+    context.trackingDataStore.edit { it[KEY_LAST_FLUSH] = iso }
+  }
+
+  suspend fun recordRejectReasons(json: String?) {
+    if (json.isNullOrBlank()) return
+    context.trackingDataStore.edit { it[KEY_LAST_REJECT] = json }
+  }
+
   suspend fun setNativeLastSeen(iso: String) {
     context.trackingDataStore.edit { it[KEY_NATIVE_SEEN] = iso }
   }
@@ -97,6 +108,8 @@ class TrackingStateStore(private val context: Context) {
       "activeShiftId" to prefs[KEY_SHIFT],
       "lastGpsCapturedAt" to prefs[KEY_LAST_GPS],
       "lastServerAcceptAt" to prefs[KEY_LAST_ACCEPT],
+      "lastFlushAt" to prefs[KEY_LAST_FLUSH],
+      "lastRejectReasons" to prefs[KEY_LAST_REJECT],
       "nativeLastSeenAt" to prefs[KEY_NATIVE_SEEN],
       "recoveryState" to prefs[KEY_RECOVERY],
       "authToken" to prefs[KEY_AUTH],

@@ -34,6 +34,8 @@ class TrackingHealthEvaluator(private val context: Context) {
       "trackingHealthState" to health,
       "lastGpsCapturedAt" to snap["lastGpsCapturedAt"],
       "lastServerAcceptAt" to snap["lastServerAcceptAt"],
+      "lastFlushAt" to snap["lastFlushAt"],
+      "lastRejectReasons" to snap["lastRejectReasons"],
       "nativeLastSeenAt" to snap["nativeLastSeenAt"],
       "pendingUploadCount" to pending,
       "serviceRunning" to serviceRunning,

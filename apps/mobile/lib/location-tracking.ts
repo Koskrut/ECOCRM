@@ -87,6 +87,7 @@ import {
   getNativeTrackingHealth,
   isNativeTrackingModuleLoaded,
   flushNativePendingSamples,
+  purgeNativePendingSamples,
   type NativeTrackingHealth,
 } from "../modules/crm-native-tracking";
 import {
@@ -221,13 +222,16 @@ async function buildNativeRuntimeHealth(
   const healthState = nativeHealth?.trackingHealthState;
   const healthy =
     mapNativeHealthStateToHealthy(healthState) && !acceptStale && serviceRunning;
+  const nativePending = nativeHealth?.pendingUploadCount ?? 0;
+  const nativeLastFlush = nativeHealth?.lastFlushAt ?? null;
+  const nativeLastReject = nativeHealth?.lastRejectReasons ?? null;
 
   return {
     mode,
     claimedMode: mode,
     actualMode: serviceRunning ? "background" : "none",
-    pendingSamples: displayPendingSamples(fieldTrackingMode, nativeHealth?.pendingUploadCount ?? 0),
-    lastFlushAt: state.lastFlushAt,
+    pendingSamples: displayPendingSamples(fieldTrackingMode, state.pendingSamples, nativePending),
+    lastFlushAt: nativeLastFlush ?? state.lastFlushAt,
     activeShiftId,
     foregroundPermission: perms.foreground,
     backgroundPermission: perms.background,
@@ -252,7 +256,7 @@ async function buildNativeRuntimeHealth(
     nativeTrackingHealthState: healthState,
     nativeServiceRunning: serviceRunning,
     lastAcceptedAt,
-    lastRejectReason: await getLastRejectReason(),
+    lastRejectReason: nativeLastReject ?? (await getLastRejectReason()),
     lastFlushError: await getLastFlushError(),
     recovery: await readRecoveryState(),
   };
@@ -490,6 +494,7 @@ export async function startLocationTracking(shiftId: string): Promise<TrackingMo
     if (shouldUseNativeTracking()) {
       // Drop legacy Expo buffer — native FGS owns capture + upload.
       await purgePendingSamples();
+      await purgeNativePendingSamples();
 
       // Never leave Expo FGS running alongside native (dual writers).
       await stopExpoLocationWriters();
@@ -878,6 +883,7 @@ export async function resumeTrackingIfNeeded(
     const activeId = await AsyncStorage.getItem(STORAGE_KEYS.ACTIVE_SHIFT_ID);
     if (activeId && activeId !== shift.id) {
       await purgePendingSamples();
+      await purgeNativePendingSamples();
     }
     const boundDay = await AsyncStorage.getItem(STORAGE_KEYS.ACTIVE_SHIFT_DAY_KEY);
     // Local day rolled over but shift is still today (timezone edge) — rebind cleanly.

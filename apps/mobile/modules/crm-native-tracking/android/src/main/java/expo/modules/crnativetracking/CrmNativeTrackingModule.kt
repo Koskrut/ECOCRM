@@ -94,6 +94,13 @@ class CrmNativeTrackingModule : Module() {
         NativeSampleUploader(context).flushPending()
       }
     }
+
+    AsyncFunction("purgePendingSamples") {
+      val context = resolveAppContext() ?: return@AsyncFunction 0
+      runBlocking {
+        TrackingDatabase.get(context).sampleDao().deleteAllPending()
+      }
+    }
   }
 
   /**
