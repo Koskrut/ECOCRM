@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { strings } from "@/locales";
 import {
@@ -10,10 +10,12 @@ import {
   type MrpRunLine,
   type PlanningDueReminder,
   type PlanningTodayView,
+  type TodayAwaitingStockGroup,
   type TodayBurningItem,
   type TodaySuggestedAction,
 } from "@/lib/api/resources/planning";
 import { formatDateTime } from "@/lib/crmDatetime";
+import { StockReadinessBadge } from "@/components/orders/StockReadinessBadge";
 import { QuotaBar } from "./PlanningOpsPanels";
 
 function useStableErrorHandler(onError: (msg: string) => void) {
@@ -126,6 +128,127 @@ function actionHref(action: TodaySuggestedAction, sku: string): string {
   return `/planning?tab=make&sku=${q}`;
 }
 
+function formatQty(value: number | null | undefined): string {
+  return value == null ? "—" : String(value);
+}
+
+function AwaitingStockTable({
+  groups,
+  expandedKey,
+  onToggle,
+}: {
+  groups: TodayAwaitingStockGroup[];
+  expandedKey: string | null;
+  onToggle: (key: string) => void;
+}) {
+  const t = strings.planning;
+  return (
+    <div className="overflow-x-auto">
+      <table className="min-w-full divide-y divide-zinc-200 text-sm">
+        <thead>
+          <tr className="bg-zinc-50">
+            {[
+              t.labels.sku,
+              t.labels.name,
+              t.labels.packNeed,
+              t.labels.onStock,
+              t.labels.partsGap,
+              t.labels.ordersCount,
+              t.labels.actions,
+            ].map((header) => (
+              <th key={header} className="px-3 py-2 text-left font-medium text-zinc-600">
+                {header}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-zinc-100">
+          {groups.length === 0 ? (
+            <tr>
+              <td className="px-3 py-6 text-zinc-500" colSpan={7}>
+                {t.states.none}
+              </td>
+            </tr>
+          ) : (
+            groups.map((group) => {
+              const expanded = expandedKey === group.groupKey;
+              return (
+                <Fragment key={group.groupKey}>
+                  <tr>
+                    <td className="px-3 py-2 align-top text-zinc-900">{group.sku}</td>
+                    <td className="px-3 py-2 align-top text-zinc-900">{group.name}</td>
+                    <td className="px-3 py-2 align-top text-zinc-900">{group.totalQtyRemaining}</td>
+                    <td className="px-3 py-2 align-top text-zinc-900">{formatQty(group.availableQty)}</td>
+                    <td className="px-3 py-2 align-top text-zinc-900">{group.stockGap}</td>
+                    <td className="px-3 py-2 align-top text-zinc-900">{group.orderCount}</td>
+                    <td className="px-3 py-2 align-top">
+                      <button
+                        type="button"
+                        className="text-xs text-cyan-700 underline"
+                        onClick={() => onToggle(group.groupKey)}
+                      >
+                        {expanded ? t.labels.hideOrders : t.labels.showOrders}
+                      </button>
+                    </td>
+                  </tr>
+                  {expanded ? (
+                    <tr>
+                      <td className="bg-zinc-50 px-3 py-2" colSpan={7}>
+                        <table className="min-w-full text-sm">
+                          <thead>
+                            <tr>
+                              <th className="px-2 py-1 text-left font-medium text-zinc-600">
+                                {strings.payments.order}
+                              </th>
+                              <th className="px-2 py-1 text-left font-medium text-zinc-600">
+                                {t.labels.qty}
+                              </th>
+                              <th className="px-2 py-1 text-left font-medium text-zinc-600">
+                                {t.labels.onStock}
+                              </th>
+                              <th className="px-2 py-1 text-left font-medium text-zinc-600">
+                                {t.labels.status}
+                              </th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {group.orders.map((order) => (
+                              <tr key={order.orderItemId}>
+                                <td className="px-2 py-1">
+                                  <Link
+                                    href={`/orders?orderId=${encodeURIComponent(order.orderId)}`}
+                                    className="text-cyan-700 underline"
+                                  >
+                                    {order.orderNumber}
+                                  </Link>
+                                </td>
+                                <td className="px-2 py-1 text-zinc-900">{order.qtyRemaining}</td>
+                                <td className="px-2 py-1 text-zinc-900">
+                                  {formatQty(order.availableQty)}
+                                </td>
+                                <td className="px-2 py-1">
+                                  <StockReadinessBadge readiness={order.stockReadiness} size="xs" />
+                                  {!order.stockReadiness || order.stockReadiness === "NONE"
+                                    ? "—"
+                                    : null}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </td>
+                    </tr>
+                  ) : null}
+                </Fragment>
+              );
+            })
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export function TodayScreen({
   onError,
   onNavigate,
@@ -137,6 +260,7 @@ export function TodayScreen({
   const reportError = useStableErrorHandler(onError);
   const [data, setData] = useState<PlanningTodayView | null>(null);
   const [busy, setBusy] = useState(false);
+  const [expandedAwaitingKey, setExpandedAwaitingKey] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -299,6 +423,22 @@ export function TodayScreen({
           />
         </Panel>
       ) : null}
+
+      <Panel title={t.labels.awaitingStock}>
+        <p className="mb-1 text-sm text-zinc-600">{t.labels.awaitingStockHint}</p>
+        <p className="mb-3 text-xs text-zinc-500">
+          {t.labels.awaitingStockSummary(
+            data?.awaitingStock?.summary.skuCount ?? 0,
+            data?.awaitingStock?.summary.orderCount ?? 0,
+            data?.awaitingStock?.summary.totalQty ?? 0,
+          )}
+        </p>
+        <AwaitingStockTable
+          groups={data?.awaitingStock?.groups ?? []}
+          expandedKey={expandedAwaitingKey}
+          onToggle={(key) => setExpandedAwaitingKey((prev) => (prev === key ? null : key))}
+        />
+      </Panel>
 
       <Panel title={t.labels.burningNow}>
         <SimpleTable

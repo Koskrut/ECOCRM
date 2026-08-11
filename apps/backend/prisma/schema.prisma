@@ -1379,11 +1379,12 @@ model FuelRefuelEntry {
 }
 
 model RoutePlan {
-  id        String   @id @default(cuid())
-  ownerId   String
-  date      DateTime
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id          String    @id @default(cuid())
+  ownerId     String
+  date        DateTime
+  confirmedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   owner         User           @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   stops         RouteStop[]

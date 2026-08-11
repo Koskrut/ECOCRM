@@ -4,14 +4,31 @@
 
 ## Unreleased
 
-### Mobile (native Android GPS cutover prep — not default)
+_(планируемые изменения после **0.2.154**.)_
 
-- **`crm-native-tracking`**: harden FGS (`START_STICKY`, typed foreground notification, `stopWithTask=false`), Room/KSP plugin, uploader `sampleId`/`deviceId`/`source=native_android` + B1/B2/B3 telemetry.
-- **JS**: when `EXPO_PUBLIC_FIELD_TRACKING_MODE=native_android`, start/stop native only — stop Expo TaskManager writers (no dual-write); sync credentials before start; clear on logout.
-- **Fix `syncSession failed`**: lazy native-module require (no sticky null), `getAuthTokenWithRetry` + `hydrateApiBaseUrl` before sync, reason-coded logs, sync retry then start FGS; Kotlin context fallback + `isForegroundRunning` for Background task health.
-- **EAS**: new profile `preview-native` sets `native_android`; default `preview` stays `legacy_expo`.
-- **Docs**: Test B 2h minimize checklist in `docs/rfc/native-field-tracking.md`.
-- **Not enabled for prod users** — install `preview-native` APK for Smoke + 1–2 field devices only.
+## [0.2.154] — 2026-08-11
+
+### Summary
+
+Патч **0.2.154**: утверждение маршрута (OSRM-only); движение заказов на карточке контакта; Planning Today awaiting stock; native Android GPS EAS/recovery hardening.
+
+### Added
+
+- **Route plan confirm**: `RoutePlan.confirmedAt`; confirm blocked without OSRM geometry; session start requires confirm.
+- **Contact orders movement**: `GET /contacts/:id/orders-movement` — children/returns/payments on web + mobile contact card.
+- **Planning Today awaiting stock**: grouped remaining AWAITING_STOCK lines by SKU with stock gap.
+
+### Changed
+
+- **Mobile native GPS** (opt-in `preview-native`): Room upload queue on server reject; FGS recovery after accept purge; no dual-writer false alerts; Always-permission probe; JWT retry before flush skip; EAS Gradle/KSP/Node 24 fixes.
+- **Web visits**: planned-map geometry from confirmed OSRM plan; confirm CTA.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.154`**.
+- **Миграция:** `20260811120000_route_plan_confirmed_at` — **`prisma migrate deploy`**.
+- **Mobile:** новый EAS build; native tracking всё ещё opt-in (`preview-native`), default `legacy_expo`.
+- **Web:** deploy для confirm route + contact movement + planning awaiting stock.
 
 ## [0.2.153] — 2026-08-10
 

@@ -8,7 +8,7 @@ import {
 } from "@nestjs/common";
 import { randomInt } from "crypto";
 import type { Prisma } from "@prisma/client";
-import { CustomFieldEntityType, UserRole } from "@prisma/client";
+import { CustomFieldEntityType, PaymentStatus, UserRole } from "@prisma/client";
 import type { AuthUser } from "../auth/auth.types";
 import { signJwt } from "../auth/jwt";
 import { hashPassword } from "../auth/password";
@@ -40,6 +40,11 @@ import type {
   ContactCardAnalyticsScope,
   ContactCardSummaryResponse,
 } from "./contact-card-summary.types";
+import type { ContactOrdersMovementResponse } from "./contact-orders-movement.types";
+import {
+  mapContactOrderMovementNode,
+  selectRootMovementOrders,
+} from "./contact-orders-movement.mapper";
 import { WorkflowDomainEmitterService } from "../workflows/workflow-domain-emitter.service";
 import {
   buildOperationalDebtOrderWhere,
@@ -302,6 +307,99 @@ export class ContactsService {
         financeRestricted: hasVisibleScopeGap,
         scopeNote: hasVisibleScopeGap ? "Показаны только доступные вам сделки" : null,
       },
+    };
+  }
+
+  async getOrdersMovement(
+    id: string,
+    q?: { page?: number; pageSize?: number },
+    actor?: AuthUser,
+  ): Promise<ContactOrdersMovementResponse> {
+    const contact = await this.prisma.contact.findUnique({
+      where: { id },
+      select: { id: true, ownerId: true },
+    });
+    if (!contact) throw new BadRequestException("contact not found");
+    if (actor) this.assertContactAccess(contact, actor);
+
+    const { page, pageSize } = normalizePagination(
+      { page: q?.page, pageSize: q?.pageSize },
+      { page: 1, pageSize: 50 },
+    );
+
+    const where: Prisma.OrderWhereInput = { clientId: id };
+    if (actor?.role === UserRole.MANAGER) {
+      where.ownerId = actor.id;
+    }
+
+    const orders = await this.prisma.order.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      include: {
+        parentOrder: { select: { id: true, orderNumber: true } },
+        childOrders: {
+          orderBy: { createdAt: "asc" },
+          include: {
+            returns: {
+              orderBy: { requestedAt: "desc" },
+              select: {
+                id: true,
+                status: true,
+                requestedAt: true,
+                creditAmount: true,
+                refundAmount: true,
+                replacementOrder: { select: { id: true, orderNumber: true } },
+              },
+            },
+            payments: {
+              where: { status: PaymentStatus.COMPLETED },
+              orderBy: { paidAt: "desc" },
+              select: {
+                id: true,
+                amount: true,
+                currency: true,
+                sourceType: true,
+                paidAt: true,
+                status: true,
+              },
+            },
+          },
+        },
+        returns: {
+          orderBy: { requestedAt: "desc" },
+          select: {
+            id: true,
+            status: true,
+            requestedAt: true,
+            creditAmount: true,
+            refundAmount: true,
+            replacementOrder: { select: { id: true, orderNumber: true } },
+          },
+        },
+        payments: {
+          where: { status: PaymentStatus.COMPLETED },
+          orderBy: { paidAt: "desc" },
+          select: {
+            id: true,
+            amount: true,
+            currency: true,
+            sourceType: true,
+            paidAt: true,
+            status: true,
+          },
+        },
+      },
+    });
+
+    const roots = selectRootMovementOrders(orders);
+    const total = roots.length;
+    const pageItems = roots.slice((page - 1) * pageSize, page * pageSize);
+
+    return {
+      items: pageItems.map(mapContactOrderMovementNode),
+      total,
+      page,
+      pageSize,
     };
   }
 

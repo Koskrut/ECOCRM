@@ -310,6 +310,23 @@ export class ContactsController {
     return this.contactsService.getCardSummary(id, req.user);
   }
 
+  @Get(":id/orders-movement")
+  async getOrdersMovement(
+    @Param("id") id: string,
+    @Query("page") pageRaw: string | undefined,
+    @Query("pageSize") pageSizeRaw: string | undefined,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.contactsService.getOrdersMovement(
+      id,
+      {
+        page: pageRaw != null ? Number(pageRaw) : undefined,
+        pageSize: pageSizeRaw != null ? Number(pageSizeRaw) : undefined,
+      },
+      req.user,
+    );
+  }
+
   @Get(":id/card/analytics")
   async getCardAnalytics(
     @Param("id") id: string,

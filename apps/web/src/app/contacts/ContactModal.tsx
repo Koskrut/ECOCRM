@@ -5,8 +5,9 @@ import { EntityModalShell } from "@/components/modals/EntityModalShell";
 import { EntitySection } from "@/components/sections/EntitySection";
 import { CustomFieldsPanel } from "@/components/metadata/CustomFieldsPanel";
 import { scheduleModalClose } from "@/lib/modal/scheduleModalClose";
-import { EntityOrdersList } from "@/components/EntityOrdersList";
 import { OrderModal } from "../orders/OrderModal";
+import { ReturnModal } from "../orders/ReturnModal";
+import { ContactOrdersPanel } from "./card/ContactOrdersPanel";
 import { strings } from "@/locales";
 import { apiHttp } from "../../lib/api/client";
 import type { MeResponse } from "@/lib/api/resources/auth";
@@ -141,6 +142,7 @@ export function ContactModal({
   const [loadingUsers, setLoadingUsers] = useState(false);
 
   const [orderId, setOrderId] = useState<string | null>(null);
+  const [returnId, setReturnId] = useState<string | null>(null);
   const [creatingOrder, setCreatingOrder] = useState(false);
   const [ordersReloadKey, setOrdersReloadKey] = useState(0);
 
@@ -343,6 +345,7 @@ export function ContactModal({
     setErr(null);
     setContact(null);
     setOrderId(null);
+    setReturnId(null);
     setLeftTab("overview");
     if (isCreate) {
       setLoading(false);
@@ -433,12 +436,16 @@ export function ContactModal({
       cancelInlineEditRef.current = null;
       return true;
     }
+    if (returnId) {
+      setReturnId(null);
+      return true;
+    }
     if (orderId) {
       setOrderId(null);
       return true;
     }
     return false;
-  }, [orderId]);
+  }, [orderId, returnId]);
 
   const saveCreate = async (opts?: { closeAfter?: boolean }) => {
     const closeAfter = opts?.closeAfter ?? false;
@@ -1063,11 +1070,12 @@ export function ContactModal({
     leftContent = (
       <EntitySection title={cardT.tabs.orders}>
         <div className="min-h-0 overflow-auto">
-          <EntityOrdersList
+          <ContactOrdersPanel
             key={ordersReloadKey}
-            apiBaseUrl={apiBaseUrl}
-            query={`clientId=${effectiveContactId}&pageSize=50`}
+            contactId={effectiveContactId}
+            reloadKey={ordersReloadKey}
             onOpenOrder={(id) => setOrderId(id)}
+            onOpenReturn={(id) => setReturnId(id)}
           />
         </div>
       </EntitySection>
@@ -1183,6 +1191,22 @@ export function ContactModal({
             void cardSummary.refetch();
           }}
           onOpenOrder={(id) => setOrderId(id)}
+        />
+      ) : null}
+
+      {returnId ? (
+        <ReturnModal
+          returnId={returnId}
+          zIndex={70}
+          onClose={() => setReturnId(null)}
+          onSaved={() => {
+            setOrdersReloadKey((k) => k + 1);
+            void cardSummary.refetch();
+          }}
+          onOpenOrder={(id) => {
+            setReturnId(null);
+            setOrderId(id);
+          }}
         />
       ) : null}
 

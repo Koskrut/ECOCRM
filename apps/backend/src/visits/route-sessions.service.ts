@@ -3,6 +3,7 @@ import { VisitStatus } from "@prisma/client";
 import type { AuthUser } from "../auth/auth.types";
 import { kyivDayBounds } from "../crm-timezone";
 import { PrismaService } from "../prisma/prisma.service";
+import { ROUTE_SESSION_START_REQUIRES_CONFIRM } from "./route-plan-confirm.util";
 import { resolveSingleOwnerId } from "./visits-owner-scope";
 
 export type RouteSessionState = {
@@ -21,6 +22,7 @@ export type RouteSessionState = {
   currentVisit: Record<string, unknown> | null;
   routePlan: {
     id: string;
+    confirmedAt: Date | null;
     stops: Array<{ id: string; position: number; visitId: string; visit: Record<string, unknown> }>;
   } | null;
 };
@@ -169,6 +171,7 @@ export class RouteSessionsService {
       routePlan: routePlan
         ? {
             id: routePlan.id,
+            confirmedAt: routePlan.confirmedAt,
             stops: routePlan.stops.map((s) => ({
               id: s.id,
               position: s.position,
@@ -214,6 +217,9 @@ export class RouteSessionsService {
     const plan = await this.prisma.routePlan.findUnique({
       where: { ownerId_date: { ownerId: actor.id, date } },
     });
+    if (!plan?.confirmedAt) {
+      throw new BadRequestException(ROUTE_SESSION_START_REQUIRES_CONFIRM);
+    }
     const session = await this.prisma.routeSession.upsert({
       where: {
         ownerId_date: { ownerId: actor.id, date },

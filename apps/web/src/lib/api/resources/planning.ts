@@ -882,6 +882,32 @@ export type PlanningDueReminder = {
   totalQty: number;
 };
 
+export type TodayAwaitingStockOrderLine = {
+  orderItemId: string;
+  orderId: string;
+  orderNumber: string;
+  qtyRemaining: number;
+  availableQty: number | null;
+  stockReadiness: "NONE" | "PARTIAL" | "FULL" | null;
+};
+
+export type TodayAwaitingStockGroup = {
+  groupKey: string;
+  productId: string | null;
+  sku: string;
+  name: string;
+  totalQtyRemaining: number;
+  availableQty: number | null;
+  stockGap: number;
+  orderCount: number;
+  orders: TodayAwaitingStockOrderLine[];
+};
+
+export type TodayAwaitingStockView = {
+  summary: { skuCount: number; orderCount: number; totalQty: number };
+  groups: TodayAwaitingStockGroup[];
+};
+
 export type PlanningTodayView = {
   freshness: PlanningFreshness;
   mrpComputedAt: string | null;
@@ -890,4 +916,5 @@ export type PlanningTodayView = {
   makeSummary: { positionCount: number; totalQty: number };
   burning: TodayBurningItem[];
   dueReminders: PlanningDueReminder[];
+  awaitingStock: TodayAwaitingStockView;
 };

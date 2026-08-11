@@ -11,6 +11,7 @@ import {
   outboundLegLabel,
   replacementModeLabel,
   returnReasonLabel,
+  returnStatusLabel,
 } from "@/lib/returns/return-labels";
 import { OrderReturnSettlementDialog } from "./OrderClientBalancePanel";
 
@@ -24,16 +25,6 @@ type ReturnStatus =
   | "INSPECTION"
   | "REFUND_OR_ADJUSTMENT"
   | "CLOSED";
-
-const RETURN_STATUS_LABELS: Record<ReturnStatus, string> = {
-  REQUESTED: "Заявлено",
-  APPROVED: "Погоджено",
-  IN_TRANSIT_BACK: "В дорозі назад",
-  RECEIVED_BY_WAREHOUSE: "Прийнято на склад",
-  INSPECTION: "Перевірка",
-  REFUND_OR_ADJUSTMENT: "Повернення коштів",
-  CLOSED: "Закрито",
-};
 
 const NEXT_RETURN_STATUS: Partial<Record<ReturnStatus, ReturnStatus>> = {
   REQUESTED: "APPROVED",
@@ -157,11 +148,13 @@ export function ReturnModal({
   onClose,
   onSaved,
   onOpenOrder,
+  zIndex,
 }: {
   returnId: string;
   onClose: () => void;
   onSaved?: () => void;
   onOpenOrder: (orderId: string) => void;
+  zIndex?: number;
 }) {
   const [ret, setRet] = useState<ReturnDetails | null>(null);
   const [loading, setLoading] = useState(true);
@@ -341,7 +334,7 @@ export function ReturnModal({
         <div>
           <div className="text-xs font-medium uppercase tracking-wide text-zinc-500">Статус</div>
           <div className="mt-1 text-sm font-medium text-zinc-900">
-            {RETURN_STATUS_LABELS[ret.status] ?? ret.status}
+            {returnStatusLabel(ret.status)}
           </div>
         </div>
         <div>
@@ -521,7 +514,7 @@ export function ReturnModal({
             {statusUpdating
               ? "Оновлення…"
               : nextStatus
-                ? `Наступний: ${RETURN_STATUS_LABELS[nextStatus]}`
+                ? `Наступний: ${returnStatusLabel(nextStatus)}`
                 : isMisPick(ret) && ret.status === "INSPECTION"
                   ? tr.closeBlockedMisPick
                   : "Наступний статус"}
@@ -586,7 +579,7 @@ export function ReturnModal({
             >
               {ALL_STATUSES.map((s) => (
                 <option key={s} value={s}>
-                  {RETURN_STATUS_LABELS[s]}
+                  {returnStatusLabel(s)}
                 </option>
               ))}
             </select>
@@ -622,6 +615,7 @@ export function ReturnModal({
         canClose={!statusUpdating}
         onClose={onClose}
         size="default"
+        zIndex={zIndex}
       />
       {pendingSettlement ? (
         <OrderReturnSettlementDialog

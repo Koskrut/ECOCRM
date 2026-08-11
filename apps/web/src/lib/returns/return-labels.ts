@@ -10,6 +10,29 @@ export type ReturnItemDispositionCode =
 
 const t = strings.returns;
 
+export type ReturnStatusCode =
+  | "REQUESTED"
+  | "APPROVED"
+  | "IN_TRANSIT_BACK"
+  | "RECEIVED_BY_WAREHOUSE"
+  | "INSPECTION"
+  | "REFUND_OR_ADJUSTMENT"
+  | "CLOSED";
+
+export function returnStatusLabel(status: string | null | undefined): string {
+  if (!status) return t.statusUnknown;
+  const map: Record<string, string> = {
+    REQUESTED: t.statusRequested,
+    APPROVED: t.statusApproved,
+    IN_TRANSIT_BACK: t.statusInTransitBack,
+    RECEIVED_BY_WAREHOUSE: t.statusReceivedByWarehouse,
+    INSPECTION: t.statusInspection,
+    REFUND_OR_ADJUSTMENT: t.statusRefundOrAdjustment,
+    CLOSED: t.statusClosed,
+  };
+  return map[status] ?? status;
+}
+
 export function returnReasonLabel(reason: string | null | undefined): string {
   if (!reason) return t.reasonUnknown;
   const map: Record<string, string> = {

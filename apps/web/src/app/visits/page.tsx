@@ -17,7 +17,7 @@ import {
 import { apiHttp } from "@/lib/api/client";
 import { RouteLayerControls, routeSourceLabel, type RouteLayerKey } from "@/components/visits/RouteLayerControls";
 import { VisitsRouteMap } from "@/components/visits/VisitsRouteMap";
-import { ChevronDown, ChevronUp, Save } from "lucide-react";
+import { Check, ChevronDown, ChevronUp, Save } from "lucide-react";
 import { CRM_TIME_ZONE, jsDateToYmdKyiv, todayYmdInKyiv } from "@/lib/crmDatetime";
 import { useConfirm, useToast } from "@/components/feedback";
 import { HelpHint } from "@/components/help/HelpHint";
@@ -36,6 +36,7 @@ import {
   type VisitLocationValue,
 } from "@/lib/visits/visit-location.types";
 import { VISIT_OUTCOME_UA } from "@/lib/status-labels";
+import { selectPlannedMapGeometry } from "@/lib/visits/planned-map-geometry";
 import { strings } from "@/locales";
 
 function formatHmKyiv(iso: string): string {
@@ -242,6 +243,7 @@ function VisitsPageContent() {
   const [routeSessionLoading, setRouteSessionLoading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [savingRoute, setSavingRoute] = useState(false);
+  const [confirmingRoute, setConfirmingRoute] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [routeGeometryBundle, setRouteGeometryBundle] = useState<RouteGeometryBundle | null>(null);
   const [plannedPreviewGeometry, setPlannedPreviewGeometry] =
@@ -398,6 +400,8 @@ function VisitsPageContent() {
     }
     return false;
   }, [currentOrderVisitIds, routePlan?.stops?.length, savedPlanVisitIds]);
+
+  const routeConfirmed = Boolean(routePlan?.confirmedAt) && !hasUnsavedPlanOrder && Boolean(routePlan?.stops?.length);
 
   const isDraggingFromBacklog = useMemo(
     () => dragVisitId != null && backlog.some((v) => v.id === dragVisitId),
@@ -576,6 +580,10 @@ function VisitsPageContent() {
 
   useEffect(() => {
     setPlannedPreviewGeometry(null);
+    if (!hasUnsavedPlanOrder) {
+      setRouteGeometryPreviewLoading(false);
+      return;
+    }
     if (!planOwnerOpts || currentOrderVisitIds.length === 0 || hasScheduledWithoutCoords) return;
     setRouteGeometryPreviewLoading(true);
     const t = window.setTimeout(() => {
@@ -584,26 +592,31 @@ function VisitsPageContent() {
         .then((g) => setPlannedPreviewGeometry(g))
         .catch(() => setPlannedPreviewGeometry(null))
         .finally(() => setRouteGeometryPreviewLoading(false));
-    }, 300);
+    }, 400);
     return () => window.clearTimeout(t);
   }, [
     currentOrderVisitIds,
     dateParam,
     hasScheduledWithoutCoords,
+    hasUnsavedPlanOrder,
     planOwnerOpts,
   ]);
 
   const savedPlanMetrics = routeGeometryBundle?.planned ?? null;
   const routeFactMetrics = routeGeometryBundle?.factVisits ?? null;
-  const routeMetricsPreview = plannedPreviewGeometry;
+  const routeMetricsPreview = hasUnsavedPlanOrder ? plannedPreviewGeometry : null;
 
   const mapGeometries = useMemo(
     () => ({
-      planned: plannedPreviewGeometry ?? routeGeometryBundle?.planned ?? null,
+      planned: selectPlannedMapGeometry({
+        hasUnsavedPlanOrder,
+        preview: plannedPreviewGeometry,
+        saved: routeGeometryBundle?.planned ?? null,
+      }),
       fact_visits: routeGeometryBundle?.factVisits ?? null,
       fact_gps: routeGeometryBundle?.factGps ?? null,
     }),
-    [plannedPreviewGeometry, routeGeometryBundle],
+    [hasUnsavedPlanOrder, plannedPreviewGeometry, routeGeometryBundle],
   );
 
   const mapMarkers = useMemo(
@@ -866,6 +879,28 @@ function VisitsPageContent() {
   };
 
   handleSaveRouteRef.current = handleSaveRoute;
+
+  const handleConfirmRoute = async () => {
+    if (!planOwnerOpts || readOnlyPlan) return;
+    if (showMultiOwnerDay) {
+      pushToast("Оберіть менеджера, щоб утвердити маршрут", "error");
+      return;
+    }
+    if (hasUnsavedPlanOrder) {
+      pushToast(strings.visitsPage.routeConfirm.stepSave, "error");
+      return;
+    }
+    setConfirmingRoute(true);
+    try {
+      const res = await routePlansApi.confirmForDay(dateParam, planOwnerOpts);
+      setRoutePlan(res.plan ?? null);
+      pushToast(strings.visitsPage.routeConfirm.confirmSuccess, "success");
+    } catch (e) {
+      pushToast(e instanceof Error ? e.message : strings.visitsPage.routeConfirm.confirmFailed, "error");
+    } finally {
+      setConfirmingRoute(false);
+    }
+  };
 
   const centerLatLng = useMemo(() => {
     const withCoords = scheduledVisits.filter((v) => v.lat != null && v.lng != null);
@@ -1227,7 +1262,10 @@ function VisitsPageContent() {
             {!routeSessionState?.session?.isActive && planOwnerOpts && !readOnlyPlan ? (
               <button
                 type="button"
-                disabled={routeSessionLoading || loading}
+                disabled={routeSessionLoading || loading || !routeConfirmed}
+                title={
+                  !routeConfirmed ? strings.visitsPage.routeConfirm.startNeedsConfirm : "Почати день/маршрут"
+                }
                 onClick={async () => {
                   setRouteSessionLoading(true);
                   try {
@@ -1869,6 +1907,21 @@ function VisitsPageContent() {
           <div className="flex flex-wrap items-start justify-between gap-2 border-b border-zinc-200 px-3 py-2">
             <div className="min-w-0 flex-1">
               <div className="text-sm font-semibold text-zinc-900">Розклад дня</div>
+              {!routeSessionState?.session?.isActive && !readOnlyPlan && planOwnerOpts ? (
+                <div
+                  className={`mt-1 text-[11px] ${
+                    routeConfirmed ? "text-emerald-800" : "text-amber-800"
+                  }`}
+                >
+                  {hasUnsavedPlanOrder && routePlan?.confirmedAt
+                    ? strings.visitsPage.routeConfirm.needsReconfirm
+                    : hasUnsavedPlanOrder || !routePlan?.stops?.length
+                      ? strings.visitsPage.routeConfirm.stepSave
+                      : routeConfirmed
+                        ? strings.visitsPage.routeConfirm.stepReady
+                        : strings.visitsPage.routeConfirm.stepReview}
+                </div>
+              ) : null}
               {dayConflicts.size > 0 && (
                 <div className="mt-0.5 text-xs text-amber-600">
                   Some visits overlap in time — please review.
@@ -1993,25 +2046,34 @@ function VisitsPageContent() {
                       {savedPlanMetrics.durationMin != null
                         ? ` · ~${savedPlanMetrics.durationMin} хв`
                         : ""}
-                      {savedPlanMetrics.source === "fallback" ? " (примерно)" : ""}
+                      {savedPlanMetrics.source === "fallback"
+                        ? " (примерно)"
+                        : savedPlanMetrics.source === "osrm"
+                          ? " (по дорогам)"
+                          : ""}
                     </>
                   ) : (
                     "План: —"
                   )}
-                  {" · "}
-                  {routeGeometryPreviewLoading ? (
-                    "Текущий: считаем…"
-                  ) : routeMetricsPreview?.distanceKm != null ? (
+                  {hasUnsavedPlanOrder ? (
                     <>
-                      Текущий: {routeMetricsPreview.distanceKm} км
-                      {routeMetricsPreview.durationMin != null
-                        ? ` · ~${routeMetricsPreview.durationMin} хв`
-                        : ""}
-                      {routeMetricsPreview.source === "fallback" ? " (примерно)" : ""}
+                      {" · "}
+                      {routeGeometryPreviewLoading ? (
+                        "Чернетка: считаем…"
+                      ) : routeMetricsPreview?.distanceKm != null ? (
+                        <>
+                          Чернетка: {routeMetricsPreview.distanceKm} км
+                          {routeMetricsPreview.durationMin != null
+                            ? ` · ~${routeMetricsPreview.durationMin} хв`
+                            : ""}
+                          {routeMetricsPreview.source === "fallback" ? " (примерно)" : ""}
+                          {routeMetricsPreview.source === "osrm" ? " (по дорогам)" : ""}
+                        </>
+                      ) : (
+                        "Чернетка: —"
+                      )}
                     </>
-                  ) : (
-                    "Текущий: —"
-                  )}
+                  ) : null}
                   {" · "}
                   {routeGeometryLoading ? (
                     "Факт: …"
@@ -2061,6 +2123,38 @@ function VisitsPageContent() {
                     : "Зберегти маршрут"}
               </span>
             </button>
+            {!readOnlyPlan && !showMultiOwnerDay && !routeSessionState?.session?.isActive ? (
+            <button
+              type="button"
+              onClick={() => void handleConfirmRoute()}
+              disabled={
+                !planOwnerOpts ||
+                savingRoute ||
+                confirmingRoute ||
+                hasUnsavedPlanOrder ||
+                hasScheduledWithoutCoords ||
+                !routePlan?.stops?.length ||
+                routeConfirmed ||
+                routeGeometryLoading ||
+                savedPlanMetrics?.source !== "osrm"
+              }
+              title={
+                hasUnsavedPlanOrder
+                  ? strings.visitsPage.routeConfirm.stepSave
+                  : savedPlanMetrics?.source !== "osrm"
+                    ? strings.visitsPage.routeConfirm.confirmDisabledOsrm
+                    : routeConfirmed
+                      ? strings.visitsPage.routeConfirm.confirmed
+                      : strings.visitsPage.routeConfirm.confirm
+              }
+              className="inline-flex min-h-[40px] items-center gap-1 rounded-md border border-emerald-700 bg-emerald-600 px-2.5 py-2 text-xs font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <Check className="h-4 w-4" aria-hidden />
+              {confirmingRoute
+                ? strings.visitsPage.routeConfirm.confirming
+                : strings.visitsPage.routeConfirm.confirm}
+            </button>
+            ) : null}
             {routePlan?.stops?.length ? (
               <button
                 type="button"
@@ -2391,7 +2485,9 @@ function VisitsPageContent() {
                 <div className="text-sm font-semibold text-zinc-900">Карта</div>
                 {routePlan && routePlan.stops?.length ? (
                   <div className="text-[11px] text-zinc-500">
-                    Маршрут збережено ({routePlan.stops.length} зупинок)
+                    {routeConfirmed
+                      ? strings.visitsPage.routeConfirm.confirmed
+                      : `Маршрут збережено (${routePlan.stops.length} зупинок)`}
                     {" · "}
                     {routeGeometryLoading ? (
                       "считаем км…"
@@ -2428,9 +2524,7 @@ function VisitsPageContent() {
               ) : null}
               {mapGeometries.planned?.source === "fallback" ? (
                 <p className="text-[10px] text-amber-700">
-                  {mapsApiKey
-                    ? "Плановий маршрут приблизний — перевірте Routes API в Google Cloud."
-                    : "Налаштуйте Google Maps API key (Налаштування) для маршрутів по дорогах."}
+                  {strings.visitsPage.routeSource.plannedFallback}
                 </p>
               ) : null}
               {routeGeometryBundle ? (

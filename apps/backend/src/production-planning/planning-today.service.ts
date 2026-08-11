@@ -1,12 +1,23 @@
 import { Injectable } from "@nestjs/common";
-import { PlanningRunLineType, ProductKind } from "@prisma/client";
+import { OrderStage, PlanningRunLineType, ProductKind } from "@prisma/client";
+import { PrismaService } from "../prisma/prisma.service";
 import { FactoryOrderService } from "./factory-order.service";
 import { computeDesiredDate } from "./mrp-desired-date.util";
+import {
+  groupAwaitingStockLines,
+  type TodayAwaitingStockView,
+} from "./planning-awaiting-stock.util";
 import { PlanningCalculationService } from "./planning-calculation.service";
 import { PlanningRemindersService, type PlanningDueReminderItem } from "./planning-reminders.service";
 import { PlanningRunService } from "./planning-run.service";
 import { PlanningSettingsService } from "./planning-settings.service";
 import { MrpConfigService } from "./mrp-config.service";
+
+export type {
+  TodayAwaitingStockGroup,
+  TodayAwaitingStockOrderLine,
+  TodayAwaitingStockView,
+} from "./planning-awaiting-stock.util";
 
 export type TodaySuggestedAction = "pack" | "production" | "factory";
 
@@ -30,11 +41,13 @@ export type PlanningTodayView = {
   makeSummary: { positionCount: number; totalQty: number };
   burning: TodayBurningItem[];
   dueReminders: PlanningDueReminderItem[];
+  awaitingStock: TodayAwaitingStockView;
 };
 
 @Injectable()
 export class PlanningTodayService {
   constructor(
+    private readonly prisma: PrismaService,
     private readonly calculations: PlanningCalculationService,
     private readonly planningRuns: PlanningRunService,
     private readonly factory: FactoryOrderService,
@@ -43,9 +56,71 @@ export class PlanningTodayService {
     private readonly reminders: PlanningRemindersService,
   ) {}
 
+  async getAwaitingStockGroups(): Promise<TodayAwaitingStockView> {
+    const items = await this.prisma.orderItem.findMany({
+      where: { order: { orderStage: OrderStage.AWAITING_STOCK } },
+      select: {
+        id: true,
+        qty: true,
+        qtyShipped: true,
+        productId: true,
+        productNameSnapshot: true,
+        product: { select: { sku: true, name: true, stock: true } },
+        order: { select: { id: true, orderNumber: true, warehouseId: true } },
+      },
+    });
+
+    const productStockById = new Map<string, number>();
+    for (const item of items) {
+      if (item.productId && item.product) {
+        productStockById.set(item.productId, item.product.stock);
+      }
+    }
+
+    const productIds = [...new Set(items.map((i) => i.productId).filter((id): id is string => Boolean(id)))];
+    const warehouseIds = [
+      ...new Set(items.map((i) => i.order.warehouseId).filter((id): id is string => Boolean(id))),
+    ];
+    const warehouseRows =
+      warehouseIds.length > 0 && productIds.length > 0
+        ? await this.prisma.productWarehouseStock.findMany({
+            where: { warehouseId: { in: warehouseIds }, productId: { in: productIds } },
+            select: { warehouseId: true, productId: true, qty: true },
+          })
+        : [];
+    const warehouseStockByKey = new Map(
+      warehouseRows.map((r) => [`${r.warehouseId}:${r.productId}`, r.qty]),
+    );
+
+    return groupAwaitingStockLines(
+      items.map((item) => ({
+        orderItemId: item.id,
+        orderId: item.order.id,
+        orderNumber: item.order.orderNumber,
+        warehouseId: item.order.warehouseId,
+        productId: item.productId,
+        sku: item.product?.sku ?? null,
+        name: item.product?.name ?? item.productNameSnapshot ?? "",
+        qty: item.qty,
+        qtyShipped: item.qtyShipped,
+      })),
+      productStockById,
+      warehouseStockByKey,
+    );
+  }
+
   async getToday(): Promise<PlanningTodayView> {
-    const [freshness, packaging, production, factoryRecs, latest, settings, horizon, dueReminders] =
-      await Promise.all([
+    const [
+      freshness,
+      packaging,
+      production,
+      factoryRecs,
+      latest,
+      settings,
+      horizon,
+      dueReminders,
+      awaitingStock,
+    ] = await Promise.all([
         this.calculations.getPlanningFreshness(),
         this.planningRuns.getPackaging(),
         this.planningRuns.getProductionOrders(0),
@@ -54,6 +129,7 @@ export class PlanningTodayService {
         this.settings.getSettings(),
         this.mrpConfig.getHorizon(),
         this.reminders.getDueReminders(),
+        this.getAwaitingStockGroups(),
       ]);
 
     const packableQty = (packaging.canItems ?? []).reduce((s, i) => s + i.qty, 0);
@@ -150,6 +226,7 @@ export class PlanningTodayService {
       makeSummary,
       burning,
       dueReminders,
+      awaitingStock,
     };
   }
 }

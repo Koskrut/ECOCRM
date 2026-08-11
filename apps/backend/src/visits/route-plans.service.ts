@@ -41,6 +41,10 @@ import type {
   RouteGeometryWaypoint,
 } from "./route-geometry.types";
 import { effectiveVisitLatLng } from "./visit-coordinates";
+import {
+  routePlanConfirmBlockMessage,
+  routePlanConfirmBlockReason,
+} from "./route-plan-confirm.util";
 import { resolveSingleOwnerId } from "./visits-owner-scope";
 import { sanitizeGpsTrack } from "../field/gps-sample-filter";
 import { kyivDayBounds } from "../crm-timezone";
@@ -49,7 +53,7 @@ export type RoutePlanScopeOpts = {
   /** @deprecated Ignored — legacy Google traffic flag. */
   traffic?: boolean;
   ownerId?: string;
-  /** Skip OSRM (preview / unsaved order) — haversine only. */
+  /** Skip OSRM (tests / emergency) — haversine only. Preview uses OSRM. */
   fallbackOnly?: boolean;
 };
 
@@ -581,6 +585,16 @@ export class RoutePlansService {
 
     const date = this.parseDate(dateStr);
 
+    const existing = await this.prisma.routePlan.findUnique({
+      where: { ownerId_date: { ownerId, date } },
+      include: { stops: { orderBy: { position: "asc" }, select: { visitId: true } } },
+    });
+    const existingIds = existing?.stops.map((s) => s.visitId) ?? [];
+    const orderUnchanged =
+      existing != null &&
+      existingIds.length === uniqueIds.length &&
+      existingIds.every((id, i) => id === uniqueIds[i]);
+
     const plan = await this.prisma.routePlan.upsert({
       where: {
         ownerId_date: {
@@ -592,7 +606,7 @@ export class RoutePlansService {
         owner: { connect: { id: ownerId } },
         date,
       },
-      update: {},
+      update: orderUnchanged ? {} : { confirmedAt: null },
     });
 
     // перезаписываем остановки
@@ -627,6 +641,49 @@ export class RoutePlansService {
       },
     });
     return result;
+  }
+
+  async confirmForDay(
+    dateStr: string,
+    actor: AuthUser | undefined,
+    requestedOwnerId?: string,
+  ) {
+    if (!actor) {
+      throw new BadRequestException("User is required");
+    }
+    if (!dateStr) {
+      throw new BadRequestException("date is required");
+    }
+    const ownerId = await this.resolveOwner(actor, requestedOwnerId);
+    const plan = await this.getForDay(dateStr, actor, requestedOwnerId);
+    const stops = plan?.stops ?? [];
+    const missingCoordsCount = stops.filter((s) => !effectiveVisitLatLng(s.visit)).length;
+    const geom = plan
+      ? await this.getRouteGeometry(dateStr, "planned", actor, {
+          ownerId,
+          visitIds: stops.map((s) => s.visitId),
+        })
+      : null;
+    const block = routePlanConfirmBlockReason({
+      hasPlan: Boolean(plan),
+      stopCount: stops.length,
+      missingCoordsCount,
+      geometrySource: geom?.source ?? null,
+    });
+    const message = routePlanConfirmBlockMessage(block);
+    if (message) {
+      throw new BadRequestException(message);
+    }
+    return this.prisma.routePlan.update({
+      where: { id: plan!.id },
+      data: { confirmedAt: new Date() },
+      include: {
+        stops: {
+          orderBy: { position: "asc" },
+          include: { visit: true },
+        },
+      },
+    });
   }
 
   async getNavigationUrl(
@@ -1893,7 +1950,6 @@ export class RoutePlansService {
     return this.getRouteGeometry(dateStr, "planned", actor, {
       ...opts,
       visitIds,
-      fallbackOnly: true,
     });
   }
 }

@@ -34,6 +34,7 @@ import { strings } from "@/locales";
 import {
   REPLACEMENT_MODE_OPTIONS,
   RETURN_REASON_OPTIONS,
+  returnStatusLabel,
   type ReplacementModeCode,
   type ReturnReasonCode,
 } from "@/lib/returns/return-labels";
@@ -108,16 +109,6 @@ type ReturnStatus =
   | "INSPECTION"
   | "REFUND_OR_ADJUSTMENT"
   | "CLOSED";
-
-const RETURN_STATUS_LABELS: Record<ReturnStatus, string> = {
-  REQUESTED: "Заявлено",
-  APPROVED: "Погоджено",
-  IN_TRANSIT_BACK: "В дорозі назад",
-  RECEIVED_BY_WAREHOUSE: "Прийнято на склад",
-  INSPECTION: "Перевірка",
-  REFUND_OR_ADJUSTMENT: "Повернення коштів",
-  CLOSED: "Закрито",
-};
 
 const NEXT_RETURN_STATUS: Partial<Record<ReturnStatus, ReturnStatus>> = {
   REQUESTED: "APPROVED",
@@ -2122,7 +2113,7 @@ export function OrderModal({
                           <div className="flex flex-wrap items-start justify-between gap-x-2 gap-y-1">
                             <span className="min-w-0 flex-1 text-sm">
                               Повернення від {formatDate(ret.requestedAt)} —{" "}
-                              {RETURN_STATUS_LABELS[ret.status] ?? ret.status}
+                              {returnStatusLabel(ret.status)}
                             </span>
                             <button
                               type="button"

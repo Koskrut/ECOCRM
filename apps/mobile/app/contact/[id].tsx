@@ -19,15 +19,15 @@ import { Screen } from "@/components/ui/Screen";
 import { SectionTitle } from "@/components/ui/SectionTitle";
 import { useAuth } from "@/context/auth-context";
 import { useModules } from "@/context/modules-context";
-import { contactsApi } from "@/lib/api/contacts";
+import { ContactOrdersMovement } from "@/components/contact/ContactOrdersMovement";
+import { contactsApi, type ContactOrdersMovementResponse } from "@/lib/api/contacts";
 import { activitiesApi, type Activity } from "@/lib/api/activities";
-import { ordersApi } from "@/lib/api/orders";
 import { visitsApi } from "@/lib/api/visits";
 import { formatLocalDateKey, startOfLocalDayIso, endOfLocalDayIso } from "@/lib/date";
 import { useTheme } from "@/lib/design/theme-context";
 import { clientStageLabel } from "@/lib/labels";
 import { t } from "@/lib/i18n";
-import type { Contact, Order, VisitSummary } from "@/types/crm";
+import type { Contact, VisitSummary } from "@/types/crm";
 
 function Field({
   label,
@@ -62,7 +62,8 @@ export default function ContactDetailScreen() {
   const [visitsToday, setVisitsToday] = useState<VisitSummary[]>([]);
   const [phones, setPhones] = useState<string[]>([]);
   const [recentVisits, setRecentVisits] = useState<VisitSummary[]>([]);
-  const [orders, setOrders] = useState<Order[]>([]);
+  const [ordersMovement, setOrdersMovement] = useState<ContactOrdersMovementResponse | null>(null);
+  const [ordersMovementError, setOrdersMovementError] = useState(false);
   const [activities, setActivities] = useState<Activity[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -112,10 +113,14 @@ export default function ContactDetailScreen() {
         setRecentVisits([]);
       }
 
-      const ord = await ordersApi
-        .list(token, { contactId, page: 1, pageSize: 10 })
-        .catch(() => ({ items: [] as Order[], total: 0, page: 1, pageSize: 10 }));
-      setOrders(ord.items ?? []);
+      try {
+        const mov = await contactsApi.getOrdersMovement(token, contactId);
+        setOrdersMovement(mov);
+        setOrdersMovementError(false);
+      } catch {
+        setOrdersMovement(null);
+        setOrdersMovementError(true);
+      }
 
       const act = await activitiesApi
         .listForContact(token, contactId, { limit: 30 })
@@ -256,23 +261,11 @@ export default function ContactDetailScreen() {
           variant="secondary"
           style={{ marginBottom: theme.spacing.sm, alignSelf: "flex-start" }}
         />
-        {orders.length === 0 ? (
-          <Text style={[theme.typography.body, { color: theme.colors.textMuted }]}>{t("common.noData")}</Text>
-        ) : (
-          orders.map((o, index) => (
-            <AnimatedListItem key={o.id} index={index} style={{ marginTop: theme.spacing.sm }}>
-              <Card onPress={() => router.push(`/orders/${o.id}`)}>
-                <Text style={theme.typography.bodyMedium}>
-                  {o.orderNumber ? `#${o.orderNumber}` : t("orders.orderFallback")}
-                </Text>
-                <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 4 }]}>
-                  {o.status}
-                  {o.orderStage ? ` · ${o.orderStage}` : ""}
-                </Text>
-              </Card>
-            </AnimatedListItem>
-          ))
-        )}
+        <ContactOrdersMovement
+          data={ordersMovement}
+          error={ordersMovementError}
+          onRetry={() => void load()}
+        />
 
         <AppButton
           label={t("common.cancel")}

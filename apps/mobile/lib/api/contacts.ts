@@ -38,6 +38,73 @@ export type ContactPatchBody = Partial<{
   marketingCallOptOut: boolean;
 }>;
 
+export type ContactOrderMovementCounts = {
+  children: number;
+  returns: number;
+  payments: number;
+  openReturns: number;
+};
+
+export type ContactOrderMovementChild = {
+  id: string;
+  orderNumber: string;
+  orderStage: string | null;
+  totalAmount: number;
+  paymentStatus: string;
+  currency: string;
+  exchangeRate: number | null;
+  counts: Pick<ContactOrderMovementCounts, "returns" | "payments" | "openReturns">;
+};
+
+export type ContactOrderReturnSummary = {
+  id: string;
+  status: string;
+  requestedAt: string;
+  creditAmount: number | null;
+  refundAmount: number | null;
+  replacementOrderId: string | null;
+  replacementOrderNumber: string | null;
+};
+
+export type ContactOrderPaymentSummary = {
+  id: string;
+  amount: number;
+  currency: string;
+  sourceType: string;
+  paidAt: string;
+  status: string;
+};
+
+export type ContactOrderMovementNode = {
+  id: string;
+  orderNumber: string;
+  status: string | null;
+  orderStage: string | null;
+  financialStatus: string | null;
+  paymentStatus: string;
+  totalAmount: number;
+  returnAdjustmentAmount: number;
+  paidAmount: number;
+  debtAmount: number;
+  creditAmount: number;
+  currency: string;
+  exchangeRate: number | null;
+  createdAt: string;
+  parentOrderId: string | null;
+  parent: { id: string; orderNumber: string } | null;
+  children: ContactOrderMovementChild[];
+  returnsSummary: ContactOrderReturnSummary[];
+  paymentsSummary: ContactOrderPaymentSummary[];
+  counts: ContactOrderMovementCounts;
+};
+
+export type ContactOrdersMovementResponse = {
+  items: ContactOrderMovementNode[];
+  total: number;
+  page: number;
+  pageSize: number;
+};
+
 export type ContactAddressInput = {
   label?: string | null;
   city?: string | null;
@@ -68,6 +135,12 @@ export const contactsApi = {
 
   getById: (token: string, id: string) =>
     apiFetch<Contact>(`/contacts/${id}`, { token }),
+
+  getOrdersMovement: (token: string, id: string, page = 1, pageSize = 50) =>
+    apiFetch<ContactOrdersMovementResponse>(
+      `/contacts/${id}/orders-movement${qs({ page, pageSize })}`,
+      { token },
+    ),
 
   listAddresses: (token: string, id: string) =>
     apiFetch<{ items: CompanyAddress[] }>(`/contacts/${id}/addresses`, {

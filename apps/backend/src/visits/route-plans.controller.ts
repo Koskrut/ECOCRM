@@ -124,6 +124,16 @@ export class RoutePlansController {
     return this.routePlans.getNavigationUrl(date, m, visitId, req.user, ownerId);
   }
 
+  @Post("confirm")
+  async confirmForDay(
+    @Query("date") date: string,
+    @Query("ownerId") ownerId: string | undefined,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    const plan = await this.routePlans.confirmForDay(date, req.user, ownerId);
+    return { plan };
+  }
+
   @Get()
   async getForDay(
     @Query("date") date: string,

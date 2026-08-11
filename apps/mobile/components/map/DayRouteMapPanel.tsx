@@ -82,9 +82,12 @@ export function DayRouteMapPanel({
   contentPaddingBottom,
   initialBundle,
 }: Props) {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const theme = useTheme();
   const [bundle, setBundle] = useState<RouteGeometryBundle | null>(initialBundle ?? null);
+  const [planConfirmedAt, setPlanConfirmedAt] = useState<string | null>(null);
+  const [planStopCount, setPlanStopCount] = useState(0);
+  const [confirming, setConfirming] = useState(false);
   const [mapsKey, setMapsKey] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [mapError, setMapError] = useState<string | null>(null);
@@ -125,15 +128,21 @@ export function DayRouteMapPanel({
     setStaticImageError(false);
     try {
       const ownerQs = ownerId ? `&ownerId=${encodeURIComponent(ownerId)}` : "";
-      const [geo, key] = await Promise.all([
+      const [geo, key, planRes] = await Promise.all([
         apiFetch<unknown>(
           `/route-plans/geometry/bundle?date=${encodeURIComponent(dateKey)}${ownerQs}`,
           { token },
         ),
         resolveMapsApiKey(token),
+        apiFetch<{ plan: { confirmedAt?: string | null; stops?: unknown[] } | null }>(
+          `/route-plans?date=${encodeURIComponent(dateKey)}${ownerQs}`,
+          { token },
+        ).catch(() => ({ plan: null })),
       ]);
       setBundle(normalizeGeometryBundle(geo));
       setMapsKey(key);
+      setPlanConfirmedAt(planRes.plan?.confirmedAt ?? null);
+      setPlanStopCount(planRes.plan?.stops?.length ?? 0);
     } catch {
       setBundle(null);
       setMapError(t("map.loadFailed"));
@@ -147,7 +156,20 @@ export function DayRouteMapPanel({
       if (initialBundle !== undefined) {
         setBundle(initialBundle);
         if (token) {
+          const ownerQs = ownerId ? `&ownerId=${encodeURIComponent(ownerId)}` : "";
           void resolveMapsApiKey(token).then(setMapsKey).catch(() => setMapsKey(null));
+          void apiFetch<{ plan: { confirmedAt?: string | null; stops?: unknown[] } | null }>(
+            `/route-plans?date=${encodeURIComponent(dateKey)}${ownerQs}`,
+            { token },
+          )
+            .then((planRes) => {
+              setPlanConfirmedAt(planRes.plan?.confirmedAt ?? null);
+              setPlanStopCount(planRes.plan?.stops?.length ?? 0);
+            })
+            .catch(() => {
+              setPlanConfirmedAt(null);
+              setPlanStopCount(0);
+            });
         }
         setLoading(false);
         return;
@@ -277,6 +299,33 @@ export function DayRouteMapPanel({
     await openDayRouteInMaps(token, dateKey);
   }
 
+  const isOwnPlan = !ownerId || ownerId === user?.id;
+  const canConfirm =
+    isOwnPlan &&
+    planStopCount > 0 &&
+    !planConfirmedAt &&
+    bundle?.planned?.source === "osrm";
+
+  async function onConfirmRoute() {
+    if (!token || !canConfirm) return;
+    setConfirming(true);
+    try {
+      const ownerQs = ownerId ? `&ownerId=${encodeURIComponent(ownerId)}` : "";
+      const res = await apiFetch<{ plan: { confirmedAt?: string | null } | null }>(
+        `/route-plans/confirm?date=${encodeURIComponent(dateKey)}${ownerQs}`,
+        { token, method: "POST", body: "{}" },
+      );
+      setPlanConfirmedAt(res.plan?.confirmedAt ?? new Date().toISOString());
+    } catch (e) {
+      Alert.alert(
+        t("common.error"),
+        e instanceof Error ? e.message : t("map.confirmFailed"),
+      );
+    } finally {
+      setConfirming(false);
+    }
+  }
+
   function renderStaticMap() {
     if (!mapsKey) {
       return <EmptyState message={t("map.noApiKey")} />;
@@ -382,6 +431,30 @@ export function DayRouteMapPanel({
           <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: theme.spacing.sm }]}>
             {t("map.visitsOnRoute", { count: visitCount })}
           </Text>
+        ) : null}
+
+        {isOwnPlan && planStopCount > 0 ? (
+          <View style={{ marginTop: theme.spacing.md, gap: theme.spacing.sm }}>
+            {planConfirmedAt ? (
+              <Text style={[theme.typography.caption, { color: theme.colors.success }]}>
+                {t("map.routeConfirmed")}
+              </Text>
+            ) : canConfirm ? (
+              <AppButton
+                label={confirming ? t("map.confirmingRoute") : t("map.confirmRoute")}
+                onPress={() => void onConfirmRoute()}
+                disabled={confirming}
+              />
+            ) : bundle?.planned?.source === "fallback" ? (
+              <Text style={[theme.typography.caption, { color: theme.colors.warning }]}>
+                {t("map.confirmNeedsRoads")}
+              </Text>
+            ) : (
+              <Text style={[theme.typography.caption, { color: theme.colors.textMuted }]}>
+                {t("map.confirmInWeb")}
+              </Text>
+            )}
+          </View>
         ) : null}
 
         {bundle && statTiles.length > 0 ? (

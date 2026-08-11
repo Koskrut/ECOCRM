@@ -62,6 +62,7 @@ export type RoutePlan = {
   id: string;
   ownerId: string;
   date: string;
+  confirmedAt?: string | null;
   createdAt: string;
   updatedAt: string;
   stops: RoutePlanStop[];
@@ -347,6 +348,18 @@ export const routePlansApi = {
     const res = await apiHttp.put<RoutePlanResponse>(
       "/route-plans",
       { visitIds },
+      { params: routePlanParams(date, opts) } as never,
+    );
+    return res.data;
+  },
+
+  confirmForDay: async (
+    date: string,
+    opts?: { ownerId?: string },
+  ): Promise<RoutePlanResponse> => {
+    const res = await apiHttp.post<RoutePlanResponse>(
+      "/route-plans/confirm",
+      undefined,
       { params: routePlanParams(date, opts) } as never,
     );
     return res.data;
