@@ -46,6 +46,7 @@ function paymentSourceLabel(sourceType: string): string {
     CASH: t.sourceCash,
     CREDIT: t.sourceCredit,
     CREDIT_TRANSFER: t.sourceCreditTransfer,
+    ONE_C: t.sourceOneC,
   };
   return map[sourceType] ?? sourceType;
 }

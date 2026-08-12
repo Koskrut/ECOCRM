@@ -79,6 +79,13 @@ function allCards(): CardDescriptor[] {
     { href: "/settings/bank", title: t.bank.title, desc: t.bank.desc, group: "integrations" },
     { href: "/settings/privat24", title: t.privat24.title, desc: t.privat24.desc, group: "integrations" },
     { href: "/settings/upc", title: t.upc.title, desc: t.upc.desc, group: "integrations" },
+    {
+      href: "/settings/integrations/1c-payments",
+      title: t.oneCPayments.title,
+      desc: t.oneCPayments.desc,
+      group: "integrations",
+      leadAccess: true,
+    },
     { href: "/settings/google-sheet", title: t.googleSheet.title, desc: t.googleSheet.desc, group: "integrations" },
     { href: "/settings/nova-poshta", title: t.novaPoshta.title, desc: t.novaPoshta.desc, group: "integrations" },
     { href: "/settings/ringostat", title: t.ringostat.title, desc: t.ringostat.desc, group: "integrations" },

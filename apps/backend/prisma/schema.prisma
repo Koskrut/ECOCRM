@@ -290,6 +290,7 @@ enum PaymentSourceType {
   CASH
   CREDIT
   CREDIT_TRANSFER
+  ONE_C
 }
 
 enum BalanceHolderKind {
@@ -3368,6 +3369,8 @@ model Payment {
   transferGroupId   String?
   /// Counterpart order for CREDIT_TRANSFER (source or target).
   linkedOrderId     String?
+  /// Idempotency key for 1C payment import: hash(date+docNumber+enterpriseCode+amountLv).
+  oneCImportKey     String?           @unique
   createdAt         DateTime          @default(now())
   updatedAt         DateTime          @updatedAt
 

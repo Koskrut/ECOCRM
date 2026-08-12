@@ -18,6 +18,7 @@ const ModuleIds = {
   KyivstarFmc: "int.kyivstar_fmc",
   Privat24: "int.privat24",
   Upc: "int.upc",
+  OneCPayments: "int.1c_payments",
 };
 
 module.exports = {

@@ -14,6 +14,7 @@ import { PrismaService } from "../prisma/prisma.service";
 import type { CreateTaskDto } from "./dto/create-task.dto";
 import type { ListTasksQueryDto } from "./dto/list-tasks-query.dto";
 import { buildTaskOverdueWhere, isTaskAttentionPreset } from "./tasks-attention.util";
+import { sortTasksByPriority } from "./tasks-priority-sort.util";
 import type { UpdateTaskDto } from "./dto/update-task.dto";
 
 @Injectable()
@@ -34,42 +35,12 @@ export class TasksService {
     if (!requestedAssigneeId || requestedAssigneeId === actor.id) {
       return actor.id;
     }
-    const assignee = await this.prisma.user.findUnique({
-      where: { id: requestedAssigneeId },
+    const assignee = await this.prisma.user.findFirst({
+      where: { id: requestedAssigneeId, isActive: true },
       select: { id: true },
     });
     if (!assignee) {
       throw new NotFoundException("Assignee not found");
-    }
-
-    if (actor.role === UserRole.ADMIN) {
-      return requestedAssigneeId;
-    }
-
-    if (actor.role === UserRole.LEAD) {
-      const teammate = await this.prisma.user.findFirst({
-        where: { id: requestedAssigneeId, OR: [{ id: actor.id }, { leadId: actor.id }] },
-        select: { id: true },
-      });
-      if (!teammate) {
-        throw new ForbiddenException("You can only assign tasks to your team");
-      }
-      return requestedAssigneeId;
-    }
-
-    const actorUser = await this.prisma.user.findUnique({
-      where: { id: actor.id },
-      select: { leadId: true },
-    });
-    if (!actorUser?.leadId) {
-      throw new ForbiddenException("You can only assign tasks to yourself");
-    }
-    const sameTeam = await this.prisma.user.findFirst({
-      where: { id: requestedAssigneeId, leadId: actorUser.leadId },
-      select: { id: true },
-    });
-    if (!sameTeam) {
-      throw new ForbiddenException("You can only assign tasks within your team");
     }
     return requestedAssigneeId;
   }
@@ -190,8 +161,15 @@ export class TasksService {
 
     if (actor.role === UserRole.MANAGER) {
       andParts.push({ OR: [{ assigneeId: actor.id }, { createdById: actor.id }] });
-    } else if (query.assigneeId) {
+    }
+    if (query.assigneeId) {
       where.assigneeId = query.assigneeId;
+    }
+    if (query.createdById) {
+      where.createdById = query.createdById;
+    }
+    if (query.delegated && actor) {
+      andParts.push({ createdById: actor.id, NOT: { assigneeId: actor.id } });
     }
     if (query.contactId) where.contactId = query.contactId;
     if (query.companyId) where.companyId = query.companyId;
@@ -261,27 +239,49 @@ export class TasksService {
     const pageSize = Math.min(100, Math.max(1, Number(query.pageSize) || 50));
     const skip = (page - 1) * pageSize;
 
-    const sortBy = query.sortBy === "createdAt" || query.sortBy === "updatedAt" ? query.sortBy : "dueAt";
-    const sortDir = query.sortDir === "asc" || query.sortDir === "desc" ? query.sortDir : "asc";
-    const orderBy: Prisma.TaskOrderByWithRelationInput[] = [
-      { [sortBy]: sortDir },
-      { id: "asc" },
-    ];
+    const taskInclude = {
+      assignee: { select: { id: true, fullName: true } },
+      createdBy: { select: { id: true, fullName: true } },
+      contact: { select: { id: true, firstName: true, lastName: true, phone: true } },
+      company: { select: { id: true, name: true } },
+      lead: { select: { id: true, fullName: true, phone: true, companyName: true } },
+      order: { select: { id: true, orderNumber: true } },
+    } as const;
 
+    const sortBy =
+      query.sortBy === "priority" ||
+      query.sortBy === "createdAt" ||
+      query.sortBy === "updatedAt"
+        ? query.sortBy
+        : "dueAt";
+    const sortDir = query.sortDir === "asc" || query.sortDir === "desc" ? query.sortDir : "asc";
+
+    if (sortBy === "priority") {
+      const [matching, total] = await Promise.all([
+        this.prisma.task.findMany({
+          where,
+          select: { id: true, dueAt: true, status: true, createdAt: true },
+        }),
+        this.prisma.task.count({ where }),
+      ]);
+      const pageIds = sortTasksByPriority(matching).slice(skip, skip + pageSize).map((row) => row.id);
+      const rows = await this.prisma.task.findMany({
+        where: { id: { in: pageIds } },
+        include: taskInclude,
+      });
+      const byId = new Map(rows.map((row) => [row.id, row]));
+      const items = pageIds.map((id) => byId.get(id)).filter((row): row is NonNullable<typeof row> => row != null);
+      return { items, total, page, pageSize };
+    }
+
+    const orderBy: Prisma.TaskOrderByWithRelationInput[] = [{ [sortBy]: sortDir }, { id: "asc" }];
     const [items, total] = await Promise.all([
       this.prisma.task.findMany({
         where,
         orderBy,
         skip,
         take: pageSize,
-        include: {
-          assignee: { select: { id: true, fullName: true } },
-          createdBy: { select: { id: true, fullName: true } },
-          contact: { select: { id: true, firstName: true, lastName: true, phone: true } },
-          company: { select: { id: true, name: true } },
-          lead: { select: { id: true, fullName: true, phone: true, companyName: true } },
-          order: { select: { id: true, orderNumber: true } },
-        },
+        include: taskInclude,
       }),
       this.prisma.task.count({ where }),
     ]);

@@ -40,6 +40,7 @@ import { UpcModule } from "./integrations/upc/upc.module";
 import { BitrixSyncModule } from "./integrations/bitrix-sync/bitrix.module";
 import { BitrixWebhookModule } from "./integrations/bitrix-webhook/bitrix-webhook.module";
 import { GoogleSheetModule } from "./integrations/google-sheet/google-sheet.module";
+import { OneCPaymentsModule } from "./integrations/one-c-payments/one-c-payments.module";
 import { IntegrationPortsModule } from "./integration-ports/integration-ports.module";
 import { StoreModule } from "./store/store.module";
 import { WarehousesModule } from "./warehouses/warehouses.module";
@@ -104,6 +105,7 @@ import { RiskModule } from "./risk/risk.module";
     BitrixSyncModule,
     BitrixWebhookModule,
     GoogleSheetModule,
+    OneCPaymentsModule,
     StoreModule,
     WarehousesModule,
     OutboundModule,

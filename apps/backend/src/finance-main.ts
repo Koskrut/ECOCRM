@@ -18,6 +18,7 @@ import { IntegrationPortsModule } from "./integration-ports/integration-ports.mo
 import { BankModule } from "./bank/bank.module";
 import { Privat24Module } from "./integrations/privat24/privat24.module";
 import { UpcModule } from "./integrations/upc/upc.module";
+import { OneCPaymentsModule } from "./integrations/one-c-payments/one-c-payments.module";
 import { PaymentsModule } from "./payments/payments.module";
 import { ReceivablesModule } from "./receivables/receivables.module";
 import { ClientBalancesModule } from "./client-balances/client-balances.module";
@@ -43,6 +44,7 @@ import { UnauthorizedExceptionFilter } from "./common/unauthorized-exception.fil
     BankModule,
     Privat24Module,
     UpcModule,
+    OneCPaymentsModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },

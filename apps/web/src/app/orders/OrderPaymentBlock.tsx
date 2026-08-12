@@ -386,6 +386,26 @@ export function OrderPaymentBlock({
             )}
           </div>
           <div>
+            <h4 className="mb-1.5 text-xs font-medium text-zinc-500">1С</h4>
+            {payments.filter((p) => p.sourceType === "ONE_C").length === 0 ? (
+              <p className="text-xs text-zinc-400">Немає оплат з 1С</p>
+            ) : (
+              <ul className="space-y-2 rounded-md border border-zinc-200 bg-zinc-50/50 p-2">
+                {payments
+                  .filter((p) => p.sourceType === "ONE_C")
+                  .map((p) => (
+                    <li key={p.id} className="flex flex-wrap items-start justify-between gap-x-2 gap-y-1 text-sm">
+                      <span className="min-w-0 flex-1 truncate text-zinc-600">
+                        {formatDate(p.paidAt)}
+                        {p.note ? ` · ${p.note}` : ""}
+                      </span>
+                      <span className="font-medium text-zinc-900">{formatPaymentAmount(p)}</span>
+                    </li>
+                  ))}
+              </ul>
+            )}
+          </div>
+          <div>
             <h4 className="mb-1.5 text-xs font-medium text-zinc-500">{pt.credits}</h4>
             {payments.filter((p) => p.sourceType === "CREDIT").length === 0 ? (
               <p className="text-xs text-zinc-400">{pt.noCredits}</p>

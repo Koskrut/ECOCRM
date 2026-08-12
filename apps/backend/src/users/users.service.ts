@@ -34,7 +34,10 @@ export class UsersService {
     return false;
   }
 
-  async listUsers(actor?: AuthUser) {
+  async listUsers(actor?: AuthUser, scope?: string) {
+    if (scope === "assignees") {
+      return this.listAssignees();
+    }
     const orderBy = { createdAt: "desc" as const };
     if (!actor || actor.role === UserRole.ADMIN) {
       return this.prisma.user.findMany({ orderBy, include: this.userListInclude });
@@ -50,6 +53,15 @@ export class UsersService {
       where: { id: actor.id },
       orderBy,
       include: this.userListInclude,
+    });
+  }
+
+  /** Active users for task assignee pickers — any authenticated user may assign to any colleague. */
+  async listAssignees() {
+    return this.prisma.user.findMany({
+      where: { isActive: true },
+      orderBy: [{ fullName: "asc" }, { createdAt: "desc" }],
+      select: { id: true, fullName: true, email: true, role: true },
     });
   }
 

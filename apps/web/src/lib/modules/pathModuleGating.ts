@@ -25,6 +25,7 @@ export function settingsHrefModuleId(href: string): ModuleId | null {
   if (href.startsWith("/settings/fop")) return ModuleIds.Finance;
   if (href.startsWith("/settings/privat24")) return ModuleIds.Privat24;
   if (href.startsWith("/settings/upc")) return ModuleIds.Upc;
+  if (href.startsWith("/settings/integrations/1c-payments")) return ModuleIds.OneCPayments;
   if (href.startsWith("/settings/google-sheet")) return ModuleIds.GoogleSheet;
   if (href.startsWith("/settings/ringostat")) return ModuleIds.Ringostat;
   if (href.startsWith("/settings/kyivstar-fmc")) return ModuleIds.KyivstarFmc;

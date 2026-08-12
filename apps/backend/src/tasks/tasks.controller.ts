@@ -21,6 +21,8 @@ export class TasksController {
   @Get()
   async list(
     @Query("assigneeId") assigneeId?: string,
+    @Query("createdById") createdById?: string,
+    @Query("delegated") delegated?: string,
     @Query("contactId") contactId?: string,
     @Query("companyId") companyId?: string,
     @Query("leadId") leadId?: string,
@@ -41,11 +43,16 @@ export class TasksController {
       status != null && status !== ""
         ? (status.includes(",") ? status.split(",") : status) as TaskStatus | TaskStatus[]
         : undefined;
-    const sortByValid = sortBy === "dueAt" || sortBy === "createdAt" || sortBy === "updatedAt" ? sortBy : undefined;
+    const sortByValid =
+      sortBy === "priority" || sortBy === "dueAt" || sortBy === "createdAt" || sortBy === "updatedAt"
+        ? sortBy
+        : undefined;
     const sortDirValid = sortDir === "asc" || sortDir === "desc" ? sortDir : undefined;
     return this.tasks.list(
       {
         assigneeId: assigneeId ?? undefined,
+        createdById: createdById ?? undefined,
+        delegated: delegated === "1" || delegated === "true",
         contactId: contactId ?? undefined,
         companyId: companyId ?? undefined,
         leadId: leadId ?? undefined,

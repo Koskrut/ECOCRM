@@ -296,6 +296,10 @@ export const en = {
         title: "UPC Open Banking",
         desc: "Connect accounts via UPC (AIS)",
       },
+      oneCPayments: {
+        title: "1C payments",
+        desc: "Import 1C payment export and allocate to CRM orders",
+      },
       googleSheet: {
         title: "Google Sheet (1C)",
         desc: "Webhook for sending orders to a Google Sheet and receiving document numbers from 1C",
@@ -1436,6 +1440,7 @@ export const en = {
   },
   tasks: {
     pageTitle: "Tasks",
+    pageSubtitle: "Work from a priority queue: overdue → today → upcoming.",
     addTask: "+ Add task",
     cancelAdd: "Cancel",
     newTask: "New task",
@@ -1455,11 +1460,26 @@ export const en = {
       overdue: "Overdue",
     },
     sort: {
+      priority: "Priority (recommended)",
       dueAsc: "Due date (nearest)",
       dueDesc: "Due date (latest)",
       createdDesc: "Created (newest)",
       createdAsc: "Created (oldest)",
       updatedDesc: "Updated (newest)",
+    },
+    views: {
+      mine: "My queue",
+      delegated: "Delegated",
+      all: "All active",
+      overdue: "Overdue",
+      today: "Due today",
+    },
+    urgency: {
+      overdue: "Overdue",
+      today: "Today",
+      upcoming: "Upcoming",
+      no_due: "No due date",
+      closed: "Closed",
     },
     columns: {
       title: "Title",
@@ -1744,6 +1764,7 @@ export const en = {
         sourceCash: "Cash",
         sourceCredit: "Credit",
         sourceCreditTransfer: "Transfer",
+        sourceOneC: "1C",
         creditAmount: "Credit",
         refundAmount: "Refund",
         replacementOrder: "Replacement #{number}",

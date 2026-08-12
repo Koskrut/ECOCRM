@@ -16,6 +16,7 @@ export declare const ModuleIds: {
   readonly KyivstarFmc: "int.kyivstar_fmc";
   readonly Privat24: "int.privat24";
   readonly Upc: "int.upc";
+  readonly OneCPayments: "int.1c_payments";
 };
 
 export type ModuleId = (typeof ModuleIds)[keyof typeof ModuleIds];

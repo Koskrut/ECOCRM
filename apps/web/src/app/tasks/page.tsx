@@ -7,6 +7,7 @@ import { ListTodo, Search } from "lucide-react";
 import { HelpHint } from "@/components/help/HelpHint";
 import {
   tasksApi,
+  ACTIVE_TASK_STATUSES,
   resolveTaskListStatus,
   type Task,
   type TaskStatus,
@@ -16,7 +17,13 @@ import {
 import { apiHttp } from "@/lib/api/client";
 import { isTextSelected } from "@/lib/dom";
 import { formatPhoneDisplay } from "@/lib/formatPhone";
-import { formatDateTime, kyivWeekIsoBoundsUtcIsoStrings } from "@/lib/crmDatetime";
+import { formatDateTime, kyivTodayIsoBoundsUtcIsoStrings, kyivWeekIsoBoundsUtcIsoStrings } from "@/lib/crmDatetime";
+import {
+  groupTasksByUrgency,
+  taskUrgencyBadgeClass,
+  taskUrgencyLabel,
+  taskUrgencyRowClass,
+} from "@/lib/task-urgency";
 import { authApi } from "@/lib/api/resources/auth";
 import { strings } from "@/locales";
 import {
@@ -46,8 +53,17 @@ function getPeriodOptions(): { value: "" | "week" | "overdue"; label: string }[]
   ];
 }
 
+type TaskView = "mine" | "delegated" | "all" | "overdue" | "today";
+
+function getViewOptions(): { value: TaskView; label: string }[] {
+  return (
+    ["mine", "delegated", "all", "overdue", "today"] as TaskView[]
+  ).map((value) => ({ value, label: t.views[value] }));
+}
+
 function getSortOptions(): { sortBy: TaskSortField; sortDir: "asc" | "desc"; label: string }[] {
   return [
+    { sortBy: "priority", sortDir: "asc", label: t.sort.priority },
     { sortBy: "dueAt", sortDir: "asc", label: t.sort.dueAsc },
     { sortBy: "dueAt", sortDir: "desc", label: t.sort.dueDesc },
     { sortBy: "createdAt", sortDir: "desc", label: t.sort.createdDesc },
@@ -65,15 +81,94 @@ function formatTaskDateCell(dateStr: string | null | undefined): string {
 }
 
 function getPeriodBounds(period: "" | "week" | "overdue"): { dueFrom?: string; dueTo?: string; status?: TaskStatus[] } {
-  const now = new Date();
   if (period === "week") {
     const { from, to } = kyivWeekIsoBoundsUtcIsoStrings();
     return { dueFrom: from, dueTo: to };
   }
   if (period === "overdue") {
-    return { dueTo: now.toISOString(), status: ["OPEN", "IN_PROGRESS"] };
+    return { status: ["OPEN", "IN_PROGRESS"], dueTo: kyivTodayIsoBoundsUtcIsoStrings().from };
   }
   return {};
+}
+
+function buildListQuery(args: {
+  view: TaskView;
+  myUserId: string | null;
+  statusFilter: TaskStatusFilter;
+  periodFilter: "" | "week" | "overdue";
+  attention: "" | "overdue";
+  taskIdsFilter: string;
+  assigneeFilter: string;
+  q: string;
+  sortBy: TaskSortField;
+  sortDir: "asc" | "desc";
+  page: number;
+  pageSize: number;
+}): Parameters<typeof tasksApi.list>[0] {
+  const {
+    view,
+    myUserId,
+    statusFilter,
+    periodFilter,
+    attention,
+    taskIdsFilter,
+    assigneeFilter,
+    q,
+    sortBy,
+    sortDir,
+    page,
+    pageSize,
+  } = args;
+
+  const query: Parameters<typeof tasksApi.list>[0] = {
+    q: q.trim() || undefined,
+    sortBy,
+    sortDir,
+    page,
+    pageSize,
+  };
+
+  if (taskIdsFilter) {
+    query.ids = taskIdsFilter;
+    return query;
+  }
+
+  if (view === "overdue" || attention === "overdue") {
+    query.attention = "overdue";
+    return query;
+  }
+
+  if (view === "today") {
+    const { from, to } = kyivTodayIsoBoundsUtcIsoStrings();
+    query.dueFrom = from;
+    query.dueTo = to;
+    query.status = ACTIVE_TASK_STATUSES;
+    return query;
+  }
+
+  if (view === "mine" && myUserId) {
+    query.assigneeId = myUserId;
+    query.status = resolveTaskListStatus(statusFilter);
+    return query;
+  }
+
+  if (view === "delegated") {
+    query.delegated = true;
+    query.status = resolveTaskListStatus(statusFilter);
+    return query;
+  }
+
+  const period =
+    periodFilter === "overdue"
+      ? getPeriodBounds("overdue")
+      : periodFilter === "week"
+        ? getPeriodBounds("week")
+        : {};
+  query.status = resolveTaskListStatus(statusFilter, period.status);
+  query.dueFrom = period.dueFrom;
+  query.dueTo = period.dueTo;
+  if (assigneeFilter) query.assigneeId = assigneeFilter;
+  return query;
 }
 
 function TaskLinkedTo({ task }: { task: Task }) {
@@ -123,6 +218,80 @@ function TaskLinkedTo({ task }: { task: Task }) {
   );
 }
 
+function TaskTableRow({
+  task,
+  onSelect,
+  onComplete,
+  onCancel,
+}: {
+  task: Task;
+  onSelect: () => void;
+  onComplete: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <tr
+      className={`cursor-pointer border-b border-zinc-100 hover:bg-zinc-50/80 ${taskUrgencyRowClass(task)}`}
+      onClick={onSelect}
+    >
+      <td className="px-4 py-3">
+        <p className="font-medium text-zinc-900">{task.title}</p>
+        {task.body && <p className="mt-0.5 truncate text-xs text-zinc-500">{task.body}</p>}
+      </td>
+      <td className="px-4 py-3">
+        <span className={`inline-flex rounded px-1.5 py-0.5 text-xs ${taskUrgencyBadgeClass(task)}`}>
+          {formatDueAt(task.dueAt)}
+        </span>
+      </td>
+      <td className="px-4 py-3">
+        <span
+          className={`rounded px-1.5 py-0.5 text-xs ${
+            task.status === "DONE"
+              ? "bg-emerald-100 text-emerald-800"
+              : task.status === "CANCELED"
+                ? "bg-zinc-100 text-zinc-600"
+                : "bg-blue-100 text-blue-800"
+          }`}
+        >
+          {taskStatusLabel(task.status)}
+        </span>
+      </td>
+      <td className="px-4 py-3 text-zinc-600">
+        {task.assignee?.fullName ?? "—"}
+        {task.createdBy && task.createdBy.id !== task.assigneeId ? (
+          <p className="mt-0.5 text-xs text-zinc-400">
+            {t.fields.createdBy}: {task.createdBy.fullName}
+          </p>
+        ) : null}
+      </td>
+      <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+        <TaskLinkedTo task={task} />
+      </td>
+      <td className="px-4 py-3 text-xs text-zinc-500">{formatTaskDateCell(task.createdAt)}</td>
+      <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+        {(task.status === "OPEN" || task.status === "IN_PROGRESS") && (
+          <div className="flex gap-1">
+            <button
+              type="button"
+              onClick={onComplete}
+              className="rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-100"
+            >
+              {t.actions.complete}
+            </button>
+            <button
+              type="button"
+              onClick={onCancel}
+              className="rounded border border-zinc-200 px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
+            >
+              {t.actions.cancel}
+            </button>
+          </div>
+        )}
+      </td>
+    </tr>
+  );
+}
+
 type EntityType = "contact" | "company" | "lead" | "order";
 
 type SearchOption = { id: string; label: string };
@@ -141,6 +310,7 @@ function TasksPageContent() {
   const pathname = usePathname();
   const router = useRouter();
   const taskStatusOptions = useMemo(() => getTaskStatusOptions(), []);
+  const viewOptions = useMemo(() => getViewOptions(), []);
   const periodOptions = useMemo(() => getPeriodOptions(), []);
   const sortOptions = useMemo(() => getSortOptions(), []);
   const editStatusOptions = useMemo(
@@ -151,6 +321,10 @@ function TasksPageContent() {
   const [items, setItems] = useState<Task[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [view, setView] = useState<TaskView>(() => {
+    if (searchParams.get("attention") === "overdue" || searchParams.get("period") === "overdue") return "overdue";
+    return "mine";
+  });
   const [statusFilter, setStatusFilter] = useState<TaskStatusFilter>("active");
   const [periodFilter, setPeriodFilter] = useState<"" | "week" | "overdue">(() => {
     const raw = searchParams.get("period");
@@ -167,7 +341,7 @@ function TasksPageContent() {
   const [assigneeFilter, setAssigneeFilter] = useState("");
   const [q, setQ] = useState("");
   const [qInput, setQInput] = useState("");
-  const [sortBy, setSortBy] = useState<TaskSortField>("dueAt");
+  const [sortBy, setSortBy] = useState<TaskSortField>("priority");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [page, setPage] = useState(1);
   const pageSize = 20;
@@ -185,7 +359,6 @@ function TasksPageContent() {
   const [addError, setAddError] = useState<string | null>(null);
   const [users, setUsers] = useState<UserOption[]>([]);
   const [myUserId, setMyUserId] = useState<string | null>(null);
-  const [userRole, setUserRole] = useState<string | null>(null);
   const [newAssigneeId, setNewAssigneeId] = useState<string>("");
 
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
@@ -216,12 +389,11 @@ function TasksPageContent() {
     void (async () => {
       try {
         const [usersRes, meRes] = await Promise.all([
-          apiHttp.get<{ items: UserOption[] }>("/users"),
+          apiHttp.get<{ items: UserOption[] }>("/users", { params: { scope: "assignees" } } as never),
           authApi.me(),
         ]);
         setUsers(usersRes.data?.items ?? []);
         setMyUserId(meRes.user?.id ?? null);
-        setUserRole(meRes.user?.role ?? null);
         setNewAssigneeId(meRes.user?.id ?? "");
       } catch {
         setUsers([]);
@@ -259,23 +431,22 @@ function TasksPageContent() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const period = attention || taskIdsFilter ? { dueFrom: undefined, dueTo: undefined, status: undefined } : getPeriodBounds(periodFilter);
-      const res = await tasksApi.list({
-        assigneeId: assigneeFilter || undefined,
-        q: q.trim() || undefined,
-        attention: attention === "overdue" ? "overdue" : undefined,
-        ids: taskIdsFilter || undefined,
-        status:
-          attention || taskIdsFilter
-            ? undefined
-            : resolveTaskListStatus(statusFilter, period.status),
-        dueFrom: period.dueFrom,
-        dueTo: period.dueTo,
-        sortBy,
-        sortDir,
-        page,
-        pageSize,
-      });
+      const res = await tasksApi.list(
+        buildListQuery({
+          view,
+          myUserId,
+          statusFilter,
+          periodFilter,
+          attention,
+          taskIdsFilter,
+          assigneeFilter,
+          q,
+          sortBy,
+          sortDir,
+          page,
+          pageSize,
+        }),
+      );
       setItems(res.items);
       setTotal(res.total);
     } catch {
@@ -284,11 +455,12 @@ function TasksPageContent() {
     } finally {
       setLoading(false);
     }
-  }, [assigneeFilter, attention, q, statusFilter, periodFilter, sortBy, sortDir, page, taskIdsFilter]);
+  }, [assigneeFilter, attention, myUserId, q, statusFilter, periodFilter, sortBy, sortDir, page, taskIdsFilter, view]);
 
   useEffect(() => {
+    if (view === "mine" && !myUserId) return;
     void load();
-  }, [load]);
+  }, [load, view, myUserId]);
 
   useEffect(() => {
     const taskId = searchParams.get("taskId");
@@ -457,7 +629,10 @@ function TasksPageContent() {
   );
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
-  const showAssigneeFilter = userRole != null && userRole !== "MANAGER";
+  const groupedItems = useMemo(
+    () => (sortBy === "priority" ? groupTasksByUrgency(items) : null),
+    [items, sortBy],
+  );
 
   const onSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -466,12 +641,13 @@ function TasksPageContent() {
   };
 
   const resetFilters = () => {
+    setView("mine");
     setStatusFilter("active");
     setPeriodFilter("");
     setAttention("");
     setTaskIdsFilter("");
     setAssigneeFilter("");
-    setSortBy("dueAt");
+    setSortBy("priority");
     setSortDir("asc");
     setQInput("");
     setQ("");
@@ -479,12 +655,13 @@ function TasksPageContent() {
   };
 
   const filtersActive =
+    view !== "mine" ||
     statusFilter !== "active" ||
     periodFilter !== "" ||
     attention !== "" ||
     taskIdsFilter !== "" ||
     assigneeFilter !== "" ||
-    sortBy !== "dueAt" ||
+    sortBy !== "priority" ||
     sortDir !== "asc" ||
     q.trim() !== "";
 
@@ -493,10 +670,13 @@ function TasksPageContent() {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <h1 className="flex items-center gap-2 text-2xl font-semibold text-zinc-900">
-          <ListTodo className="h-7 w-7 text-zinc-600" />
-          {t.pageTitle}
-        </h1>
+        <div>
+          <h1 className="flex items-center gap-2 text-2xl font-semibold text-zinc-900">
+            <ListTodo className="h-7 w-7 text-zinc-600" />
+            {t.pageTitle}
+          </h1>
+          <p className="mt-1 text-sm text-zinc-500">{t.pageSubtitle}</p>
+        </div>
         <div className="flex items-center gap-2">
           <HelpHint routeKey="tasks" />
           <button
@@ -509,7 +689,36 @@ function TasksPageContent() {
         </div>
       </div>
 
-      <div className="space-y-2">
+      <div className="space-y-3">
+        <div className="flex flex-wrap gap-2">
+          {viewOptions.map((option) => {
+            const active = view === option.value;
+            return (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => {
+                  setView(option.value);
+                  setPage(1);
+                  if (option.value === "overdue") {
+                    setAttention("overdue");
+                    setPeriodFilter("overdue");
+                  } else {
+                    setAttention("");
+                    if (periodFilter === "overdue") setPeriodFilter("");
+                  }
+                }}
+                className={`rounded-full px-3 py-1.5 text-sm font-medium transition ${
+                  active
+                    ? "bg-zinc-900 text-white shadow-sm"
+                    : "border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
+                }`}
+              >
+                {option.label}
+              </button>
+            );
+          })}
+        </div>
         <form
           onSubmit={onSearchSubmit}
           className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2"
@@ -531,10 +740,13 @@ function TasksPageContent() {
               const next = e.target.value as "" | "week" | "overdue";
               setPeriodFilter(next);
               setAttention(next === "overdue" ? "overdue" : "");
+              if (next === "overdue") setView("overdue");
+              else if (view === "overdue") setView("all");
               setTaskIdsFilter("");
               setPage(1);
             }}
             className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-700"
+            disabled={view === "mine" || view === "delegated" || view === "today" || view === "overdue"}
           >
             {periodOptions.map((o) => (
               <option key={o.value || "all"} value={o.value}>
@@ -549,6 +761,7 @@ function TasksPageContent() {
               setPage(1);
             }}
             className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-700"
+            disabled={view === "overdue" || view === "today"}
           >
             {taskStatusOptions.map((o) => (
               <option key={o.value} value={o.value}>
@@ -556,23 +769,23 @@ function TasksPageContent() {
               </option>
             ))}
           </select>
-          {showAssigneeFilter && (
-            <select
-              value={assigneeFilter}
-              onChange={(e) => {
-                setAssigneeFilter(e.target.value);
-                setPage(1);
-              }}
-              className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-700"
-            >
-              <option value="">{t.allAssignees}</option>
-              {users.map((u) => (
-                <option key={u.id} value={u.id}>
-                  {u.fullName}
-                </option>
-              ))}
-            </select>
-          )}
+          <select
+            value={assigneeFilter}
+            onChange={(e) => {
+              setAssigneeFilter(e.target.value);
+              if (e.target.value) setView("all");
+              setPage(1);
+            }}
+            className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-700"
+            disabled={view === "mine" || view === "delegated"}
+          >
+            <option value="">{t.allAssignees}</option>
+            {users.map((u) => (
+              <option key={u.id} value={u.id}>
+                {u.fullName}
+              </option>
+            ))}
+          </select>
           <select
             value={`${sortBy}-${sortDir}`}
             onChange={(e) => {
@@ -761,62 +974,38 @@ function TasksPageContent() {
                 </tr>
               </thead>
               <tbody>
-                {items.map((task) => (
-                  <tr
-                    key={task.id}
-                    className="cursor-pointer border-b border-zinc-100 hover:bg-zinc-50/80"
-                    onClick={() => {
-                    if (isTextSelected()) return;
-                    setSelectedTaskId(task.id);
-                  }}
-                  >
-                    <td className="px-4 py-3">
-                      <p className="font-medium text-zinc-900">{task.title}</p>
-                      {task.body && (
-                        <p className="mt-0.5 truncate text-xs text-zinc-500">{task.body}</p>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-zinc-600">{formatDueAt(task.dueAt)}</td>
-                    <td className="px-4 py-3">
-                      <span
-                        className={`rounded px-1.5 py-0.5 text-xs ${
-                          task.status === "DONE"
-                            ? "bg-emerald-100 text-emerald-800"
-                            : task.status === "CANCELED"
-                              ? "bg-zinc-100 text-zinc-600"
-                              : "bg-blue-100 text-blue-800"
-                        }`}
-                      >
-                        {taskStatusLabel(task.status)}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-zinc-600">{task.assignee?.fullName ?? "—"}</td>
-                    <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
-                      <TaskLinkedTo task={task} />
-                    </td>
-                    <td className="px-4 py-3 text-zinc-500 text-xs">{formatTaskDateCell(task.createdAt)}</td>
-                    <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
-                      {(task.status === "OPEN" || task.status === "IN_PROGRESS") && (
-                        <div className="flex gap-1">
-                          <button
-                            type="button"
-                            onClick={() => void complete(task.id)}
-                            className="rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-100"
-                          >
-                            {t.actions.complete}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => void cancel(task.id)}
-                            className="rounded border border-zinc-200 px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
-                          >
-                            {t.actions.cancel}
-                          </button>
-                        </div>
-                      )}
-                    </td>
-                  </tr>
-                ))}
+                {groupedItems
+                  ? groupedItems.flatMap(({ bucket, tasks: groupTasks }) => [
+                      <tr key={`group-${bucket}`} className="bg-zinc-50/90">
+                        <td colSpan={7} className="px-4 py-2 text-xs font-semibold uppercase tracking-wide text-zinc-600">
+                          {taskUrgencyLabel(bucket)} ({groupTasks.length})
+                        </td>
+                      </tr>,
+                      ...groupTasks.map((task) => (
+                        <TaskTableRow
+                          key={task.id}
+                          task={task}
+                          onSelect={() => {
+                            if (isTextSelected()) return;
+                            setSelectedTaskId(task.id);
+                          }}
+                          onComplete={() => void complete(task.id)}
+                          onCancel={() => void cancel(task.id)}
+                        />
+                      )),
+                    ])
+                  : items.map((task) => (
+                      <TaskTableRow
+                        key={task.id}
+                        task={task}
+                        onSelect={() => {
+                          if (isTextSelected()) return;
+                          setSelectedTaskId(task.id);
+                        }}
+                        onComplete={() => void complete(task.id)}
+                        onCancel={() => void cancel(task.id)}
+                      />
+                    ))}
               </tbody>
             </table>
           </div>

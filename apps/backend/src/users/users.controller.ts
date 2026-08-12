@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Req } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req } from "@nestjs/common";
 import { UserRole } from "@prisma/client";
 import type { Request } from "express";
 import type { AuthUser } from "../auth/auth.types";
@@ -12,8 +12,8 @@ export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
   @Get()
-  async list(@Req() req: Request & { user?: AuthUser }) {
-    return { items: await this.usersService.listUsers(req.user) };
+  async list(@Req() req: Request & { user?: AuthUser }, @Query("scope") scope?: string) {
+    return { items: await this.usersService.listUsers(req.user, scope) };
   }
 
   @Get(":id")

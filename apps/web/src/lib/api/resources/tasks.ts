@@ -40,12 +40,14 @@ export type Task = {
   updatedAt: string;
 };
 
-export type TaskSortField = "dueAt" | "createdAt" | "updatedAt";
+export type TaskSortField = "priority" | "dueAt" | "createdAt" | "updatedAt";
 
 export type TaskAttentionPreset = "overdue";
 
 export type ListTasksQuery = {
   assigneeId?: string;
+  createdById?: string;
+  delegated?: boolean;
   contactId?: string;
   companyId?: string;
   leadId?: string;
@@ -93,6 +95,8 @@ export const tasksApi = {
   list: async (query: ListTasksQuery = {}): Promise<ListTasksResponse> => {
     const params: Record<string, string | number | undefined> = {};
     if (query.assigneeId) params.assigneeId = query.assigneeId;
+    if (query.createdById) params.createdById = query.createdById;
+    if (query.delegated) params.delegated = "1";
     if (query.contactId) params.contactId = query.contactId;
     if (query.companyId) params.companyId = query.companyId;
     if (query.leadId) params.leadId = query.leadId;

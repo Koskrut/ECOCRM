@@ -48,7 +48,7 @@ export function EntityTasksList({
     void (async () => {
       try {
         const [usersRes, meRes] = await Promise.all([
-          apiHttp.get<{ items: { id: string; fullName: string }[] }>("/users"),
+          apiHttp.get<{ items: { id: string; fullName: string }[] }>("/users", { params: { scope: "assignees" } } as never),
           authApi.me(),
         ]);
         setUsers(usersRes.data?.items ?? []);

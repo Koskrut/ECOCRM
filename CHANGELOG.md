@@ -4,7 +4,31 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.156**.)_
+_(планируемые изменения после **0.2.157**.)_
+
+## [0.2.157] — 2026-08-12
+
+### Summary
+
+Патч **0.2.157**: импорт оплат из 1С (Excel → match → Payment); сортировка/срочность задач; assignees scope для users.
+
+### Added
+
+- **1C Payments Import** (`int.1c_payments`): загрузка `.xlsb`/`.xlsx`, preview с match по заказам/контрагентам, ручные overrides, commit с `PaymentSourceType.ONE_C` и dedup по `oneCImportKey`.
+- **Web `/settings/integrations/1c-payments`**: UI импорта, API proxy routes.
+- **Tasks priority sort**: Kyiv timezone urgency buckets (overdue / today / upcoming); `sortBy=priority` на backend и web tasks page (views, grouping, badges).
+- **Users `scope=assignees`**: облегчённый список для селекторов исполнителей.
+
+### Changed
+
+- **Order payment block**: отдельная секция оплат из 1С.
+- **Tasks page**: фильтры «прострочені» / «сьогодні», группировка по срочности, визуальные метки urgency.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.157`**.
+- **Миграции:** `20260812140000_add_one_c_payments_import` — **`prisma migrate deploy`** (`PaymentSourceType.ONE_C`, `Payment.oneCImportKey`).
+- **Модуль:** включить **`int.1c_payments`** в entitlements / module manifest при необходимости.
 
 ## [0.2.156] — 2026-08-11
 

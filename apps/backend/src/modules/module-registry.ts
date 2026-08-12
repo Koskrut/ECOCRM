@@ -234,6 +234,20 @@ export const MODULE_REGISTRY: Registry = {
       bundleSelectable: true,
     },
   }),
+  [ModuleIds.OneCPayments]: defineModule({
+    id: ModuleIds.OneCPayments,
+    kind: "integration" satisfies ModuleKind,
+    version: 1,
+    displayName: "1C Payments Import",
+    description:
+      "Import payment allocations from 1C Excel (.xlsb/.xlsx), match rows to CRM orders, and create Payment records.",
+    dependsOn: [ModuleIds.Finance],
+    delivery: "in_process",
+    controlPlane: {
+      entitlementKey: ModuleIds.OneCPayments,
+      bundleSelectable: true,
+    },
+  }),
   [ModuleIds.RiskManagement]: defineModule({
     id: ModuleIds.RiskManagement,
     kind: "extension" satisfies ModuleKind,

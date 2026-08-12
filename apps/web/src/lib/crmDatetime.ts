@@ -63,3 +63,9 @@ export function kyivWeekIsoBoundsUtcIsoStrings(): { from: string; to: string } {
   const end = now.endOf("week");
   return { from: start.toJSDate().toISOString(), to: end.toJSDate().toISOString() };
 }
+
+/** ISO range for today (Kyiv calendar day) for API filters. */
+export function kyivTodayIsoBoundsUtcIsoStrings(now = DateTime.now()): { from: string; to: string } {
+  const day = now.setZone(CRM_TIME_ZONE);
+  return { from: day.startOf("day").toJSDate().toISOString(), to: day.endOf("day").toJSDate().toISOString() };
+}

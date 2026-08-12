@@ -297,6 +297,10 @@ export const uk = {
         title: "UPC Open Banking",
         desc: "Підключення рахунків через UPC (AIS)",
       },
+      oneCPayments: {
+        title: "Оплати 1С",
+        desc: "Імпорт вивантаження оплат з 1С і рознесення по замовленнях CRM",
+      },
       googleSheet: {
         title: "Google-таблиця (1С)",
         desc: "Webhook для відправки замовлень у таблицю та прийому номерів документів від 1С",
@@ -1444,6 +1448,7 @@ export const uk = {
   },
   tasks: {
     pageTitle: "Завдання",
+    pageSubtitle: "Працюйте з чергою за пріоритетом: прострочені → сьогодні → далі.",
     addTask: "+ Завдання",
     cancelAdd: "Скасувати",
     newTask: "Нове завдання",
@@ -1463,11 +1468,26 @@ export const uk = {
       overdue: "Прострочені",
     },
     sort: {
+      priority: "Пріоритет (рекомендовано)",
       dueAsc: "Термін (найближчі)",
       dueDesc: "Термін (найпізніші)",
       createdDesc: "Створено (новіші)",
       createdAsc: "Створено (старіші)",
       updatedDesc: "Оновлено (новіші)",
+    },
+    views: {
+      mine: "Моя черга",
+      delegated: "Делеговані",
+      all: "Усі активні",
+      overdue: "Прострочені",
+      today: "На сьогодні",
+    },
+    urgency: {
+      overdue: "Прострочено",
+      today: "Сьогодні",
+      upcoming: "Майбутні",
+      no_due: "Без терміну",
+      closed: "Закриті",
     },
     columns: {
       title: "Назва",
@@ -1752,6 +1772,7 @@ export const uk = {
         sourceCash: "Готівка",
         sourceCredit: "Залік",
         sourceCreditTransfer: "Перенос",
+        sourceOneC: "1С",
         creditAmount: "Залік",
         refundAmount: "Повернення коштів",
         replacementOrder: "Заміна №{number}",
