@@ -121,7 +121,7 @@ export class OneCPaymentsImportService {
 
   async getJob(jobId: string, actor: AuthUser) {
     const job = await this.loadJob(jobId, actor);
-    const summary = (job.summary ?? {}) as StagingSummary;
+    const summary = this.stagingSummary(job.summary);
     const rows = this.hydrateRows(summary.rows ?? []);
     const matches = summary.matches ?? [];
     const overrides = summary.overrides ?? {};
@@ -145,7 +145,7 @@ export class OneCPaymentsImportService {
     if (job.status === "committed") {
       throw new BadRequestException("Job already committed");
     }
-    const summary = (job.summary ?? {}) as StagingSummary;
+    const summary = this.stagingSummary(job.summary);
     const nextOverrides = { ...(summary.overrides ?? {}), ...overrides };
     // Empty string clears override
     for (const [k, v] of Object.entries(overrides)) {
@@ -176,7 +176,7 @@ export class OneCPaymentsImportService {
     if (job.status === "committed") {
       throw new BadRequestException("Job already committed");
     }
-    const summary = (job.summary ?? {}) as StagingSummary;
+    const summary = this.stagingSummary(job.summary);
     const rows = this.hydrateRows(summary.rows ?? []);
     if (!rows.length) throw new BadRequestException("Job has no staged rows");
 
@@ -212,7 +212,7 @@ export class OneCPaymentsImportService {
       throw new BadRequestException("Only ADMIN or LEAD can commit 1C payment import");
     }
 
-    const summary = (job.summary ?? {}) as StagingSummary;
+    const summary = this.stagingSummary(job.summary);
     const rows = this.hydrateRows(summary.rows ?? []);
     const matches = summary.matches ?? [];
     const overrides = summary.overrides ?? {};
@@ -347,7 +347,7 @@ export class OneCPaymentsImportService {
     });
     return {
       items: items.map((j) => {
-        const s = (j.summary ?? {}) as StagingSummary;
+        const s = this.stagingSummary(j.summary);
         return {
           id: j.id,
           status: j.status,
@@ -359,6 +359,10 @@ export class OneCPaymentsImportService {
         };
       }),
     };
+  }
+
+  private stagingSummary(raw: Prisma.JsonValue | null | undefined): StagingSummary {
+    return (raw ?? {}) as unknown as StagingSummary;
   }
 
   private async loadJob(jobId: string, actor: AuthUser) {

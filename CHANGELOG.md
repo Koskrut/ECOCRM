@@ -4,7 +4,23 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.157**.)_
+_(планируемые изменения после **0.2.158**.)_
+
+## [0.2.158] — 2026-08-12
+
+### Summary
+
+Hotfix **0.2.158**: backend tsc fix for 1C payments import staging JSON (0.2.157 CI fail).
+
+### Fixed
+
+- **1C payments import**: `StagingSummary` parse from Prisma `JsonValue` via `unknown` cast helper.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.158`**.
+- **Do not use 0.2.157 images** — CI failed on backend build.
+- Same migrations/features as **0.2.157** (`20260812140000_add_one_c_payments_import`).
 
 ## [0.2.157] — 2026-08-12
 
