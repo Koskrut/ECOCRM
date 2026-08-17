@@ -78,7 +78,7 @@ export class ProductsController {
 
   @Post()
   public async create(
-    @Body() body: { sku?: string; name?: string; unit?: string; basePrice?: number; showOnStore?: boolean },
+    @Body() body: { sku?: string; externalCode?: string | null; name?: string; unit?: string; basePrice?: number; showOnStore?: boolean },
     @Req() req: Request & { body?: Record<string, unknown> },
   ) {
     const raw = req.body ?? {};
@@ -90,8 +90,11 @@ export class ProductsController {
     const unit = body?.unit ?? raw.unit;
     const basePrice = body?.basePrice ?? raw.basePrice;
     const showOnStore = body?.showOnStore ?? raw.showOnStore;
+    const externalCode = body?.externalCode ?? raw.externalCode;
     return this.productStore.create({
       sku,
+      externalCode:
+        externalCode !== undefined && externalCode !== null ? String(externalCode) : null,
       name: name != null ? String(name).trim() || undefined : undefined,
       unit: unit != null ? String(unit).trim() : undefined,
       basePrice:
@@ -282,6 +285,7 @@ export class ProductsController {
     @Body()
     body: {
       sku?: string;
+      externalCode?: string | null;
       name?: string;
       unit?: string;
       basePrice?: number;
@@ -295,6 +299,7 @@ export class ProductsController {
   ): Promise<{ ok: boolean }> {
     if (
       body.sku !== undefined ||
+      body.externalCode !== undefined ||
       body.name !== undefined ||
       body.unit !== undefined ||
       body.basePrice !== undefined ||
@@ -302,6 +307,7 @@ export class ProductsController {
     ) {
       const ok = await this.productStore.updateBasics(id, {
         sku: body.sku !== undefined ? String(body.sku) : undefined,
+        externalCode: body.externalCode !== undefined ? body.externalCode : undefined,
         name: body.name !== undefined ? String(body.name) : undefined,
         unit: body.unit !== undefined ? String(body.unit) : undefined,
         basePrice: body.basePrice !== undefined ? Number(body.basePrice) : undefined,

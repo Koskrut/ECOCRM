@@ -57,6 +57,8 @@ type FinancialFilters = {
   hasDebt?: string;
   hasDueDate?: string;
   ownerId?: string;
+  attention?: string;
+  attentionPeriod?: string;
   q?: string;
   dateFrom?: string;
   dateTo?: string;
@@ -197,6 +199,10 @@ export function FinancialKanban({
       if (filters?.hasDebt === "true") params.hasDebt = "true";
       if (filters?.hasDueDate === "true") params.hasDueDate = "true";
       if (filters?.ownerId) params.ownerId = filters.ownerId;
+      if (filters?.attention) params.attention = filters.attention;
+      if (filters?.attention === "stuck" && filters?.attentionPeriod) {
+        params.attentionPeriod = filters.attentionPeriod;
+      }
       if (filters?.q?.trim()) params.q = filters.q.trim();
       if (filters?.dateFrom) params.dateFrom = filters.dateFrom;
       if (filters?.dateTo) params.dateTo = filters.dateTo;
@@ -211,6 +217,8 @@ export function FinancialKanban({
       filters?.hasDebt,
       filters?.hasDueDate,
       filters?.ownerId,
+      filters?.attention,
+      filters?.attentionPeriod,
       filters?.q,
       filters?.dateFrom,
       filters?.dateTo,

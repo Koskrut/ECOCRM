@@ -1,6 +1,8 @@
 export type Product = {
   id: string;
   sku: string;
+  /** Код номенклатуры в 1С. */
+  externalCode: string | null;
   name: string;
   unit: string;
   basePrice: number;

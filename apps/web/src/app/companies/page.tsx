@@ -6,14 +6,14 @@ import { Filter, Pencil, Search, Trash2, Users } from "lucide-react";
 import { companiesApi, type Company, type CompaniesResponse } from "@/lib/api";
 import { apiHttp } from "@/lib/api/client";
 import { isTextSelected } from "@/lib/dom";
-import { ContactModal } from "../contacts/ContactModal";
-import { CompanyModal } from "./CompanyModal";
 import { CompaniesFiltersPopover } from "./CompaniesFiltersPopover";
 import { strings } from "@/locales";
 import { useListColumns } from "@/lib/lists/useListColumns";
 import { renderCellText } from "@/lib/lists/renderCell";
 import { HelpHint } from "@/components/help/HelpHint";
 import { withPreservedScroll } from "@/lib/modal/preserveScroll";
+import { useEntityModalStack, type EntityModalFrame } from "@/lib/modal/useEntityModalStack";
+import { EntityModalStackLayers } from "@/components/modals/EntityModalStackLayers";
 
 const PAGE_SIZE = 20;
 const EMPTY = "—";
@@ -24,9 +24,13 @@ function CompaniesPageContent() {
   const searchParams = useSearchParams();
 
   const companyId = searchParams.get("companyId");
+  const root = useMemo<EntityModalFrame | null>(
+    () => (companyId ? { type: "company", id: companyId } : null),
+    [companyId],
+  );
+  const stack = useEntityModalStack(root);
 
   const [userRole, setUserRole] = useState<string | null>(null);
-  const [contactId, setContactId] = useState<string | null>(null);
   const [items, setItems] = useState<Company[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -174,22 +178,33 @@ function CompaniesPageContent() {
   );
 
   const openCompany = (id: string) => {
+    stack.closeAll();
     const params = new URLSearchParams(searchParams.toString());
     params.set("companyId", id);
     router.replace(`${pathname}?${params.toString()}`, { scroll: false });
   };
 
   const openCreate = () => {
+    stack.closeAll();
     const params = new URLSearchParams(searchParams.toString());
     params.set("companyId", "new");
     router.replace(`${pathname}?${params.toString()}`, { scroll: false });
   };
 
   const closeModal = () => {
+    stack.closeAll();
     const params = new URLSearchParams(searchParams.toString());
     params.delete("companyId");
     const newUrl = params.toString() ? `${pathname}?${params.toString()}` : pathname;
     router.replace(newUrl, { scroll: false });
+  };
+
+  const closeFrom = (index: number) => {
+    if (index <= 0) {
+      closeModal();
+      return;
+    }
+    stack.closeFrom(index);
   };
 
   const resetAllFilters = () => {
@@ -408,37 +423,17 @@ function CompaniesPageContent() {
         </div>
       </div>
 
-      {companyId && (
-        <CompanyModal
-          apiBaseUrl="/api"
-          companyId={companyId}
-          onClose={closeModal}
-          onUpdate={() => void reload({ keepPage: true, silent: true })}
-          onOpenContact={(id) => setContactId(id)}
-        />
-      )}
-
-      {contactId && (
-        <ContactModal
-          apiBaseUrl="/api"
-          contactId={contactId}
-          initialCreate={
-            contactId === "new" && companyId && companyId !== "new"
-              ? { companyId }
-              : undefined
-          }
-          onClose={() => setContactId(null)}
-          onCreated={setContactId}
-          onUpdate={() => void reload({ keepPage: true, silent: true })}
-          onOpenCompany={(id) => {
-            const params = new URLSearchParams(searchParams.toString());
-            params.set("companyId", id);
-            router.replace(`${pathname}?${params.toString()}`, { scroll: false });
-          }}
+      {root ? (
+        <EntityModalStackLayers
+          frames={stack.frames}
+          root={root}
           userRole={userRole}
-          zIndex={60}
+          onOpen={stack.open}
+          onCloseFrom={closeFrom}
+          onReplace={stack.replace}
+          onUpdate={() => void reload({ keepPage: true, silent: true })}
         />
-      )}
+      ) : null}
     </div>
   );
 }

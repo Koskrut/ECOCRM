@@ -1,6 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import { PlanningDemandMix } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
+import { migrateLegacyPackDefaults } from "./pack-cycle.util";
 
 const SETTING_KEY = "planning_settings_v1";
 
@@ -15,8 +16,8 @@ export type PlanningSettings = {
 };
 
 export const DEFAULT_PLANNING_SETTINGS: PlanningSettings = {
-  packCycleDays: 14,
-  packCapacityPerCycle: 3500,
+  packCycleDays: 7,
+  packCapacityPerCycle: 2000,
   factoryLeadTimeDays: 90,
   safetyStockWeeks: 3,
   snapshotMaxAgeDays: 7,
@@ -42,10 +43,18 @@ export class PlanningSettingsService {
       value.demandMix === PlanningDemandMix.MAX_FORECAST_HARD
         ? PlanningDemandMix.MAX_FORECAST_HARD
         : PlanningDemandMix.HARD_PLUS_FORECAST_BEYOND_COVERED;
+    const migratedPack = migrateLegacyPackDefaults(
+      typeof value.packCycleDays === "number" ? value.packCycleDays : undefined,
+      typeof value.packCapacityPerCycle === "number" ? value.packCapacityPerCycle : undefined,
+      {
+        packCycleDays: DEFAULT_PLANNING_SETTINGS.packCycleDays,
+        packCapacityPerCycle: DEFAULT_PLANNING_SETTINGS.packCapacityPerCycle,
+      },
+    );
     return {
-      packCycleDays: clampInt(value.packCycleDays, DEFAULT_PLANNING_SETTINGS.packCycleDays, 7, 60),
+      packCycleDays: clampInt(migratedPack.packCycleDays, DEFAULT_PLANNING_SETTINGS.packCycleDays, 7, 60),
       packCapacityPerCycle: clampInt(
-        value.packCapacityPerCycle,
+        migratedPack.packCapacityPerCycle,
         DEFAULT_PLANNING_SETTINGS.packCapacityPerCycle,
         1,
         100_000,

@@ -221,6 +221,8 @@ export type ProductStockByWarehouse = {
 export type Product = {
   id: string;
   sku?: string | null;
+  /** Код номенклатуры в 1С. */
+  externalCode?: string | null;
   name?: string | null;
   unit?: string | null;
   basePrice?: number | null;

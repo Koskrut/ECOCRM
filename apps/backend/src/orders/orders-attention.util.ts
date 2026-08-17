@@ -26,12 +26,16 @@ export function resolveOrderAttentionPeriod(
   return resolvePresetPeriod(periodKey === "week" ? "week" : "month");
 }
 
-/** Operational overdue payments: debt + paymentDueDate before today (Kyiv). */
+const ACTIVE_OVERDUE_ORDER_STAGES: Prisma.OrderWhereInput = {
+  OR: [{ orderStage: null }, { orderStage: { notIn: ["CANCELED", "REFUSED", "COMPLETED"] } }],
+};
+
+/** Operational overdue payments: debt + paymentDueDate before today (Kyiv), active stages only. */
 export function buildOrderOverduePaymentsWhere(
   scope: OrderOwnerScope,
   now = new Date(),
 ): Prisma.OrderWhereInput {
-  const parts: Prisma.OrderWhereInput[] = [financialOverdueWhere(now)];
+  const parts: Prisma.OrderWhereInput[] = [financialOverdueWhere(now), ACTIVE_OVERDUE_ORDER_STAGES];
   if (scope.managerId) {
     parts.push({ ownerId: scope.managerId });
   } else if (scope.allowedOwnerIds !== undefined) {

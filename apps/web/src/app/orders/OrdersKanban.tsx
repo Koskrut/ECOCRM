@@ -80,6 +80,8 @@ type BoardFilters = {
   orderStage?: string;
   status?: string;
   ownerId?: string;
+  attention?: string;
+  attentionPeriod?: string;
   amountFrom?: string;
   amountTo?: string;
   q?: string;
@@ -295,6 +297,10 @@ export function OrdersKanban({
       };
       if (filters?.status) params.status = filters.status;
       if (filters?.ownerId) params.ownerId = filters.ownerId;
+      if (filters?.attention) params.attention = filters.attention;
+      if (filters?.attention === "stuck" && filters?.attentionPeriod) {
+        params.attentionPeriod = filters.attentionPeriod;
+      }
       if (filters?.amountFrom) params.amountFrom = filters.amountFrom;
       if (filters?.amountTo) params.amountTo = filters.amountTo;
       if (filters?.q?.trim()) params.q = filters.q.trim();
@@ -314,6 +320,8 @@ export function OrdersKanban({
     [
       filters?.amountFrom,
       filters?.amountTo,
+      filters?.attention,
+      filters?.attentionPeriod,
       filters?.dateFrom,
       filters?.dateTo,
       filters?.hasTtn,

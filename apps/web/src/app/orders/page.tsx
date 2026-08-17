@@ -13,10 +13,8 @@ import { OrderCard } from "./OrderCard";
 import { useListColumns } from "@/lib/lists/useListColumns";
 import { renderCellText } from "@/lib/lists/renderCell";
 import { FinancialKanban } from "./FinancialKanban";
-import { OrderModal } from "./OrderModal";
 import { OrdersKanban } from "./OrdersKanban";
 import { ReturnsKanban } from "./ReturnsKanban";
-import { ReturnModal } from "./ReturnModal";
 import { IncomingReturnPackageModal } from "./IncomingReturnPackageModal";
 import {
   OrdersFiltersPopover,
@@ -29,6 +27,8 @@ import {
 import { strings } from "@/locales";
 import { HelpHint } from "@/components/help/HelpHint";
 import { withPreservedScroll } from "@/lib/modal/preserveScroll";
+import { useEntityModalStack, type EntityModalFrame } from "@/lib/modal/useEntityModalStack";
+import { EntityModalStackLayers } from "@/components/modals/EntityModalStackLayers";
 
 type OrderSummary = {
   id: string;
@@ -135,9 +135,12 @@ function OrdersPageContent() {
   const searchParams = useSearchParams();
   const orderIdFromUrl = searchParams.get("orderId");
   const returnIdFromUrl = searchParams.get("returnId");
-
-  // ВАЖНО: apiHttp уже работает с baseURL="/api"
-  const apiBaseUrl = "/api";
+  const root = useMemo<EntityModalFrame | null>(() => {
+    if (orderIdFromUrl) return { type: "order", id: orderIdFromUrl };
+    if (returnIdFromUrl) return { type: "return", id: returnIdFromUrl };
+    return null;
+  }, [orderIdFromUrl, returnIdFromUrl]);
+  const stack = useEntityModalStack(root);
 
   const [orders, setOrders] = useState<OrderSummary[]>([]);
   const [total, setTotal] = useState(0);
@@ -221,10 +224,6 @@ function OrdersPageContent() {
   const [owners, setOwners] = useState<OwnerOption[]>([]);
   const [appendOnNextFetch, setAppendOnNextFetch] = useState(false);
 
-  const [orderModalOpen, setOrderModalOpen] = useState(false);
-  const [activeOrderId, setActiveOrderId] = useState<string | null>(null);
-  const [returnModalOpen, setReturnModalOpen] = useState(false);
-  const [activeReturnId, setActiveReturnId] = useState<string | null>(null);
   const [kanbanRefreshKey, setKanbanRefreshKey] = useState(0);
   const [returnsRefreshKey, setReturnsRefreshKey] = useState(0);
   const [showIncomingReturnPackage, setShowIncomingReturnPackage] = useState(false);
@@ -300,20 +299,6 @@ function OrdersPageContent() {
     attentionPeriod,
     orderIdsFilter,
   ]);
-
-  useEffect(() => {
-    if (orderIdFromUrl) {
-      setActiveOrderId(orderIdFromUrl);
-      setOrderModalOpen(true);
-    }
-  }, [orderIdFromUrl]);
-
-  useEffect(() => {
-    if (returnIdFromUrl) {
-      setActiveReturnId(returnIdFromUrl);
-      setReturnModalOpen(true);
-    }
-  }, [returnIdFromUrl]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -452,31 +437,40 @@ function OrdersPageContent() {
     };
   }, [ttnHintOrderId]);
 
-  const openExistingOrder = (id: string) => {
-    setReturnModalOpen(false);
-    setActiveReturnId(null);
-    setActiveOrderId(id);
-    setOrderModalOpen(true);
+  const openRootOrder = (id: string) => {
+    stack.closeAll();
     const params = new URLSearchParams(searchParams.toString());
     params.set("orderId", id);
     params.delete("returnId");
     router.replace(`${pathname}?${params.toString()}`, { scroll: false });
   };
 
+  const openExistingOrder = (id: string) => {
+    if (root) {
+      stack.open({ type: "order", id });
+      return;
+    }
+    openRootOrder(id);
+  };
+
   const openReturn = (id: string) => {
-    setActiveReturnId(id);
-    setReturnModalOpen(true);
+    if (root) {
+      stack.open({ type: "return", id });
+      return;
+    }
+    stack.closeAll();
     const params = new URLSearchParams(searchParams.toString());
     params.set("returnId", id);
+    params.delete("orderId");
     router.replace(`${pathname}?${params.toString()}`, { scroll: false });
   };
 
   const closeReturnModal = () => {
-    setReturnModalOpen(false);
-    setActiveReturnId(null);
+    stack.closeAll();
     setReturnsRefreshKey((k) => k + 1);
     const params = new URLSearchParams(searchParams.toString());
     params.delete("returnId");
+    params.delete("orderId");
     router.replace(`${pathname}${params.toString() ? `?${params.toString()}` : ""}`, {
       scroll: false,
     });
@@ -501,8 +495,7 @@ function OrdersPageContent() {
       const created = res.data;
       if (!created?.id) throw new Error("Order created, but id missing");
 
-      setActiveOrderId(created.id);
-      setOrderModalOpen(true);
+      openRootOrder(created.id);
 
       void fetchOrders();
     } catch (e) {
@@ -513,15 +506,24 @@ function OrdersPageContent() {
   };
 
   const closeOrderModal = () => {
-    setOrderModalOpen(false);
-    setActiveOrderId(null);
+    stack.closeAll();
     void fetchOrders({ silent: true });
     setKanbanRefreshKey((k) => k + 1);
     const params = new URLSearchParams(searchParams.toString());
     params.delete("orderId");
+    params.delete("returnId");
     router.replace(`${pathname}${params.toString() ? `?${params.toString()}` : ""}`, {
       scroll: false,
     });
+  };
+
+  const closeFrom = (index: number) => {
+    if (index <= 0) {
+      if (root?.type === "return") closeReturnModal();
+      else closeOrderModal();
+      return;
+    }
+    stack.closeFrom(index);
   };
 
   const onSearchSubmit = (e: React.FormEvent<HTMLFormElement>) => {
@@ -625,7 +627,7 @@ function OrdersPageContent() {
           </div>
         )}
 
-        {(attention || orderIdsFilter) && view === "list" ? (
+        {(attention || orderIdsFilter) && view !== "returns" ? (
           <div className="mb-3 flex flex-wrap items-center gap-2">
             {attention ? (
               <span className="inline-flex items-center rounded-full bg-amber-100 px-3 py-1 text-xs font-medium text-amber-900">
@@ -814,6 +816,8 @@ function OrdersPageContent() {
                 hasDebt: financialHasDebt ? "true" : undefined,
                 hasDueDate: financialHasDueDate ? "true" : undefined,
                 ownerId: ownerIdFilter || undefined,
+                attention: attention || undefined,
+                attentionPeriod: attention === "stuck" ? attentionPeriod : undefined,
                 q: q || undefined,
                 dateFrom: dateFrom || undefined,
                 dateTo: dateTo || undefined,
@@ -1095,6 +1099,8 @@ function OrdersPageContent() {
               orderStage: orderStageFilter || undefined,
               status: statusFilter || undefined,
               ownerId: ownerIdFilter || undefined,
+              attention: attention || undefined,
+              attentionPeriod: attention === "stuck" ? attentionPeriod : undefined,
               amountFrom: amountFrom || undefined,
               amountTo: amountTo || undefined,
               q: q || undefined,
@@ -1121,30 +1127,23 @@ function OrdersPageContent() {
         </button>
       ) : null}
 
-      {returnModalOpen && activeReturnId ? (
-        <ReturnModal
-          returnId={activeReturnId}
-          onClose={closeReturnModal}
-          onSaved={() => setReturnsRefreshKey((k) => k + 1)}
-          onOpenOrder={(id) => openExistingOrder(id)}
-        />
-      ) : null}
-      {orderModalOpen && activeOrderId && (
-        <OrderModal
-          apiBaseUrl={apiBaseUrl}
-          orderId={activeOrderId}
-          onClose={closeOrderModal}
-          onSaved={() => {
+      {root ? (
+        <EntityModalStackLayers
+          frames={stack.frames}
+          root={root}
+          userRole={userRole}
+          onOpen={stack.open}
+          onCloseFrom={closeFrom}
+          onReplace={stack.replace}
+          onUpdate={() => {
             void fetchOrders({ silent: true });
             setKanbanRefreshKey((k) => k + 1);
+          }}
+          onOrderSaved={() => {
             if (view === "returns") setReturnsRefreshKey((k) => k + 1);
           }}
-          onOpenOrder={(id) => openExistingOrder(id)}
-          onOpenCompany={(id) => console.log("Open company", id)}
-          onOpenContact={(id) => console.log("Open contact", id)}
-          userRole={userRole}
         />
-      )}
+      ) : null}
       <IncomingReturnPackageModal
         open={showIncomingReturnPackage}
         onClose={() => setShowIncomingReturnPackage(false)}

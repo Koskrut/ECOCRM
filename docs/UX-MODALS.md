@@ -30,6 +30,14 @@ File: `apps/web/src/lib/modal/scheduleModalClose.ts`
 - Defers `onClose` to the next microtask (`queueMicrotask`).
 - Use in custom overlay modals (TtnModal, FxWriteOffModal, confirm dialogs, etc.) when closing on backdrop click, so the parent entity modal does not receive the same click.
 
+### useEntityModalStack / EntityModalStackLayers
+
+Files: `apps/web/src/lib/modal/useEntityModalStack.ts`, `apps/web/src/components/modals/EntityModalStackLayers.tsx`
+
+- Page-level stack for contact / company / order / return. The list URL param is the root; further entity opens are overlays.
+- `open` pushes, or crops back if that entity is already in the stack. `closeFrom(index)` pops that layer and everything above it.
+- List hosts (contacts, companies, orders, receivables) render `EntityModalStackLayers` instead of replacing the root id.
+
 ### FeedTabsScaffold
 
 File: `apps/web/src/components/modals/FeedTabsScaffold.tsx`
@@ -55,8 +63,10 @@ File: `apps/web/src/components/inputs/SearchableSelectLite.tsx`
 
 1. **No API changes**: all endpoints, DTOs, and business logic stay as-is; only UI/UX and component refactors.
 2. **Single UI language**: English for labels and messages; data and enums unchanged.
-3. **Nested modals**: when opening an order from contact/company, ESC and overlay first handle the nested modal (via `onEscape` in the parent shell, or by closing the child modal with `scheduleModalClose`). Child modals use a higher `zIndex` (typically `60`). Custom overlays on top of entity modals must also use `scheduleModalClose` on backdrop close.
+3. **Nested modals**: entity-to-entity navigation (contact ↔ company ↔ order ↔ return) **pushes** a new layer; ✕ / overlay / ESC **pops** one layer. The URL keeps only the **root** modal opened from the list. Re-opening an entity already in the stack returns to that frame instead of duplicating it. Overlay chains are in-memory and reset on refresh (same as nested orders before). Child layers use a higher `zIndex` (`50 + index * 10`). Custom overlays on top of entity modals must also use `scheduleModalClose` on backdrop close.
 4. **New entities**: for a new entity modal use `EntityModalShell`, pass `left` (card + list blocks if needed) and `right` (feed/timeline). Set header actions and footer via `headerActions` and `footer`. Use `SearchableSelectLite` for relation pickers.
+
+Shared stack: `useEntityModalStack` (`apps/web/src/lib/modal/useEntityModalStack.ts`) plus `EntityModalStackLayers` on list pages (contacts, companies, orders, receivables). Do not `router.replace` the root id when opening a related entity.
 
 ## Adding a new entity modal
 

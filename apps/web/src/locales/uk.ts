@@ -574,7 +574,7 @@ export const uk = {
   planning: {
     pageTitle: "Планування виробництва",
     pageSubtitle:
-      "Моніторинг залишків, MRP на 3 місяці, списки упаковки та замовлення деталей (~7000 шт/міс).",
+      "П’ятнична заявка на упаковку (2000 комплектів/тиждень), MRP на 3 місяці та замовлення деталей (~7000 шт/міс).",
     tabs: {
       today: "Сьогодні",
       pack: "Напакувати",
@@ -619,16 +619,16 @@ export const uk = {
       uploadSalesHistory: "Завантажити XLS продажів",
       postSalesHistory: "Опублікувати продажі",
       recomputeForecast: "Перерахувати прогноз",
-      proposePacking: "Запропонувати список упаковки",
-      approvePacking: "Затвердити",
-      markPackingDone: "Позначити виконаним",
+      proposePacking: "Зібрати заявку на тиждень",
+      approvePacking: "Віддати на упаковку",
+      markPackingDone: "Упаковано",
       exportExcel: "Експорт Excel",
       loadFactoryRecs: "Завантажити рекомендації заводу",
       createFactoryOrder: "Створити чернетку замовлення",
       approveFactory: "Затвердити замовлення",
       saveFactoryLines: "Зберегти кількості",
       saveExternalCode: "Зберегти код 1С",
-      savePackingLines: "Зберегти кількості",
+      savePackingLines: "Зберегти заявку",
       saveDueAt: "Зберегти термін",
       rescheduleDue: "Перенести термін",
       markFactoryReceived: "Отримано (закрити)",
@@ -678,7 +678,17 @@ export const uk = {
       maxBuildNow: "Можна зібрати з деталей",
       maxBuildNowHint:
         "Скільки комплектів можна зібрати з наявних inventoriable деталей BOM. Упаковка (PKG блистер/етикетка) не обмежує.",
-      packNeed: "Потрібно",
+      packNeed: "Треба",
+      canAssemble: "Можна зібрати",
+      kit: "Комплект",
+      kitParts: "Деталі в комплекті",
+      whyInRequest: "Навіщо",
+      partQtyPerKit: (n: string) => `×${n} шт`,
+      partNeedForRequest: (n: string) => `треба ${n}`,
+      partOnStock: (n: string) => `склад ${n}`,
+      missingPart: "не вистачає",
+      noKitParts: "Немає специфікації деталей",
+      partLineHint: "Це деталь з виробництва, не комплект",
       maxFromParts: "Макс. з деталей",
       packQty: "До упаковки",
       blockedPack: "Заблоковано (немає деталей)",
@@ -707,13 +717,13 @@ export const uk = {
       launch: "Запуск",
       ratio: "Співвідношення",
       daysOfCover: "Днів покриття комплектів",
-      packCapacity: "Потужність упаковки / цикл",
-      packCycleDays: "Цикл упаковки (дні)",
+      packCapacity: "Комплектів на тиждень (п’ятниця)",
+      packCycleDays: "Тиждень упаковки (дні)",
       factoryLeadTime: "Lead time заводу (дні)",
       safetyStockWeeks: "Страховий запас (тижні)",
       snapshotMaxAge: "Макс. вік снапшоту (дні)",
       demandMix: "Змішування попиту",
-      capacityUsed: "Використано потужності",
+      capacityUsed: "У заявці",
       qtySuggested: "Пропозиція",
       qtyApproved: "Затверджено",
       forecast14: "14 днів",
@@ -779,9 +789,9 @@ export const uk = {
       dueToday: "Терміни сьогодні",
       dueOverdue: "Прострочено",
       dueTodayHint: "Замовлення на завод і списки упаковки, термін яких настав",
-      cycleEnd: "Термін упаковки",
+      cycleEnd: "Здати до",
       factoryDueHint: "Термін надходження деталей з заводу",
-      packingDueHint: "До якої дати потрібно упакувати комплекти",
+      packingDueHint: "До якої дати упаковка має здати комплекти",
       needQty: "Брак / Потрібно",
       componentOnStock: "На складі (дет.)",
       componentNeed: "Потрібно дет.",
@@ -792,6 +802,12 @@ export const uk = {
       snapshot1C: "Снапшот 1С",
       sales18m: "Продажі 18 міс",
       partsGap: "Брак деталей",
+      weekNeed: "Скільки треба",
+      weekCan: "Скільки можна зібрати",
+      weekRequest: "У заявку",
+      previousPackWeeks: "Минулі заявки",
+      ordersPriority: "Під замовлення",
+      stockPriority: "На склад",
       actionType: "Дія",
       wipStatus: "Статус WIP",
       openBatch: "Є відкрита партія",
@@ -806,8 +822,8 @@ export const uk = {
     },
     filters: {
       all: "Усі",
-      canNow: "Можна зараз",
-      blocked: "Заблоковано",
+      canNow: "Можна зібрати",
+      blocked: "Немає деталей",
       production: "Виробництво",
       factory: "Завод",
       openBatch: "Є відкрита партія",
@@ -866,7 +882,7 @@ export const uk = {
       batchesHint:
         "Внутрішні WIP-партії (MECH/QC/PACK). Основні контури — вкладки Упаковка та Завод.",
       queuesHint:
-        "Legacy WIP-черги. Пакування зі складу планується на вкладці Упаковка (цикл 14 днів).",
+        "Legacy WIP-черги. Пакування зі складу — вкладка «Напакувати», п’ятнична заявка на 2000 комплектів.",
       dashboardHint:
         "Покриття готових комплектів, навантаження упаковки vs потужність, ризик bottleneck і проекція після затвердженого pack + відкритих PO.",
       capacityHint:
@@ -874,7 +890,15 @@ export const uk = {
       forecastHint:
         "MRP forecast from posted sales XLS (SKU × month): average sales over lookback × cover horizon.",
       packingHint:
-        "Сформуйте чернетку зі снапшоту 1С: комплекти, які можна зібрати з ПФ на складі, і деталі з WIP на QC/упаковці. Поправте кількості, затвердіть; факт пакування підтвердиться наступним снапшотом.",
+        "Щоп’ятниці — до 2000 комплектів. Треба = замовлення + прогноз на тиждень − готові на складі. Можна зібрати = з деталей, які вже є. У заявку йде те, що реально зібрати, не більше 2000.",
+      packSettingsHint:
+        "П’ятничний тиждень: 7 днів і 2000 комплектів. Квота цеху ~7000 деталей на місяць — окреме налаштування.",
+      packingEmpty:
+        "Ще немає заявки. Опублікуйте свіжі залишки з 1С і натисніть «Зібрати заявку на тиждень».",
+      weekShortfall: (used: number, limit: number, blocked: number) =>
+        used <= 0
+          ? `Цього тижня нічого не можна зібрати${blocked ? ` — у ${blocked} комплектах немає деталей` : ""}.`
+          : `У заявці ${used} з ${limit}. Решту не можна зібрати${blocked ? ` (${blocked} комплектів без деталей)` : ""}.`,
       factoryHint:
         "Сформуйте чернетку замовлення на завод, поправте кількості й термін, затвердіть. Після затвердження вкажіть код замовлення 1С і слідкуйте за строком.",
       salesHistoryHint:
@@ -915,7 +939,7 @@ export const uk = {
         "Специфікації — у комплектів має бути BOM (блістери PKG:… квоту/збірку не блокують).",
         "Вкладка MRP → Запустити MRP — головний розрахунок на ~3 місяці.",
         "Критичні → розібрати червоний список; Виробництво / Напівфабрикати → Створити партію.",
-        "За потреби: Упаковка (двотижневий список) і Завод (замовлення деталей ~90 днів).",
+        "За потреби: Напакувати (п’ятнична заявка 2000 комплектів) і Завод (замовлення деталей ~90 днів).",
       ],
       tabsTitle: "Що на вкладках",
       tabsHint:

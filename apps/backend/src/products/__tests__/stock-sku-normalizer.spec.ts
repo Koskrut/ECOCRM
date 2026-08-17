@@ -42,12 +42,19 @@ describe("stock-sku-normalizer", () => {
     assert.strictEqual(index.byArticle.get("10.046")?.id, "p-1046");
   });
 
-  it("matches Suprex BOM articles to Bitrix-style catalog SKUs", () => {
+  it("matches 1C externalCode when file uses nomenclature code instead of SKU", () => {
     const index = buildStockSkuIndex([
-      { id: "kit", sku: "01.06312B | Analog kit" },
-      { id: "comp", sku: "ST-RC-AN | Laboratory analog" },
+      { id: "p", sku: "10.046", externalCode: "000000190" },
     ]);
-    assert.strictEqual(resolveStockSkuToProduct("01.06312B", index)?.id, "kit");
-    assert.strictEqual(resolveStockSkuToProduct("ST-RC-AN", index)?.id, "comp");
+    assert.strictEqual(resolveStockSkuToProduct("000000190", index)?.id, "p");
+    assert.strictEqual(resolveStockSkuToProduct("10.046", index)?.id, "p");
+  });
+
+  it("prefers exact SKU over another product's 1C code", () => {
+    const index = buildStockSkuIndex([
+      { id: "by-sku", sku: "000000190" },
+      { id: "by-code", sku: "10.046", externalCode: "000000190" },
+    ]);
+    assert.strictEqual(resolveStockSkuToProduct("000000190", index)?.id, "by-sku");
   });
 });

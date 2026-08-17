@@ -4,7 +4,32 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.159**.)_
+_(планируемые изменения после **0.2.160**.)_
+
+## [0.2.160] — 2026-08-17
+
+### Summary
+
+Патч **0.2.160**: `Product.externalCode` (код 1С) + поиск по коду в каталоге; pack cycle util у плануванні; стек модалок contact/company; правки attention та receivables.
+
+### Added
+
+- **Product `externalCode`** (унікальний код номенклатури 1С): поле в моделі, API products, пошук у каталозі web + mobile CatalogPanel.
+- **Planning `pack-cycle.util`**: розрахунок циклів пакування; weekly planning job враховує цикл.
+- **Web modal stack**: `useEntityModalStack` + `EntityModalStackLayers` — вкладені модалки contact ↔ company без втрати стану (див. `docs/UX-MODALS.md`).
+
+### Changed
+
+- **Planning packing list / ops panels**: подальші правки WIP-деталей, snapshot import, sales history, MRP desired date.
+- **Orders attention**: правки util + тести; dashboard attention panel.
+- **Receivables page**: правки UI.
+- **Catalog**: картка товару показує зовнішній код; пошук за ним.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.160`**.
+- **Миграции:** `20260817140000_product_external_code` — **`prisma migrate deploy`** (`Product.externalCode` unique).
+- **Mobile:** зміни в CatalogPanel/types — достатньо OTA/наступного EAS, критичного немає.
 
 ## [0.2.159] — 2026-08-17
 

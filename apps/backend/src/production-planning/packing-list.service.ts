@@ -11,10 +11,11 @@ import {
 } from "@prisma/client";
 import * as XLSX from "xlsx";
 import { PrismaService } from "../prisma/prisma.service";
-import { kyivDayBounds } from "../crm-timezone";
+import { instantToKyivYmd, kyivDayBounds } from "../crm-timezone";
 import { constrainsKitCapacity, isNonInventoriedPackagingSku } from "./bom-part.util";
 import { mixKitDemand, uncoveredKitDemand } from "./demand-mix.util";
 import { ForecastService } from "./forecast.service";
+import { packCycleEndUtc, packCycleStartUtc, resolvePackCycleStartUtc } from "./pack-cycle.util";
 import { PlanningCalculationService } from "./planning-calculation.service";
 import { PlanningSettingsService } from "./planning-settings.service";
 import { filterPackableProposedLines } from "./planning-packable-lines.util";
@@ -100,17 +101,34 @@ export class PackingListService {
       lines.map(async (line) => {
         const isPart = line.kitProduct?.kind === ProductKind.PART;
         let bottleneckSku: string | null = null;
+        let bottleneckName: string | null = null;
+        let parts: Array<{
+          sku: string;
+          name: string;
+          qtyPerKit: number;
+          available: number;
+          isBottleneck: boolean;
+        }> = [];
         if (!isPart) {
           let cap = capCache.get(line.kitProductId);
           if (!cap) {
             cap = await this.calculations.getKitCapacity(line.kitProductId);
             capCache.set(line.kitProductId, cap);
           }
-          bottleneckSku =
-            cap.bottleneckComponentId != null
-              ? (cap.components.find((c) => c.componentProductId === cap!.bottleneckComponentId)
-                  ?.product?.sku ?? null)
-              : null;
+          const bottleneck = cap.components.find(
+            (c) => c.componentProductId === cap!.bottleneckComponentId,
+          );
+          bottleneckSku = bottleneck?.product?.sku ?? null;
+          bottleneckName = bottleneck?.product?.name ?? bottleneckSku;
+          parts = cap.components
+            .filter((c) => c.constrainsCapacity && c.product)
+            .map((c) => ({
+              sku: c.product!.sku,
+              name: c.product!.name,
+              qtyPerKit: c.qtyPerKit,
+              available: c.available,
+              isBottleneck: c.componentProductId === cap!.bottleneckComponentId,
+            }));
         }
         const softNeed = demand.get(line.kitProductId)?.soft ?? 0;
         const mixedNeed = mixKitDemand(
@@ -121,9 +139,35 @@ export class PackingListService {
         );
         const targetPack = uncoveredKitDemand(mixedNeed, line.stockKits);
         const partsBlocked = !isPart && targetPack > 0 && line.maxFromParts < targetPack;
-        return { ...line, bottleneckSku, targetPack, partsBlocked };
+        return {
+          ...line,
+          bottleneckSku,
+          bottleneckName,
+          parts,
+          targetPack,
+          partsBlocked,
+        };
       }),
     );
+  }
+
+  /** Friday cron: keep an existing draft/approved list; do not overwrite. */
+  async proposeForCurrentCycle(replaceDraft = false) {
+    const cycleStart = packCycleStartUtc();
+    const existing = await this.prisma.packingList.findFirst({
+      where: {
+        cycleStart,
+        status: { in: [PackingListStatus.DRAFT, PackingListStatus.APPROVED] },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+    if (existing?.status === PackingListStatus.APPROVED) {
+      return { skipped: true as const, reason: "already_approved", list: await this.get(existing.id) };
+    }
+    if (existing?.status === PackingListStatus.DRAFT && !replaceDraft) {
+      return { skipped: true as const, reason: "draft_exists", list: await this.get(existing.id) };
+    }
+    return { skipped: false as const, ...(await this.propose()) };
   }
 
   async propose(cycleStartIso?: string) {
@@ -135,12 +179,15 @@ export class PackingListService {
     const freshness = evaluateSnapshotFreshness(posted, settings.snapshotMaxAgeDays);
     assertFreshSnapshot(freshness);
 
-    const cycleStart = cycleStartIso ? startOfDay(new Date(cycleStartIso)) : startOfDay(new Date());
-    if (Number.isNaN(cycleStart.getTime())) throw new BadRequestException("Invalid cycleStart");
-    const cycleEnd = new Date(cycleStart);
-    cycleEnd.setDate(cycleEnd.getDate() + settings.packCycleDays);
+    let cycleStart: Date;
+    try {
+      cycleStart = resolvePackCycleStartUtc(cycleStartIso);
+    } catch {
+      throw new BadRequestException("Invalid cycleStart");
+    }
+    const cycleEnd = packCycleEndUtc(instantToKyivYmd(cycleStart), settings.packCycleDays);
 
-    const forecast14 = await this.forecast.getForecastMap(14);
+    const forecastCycle = await this.forecast.getForecastMap(settings.packCycleDays);
     const demand = await this.calculations.getDemandByProduct();
     const kits = await this.prisma.product.findMany({
       where: { kind: ProductKind.KIT, isActive: true },
@@ -163,7 +210,7 @@ export class PackingListService {
       const stockKits = stock.available;
       const hardNeed = demand.get(kit.id)?.hard ?? 0;
       const softNeed = demand.get(kit.id)?.soft ?? 0;
-      const forecastNeed = forecast14.get(kit.id) ?? 0;
+      const forecastNeed = forecastCycle.get(kit.id) ?? 0;
       const mixedNeed = mixKitDemand(settings.demandMix, hardNeed, forecastNeed, softNeed);
       const targetPack = uncoveredKitDemand(mixedNeed, stockKits);
       if (targetPack <= 0) continue;
@@ -219,21 +266,46 @@ export class PackingListService {
 
     for (const c of candidates) {
       const desired = allocated.get(c.kitProductId) ?? 0;
-      if (desired <= 0) continue;
-      const maxFromParts = await this.maxBuildFromParts(c.kitProductId, desired, partStock, bomByKit);
-      if (maxFromParts <= 0) continue;
-      await this.consumeParts(c.kitProductId, maxFromParts, partStock, bomByKit);
-      lines.push({
-        kitProductId: c.kitProductId,
-        qtySuggested: maxFromParts,
-        qtyApproved: maxFromParts,
-        maxFromParts,
-        priority: c.priority,
-        hardNeed: c.hardNeed,
-        forecastNeed: c.forecastNeed,
-        stockKits: c.stockKits,
-        targetPack: c.targetPack,
-      });
+      if (desired > 0) {
+        const maxFromParts = await this.maxBuildFromParts(
+          c.kitProductId,
+          desired,
+          partStock,
+          bomByKit,
+        );
+        if (maxFromParts > 0) {
+          await this.consumeParts(c.kitProductId, maxFromParts, partStock, bomByKit);
+          lines.push({
+            kitProductId: c.kitProductId,
+            qtySuggested: maxFromParts,
+            qtyApproved: maxFromParts,
+            maxFromParts,
+            priority: c.priority,
+            hardNeed: c.hardNeed,
+            forecastNeed: c.forecastNeed,
+            stockKits: c.stockKits,
+            targetPack: c.targetPack,
+          });
+          continue;
+        }
+      }
+      const canNow =
+        desired > 0
+          ? 0
+          : await this.maxBuildFromParts(c.kitProductId, c.targetPack, partStock, bomByKit);
+      if (canNow <= 0) {
+        lines.push({
+          kitProductId: c.kitProductId,
+          qtySuggested: 0,
+          qtyApproved: 0,
+          maxFromParts: 0,
+          priority: c.priority,
+          hardNeed: c.hardNeed,
+          forecastNeed: c.forecastNeed,
+          stockKits: c.stockKits,
+          targetPack: c.targetPack,
+        });
+      }
     }
 
     // Redistribute leftover capacity to kits that still have room vs target and parts.
@@ -242,6 +314,7 @@ export class PackingListService {
     if (leftover > 0) {
       for (const line of lines) {
         if (leftover <= 0) break;
+        if (line.maxFromParts <= 0) continue;
         const roomToTarget = Math.max(0, line.targetPack - line.qtyApproved);
         if (roomToTarget <= 0) continue;
         const extraCap = await this.maxBuildFromParts(
@@ -259,10 +332,49 @@ export class PackingListService {
         used += extraCap;
       }
     }
+    if (leftover > 0) {
+      const inRequest = new Set(lines.filter((l) => l.qtyApproved > 0).map((l) => l.kitProductId));
+      for (const c of candidates) {
+        if (leftover <= 0) break;
+        if (inRequest.has(c.kitProductId)) continue;
+        const existing = lines.find((l) => l.kitProductId === c.kitProductId);
+        const already = existing?.qtyApproved ?? 0;
+        const room = c.targetPack - already;
+        if (room <= 0) continue;
+        const extraCap = await this.maxBuildFromParts(
+          c.kitProductId,
+          Math.min(room, leftover),
+          partStock,
+          bomByKit,
+        );
+        if (extraCap <= 0) continue;
+        await this.consumeParts(c.kitProductId, extraCap, partStock, bomByKit);
+        if (existing) {
+          existing.qtyApproved += extraCap;
+          existing.qtySuggested += extraCap;
+          existing.maxFromParts += extraCap;
+        } else {
+          lines.push({
+            kitProductId: c.kitProductId,
+            qtySuggested: extraCap,
+            qtyApproved: extraCap,
+            maxFromParts: extraCap,
+            priority: c.priority,
+            hardNeed: c.hardNeed,
+            forecastNeed: c.forecastNeed,
+            stockKits: c.stockKits,
+            targetPack: c.targetPack,
+          });
+        }
+        inRequest.add(c.kitProductId);
+        leftover -= extraCap;
+        used += extraCap;
+      }
+    }
 
     const partLines = await this.buildPartPackLines({
       settings,
-      forecast14,
+      forecastCycle,
       demand,
       capacityLimit,
       usedCapacity: lines.reduce((s, l) => s + l.qtyApproved, 0),
@@ -271,9 +383,26 @@ export class PackingListService {
 
     const persisted = filterPackableProposedLines(lines);
     if (persisted.length === 0) {
-      throw new BadRequestException("No kits or parts can be packed from current stock/WIP");
+      throw new BadRequestException(
+        "No packing need this week — finished kits already cover orders and the weekly forecast",
+      );
     }
     used = persisted.reduce((s, l) => s + l.qtyApproved, 0);
+
+    const approvedSameCycle = await this.prisma.packingList.findFirst({
+      where: { cycleStart, status: PackingListStatus.APPROVED },
+      select: { id: true },
+    });
+    if (approvedSameCycle) {
+      throw new BadRequestException("This week's packing list is already approved");
+    }
+    const draftSameCycle = await this.prisma.packingList.findFirst({
+      where: { cycleStart, status: PackingListStatus.DRAFT },
+      select: { id: true },
+    });
+    if (draftSameCycle) {
+      await this.prisma.packingList.delete({ where: { id: draftSameCycle.id } });
+    }
 
     const created = await this.prisma.packingList.create({
       data: {
@@ -400,7 +529,7 @@ export class PackingListService {
     if (list.status !== PackingListStatus.APPROVED) {
       throw new BadRequestException("Only APPROVED packing lists can be marked DONE");
     }
-    return this.prisma.packingList.update({
+    const done = await this.prisma.packingList.update({
       where: { id },
       data: { status: PackingListStatus.DONE },
       include: {
@@ -409,6 +538,7 @@ export class PackingListService {
         },
       },
     });
+    return { ...done, lines: await this.enrichLines(done.lines) };
   }
 
   async updateCycleEnd(id: string, cycleEndIso: string) {
@@ -434,7 +564,7 @@ export class PackingListService {
 
   private async buildPartPackLines(input: {
     settings: Awaited<ReturnType<PlanningSettingsService["getSettings"]>>;
-    forecast14: Map<string, number>;
+    forecastCycle: Map<string, number>;
     demand: Map<string, { hard: number; soft: number }>;
     capacityLimit: number;
     usedCapacity: number;
@@ -482,7 +612,7 @@ export class PackingListService {
       const stock = await this.calculations.getAvailability(part.id);
       const hardNeed = input.demand.get(part.id)?.hard ?? 0;
       const softNeed = input.demand.get(part.id)?.soft ?? 0;
-      const forecastNeed = input.forecast14.get(part.id) ?? 0;
+      const forecastNeed = input.forecastCycle.get(part.id) ?? 0;
       const mixedNeed = mixKitDemand(
         input.settings.demandMix,
         hardNeed,
@@ -664,17 +794,16 @@ export class PackingListService {
   async exportExcel(id: string): Promise<StreamableFile> {
     const list = await this.get(id);
     const rows = list.lines.map((l) => ({
-      sku: l.kitProduct.sku,
-      name: l.kitProduct.name,
-      qtySuggested: l.qtySuggested,
-      qtyApproved: l.qtyApproved,
-      maxFromParts: l.maxFromParts,
-      targetPack: l.targetPack,
-      bottleneckSku: l.bottleneckSku,
-      hardNeed: l.hardNeed,
-      forecastNeed: l.forecastNeed,
-      stockKits: l.stockKits,
-      priority: l.priority,
+      kitSku: l.kitProduct.sku,
+      kitName: l.kitProduct.name,
+      parts: (l.parts ?? [])
+        .map((p) => `${p.name || p.sku} x${p.qtyPerKit} (stock ${p.available})`)
+        .join("; "),
+      need: l.targetPack,
+      canAssemble: l.maxFromParts,
+      inRequest: l.qtyApproved,
+      missingPart: l.bottleneckName ?? l.bottleneckSku ?? "",
+      why: l.priority === 0 ? "orders" : "stock",
     }));
     const wb = XLSX.utils.book_new();
     const ws = XLSX.utils.json_to_sheet(rows);
@@ -686,12 +815,6 @@ export class PackingListService {
       disposition: `attachment; filename="packing-list-${date}.xlsx"`,
     });
   }
-}
-
-function startOfDay(d: Date): Date {
-  const x = new Date(d);
-  x.setHours(0, 0, 0, 0);
-  return x;
 }
 
 function parseCycleEndDate(iso: string): Date {

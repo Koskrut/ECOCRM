@@ -12,10 +12,23 @@ test("PlanningSettingsService returns defaults when unset", async () => {
   };
   const service = new PlanningSettingsService(prisma as never);
   const s = await service.getSettings();
-  assert.equal(s.packCapacityPerCycle, 3500);
+  assert.equal(s.packCapacityPerCycle, 2000);
   assert.equal(s.factoryLeadTimeDays, 90);
-  assert.equal(s.packCycleDays, 14);
+  assert.equal(s.packCycleDays, 7);
   assert.equal(s.demandMix, PlanningDemandMix.HARD_PLUS_FORECAST_BEYOND_COVERED);
+});
+
+test("PlanningSettingsService migrates shipped 14-day / 3500 pack pair to weekly 2000", async () => {
+  const prisma = {
+    systemSetting: {
+      findUnique: async () => ({ value: { packCycleDays: 14, packCapacityPerCycle: 3500 } }),
+      upsert: async () => ({}),
+    },
+  };
+  const service = new PlanningSettingsService(prisma as never);
+  const s = await service.getSettings();
+  assert.equal(s.packCycleDays, 7);
+  assert.equal(s.packCapacityPerCycle, 2000);
 });
 
 test("PlanningSettingsService clamps and persists updates", async () => {

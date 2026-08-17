@@ -50,6 +50,11 @@ function CatalogProductCard({
             {t("catalog.sku")}: {item.sku}
           </Text>
         ) : null}
+        {item.externalCode ? (
+          <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 2 }]}>
+            1С: {item.externalCode}
+          </Text>
+        ) : null}
 
         {byWarehouse.length > 0 ? (
           <View style={[styles.chipRow, { marginTop: theme.spacing.sm }]}>

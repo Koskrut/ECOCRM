@@ -17,8 +17,6 @@ import {
 import { isTextSelected } from "@/lib/dom";
 import { withPreservedScroll } from "@/lib/modal/preserveScroll";
 import { formatPhoneDisplay, normalizePhone } from "@/lib/formatPhone";
-import { ContactModal } from "./ContactModal";
-import { CompanyModal } from "../companies/CompanyModal";
 import {
   ContactsFiltersPopover,
   type ContactsFiltersState,
@@ -35,6 +33,8 @@ import { strings } from "@/locales";
 import { HelpHint } from "@/components/help/HelpHint";
 import { useListColumns } from "@/lib/lists/useListColumns";
 import { renderCellText } from "@/lib/lists/renderCell";
+import { useEntityModalStack, type EntityModalFrame } from "@/lib/modal/useEntityModalStack";
+import { EntityModalStackLayers } from "@/components/modals/EntityModalStackLayers";
 
 const PAGE_SIZE = 20;
 type ContactsSortBy = "createdAt" | "updatedAt" | "name" | "hasCallToday" | "hasMissedCall";
@@ -149,7 +149,11 @@ function ContactsPageContent() {
   const searchParams = useSearchParams();
 
   const contactId = searchParams.get("contactId");
-  const [companyId, setCompanyId] = useState<string | null>(null);
+  const root = useMemo<EntityModalFrame | null>(
+    () => (contactId ? { type: "contact", id: contactId } : null),
+    [contactId],
+  );
+  const stack = useEntityModalStack(root);
 
   const [items, setItems] = useState<Contact[]>([]);
   const [workItems, setWorkItems] = useState<ContactWorkQueueItem[]>([]);
@@ -400,12 +404,14 @@ function ContactsPageContent() {
   }, []);
 
   const openContact = (id: string) => {
+    stack.closeAll();
     const params = new URLSearchParams(searchParams.toString());
     params.set("contactId", id);
     router.replace(`${pathname}?${params.toString()}`, { scroll: false });
   };
 
   const openCreate = () => {
+    stack.closeAll();
     const params = new URLSearchParams(searchParams.toString());
     params.set("contactId", "new");
     if (filterCompanyId) params.set("prefillCompanyId", filterCompanyId);
@@ -429,18 +435,26 @@ function ContactsPageContent() {
   }, [contactId, searchParams]);
 
   const closeModal = () => {
+    stack.closeAll();
     const params = new URLSearchParams(searchParams.toString());
     params.delete("contactId");
     const newUrl = params.toString() ? `${pathname}?${params.toString()}` : pathname;
     router.replace(newUrl, { scroll: false });
   };
 
-  const openCompany = (id: string) => {
-    setCompanyId(id);
+  const closeFrom = (index: number) => {
+    if (index <= 0) {
+      closeModal();
+      return;
+    }
+    stack.closeFrom(index);
   };
 
-  const closeCompanyModal = () => {
-    setCompanyId(null);
+  const replaceRoot = (frame: EntityModalFrame) => {
+    if (frame.type !== "contact") return;
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("contactId", frame.id);
+    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
   };
 
   const applyPopoverFilters = (next: ContactsFiltersState) => {
@@ -1242,28 +1256,19 @@ function ContactsPageContent() {
         </div>
       </div>
 
-      {contactId && (
-        <ContactModal
-          apiBaseUrl="/api"
-          contactId={contactId}
-          initialCreate={contactCreateInitial}
-          onClose={closeModal}
-          onCreated={openContact}
-          onOpenCompany={openCompany}
-          onUpdate={() => void reload({ keepPage: true, silent: true })}
+      {root ? (
+        <EntityModalStackLayers
+          frames={stack.frames}
+          root={root}
           userRole={userRole}
-        />
-      )}
-
-      {companyId && (
-        <CompanyModal
-          apiBaseUrl="/api"
-          companyId={companyId}
-          onClose={closeCompanyModal}
+          onOpen={stack.open}
+          onCloseFrom={closeFrom}
+          onReplace={stack.replace}
+          onReplaceRoot={replaceRoot}
           onUpdate={() => void reload({ keepPage: true, silent: true })}
-          zIndex={60}
+          contactInitialCreate={contactCreateInitial}
         />
-      )}
+      ) : null}
     </div>
   );
 }

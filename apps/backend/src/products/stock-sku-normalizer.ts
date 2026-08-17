@@ -8,13 +8,15 @@ import {
 
 /** SKU lookup for stock Excel uploads (primary article + fuzzy match). */
 
-export type StockSkuProductRef = { id: string; sku: string };
+export type StockSkuProductRef = { id: string; sku: string; externalCode?: string | null };
 
 export type StockSkuIndex = {
   /** Exact trimmed SKU from DB. */
   exact: Map<string, StockSkuProductRef>;
   /** Primary article code (10.046) → product with SKU like «10.046 | name». */
   byArticle: Map<string, StockSkuProductRef>;
+  /** Exact 1C nomenclature code. */
+  byExternalCode: Map<string, StockSkuProductRef>;
   /** All products with normalized SKU for fuzzy matching. */
   candidates: ProductCandidate[];
 };
@@ -31,22 +33,33 @@ function indexProductArticles(
   }
 }
 
+function indexExternalCode(
+  product: StockSkuProductRef,
+  byExternalCode: Map<string, StockSkuProductRef>,
+): void {
+  const code = product.externalCode?.trim();
+  if (!code || byExternalCode.has(code)) return;
+  byExternalCode.set(code, product);
+}
+
 export function buildStockSkuIndex(products: StockSkuProductRef[]): StockSkuIndex {
   const exact = new Map<string, StockSkuProductRef>();
   const byArticle = new Map<string, StockSkuProductRef>();
+  const byExternalCode = new Map<string, StockSkuProductRef>();
   const candidates: ProductCandidate[] = [];
   for (const p of products) {
     const trimmed = p.sku.trim();
     if (!trimmed) continue;
     exact.set(trimmed, p);
     indexProductArticles(p, byArticle);
+    indexExternalCode(p, byExternalCode);
     candidates.push({
       id: p.id,
       sku: p.sku,
       skuNormalized: normalizeArticle(p.sku),
     });
   }
-  return { exact, byArticle, candidates };
+  return { exact, byArticle, byExternalCode, candidates };
 }
 
 export function registerProductInStockIndex(
@@ -57,6 +70,7 @@ export function registerProductInStockIndex(
   if (!trimmed) return;
   index.exact.set(trimmed, product);
   indexProductArticles(product, index.byArticle);
+  indexExternalCode(product, index.byExternalCode);
   index.candidates.push({
     id: product.id,
     sku: product.sku,
@@ -106,6 +120,9 @@ export function resolveStockSkuToProduct(
 
   const exactHit = index.exact.get(trimmed);
   if (exactHit) return exactHit;
+
+  const codeHit = index.byExternalCode.get(trimmed);
+  if (codeHit) return codeHit;
 
   const articleHit = lookupByArticleKeys(articleLookupKeys(trimmed), index.byArticle);
   if (articleHit) return articleHit;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { strings } from "@/locales";
 import {
@@ -451,6 +451,79 @@ export function ForecastPanel({ onError }: { onError: (msg: string) => void }) {
   );
 }
 
+function formatPartQty(n: number): string {
+  if (!Number.isFinite(n)) return "0";
+  if (Number.isInteger(n)) return String(n);
+  return String(Math.round(n * 100) / 100);
+}
+
+function KitPartsCell({
+  line,
+}: {
+  line: NonNullable<PackingList["lines"]>[number];
+}) {
+  const t = strings.planning;
+  if (line.kitProduct.kind === "PART") {
+    return <p className="text-xs text-zinc-500">{t.labels.partLineHint}</p>;
+  }
+  const parts = line.parts ?? [];
+  if (parts.length === 0) {
+    return <p className="text-xs text-zinc-500">{t.labels.noKitParts}</p>;
+  }
+  const kitsForParts = Math.max(line.qtyApproved, line.targetPack ?? 0);
+  return (
+    <ul className="space-y-1 text-xs text-zinc-700">
+      {parts.map((part) => {
+        const need = part.qtyPerKit * kitsForParts;
+        const short = part.available < need || part.isBottleneck;
+        const title = part.name && part.name !== part.sku ? part.name : part.sku;
+        const skuHint = part.name && part.name !== part.sku ? ` (${part.sku})` : "";
+        return (
+          <li
+            key={part.sku}
+            className={short ? "text-rose-700" : ""}
+            title={`${title}${skuHint}`}
+          >
+            <span className="font-medium">{title}</span>
+            {" · "}
+            {t.labels.partQtyPerKit(formatPartQty(part.qtyPerKit))}
+            {kitsForParts > 0 ? (
+              <>
+                {" · "}
+                {t.labels.partNeedForRequest(formatPartQty(need))}
+              </>
+            ) : null}
+            {" · "}
+            {t.labels.partOnStock(formatPartQty(part.available))}
+            {short ? ` · ${t.labels.missingPart}` : null}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+type PackWeekFilter = "all" | "can" | "blocked";
+
+function WeekFillBar({ used, limit }: { used: number; limit: number }) {
+  const pct = limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : 0;
+  const bar =
+    pct >= 90 ? "h-full bg-emerald-500" : pct >= 50 ? "h-full bg-cyan-600" : "h-full bg-amber-500";
+  return (
+    <div>
+      <div className="mb-1 flex justify-between text-xs text-zinc-600">
+        <span>
+          {used} / {limit}
+        </span>
+        <span>{pct}%</span>
+      </div>
+      <div className="h-2 overflow-hidden rounded-full bg-zinc-100">
+        <div className={bar} style={{ width: `${pct}%` }} />
+      </div>
+    </div>
+  );
+}
+
 export function PackingPanel({ onError }: { onError: (msg: string) => void }) {
   const t = strings.planning;
   const reportError = useStableErrorHandler(onError);
@@ -459,6 +532,7 @@ export function PackingPanel({ onError }: { onError: (msg: string) => void }) {
   const [busy, setBusy] = useState(false);
   const [qtys, setQtys] = useState<Record<string, string>>({});
   const [cycleEndEdit, setCycleEndEdit] = useState("");
+  const [filter, setFilter] = useState<PackWeekFilter>("all");
 
   const applyActive = useCallback((full: PackingList) => {
     setActive(full);
@@ -469,22 +543,61 @@ export function PackingPanel({ onError }: { onError: (msg: string) => void }) {
   }, []);
 
   const reloadLists = useCallback(async () => {
-    setLists(await planningApi.listPackingLists(30));
+    const next = await planningApi.listPackingLists(30);
+    setLists(next);
+    return next;
   }, []);
 
   useEffect(() => {
     void (async () => {
       try {
-        await reloadLists();
+        const next = await reloadLists();
+        if (next[0]) applyActive(await planningApi.getPackingList(next[0].id));
       } catch (e) {
         reportError(e instanceof Error ? e.message : t.errors.packing);
       }
     })();
-  }, [reportError, reloadLists, t.errors.packing]);
+  }, [applyActive, reloadLists, reportError, t.errors.packing]);
+
+  const lines = active?.lines ?? [];
+  const weekNeed = lines.reduce((s, l) => s + (l.targetPack ?? 0), 0);
+  const weekCan = lines.reduce((s, l) => s + Math.max(0, l.maxFromParts), 0);
+  const weekRequest = active?.capacityUsed ?? 0;
+  const weekLimit = active?.capacityLimit ?? 2000;
+  const blockedCount = lines.filter((l) => (l.targetPack ?? 0) > 0 && l.maxFromParts <= 0).length;
+
+  const filtered = useMemo(() => {
+    if (filter === "can") return lines.filter((l) => l.maxFromParts > 0);
+    if (filter === "blocked") {
+      return lines.filter((l) => (l.targetPack ?? 0) > 0 && l.maxFromParts <= 0);
+    }
+    return lines;
+  }, [lines, filter]);
 
   return (
     <div className="space-y-4">
       <p className="text-sm text-zinc-600">{t.messages.packingHint}</p>
+
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+        <StatCard title={t.labels.weekNeed} value={String(weekNeed)} />
+        <StatCard title={t.labels.weekCan} value={String(weekCan)} />
+        <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
+          <p className="text-sm text-zinc-500">{t.labels.weekRequest}</p>
+          <p className="mt-2 text-sm font-medium text-zinc-900">
+            {weekRequest} / {weekLimit}
+          </p>
+          <div className="mt-3">
+            <WeekFillBar used={weekRequest} limit={weekLimit} />
+          </div>
+        </div>
+      </div>
+
+      {active && weekRequest < weekLimit ? (
+        <p className="text-sm text-amber-800">
+          {t.messages.weekShortfall(weekRequest, weekLimit, blockedCount)}
+        </p>
+      ) : null}
+
       <div className="flex flex-wrap gap-2">
         <button
           type="button"
@@ -517,11 +630,11 @@ export function PackingPanel({ onError }: { onError: (msg: string) => void }) {
                 void (async () => {
                   setBusy(true);
                   try {
-                    const lines = Object.entries(qtys).map(([kitProductId, qty]) => ({
+                    const nextLines = Object.entries(qtys).map(([kitProductId, qty]) => ({
                       kitProductId,
                       qtyApproved: Number(qty) || 0,
                     }));
-                    const updated = await planningApi.updatePackingLines(active.id, lines);
+                    const updated = await planningApi.updatePackingLines(active.id, nextLines);
                     applyActive(updated);
                     await reloadLists();
                   } catch (e) {
@@ -536,7 +649,7 @@ export function PackingPanel({ onError }: { onError: (msg: string) => void }) {
             </button>
             <button
               type="button"
-              disabled={busy}
+              disabled={busy || weekRequest <= 0}
               className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
               onClick={() => {
                 void (async () => {
@@ -591,43 +704,30 @@ export function PackingPanel({ onError }: { onError: (msg: string) => void }) {
         ) : null}
       </div>
 
-      <Panel title={t.tabs.packing}>
-        <SimpleTable
-          headers={[
-            t.labels.status,
-            t.labels.cycleEnd,
-            t.labels.capacityUsed,
-            t.labels.createdAt,
-            t.labels.actions,
-          ]}
-          rows={lists.map((list) => [
-            planningDocStatusLabel(list.status),
-            formatDateTime(list.cycleEnd),
-            `${list.capacityUsed} / ${list.capacityLimit}`,
-            formatDateTime(list.createdAt),
-            <button
-              key={list.id}
-              type="button"
-              className="text-cyan-700 underline"
-              onClick={() => {
-                void (async () => {
-                  try {
-                    applyActive(await planningApi.getPackingList(list.id));
-                  } catch (e) {
-                    reportError(e instanceof Error ? e.message : t.errors.packing);
-                  }
-                })();
-              }}
-            >
-              {t.actions.open}
-            </button>,
-          ])}
-          noDataLabel={t.states.noPackingLists}
-        />
-      </Panel>
-
-      {active ? (
-        <Panel title={`${planningCycleStatusLabel(active.status)} · ${formatDateTime(active.cycleStart)}`}>
+      {!active ? (
+        <Panel>
+          <p className="text-sm text-zinc-600">{t.messages.packingEmpty}</p>
+        </Panel>
+      ) : (
+        <Panel
+          title={`${planningCycleStatusLabel(active.status)} · ${formatDateTime(active.cycleStart)}`}
+        >
+          <div className="mb-3 flex flex-wrap gap-2">
+            {(["all", "can", "blocked"] as PackWeekFilter[]).map((f) => (
+              <button
+                key={f}
+                type="button"
+                onClick={() => setFilter(f)}
+                className={
+                  filter === f
+                    ? "rounded-full bg-cyan-600 px-4 py-1.5 text-sm text-white"
+                    : "rounded-full border border-zinc-200 px-4 py-1.5 text-sm text-zinc-700"
+                }
+              >
+                {f === "all" ? t.filters.all : f === "can" ? t.filters.canNow : t.filters.blocked}
+              </button>
+            ))}
+          </div>
           {active.status !== "DONE" ? (
             <div className="mb-3 flex flex-wrap items-center gap-2">
               <label className="flex items-center gap-2 text-sm text-zinc-700">
@@ -664,36 +764,85 @@ export function PackingPanel({ onError }: { onError: (msg: string) => void }) {
           ) : null}
           <SimpleTable
             headers={[
-              t.labels.sku,
-              t.labels.qtySuggested,
-              t.labels.qtyApproved,
-              t.labels.maxFromParts,
-              t.labels.hardShort,
-              t.labels.forecast14,
+              t.labels.kit,
+              t.labels.kitParts,
+              t.labels.packNeed,
+              t.labels.canAssemble,
+              t.labels.weekRequest,
+              t.labels.whyInRequest,
             ]}
-            rows={(active.lines ?? []).map((line) => [
-              `${line.kitProduct.sku} — ${line.kitProduct.name}`,
-              String(line.qtySuggested),
-              active.status === "DRAFT" ? (
-                <input
-                  key={line.id}
-                  className="w-24 rounded border border-zinc-200 px-2 py-1"
-                  value={qtys[line.kitProductId] ?? String(line.qtyApproved)}
-                  onChange={(e) =>
-                    setQtys((prev) => ({ ...prev, [line.kitProductId]: e.target.value }))
-                  }
-                />
-              ) : (
-                String(line.qtyApproved)
-              ),
-              String(line.maxFromParts),
-              String(line.hardNeed),
-              String(line.forecastNeed),
-            ])}
+            rows={filtered.map((line) => {
+              const need = line.targetPack ?? 0;
+              const blocked = need > 0 && line.maxFromParts <= 0;
+              return [
+                <span key={line.id}>
+                  <span className={`block font-medium ${blocked ? "text-rose-700" : ""}`}>
+                    {line.kitProduct.name}
+                  </span>
+                  <span className="block text-xs text-zinc-500">{line.kitProduct.sku}</span>
+                  {line.priority === 0 ? (
+                    <span className="mt-1 inline-block rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-900">
+                      {t.labels.ordersPriority}
+                    </span>
+                  ) : null}
+                </span>,
+                <KitPartsCell key={`${line.id}-parts`} line={line} />,
+                String(need),
+                String(line.maxFromParts),
+                active.status === "DRAFT" && line.maxFromParts > 0 ? (
+                  <input
+                    key={`${line.id}-qty`}
+                    className="w-24 rounded border border-zinc-200 px-2 py-1"
+                    value={qtys[line.kitProductId] ?? String(line.qtyApproved)}
+                    onChange={(e) =>
+                      setQtys((prev) => ({ ...prev, [line.kitProductId]: e.target.value }))
+                    }
+                  />
+                ) : (
+                  String(line.qtyApproved)
+                ),
+                line.priority === 0 ? t.labels.ordersPriority : t.labels.stockPriority,
+              ];
+            })}
             noDataLabel={t.states.noData}
           />
         </Panel>
-      ) : null}
+      )}
+
+      <Panel title={t.labels.previousPackWeeks}>
+        <SimpleTable
+          headers={[
+            t.labels.status,
+            t.labels.cycleEnd,
+            t.labels.capacityUsed,
+            t.labels.createdAt,
+            t.labels.actions,
+          ]}
+          rows={lists.map((list) => [
+            planningDocStatusLabel(list.status),
+            formatDateTime(list.cycleEnd),
+            `${list.capacityUsed} / ${list.capacityLimit}`,
+            formatDateTime(list.createdAt),
+            <button
+              key={list.id}
+              type="button"
+              className="text-cyan-700 underline"
+              onClick={() => {
+                void (async () => {
+                  try {
+                    applyActive(await planningApi.getPackingList(list.id));
+                  } catch (e) {
+                    reportError(e instanceof Error ? e.message : t.errors.packing);
+                  }
+                })();
+              }}
+            >
+              {t.actions.open}
+            </button>,
+          ])}
+          noDataLabel={t.states.noPackingLists}
+        />
+      </Panel>
     </div>
   );
 }
@@ -1794,6 +1943,7 @@ export function PlanningSettingsPanel({
 
   return (
     <Panel title={t.labels.planningSettings}>
+      <p className="mb-3 text-sm text-zinc-600">{t.messages.packSettingsHint}</p>
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
         {(
           [

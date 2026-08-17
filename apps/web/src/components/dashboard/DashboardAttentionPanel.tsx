@@ -9,9 +9,22 @@ type Props = {
   attention: DashboardV2Response["attention"];
   currency: BaseCurrency;
   showAnalyticsLink?: boolean;
+  /** Selected dashboard manager filter → passed as ownerId on order/lead links. */
+  ownerId?: string;
 };
 
-export function DashboardAttentionPanel({ attention, currency, showAnalyticsLink }: Props) {
+function withOwnerId(href: string, ownerId?: string): string {
+  if (!ownerId) return href;
+  const sep = href.includes("?") ? "&" : "?";
+  return `${href}${sep}ownerId=${encodeURIComponent(ownerId)}`;
+}
+
+export function DashboardAttentionPanel({
+  attention,
+  currency,
+  showAnalyticsLink,
+  ownerId,
+}: Props) {
   const attentionHref = "/analytics/attention";
 
   return (
@@ -42,19 +55,19 @@ export function DashboardAttentionPanel({ attention, currency, showAnalyticsLink
         <AttentionTile
           title="Завислі угоди"
           count={attention.crm.stuckOrdersCount}
-          href="/orders?attention=stuck"
+          href={withOwnerId("/orders?attention=stuck", ownerId)}
           hint="Без руху стадії > 3 дні"
         />
         <AttentionTile
           title="Ліди без дотику"
           count={attention.crm.leadsWithoutTouchCount}
-          href="/leads?attention=without-touch"
+          href={withOwnerId("/leads?attention=without-touch", ownerId)}
           hint="Нові / в роботі без активності"
         />
         <AttentionTile
           title="Прострочені оплати"
           count={attention.finance.overdueOrdersCount}
-          href="/orders?attention=overdue-payments"
+          href={withOwnerId("/orders?attention=overdue-payments", ownerId)}
           hint="Прострочені з боргом"
         />
       </div>

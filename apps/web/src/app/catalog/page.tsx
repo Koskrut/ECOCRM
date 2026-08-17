@@ -190,6 +190,7 @@ function EditProductModal({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sku, setSku] = useState("");
+  const [externalCode, setExternalCode] = useState("");
   const [name, setName] = useState("");
   const [unit, setUnit] = useState("");
   const [basePrice, setBasePrice] = useState<string>("");
@@ -201,6 +202,7 @@ function EditProductModal({
     if (!open || !product) return;
     setError(null);
     setSku(product.sku ?? "");
+    setExternalCode(product.externalCode ?? "");
     setName(product.name ?? "");
     setUnit(product.unit ?? "");
     setBasePrice(String(product.basePrice ?? 0));
@@ -228,6 +230,7 @@ function EditProductModal({
     try {
       await productsApi.updateProduct(product.id, {
         sku,
+        externalCode: externalCode.trim() || null,
         name,
         unit,
         basePrice: Number(basePrice),
@@ -278,6 +281,15 @@ function EditProductModal({
               value={sku}
               onChange={(e) => setSku(e.target.value)}
               className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm"
+            />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-xs font-medium text-zinc-600">Код 1С</span>
+            <input
+              value={externalCode}
+              onChange={(e) => setExternalCode(e.target.value)}
+              placeholder="000000190"
+              className="w-full rounded-md border border-zinc-300 px-3 py-2 font-mono text-sm"
             />
           </label>
           <label className="flex flex-col gap-1">
@@ -1086,6 +1098,7 @@ function AddProductModal({
   onSuccess: () => void;
 }) {
   const [sku, setSku] = useState("");
+  const [externalCode, setExternalCode] = useState("");
   const [name, setName] = useState("");
   const [unit, setUnit] = useState("pcs");
   const [basePrice, setBasePrice] = useState("");
@@ -1095,6 +1108,7 @@ function AddProductModal({
 
   const reset = useCallback(() => {
     setSku("");
+    setExternalCode("");
     setName("");
     setUnit("pcs");
     setBasePrice("");
@@ -1123,6 +1137,7 @@ function AddProductModal({
     try {
       await productsApi.createProduct({
         sku: skuTrim,
+        externalCode: externalCode.trim() || null,
         name: name.trim() || undefined,
         unit: unit.trim() || "pcs",
         basePrice: priceNum,
@@ -1157,6 +1172,19 @@ function AddProductModal({
               placeholder="например 00.105"
               className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
               autoFocus
+            />
+          </div>
+          <div>
+            <label htmlFor="add-product-1c" className="mb-1 block text-sm font-medium text-zinc-700">
+              Код 1С
+            </label>
+            <input
+              id="add-product-1c"
+              type="text"
+              value={externalCode}
+              onChange={(e) => setExternalCode(e.target.value)}
+              placeholder="необязательно"
+              className="w-full rounded-md border border-zinc-300 px-3 py-2 font-mono text-sm focus:border-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-500"
             />
           </div>
           <div>
@@ -1357,7 +1385,7 @@ function CatalogPageContent() {
     () => sortedWarehouses.map((w) => w.name),
     [sortedWarehouses],
   );
-  const tableColspan = (catalogReadOnly ? 5 : 8) + sortedWarehouses.length;
+  const tableColspan = (catalogReadOnly ? 6 : 9) + sortedWarehouses.length;
 
   useEffect(() => {
     const q = search.trim();
@@ -1494,11 +1522,12 @@ function CatalogPageContent() {
         <>
         <div className="hidden overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm sm:block">
             <div className="overflow-x-auto">
-            <table className="w-full min-w-[720px] text-sm">
+            <table className="w-full min-w-[800px] text-sm">
               <thead className="bg-zinc-100/80 text-left text-xs font-medium uppercase text-zinc-500">
                 <tr>
                   <th className="w-16 px-2 py-3">Фото</th>
                   <th className="px-4 py-3">Артикул</th>
+                  <th className="px-4 py-3">Код 1С</th>
                   <th className="px-4 py-3">Название</th>
                   <th className="px-4 py-3">Ед.</th>
                   <th className="px-4 py-3">Цена</th>
@@ -1593,6 +1622,9 @@ function CatalogPageContent() {
                                 />
                               </>
                             )}
+                          </td>
+                          <td className="px-4 py-3 font-mono text-xs text-zinc-600">
+                            {p.externalCode ?? "—"}
                           </td>
                           <td className="px-4 py-3 text-zinc-900">{p.name}</td>
                           <td className="px-4 py-3 text-zinc-600">{p.unit}</td>

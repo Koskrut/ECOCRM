@@ -121,22 +121,22 @@ export class InventorySnapshotService {
     const [kits, bomLines] = await Promise.all([
       this.prisma.product.findMany({
         where: { kind: ProductKind.KIT, isActive: true },
-        select: { sku: true },
+        select: { sku: true, externalCode: true },
       }),
       this.prisma.kitBomLine.findMany({
         where: { bom: { isActive: true } },
-        select: { component: { select: { sku: true } } },
+        select: { component: { select: { sku: true, externalCode: true } } },
       }),
     ]);
     const relevant = new Set<string>();
-    for (const kit of kits) {
-      const sku = normalizeSnapshotSku(kit.sku);
-      if (sku) relevant.add(sku);
-    }
-    for (const line of bomLines) {
-      const sku = normalizeSnapshotSku(line.component.sku);
-      if (sku) relevant.add(sku);
-    }
+    const add = (sku: string | null | undefined, externalCode?: string | null) => {
+      const normalizedSku = sku ? normalizeSnapshotSku(sku) : "";
+      if (normalizedSku) relevant.add(normalizedSku);
+      const code = externalCode?.trim();
+      if (code) relevant.add(code);
+    };
+    for (const kit of kits) add(kit.sku, kit.externalCode);
+    for (const line of bomLines) add(line.component.sku, line.component.externalCode);
     return relevant;
   }
 
@@ -183,12 +183,17 @@ export class InventorySnapshotService {
 
     const skuSet = Array.from(new Set(entries.map((e) => e.skuNormalized)));
     const products = await this.prisma.product.findMany({
-      where: { sku: { in: skuSet } },
-      select: { id: true, sku: true },
+      where: {
+        OR: [{ sku: { in: skuSet } }, { externalCode: { in: skuSet } }],
+      },
+      select: { id: true, sku: true, externalCode: true },
     });
-    const productBySku = new Map(
-      products.map((p) => [normalizeSnapshotSku(p.sku), p.id]),
-    );
+    const productBySku = new Map<string, string>();
+    const productByExternalCode = new Map<string, string>();
+    for (const p of products) {
+      productBySku.set(normalizeSnapshotSku(p.sku), p.id);
+      if (p.externalCode) productByExternalCode.set(p.externalCode.trim(), p.id);
+    }
 
     const whRawSet = Array.from(
       new Set(
@@ -224,7 +229,7 @@ export class InventorySnapshotService {
             return {
               skuRaw: e.skuNormalized,
               qty: e.qty,
-              productId: productBySku.get(e.skuNormalized) ?? null,
+              productId: productBySku.get(e.skuNormalized) ?? productByExternalCode.get(e.skuNormalized) ?? null,
               warehouseRaw,
               warehouseId: warehouseRaw ? (warehouseByRaw.get(warehouseRaw) ?? null) : null,
             };
@@ -235,7 +240,10 @@ export class InventorySnapshotService {
     });
 
     const unresolvedSku = entries
-      .filter((e) => !productBySku.has(e.skuNormalized))
+      .filter(
+        (e) =>
+          !productBySku.has(e.skuNormalized) && !productByExternalCode.has(e.skuNormalized),
+      )
       .map((e) => e.skuNormalized);
     const unresolvedWarehouses = entries
       .filter((e) => {

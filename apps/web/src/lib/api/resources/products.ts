@@ -10,6 +10,8 @@ export type StockByWarehouseItem = {
 export type ProductCatalogItem = {
   id: string;
   sku: string;
+  /** Код номенклатуры в 1С. */
+  externalCode?: string | null;
   name: string;
   unit: string;
   basePrice: number;
@@ -102,6 +104,7 @@ export type CreateMissingStockResult = {
 
 export type CreateProductPayload = {
   sku: string;
+  externalCode?: string | null;
   name?: string;
   unit?: string;
   basePrice?: number;
@@ -110,6 +113,7 @@ export type CreateProductPayload = {
 
 export type UpdateProductPayload = {
   sku?: string;
+  externalCode?: string | null;
   name?: string;
   unit?: string;
   basePrice?: number;

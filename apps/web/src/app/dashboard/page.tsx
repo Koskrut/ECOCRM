@@ -304,6 +304,7 @@ function DashboardPageContent() {
             attention={data.attention}
             currency={currency}
             showAnalyticsLink={isLeadership}
+            ownerId={managerId || undefined}
           />
           <DashboardRiskPanel />
           {financeEnabled ? (

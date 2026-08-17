@@ -76,8 +76,12 @@ type Props = {
   onCreated?: (id: string) => void;
   initialCreate?: ContactCreateInitial;
   onOpenCompany?: (id: string) => void;
+  onOpenOrder?: (id: string) => void;
+  onOpenReturn?: (id: string) => void;
   userRole?: string | null;
   zIndex?: number;
+  /** Bumps the orders list when a stacked order/return is saved outside this modal. */
+  externalOrdersReloadKey?: number;
 };
 
 export function ContactModal({
@@ -88,8 +92,11 @@ export function ContactModal({
   onCreated,
   initialCreate,
   onOpenCompany,
+  onOpenOrder,
+  onOpenReturn,
   userRole: userRoleProp,
   zIndex,
+  externalOrdersReloadKey,
 }: Props) {
   const [savedContactId, setSavedContactId] = useState<string | null>(null);
   const [justSavedBanner, setJustSavedBanner] = useState(false);
@@ -143,8 +150,13 @@ export function ContactModal({
 
   const [orderId, setOrderId] = useState<string | null>(null);
   const [returnId, setReturnId] = useState<string | null>(null);
+  const usesExternalOrders = Boolean(onOpenOrder);
+  const usesExternalReturns = Boolean(onOpenReturn);
+  const openOrder = onOpenOrder ?? setOrderId;
+  const openReturn = onOpenReturn ?? setReturnId;
   const [creatingOrder, setCreatingOrder] = useState(false);
   const [ordersReloadKey, setOrdersReloadKey] = useState(0);
+  const mergedOrdersReloadKey = ordersReloadKey + (externalOrdersReloadKey ?? 0);
 
   const [resetPasswordLoading, setResetPasswordLoading] = useState(false);
   const [queueingDialer, setQueueingDialer] = useState(false);
@@ -436,16 +448,16 @@ export function ContactModal({
       cancelInlineEditRef.current = null;
       return true;
     }
-    if (returnId) {
+    if (!usesExternalReturns && returnId) {
       setReturnId(null);
       return true;
     }
-    if (orderId) {
+    if (!usesExternalOrders && orderId) {
       setOrderId(null);
       return true;
     }
     return false;
-  }, [orderId, returnId]);
+  }, [orderId, returnId, usesExternalOrders, usesExternalReturns]);
 
   const saveCreate = async (opts?: { closeAfter?: boolean }) => {
     const closeAfter = opts?.closeAfter ?? false;
@@ -679,7 +691,7 @@ export function ContactModal({
         });
       }
 
-      setOrderId(createdId);
+      openOrder(createdId);
       setOrdersReloadKey((k) => k + 1);
       void cardSummary.refetch();
     } catch (e) {
@@ -690,7 +702,7 @@ export function ContactModal({
     } finally {
       setCreatingOrder(false);
     }
-  }, [contact?.companyId, effectiveContactId, creatingOrder, isCreate, cardSummary]);
+  }, [contact?.companyId, effectiveContactId, creatingOrder, isCreate, cardSummary, openOrder]);
 
   const enqueueDialer = useCallback(async () => {
     setQueueingDialer(true);
@@ -1072,11 +1084,11 @@ export function ContactModal({
       <EntitySection title={cardT.tabs.orders}>
         <div className="min-h-0 overflow-auto">
           <ContactOrdersPanel
-            key={ordersReloadKey}
+            key={mergedOrdersReloadKey}
             contactId={effectiveContactId}
-            reloadKey={ordersReloadKey}
-            onOpenOrder={(id) => setOrderId(id)}
-            onOpenReturn={(id) => setReturnId(id)}
+            reloadKey={mergedOrdersReloadKey}
+            onOpenOrder={openOrder}
+            onOpenReturn={openReturn}
           />
         </div>
       </EntitySection>
@@ -1087,7 +1099,7 @@ export function ContactModal({
         contactId={effectiveContactId}
         isCreate={isCreate}
         financeRestricted={cardSummary.data?.insights.financeRestricted}
-        onOpenOrder={(id) => setOrderId(id)}
+        onOpenOrder={openOrder}
         analytics={cardAnalytics.data}
         analyticsLoading={cardAnalytics.loading}
         analyticsError={cardAnalytics.error}
@@ -1177,11 +1189,11 @@ export function ContactModal({
         zIndex={zIndex}
       />
 
-      {orderId ? (
+      {!usesExternalOrders && orderId ? (
         <OrderModal
           apiBaseUrl={apiBaseUrl}
           orderId={orderId}
-          zIndex={60}
+          zIndex={(zIndex ?? 50) + 10}
           prefill={{
             clientId: effectiveContactId,
             companyId: contact?.companyId ?? null,
@@ -1191,14 +1203,15 @@ export function ContactModal({
             setOrdersReloadKey((k) => k + 1);
             void cardSummary.refetch();
           }}
-          onOpenOrder={(id) => setOrderId(id)}
+          onOpenOrder={openOrder}
+          onOpenCompany={onOpenCompany}
         />
       ) : null}
 
-      {returnId ? (
+      {!usesExternalReturns && returnId ? (
         <ReturnModal
           returnId={returnId}
-          zIndex={70}
+          zIndex={(zIndex ?? 50) + 20}
           onClose={() => setReturnId(null)}
           onSaved={() => {
             setOrdersReloadKey((k) => k + 1);
@@ -1206,7 +1219,7 @@ export function ContactModal({
           }}
           onOpenOrder={(id) => {
             setReturnId(null);
-            setOrderId(id);
+            openOrder(id);
           }}
         />
       ) : null}

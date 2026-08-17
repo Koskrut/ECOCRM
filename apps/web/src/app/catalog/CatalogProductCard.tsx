@@ -62,6 +62,9 @@ export function CatalogProductCard({
             className="w-full text-left"
           >
             <p className="font-mono text-sm font-medium text-zinc-900">{p.sku}</p>
+            {p.externalCode ? (
+              <p className="mt-0.5 font-mono text-xs text-zinc-500">1С {p.externalCode}</p>
+            ) : null}
             <p className="mt-0.5 line-clamp-2 text-sm text-zinc-800">{p.name}</p>
           </button>
 

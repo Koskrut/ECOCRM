@@ -10,17 +10,22 @@ import {
 import { resolvePresetPeriod } from "../../analytics/utils/analytics-date.util";
 
 describe("orders-attention.util", () => {
-  it("buildOrderOverduePaymentsWhere uses paymentDueDate overdue logic", () => {
+  it("buildOrderOverduePaymentsWhere uses paymentDueDate overdue logic and excludes closed stages", () => {
     const where = buildOrderOverduePaymentsWhere({}, new Date("2026-06-10T12:00:00.000Z"));
-    assert.ok(where.debtAmount);
-    assert.ok(where.paymentDueDate);
+    assert.ok(where.AND);
+    const and = where.AND as Array<Record<string, unknown>>;
+    assert.ok(and[0]?.debtAmount);
+    assert.ok(and[0]?.paymentDueDate);
+    assert.ok(and[1]?.OR);
+    const stageOr = and[1]?.OR as Array<{ orderStage?: unknown }>;
+    assert.ok(stageOr.some((clause) => clause.orderStage && typeof clause.orderStage === "object"));
   });
 
   it("buildOrderOverduePaymentsWhere applies owner scope", () => {
     const where = buildOrderOverduePaymentsWhere({ managerId: "mgr-1" });
     assert.ok(where.AND);
     const and = where.AND as Array<{ ownerId?: string }>;
-    assert.equal(and[1]?.ownerId, "mgr-1");
+    assert.equal(and[2]?.ownerId, "mgr-1");
   });
 
   it("buildStuckOrdersBaseWhere limits to period and active stages", () => {

@@ -37,7 +37,7 @@ export function computeDesiredDate(ctx: DesiredDateContext): string {
   const monthOffset = ctx.monthOffset ?? 0;
   const productionLead = ctx.productionLeadDays ?? 14;
   const packLead = ctx.packLeadDays ?? 3;
-  const packCycle = ctx.packCycleDays ?? 14;
+  const packCycle = ctx.packCycleDays ?? 7;
 
   const isPackLine =
     ctx.lineType === PlanningRunLineType.PACK || ctx.lineType === PlanningRunLineType.CAN_PACK;

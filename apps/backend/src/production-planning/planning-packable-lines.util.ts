@@ -3,7 +3,17 @@ export function isPackableFromParts(maxFromParts: number): boolean {
   return maxFromParts > 0;
 }
 
-/** Drop kits with no part stock before persisting a packing list. */
-export function filterPackableProposedLines<T extends { maxFromParts: number }>(lines: T[]): T[] {
-  return lines.filter((line) => isPackableFromParts(line.maxFromParts));
+/** Need this week, but no inventoried BOM parts / WIP to pack. */
+export function isBlockedPackLine(line: { maxFromParts: number; targetPack?: number }): boolean {
+  return (line.targetPack ?? 0) > 0 && line.maxFromParts <= 0;
+}
+
+/**
+ * Keep kits that go into this week's request, plus blocked need (qty 0)
+ * so Friday review still shows «нужно, но нельзя».
+ */
+export function filterPackableProposedLines<
+  T extends { maxFromParts: number; targetPack?: number },
+>(lines: T[]): T[] {
+  return lines.filter((line) => isPackableFromParts(line.maxFromParts) || isBlockedPackLine(line));
 }

@@ -193,14 +193,21 @@ export class SalesHistoryService {
 
     const skuSet = Array.from(new Set(parsed.map((p) => p.skuRaw)));
     const products = await this.prisma.product.findMany({
-      where: { sku: { in: skuSet } },
-      select: { id: true, sku: true },
+      where: {
+        OR: [{ sku: { in: skuSet } }, { externalCode: { in: skuSet } }],
+      },
+      select: { id: true, sku: true, externalCode: true },
     });
     const productBySku = new Map(products.map((p) => [p.sku, p.id]));
+    const productByExternalCode = new Map(
+      products
+        .filter((p) => p.externalCode)
+        .map((p) => [p.externalCode as string, p.id]),
+    );
     const unresolvedSku: string[] = [];
 
     const lineData = parsed.map((p) => {
-      const productId = productBySku.get(p.skuRaw) ?? null;
+      const productId = productBySku.get(p.skuRaw) ?? productByExternalCode.get(p.skuRaw) ?? null;
       if (!productId) unresolvedSku.push(p.skuRaw);
       return {
         productId,

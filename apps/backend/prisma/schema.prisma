@@ -1706,6 +1706,10 @@ model Warehouse {
 model Product {
   id             String      @id @default(cuid())
   sku            String      @unique
+  /**
+   * Код номенклатуры в 1С (напр. 000000190).
+   */
+  externalCode   String?     @unique
   name           String
   unit           String
   basePrice      Float

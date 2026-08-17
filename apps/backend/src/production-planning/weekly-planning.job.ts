@@ -8,6 +8,7 @@ import { PrismaService } from "../prisma/prisma.service";
 import { PlanningCalculationService } from "./planning-calculation.service";
 import { PlanningRunService } from "./planning-run.service";
 import { ProductionService } from "./production.service";
+import { PackingListService } from "./packing-list.service";
 
 function getWeekStart(date = new Date()): Date {
   const d = new Date(date);
@@ -27,6 +28,7 @@ export class WeeklyPlanningJob {
     private readonly production: ProductionService,
     private readonly calculations: PlanningCalculationService,
     private readonly planningRuns: PlanningRunService,
+    private readonly packingLists: PackingListService,
     @Inject(ModuleStateService) private readonly modules: ModuleStateService,
   ) {}
 
@@ -36,6 +38,32 @@ export class WeeklyPlanningJob {
     if (process.env.PLANNING_CRON_DISABLED === "true") return;
     if (process.env.CRON_ENABLED !== "true") return;
     await this.runNow();
+  }
+
+  /** Friday packing request (~2000 kits) — 06:00 */
+  @Cron("0 6 * * 5")
+  async proposeFridayPacking() {
+    if (process.env.PLANNING_CRON_DISABLED === "true") return;
+    if (process.env.CRON_ENABLED !== "true") return;
+    if (process.env.MODULE_GATING_ENABLED === "true") {
+      const ok = await this.modules.isEffective(ModuleIds.ProductionPlanning);
+      if (!ok) return;
+    }
+    return withAuditSource("cron", "cron:friday-packing", async () => {
+      try {
+        const result = await this.packingLists.proposeForCurrentCycle(false);
+        this.logger.log(
+          result.skipped
+            ? `Friday packing skipped (${result.reason}) list=${result.list.id}`
+            : `Friday packing draft ${result.list.id}; used=${result.list.capacityUsed}/${result.list.capacityLimit}`,
+        );
+        return result;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        this.logger.warn(`Friday packing propose skipped: ${message}`);
+        return { skipped: true as const, reason: "error", message };
+      }
+    }, { job: "friday-packing" });
   }
 
   /** Daily critical-only MRP — every day 06:30 */

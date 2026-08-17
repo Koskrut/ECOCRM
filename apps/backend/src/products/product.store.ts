@@ -33,7 +33,10 @@ type ProductListItem = Pick<
   | "primaryImageUrl"
   | "primaryImageId"
   | "characteristics"
->;
+> & {
+  /** Present on CRM catalog lists; omitted on the public storefront. */
+  externalCode?: string | null;
+};
 
 type ProductListItemWithAvailability = ProductListItem & {
   /** Physical stock minus active hard reservations. */
@@ -59,6 +62,7 @@ export type ProductListResultWithStockByWarehouse = {
 type PrismaProduct = {
   id: string;
   sku: string;
+  externalCode: string | null;
   name: string;
   unit: string;
   basePrice: number;
@@ -123,6 +127,7 @@ export type BulkStockUpdateResult = {
 
 export type CreateProductData = {
   sku: string;
+  externalCode?: string | null;
   name?: string;
   unit?: string;
   basePrice?: number;
@@ -131,11 +136,27 @@ export type CreateProductData = {
 
 export type UpdateProductData = {
   sku?: string;
+  externalCode?: string | null;
   name?: string;
   unit?: string;
   basePrice?: number;
   stock?: number;
 };
+
+function normalizeProductExternalCode(value: string | null | undefined): string | null {
+  if (value === undefined || value === null) return null;
+  const s = String(value).trim();
+  return s.length > 0 ? s : null;
+}
+
+function productUniqueConflictMessage(err: Prisma.PrismaClientKnownRequestError): string {
+  const target = err.meta?.target;
+  const fields = Array.isArray(target) ? target.map(String) : typeof target === "string" ? [target] : [];
+  if (fields.some((f) => f.includes("externalCode"))) {
+    return "Товар с таким кодом 1С уже существует";
+  }
+  return "Товар с таким артикулом уже существует";
+}
 
 export type WarehouseStockUpdateInput = {
   warehouseId: string;
@@ -165,6 +186,7 @@ export class ProductStore {
     return {
       id: row.id,
       sku: row.sku,
+      externalCode: row.externalCode ?? null,
       name: row.name,
       unit: row.unit,
       basePrice: row.basePrice,
@@ -252,10 +274,12 @@ export class ProductStore {
         ? Math.max(0, Number(data.basePrice))
         : 0;
     const showOnStore = data.showOnStore ?? true;
+    const externalCode = normalizeProductExternalCode(data.externalCode);
     try {
       const row = await this.prisma.product.create({
         data: {
           sku: skuTrim,
+          externalCode,
           name,
           unit,
           basePrice,
@@ -273,7 +297,7 @@ export class ProductStore {
       return product;
     } catch (err) {
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
-        throw new ConflictException("Товар с таким артикулом уже существует");
+        throw new ConflictException(productUniqueConflictMessage(err));
       }
       throw err;
     }
@@ -301,6 +325,9 @@ export class ProductStore {
       const skuTrim = data.sku.trim();
       if (!skuTrim) throw new BadRequestException("Артикул обязателен");
       update.sku = skuTrim;
+    }
+    if (data.externalCode !== undefined) {
+      update.externalCode = normalizeProductExternalCode(data.externalCode);
     }
     if (data.name !== undefined) {
       const nameTrim = data.name.trim();
@@ -338,7 +365,7 @@ export class ProductStore {
       return result.count > 0;
     } catch (err) {
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
-        throw new ConflictException("Товар с таким артикулом уже существует");
+        throw new ConflictException(productUniqueConflictMessage(err));
       }
       throw err;
     }
@@ -430,7 +457,7 @@ export class ProductStore {
 
   private async loadStockSkuIndex(): Promise<StockSkuIndex> {
     const rows = await this.prisma.product.findMany({
-      select: { id: true, sku: true },
+      select: { id: true, sku: true, externalCode: true },
     });
     return buildStockSkuIndex(rows);
   }
@@ -1096,6 +1123,7 @@ export class ProductStore {
     let rows: Array<{
       id: string;
       sku: string;
+      externalCode?: string | null;
       name: string;
       unit: string;
       basePrice: number;
@@ -1122,6 +1150,7 @@ export class ProductStore {
           select: {
             id: true,
             sku: true,
+            externalCode: true,
             name: true,
             unit: true,
             basePrice: true,
@@ -1141,6 +1170,7 @@ export class ProductStore {
         Array<{
           id: string;
           sku: string;
+          externalCode: string | null;
           name: string;
           unit: string;
           basePrice: number;
@@ -1151,12 +1181,13 @@ export class ProductStore {
           characteristics: Prisma.JsonValue | null;
         }>
       >`
-        SELECT id, sku, name, unit, "basePrice", stock, kind, "showOnStore", "isActive", characteristics
+        SELECT id, sku, "externalCode", name, unit, "basePrice", stock, kind, "showOnStore", "isActive", characteristics
         FROM "Product"
         WHERE kind <> 'PART'::"ProductKind"
           AND (
           sku ILIKE ${searchPattern}
           OR name ILIKE ${searchPattern}
+          OR COALESCE("externalCode", '') ILIKE ${searchPattern}
           OR REPLACE(REPLACE(sku, '.', ''), ' ', '') ILIKE ${normalizedPattern}
         )
         ORDER BY "isActive" DESC, name
@@ -1169,6 +1200,7 @@ export class ProductStore {
           AND (
           sku ILIKE ${searchPattern}
           OR name ILIKE ${searchPattern}
+          OR COALESCE("externalCode", '') ILIKE ${searchPattern}
           OR REPLACE(REPLACE(sku, '.', ''), ' ', '') ILIKE ${normalizedPattern}
         )
       `;
@@ -1212,6 +1244,7 @@ export class ProductStore {
           OR: [
             { sku: { contains: term, mode: "insensitive" } },
             { name: { contains: term, mode: "insensitive" } },
+            { externalCode: { contains: term, mode: "insensitive" } },
           ],
         },
       ];
@@ -1226,6 +1259,7 @@ export class ProductStore {
         select: {
           id: true,
           sku: true,
+          externalCode: true,
           name: true,
           unit: true,
           basePrice: true,

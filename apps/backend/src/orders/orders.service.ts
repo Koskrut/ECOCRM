@@ -425,7 +425,7 @@ export class OrdersService {
     } else if (q?.orderStage) {
       where.orderStage = q.orderStage as OrderStage;
     }
-    if (q?.financialStatus && !q?.attention) {
+    if (q?.financialStatus) {
       andWhere.push(financialStatusListWhere(q.financialStatus as OrderFinancialStatus));
     }
     if (q?.overdue === true) andWhere.push(financialOverdueWhere());

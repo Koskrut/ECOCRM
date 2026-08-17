@@ -573,7 +573,7 @@ export const en = {
   planning: {
     pageTitle: "Production Planning",
     pageSubtitle:
-      "Stock monitoring, 3-month MRP, packing lists, and factory part orders (~7000 parts/month quota).",
+      "Friday packing (2000 kits/week), 3-month MRP, and factory part orders (~7000 parts/month).",
     tabs: {
       today: "Today",
       pack: "Pack",
@@ -618,16 +618,16 @@ export const en = {
       uploadSalesHistory: "Upload sales XLS",
       postSalesHistory: "Post sales",
       recomputeForecast: "Recompute forecast",
-      proposePacking: "Propose packing list",
-      approvePacking: "Approve",
-      markPackingDone: "Mark done",
+      proposePacking: "Build this week's request",
+      approvePacking: "Send to packing",
+      markPackingDone: "Packed",
       exportExcel: "Export Excel",
       loadFactoryRecs: "Load factory recommendations",
       createFactoryOrder: "Create factory draft",
       approveFactory: "Approve factory order",
       saveFactoryLines: "Save quantities",
       saveExternalCode: "Save 1C code",
-      savePackingLines: "Save quantities",
+      savePackingLines: "Save request",
       saveDueAt: "Save deadline",
       rescheduleDue: "Reschedule",
       markFactoryReceived: "Received (close)",
@@ -678,6 +678,16 @@ export const en = {
       maxBuildNowHint:
         "Kits you can assemble from inventoriable BOM parts on hand. Packaging (PKG blister/label) does not constrain this.",
       packNeed: "Need",
+      canAssemble: "Can assemble",
+      kit: "Kit",
+      kitParts: "Parts in the kit",
+      whyInRequest: "Why",
+      partQtyPerKit: (n: string) => `×${n} pcs`,
+      partNeedForRequest: (n: string) => `need ${n}`,
+      partOnStock: (n: string) => `stock ${n}`,
+      missingPart: "short",
+      noKitParts: "No parts specification",
+      partLineHint: "This is a part, not a kit",
       maxFromParts: "Max from parts",
       packQty: "To pack",
       blockedPack: "Blocked (missing parts)",
@@ -706,13 +716,13 @@ export const en = {
       launch: "Launch",
       ratio: "Ratio",
       daysOfCover: "Days of kit cover",
-      packCapacity: "Pack capacity / cycle",
-      packCycleDays: "Pack cycle (days)",
+      packCapacity: "Kits per week (Friday)",
+      packCycleDays: "Pack week (days)",
       factoryLeadTime: "Factory lead time (days)",
       safetyStockWeeks: "Safety stock (weeks)",
       snapshotMaxAge: "Snapshot max age (days)",
       demandMix: "Demand mix",
-      capacityUsed: "Capacity used",
+      capacityUsed: "In the request",
       qtySuggested: "Suggested",
       qtyApproved: "Approved",
       forecast14: "14 days",
@@ -778,9 +788,9 @@ export const en = {
       dueToday: "Due today",
       dueOverdue: "Overdue",
       dueTodayHint: "Factory orders and packing lists whose deadline has arrived",
-      cycleEnd: "Pack deadline",
+      cycleEnd: "Pack by",
       factoryDueHint: "Expected factory parts delivery date",
-      packingDueHint: "Deadline to pack kits in this cycle",
+      packingDueHint: "Date packing should finish this week's kits",
       needQty: "Gap / need",
       componentOnStock: "Part on hand",
       componentNeed: "Part need",
@@ -791,6 +801,12 @@ export const en = {
       snapshot1C: "1C snapshot",
       sales18m: "18mo sales",
       partsGap: "Parts gap",
+      weekNeed: "How many we need",
+      weekCan: "How many we can assemble",
+      weekRequest: "In the request",
+      previousPackWeeks: "Previous requests",
+      ordersPriority: "For orders",
+      stockPriority: "For stock",
       actionType: "Action",
       wipStatus: "WIP status",
       openBatch: "Open batch",
@@ -805,8 +821,8 @@ export const en = {
     },
     filters: {
       all: "All",
-      canNow: "Can now",
-      blocked: "Blocked",
+      canNow: "Can assemble",
+      blocked: "Missing parts",
       production: "Production",
       factory: "Factory",
       openBatch: "Open batch",
@@ -865,14 +881,22 @@ export const en = {
       batchesHint:
         "Internal WIP batches (MECH/QC/PACK). Primary packing and factory flows use the Packing and Factory tabs.",
       queuesHint:
-        "Legacy WIP queues. Packing for stock is planned on the Packing tab (14-day cycle).",
+        "Legacy WIP queues. Packing for stock is the Friday week on the Pack tab (2000 kits).",
       dashboardHint:
         "Coverage of finished kits, packing load vs capacity, bottleneck risk, and projection after approved pack + open factory PO.",
       capacityHint: "Capacity is calculated from available component stock in the active BOM (posted 1C snapshot).",
       forecastHint:
         "MRP forecast from posted sales XLS (SKU × month): average sales over lookback × cover horizon.",
       packingHint:
-        "Propose a draft from the 1C snapshot: kits that can be assembled from parts in stock, and parts with WIP at QC/pack. Correct quantities, then approve. Packing fact is confirmed by the next snapshot.",
+        "Every Friday — up to 2000 kits. Need = orders + weekly forecast − finished kits on hand. Can assemble = from parts already in stock. The request only includes what can actually be built, max 2000.",
+      packSettingsHint:
+        "Friday week: 7 days and 2000 kits. The shop quota of ~7000 parts per month is a separate setting.",
+      packingEmpty:
+        "No request yet. Publish fresh 1C stock, then click “Build this week's request”.",
+      weekShortfall: (used: number, limit: number, blocked: number) =>
+        used <= 0
+          ? `Nothing can be assembled this week${blocked ? ` — ${blocked} kits are missing parts` : ""}.`
+          : `Request is ${used} of ${limit}. The rest cannot be assembled${blocked ? ` (${blocked} kits missing parts)` : ""}.`,
       factoryHint:
         "Propose a factory-order draft, correct quantities and due date, then approve. After approval enter the 1C order code and track the deadline.",
       salesHistoryHint:
@@ -912,7 +936,7 @@ export const en = {
         "BOM — kits need an active bill of materials (PKG:… packaging does not block capacity).",
         "MRP tab → Run MRP — the main 3-month calculation.",
         "Critical → triage the red list; Production / Semi-finished → Create batch.",
-        "As needed: Packing (biweekly list) and Factory (~90-day part orders).",
+        "As needed: Pack (Friday list, 2000 kits) and Factory (~90-day part orders).",
       ],
       tabsTitle: "What the tabs mean",
       tabsHint:

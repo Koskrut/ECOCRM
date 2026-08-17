@@ -69,11 +69,23 @@ type Props = {
   onClose: () => void;
   onUpdate: () => void;
   onOpenContact?: (id: string) => void;
+  onOpenOrder?: (id: string) => void;
   /** Stacking order when opened over another entity modal (default 50). */
   zIndex?: number;
+  /** Bumps the orders list when a stacked order is saved outside this modal. */
+  externalOrdersReloadKey?: number;
 };
 
-export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenContact, zIndex }: Props) {
+export function CompanyModal({
+  apiBaseUrl,
+  companyId,
+  onClose,
+  onUpdate,
+  onOpenContact,
+  onOpenOrder,
+  zIndex,
+  externalOrdersReloadKey,
+}: Props) {
   const isCreate = companyId === "new";
 
   const [company, setCompany] = useState<Company | null>(null);
@@ -132,8 +144,11 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
 
   // Orders
   const [orderId, setOrderId] = useState<string | null>(null);
+  const usesExternalOrders = Boolean(onOpenOrder);
+  const openOrder = onOpenOrder ?? setOrderId;
   const [creatingOrder, setCreatingOrder] = useState(false);
   const [ordersReloadKey, setOrdersReloadKey] = useState(0);
+  const mergedOrdersReloadKey = ordersReloadKey + (externalOrdersReloadKey ?? 0);
   const [planningVisit, setPlanningVisit] = useState(false);
   const [visitPurpose, setVisitPurpose] = useState("");
   const [visitStartsAt, setVisitStartsAt] = useState("");
@@ -319,12 +334,12 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
   }, [companyId, isCreate, loadCompanyContacts]);
 
   const handleEscape = useCallback(() => {
-    if (orderId) {
+    if (!usesExternalOrders && orderId) {
       setOrderId(null);
       return true;
     }
     return false;
-  }, [orderId]);
+  }, [orderId, usesExternalOrders]);
 
   const patchCompany = useCallback(
     async (payload: {
@@ -734,7 +749,7 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
 
       const created = res.data as { id: string };
       setOrdersReloadKey((x) => x + 1);
-      setOrderId(created.id);
+      openOrder(created.id);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Не вдалося створити замовлення");
     } finally {
@@ -1231,10 +1246,10 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
             <EntitySection title="Замовлення">
               <div className="min-h-0 overflow-auto">
                 <EntityOrdersList
-                  key={ordersReloadKey}
+                  key={mergedOrdersReloadKey}
                   apiBaseUrl={apiBaseUrl}
                   query={`companyId=${companyId}&pageSize=50`}
-                  onOpenOrder={(id) => setOrderId(id)}
+                  onOpenOrder={openOrder}
                 />
               </div>
             </EntitySection>
@@ -1424,17 +1439,17 @@ export function CompanyModal({ apiBaseUrl, companyId, onClose, onUpdate, onOpenC
         zIndex={zIndex}
       />
 
-      {orderId ? (
+      {!usesExternalOrders && orderId ? (
         <OrderModal
           apiBaseUrl={apiBaseUrl}
           orderId={orderId}
-          zIndex={60}
+          zIndex={(zIndex ?? 50) + 10}
           onClose={() => setOrderId(null)}
           onSaved={() => {
-            setOrderId(null);
             setOrdersReloadKey((x) => x + 1);
           }}
-          onOpenOrder={(id) => setOrderId(id)}
+          onOpenOrder={openOrder}
+          onOpenContact={onOpenContact}
         />
       ) : null}
     </>

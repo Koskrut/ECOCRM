@@ -23,9 +23,9 @@ import {
   type WorkClientRow,
   type WorkOrderRow,
 } from "@/lib/api/resources/receivables";
-import { ContactModal } from "../contacts/ContactModal";
-import { OrderModal } from "../orders/OrderModal";
 import { DebtCommentDialog } from "./DebtCommentDialog";
+import { useEntityModalStack, type EntityModalFrame } from "@/lib/modal/useEntityModalStack";
+import { EntityModalStackLayers } from "@/components/modals/EntityModalStackLayers";
 
 type Tab = "work" | "reconcile";
 type WorkView = "clients" | "orders";
@@ -107,6 +107,12 @@ export function ReceivablesPageContent() {
   const q = searchParams.get("q") ?? "";
   const contactId = searchParams.get("contactId") ?? "";
   const orderId = searchParams.get("orderId") ?? "";
+  const root = useMemo<EntityModalFrame | null>(() => {
+    if (contactId) return { type: "contact", id: contactId };
+    if (orderId) return { type: "order", id: orderId };
+    return null;
+  }, [contactId, orderId]);
+  const stack = useEntityModalStack(root);
 
   const [role, setRole] = useState<string | null>(null);
   const [meId, setMeId] = useState<string | null>(null);
@@ -266,6 +272,39 @@ export function ReceivablesPageContent() {
       setLoading(false);
     }
   }, [loadSnapshots, loadWork, loadReconcile, tab, pushToast, t.loadError]);
+
+  const openContact = (id: string) => {
+    if (root) {
+      stack.open({ type: "contact", id });
+      return;
+    }
+    stack.closeAll();
+    patchParams({ contactId: id, orderId: null });
+  };
+
+  const openOrder = (id: string) => {
+    if (root) {
+      stack.open({ type: "order", id });
+      return;
+    }
+    stack.closeAll();
+    patchParams({ orderId: id, contactId: null });
+  };
+
+  const closeFrom = (index: number) => {
+    if (index <= 0) {
+      stack.closeAll();
+      if (root?.type === "order") patchParams({ orderId: null });
+      else patchParams({ contactId: null });
+      return;
+    }
+    stack.closeFrom(index);
+  };
+
+  const replaceRoot = (frame: EntityModalFrame) => {
+    if (frame.type === "contact") patchParams({ contactId: frame.id });
+    else if (frame.type === "order") patchParams({ orderId: frame.id });
+  };
 
   useEffect(() => {
     setSearchInput(q);
@@ -515,7 +554,7 @@ export function ReceivablesPageContent() {
               <WorkClientsTable
                 rows={workClients}
                 currency={currency}
-                onOpenContact={(id) => patchParams({ contactId: id })}
+                onOpenContact={openContact}
                 onComment={(row) =>
                   setCommentTarget({ contactId: row.contactId, clientName: row.clientName })
                 }
@@ -523,7 +562,7 @@ export function ReceivablesPageContent() {
             ) : (
               <WorkOrdersTable
                 rows={workOrders}
-                onOpenOrder={(id) => patchParams({ orderId: id })}
+                onOpenOrder={openOrder}
               />
             )}
           </div>
@@ -628,10 +667,17 @@ export function ReceivablesPageContent() {
               <ReconcileTable
                 rows={reconcileRows}
                 currency={currency}
-                onOpenContact={(id) => patchParams({ contactId: id })}
-                onOpenOrders={(id) =>
-                  patchParams({ tab: "work", view: "orders", contactId: id, snapshotId: null })
-                }
+                onOpenContact={openContact}
+                onOpenOrders={(id) => {
+                  stack.closeAll();
+                  patchParams({
+                    tab: "work",
+                    view: "orders",
+                    contactId: id,
+                    snapshotId: null,
+                    orderId: null,
+                  });
+                }}
               />
             )}
           </div>
@@ -704,22 +750,16 @@ export function ReceivablesPageContent() {
         </div>
       ) : null}
 
-      {contactId ? (
-        <ContactModal
-          apiBaseUrl="/api"
-          contactId={contactId}
-          onClose={() => patchParams({ contactId: null })}
+      {root ? (
+        <EntityModalStackLayers
+          frames={stack.frames}
+          root={root}
+          userRole={role}
+          onOpen={stack.open}
+          onCloseFrom={closeFrom}
+          onReplace={stack.replace}
+          onReplaceRoot={replaceRoot}
           onUpdate={() => void reload()}
-        />
-      ) : null}
-
-      {orderId ? (
-        <OrderModal
-          apiBaseUrl="/api"
-          orderId={orderId}
-          onClose={() => patchParams({ orderId: null })}
-          onSaved={() => void reload()}
-          zIndex={contactId ? 60 : undefined}
         />
       ) : null}
 

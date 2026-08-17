@@ -14,7 +14,13 @@ export function filterCatalogItems(
   return items.filter((p) => {
     const sku = p.sku.toLowerCase();
     const name = p.name.toLowerCase();
+    const code = (p.externalCode ?? "").toLowerCase();
     const normSku = p.sku.replace(/[.\s]/g, "").toLowerCase();
-    return sku.includes(lower) || name.includes(lower) || normSku.includes(normQ);
+    return (
+      sku.includes(lower) ||
+      name.includes(lower) ||
+      (code.length > 0 && code.includes(lower)) ||
+      normSku.includes(normQ)
+    );
   });
 }

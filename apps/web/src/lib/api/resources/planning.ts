@@ -378,9 +378,17 @@ export type PackingListLine = {
   hardNeed: number;
   forecastNeed: number;
   stockKits: number;
-  kitProduct: { id: string; sku: string; name: string };
+  kitProduct: { id: string; sku: string; name: string; kind?: string };
   /** Live from getKitCapacity when list is loaded. */
   bottleneckSku?: string | null;
+  bottleneckName?: string | null;
+  parts?: Array<{
+    sku: string;
+    name: string;
+    qtyPerKit: number;
+    available: number;
+    isBottleneck: boolean;
+  }>;
   targetPack?: number;
   partsBlocked?: boolean;
 };
