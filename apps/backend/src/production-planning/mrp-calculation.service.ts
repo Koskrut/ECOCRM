@@ -152,10 +152,6 @@ export class MrpCalculationService {
       where: { code: ProductionStageCode.PACK },
       select: { id: true },
     });
-    const qcStage = await this.prisma.productionStage.findUnique({
-      where: { code: ProductionStageCode.QC },
-      select: { id: true },
-    });
 
     const wipBatches = await this.prisma.productionBatch.findMany({
       where: {
@@ -172,17 +168,12 @@ export class MrpCalculationService {
     });
 
     const wipByProduct = new Map<string, number>();
-    const packReadyByPart = new Map<string, number>();
     for (const b of wipBatches) {
       const remaining = Math.max(0, b.qtyPlanned - b.qtyGood);
       wipByProduct.set(b.productId, (wipByProduct.get(b.productId) ?? 0) + remaining);
-      if (
-        remaining > 0 &&
-        (b.currentStageId === packStage?.id || b.currentStageId === qcStage?.id)
-      ) {
-        packReadyByPart.set(b.productId, (packReadyByPart.get(b.productId) ?? 0) + remaining);
-      }
     }
+
+    const packReadyByPart = await this.calculations.getPackReadyByProduct(plannedIds);
 
     const activeBoms = await this.prisma.kitBom.findMany({
       where: { isActive: true, kitProductId: { in: plannedIds } },
@@ -426,17 +417,44 @@ export class MrpCalculationService {
 
       if (row.product.kind === ProductKind.PART) {
         const packReady = packReadyByPart.get(row.product.id) ?? 0;
-        if (packReady > 0) {
+        const unmetPackNeed = Math.max(0, Math.ceil(row.netNeed));
+        const packDetails = {
+          ...baseDetails(row),
+          packReady,
+          maxBuildNow: packReady,
+          unmetPackNeed,
+          packNeed: unmetPackNeed > 0 ? unmetPackNeed : packReady,
+        };
+        if (unmetPackNeed > 0) {
+          lines.push(
+            draftLine(row, PlanningRunLineType.PACK, unmetPackNeed, {
+              reason: "Part pack need from forecast and pipeline",
+              details: packDetails,
+              priority: 34,
+              suggestedLaunchQty: unmetPackNeed,
+            }),
+          );
+        } else if (packReady > 0) {
           lines.push(
             draftLine(row, PlanningRunLineType.PACK, packReady, {
               reason: "WIP at QC/PACK ready for packaging",
-              details: baseDetails(row, { packReady }),
+              details: packDetails,
               priority: 30,
               suggestedLaunchQty: packReady,
             }),
           );
         }
-
+        const packQty = Math.min(packReady, unmetPackNeed > 0 ? unmetPackNeed : packReady);
+        if (packQty > 0 && packReady > 0) {
+          lines.push(
+            draftLine(row, PlanningRunLineType.CAN_PACK, packQty, {
+              reason: "Part WIP ready for packaging",
+              details: packDetails,
+              priority: 48,
+              suggestedLaunchQty: packQty,
+            }),
+          );
+        }
       }
 
       if (row.product.kind === ProductKind.KIT && row.hasBom) {

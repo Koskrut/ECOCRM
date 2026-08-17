@@ -904,6 +904,13 @@ export const planningApi = {
 
 export type TodaySuggestedAction = "pack" | "production" | "factory";
 
+export type TodayBurningComponent = {
+  sku: string;
+  name: string;
+  availableQty: number;
+  needQty: number | null;
+};
+
 export type TodayBurningItem = {
   lineId: string;
   productId: string;
@@ -914,6 +921,7 @@ export type TodayBurningItem = {
   coverDays: number | null;
   reason: string;
   suggestedActions: TodaySuggestedAction[];
+  bottleneckComponent: TodayBurningComponent | null;
 };
 
 export type PlanningDueReminder = {

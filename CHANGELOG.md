@@ -4,7 +4,29 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.158**.)_
+_(планируемые изменения после **0.2.159**.)_
+
+## [0.2.159] — 2026-08-17
+
+### Summary
+
+Патч **0.2.159**: комментарии и співвиконавці у задачах; счётчик активных задач в сайдбаре/колокольчике; packing list з деталями (WIP на QC/упаковці).
+
+### Added
+
+- **Task comments + collaborators**: модели `TaskComment` / `TaskCollaborator`, API комментариев, `collaboratorIds` в create/update, доступ по assignee или collaborator; web `TaskCommentsSection`, счётчик комментариев в списке.
+- **Web sidebar / notification bell**: счётчик активных задач (`use-active-tasks-count`), ссылка «Моя черга завдань».
+
+### Changed
+
+- **Planning packing list**: деталі з WIP на QC/упаковці поряд з комплектами (BOM); нові колонки component on stock / need; оновлені хинты en/uk.
+- **Planning today / MRP**: расчёты учитывают WIP-деталі; правки action list.
+- **Web notifications page**: блок активных задач.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.159`**.
+- **Миграции:** `20260813173000_task_comments_collaborators` — **`prisma migrate deploy`** (`TaskComment`, `TaskCollaborator`).
 
 ## [0.2.158] — 2026-08-12
 

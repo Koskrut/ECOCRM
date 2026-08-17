@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Bell } from "lucide-react";
+import { Bell, ListTodo } from "lucide-react";
 import { DateTime } from "luxon";
 import {
   notificationsApi,
@@ -16,8 +16,15 @@ import {
   playNotificationSound,
 } from "@/lib/notification-sound";
 import { useToast } from "@/components/feedback";
+import { strings } from "@/locales";
+import { useActiveTasksCount } from "@/lib/use-active-tasks-count";
 
 const POLL_MS = 10_000;
+
+function formatCountBadge(count: number): string | null {
+  if (count <= 0) return null;
+  return count > 99 ? "99+" : String(count);
+}
 
 function formatRelativeTime(iso: string): string {
   const d = DateTime.fromISO(iso, { setZone: true }).setZone(CRM_TIME_ZONE);
@@ -33,7 +40,10 @@ function formatRelativeTime(iso: string): string {
 
 export function NotificationBell() {
   const router = useRouter();
+  const pathname = usePathname();
   const { pushToast } = useToast();
+  const activeTasksCount = useActiveTasksCount(true, pathname);
+  const tasksBadge = formatCountBadge(activeTasksCount);
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<UserNotification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -196,8 +206,12 @@ export function NotificationBell() {
     }
   };
 
-  const badge =
-    unreadCount > 99 ? "99+" : unreadCount > 0 ? String(unreadCount) : null;
+  const headerBadge =
+    unreadCount + activeTasksCount > 99
+      ? "99+"
+      : unreadCount + activeTasksCount > 0
+        ? String(unreadCount + activeTasksCount)
+        : null;
 
   return (
     <div className="relative" ref={rootRef}>
@@ -210,9 +224,9 @@ export function NotificationBell() {
         aria-expanded={open}
       >
         <Bell className="size-4" />
-        {badge && (
+        {headerBadge && (
           <span className="absolute -right-1 -top-1 flex min-w-[18px] items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-semibold text-white">
-            {badge}
+            {headerBadge}
           </span>
         )}
       </button>
@@ -231,6 +245,27 @@ export function NotificationBell() {
               </button>
             )}
           </div>
+
+          <Link
+            href="/tasks"
+            onClick={() => setOpen(false)}
+            className="flex items-center justify-between gap-2 border-b border-zinc-100 px-3 py-2.5 hover:bg-zinc-50"
+          >
+            <span className="flex min-w-0 items-center gap-2 text-sm font-medium text-zinc-900">
+              <ListTodo className="size-4 shrink-0 text-zinc-500" aria-hidden />
+              <span className="truncate">{strings.notifications.activeTasksLink}</span>
+            </span>
+            {tasksBadge ? (
+              <span
+                className="flex min-w-[20px] shrink-0 items-center justify-center rounded-full bg-red-600 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white"
+                aria-label={strings.nav.activeTasksCount.replace("{count}", String(activeTasksCount))}
+              >
+                {tasksBadge}
+              </span>
+            ) : (
+              <span className="text-xs text-zinc-400">{strings.notifications.noActiveTasks}</span>
+            )}
+          </Link>
 
           <div className="max-h-[min(24rem,70vh)] overflow-y-auto">
             {loading && items.length === 0 ? (

@@ -12,7 +12,7 @@ import {
 import * as XLSX from "xlsx";
 import { PrismaService } from "../prisma/prisma.service";
 import { kyivDayBounds } from "../crm-timezone";
-import { constrainsKitCapacity } from "./bom-part.util";
+import { constrainsKitCapacity, isNonInventoriedPackagingSku } from "./bom-part.util";
 import { mixKitDemand, uncoveredKitDemand } from "./demand-mix.util";
 import { ForecastService } from "./forecast.service";
 import { PlanningCalculationService } from "./planning-calculation.service";
@@ -20,7 +20,12 @@ import { PlanningSettingsService } from "./planning-settings.service";
 import { filterPackableProposedLines } from "./planning-packable-lines.util";
 import { assertFreshSnapshot, evaluateSnapshotFreshness } from "./snapshot-freshness.util";
 
-type BomPartLine = { componentProductId: string; qtyPerKit: number; sku: string };
+type BomPartLine = {
+  componentProductId: string;
+  qtyPerKit: number;
+  scrapPct: number;
+  sku: string;
+};
 
 type PackLineDraft = {
   kitProductId: string;
@@ -59,7 +64,7 @@ export class PackingListService {
       where: { id },
       include: {
         lines: {
-          include: { kitProduct: { select: { id: true, sku: true, name: true } } },
+          include: { kitProduct: { select: { id: true, sku: true, name: true, kind: true } } },
           orderBy: [{ priority: "asc" }, { qtyApproved: "desc" }],
         },
         snapshot: { select: { id: true, postedAt: true, status: true } },
@@ -80,26 +85,42 @@ export class PackingListService {
       hardNeed: number;
       forecastNeed: number;
       stockKits: number;
+      kitProduct?: { kind?: ProductKind };
     },
   >(lines: T[]) {
+    const [settings, demand] = await Promise.all([
+      this.settings.getSettings(),
+      this.calculations.getDemandByProduct(),
+    ]);
     const capCache = new Map<
       string,
       Awaited<ReturnType<PlanningCalculationService["getKitCapacity"]>>
     >();
     return Promise.all(
       lines.map(async (line) => {
-        let cap = capCache.get(line.kitProductId);
-        if (!cap) {
-          cap = await this.calculations.getKitCapacity(line.kitProductId);
-          capCache.set(line.kitProductId, cap);
+        const isPart = line.kitProduct?.kind === ProductKind.PART;
+        let bottleneckSku: string | null = null;
+        if (!isPart) {
+          let cap = capCache.get(line.kitProductId);
+          if (!cap) {
+            cap = await this.calculations.getKitCapacity(line.kitProductId);
+            capCache.set(line.kitProductId, cap);
+          }
+          bottleneckSku =
+            cap.bottleneckComponentId != null
+              ? (cap.components.find((c) => c.componentProductId === cap!.bottleneckComponentId)
+                  ?.product?.sku ?? null)
+              : null;
         }
-        const bottleneckSku =
-          cap.bottleneckComponentId != null
-            ? (cap.components.find((c) => c.componentProductId === cap!.bottleneckComponentId)
-                ?.product?.sku ?? null)
-            : null;
-        const targetPack = Math.max(0, line.hardNeed + line.forecastNeed - line.stockKits);
-        const partsBlocked = targetPack > 0 && line.maxFromParts < targetPack;
+        const softNeed = demand.get(line.kitProductId)?.soft ?? 0;
+        const mixedNeed = mixKitDemand(
+          settings.demandMix,
+          line.hardNeed,
+          line.forecastNeed,
+          softNeed,
+        );
+        const targetPack = uncoveredKitDemand(mixedNeed, line.stockKits);
+        const partsBlocked = !isPart && targetPack > 0 && line.maxFromParts < targetPack;
         return { ...line, bottleneckSku, targetPack, partsBlocked };
       }),
     );
@@ -239,9 +260,18 @@ export class PackingListService {
       }
     }
 
+    const partLines = await this.buildPartPackLines({
+      settings,
+      forecast14,
+      demand,
+      capacityLimit,
+      usedCapacity: lines.reduce((s, l) => s + l.qtyApproved, 0),
+    });
+    lines.push(...partLines);
+
     const persisted = filterPackableProposedLines(lines);
     if (persisted.length === 0) {
-      throw new BadRequestException("No kits can be packed from current part stock");
+      throw new BadRequestException("No kits or parts can be packed from current stock/WIP");
     }
     used = persisted.reduce((s, l) => s + l.qtyApproved, 0);
 
@@ -268,7 +298,7 @@ export class PackingListService {
       },
       include: {
         lines: {
-          include: { kitProduct: { select: { id: true, sku: true, name: true } } },
+          include: { kitProduct: { select: { id: true, sku: true, name: true, kind: true } } },
           orderBy: [{ priority: "asc" }, { qtyApproved: "desc" }],
         },
       },
@@ -325,7 +355,7 @@ export class PackingListService {
       data: { capacityUsed },
       include: {
         lines: {
-          include: { kitProduct: { select: { id: true, sku: true, name: true } } },
+          include: { kitProduct: { select: { id: true, sku: true, name: true, kind: true } } },
           orderBy: [{ priority: "asc" }, { qtyApproved: "desc" }],
         },
       },
@@ -358,7 +388,7 @@ export class PackingListService {
       },
       include: {
         lines: {
-          include: { kitProduct: { select: { id: true, sku: true, name: true } } },
+          include: { kitProduct: { select: { id: true, sku: true, name: true, kind: true } } },
         },
       },
     });
@@ -375,7 +405,7 @@ export class PackingListService {
       data: { status: PackingListStatus.DONE },
       include: {
         lines: {
-          include: { kitProduct: { select: { id: true, sku: true, name: true } } },
+          include: { kitProduct: { select: { id: true, sku: true, name: true, kind: true } } },
         },
       },
     });
@@ -395,11 +425,141 @@ export class PackingListService {
       data: { cycleEnd },
       include: {
         lines: {
-          include: { kitProduct: { select: { id: true, sku: true, name: true } } },
+          include: { kitProduct: { select: { id: true, sku: true, name: true, kind: true } } },
         },
       },
     });
     return { ...updated, lines: await this.enrichLines(updated.lines) };
+  }
+
+  private async buildPartPackLines(input: {
+    settings: Awaited<ReturnType<PlanningSettingsService["getSettings"]>>;
+    forecast14: Map<string, number>;
+    demand: Map<string, { hard: number; soft: number }>;
+    capacityLimit: number;
+    usedCapacity: number;
+  }): Promise<PackLineDraft[]> {
+    const unplannedIds = new Set(
+      (
+        await this.prisma.planningProductParams.findMany({
+          where: { isPlanned: false },
+          select: { productId: true },
+        })
+      ).map((p) => p.productId),
+    );
+
+    const parts = await this.prisma.product.findMany({
+      where: {
+        kind: ProductKind.PART,
+        isActive: true,
+        id: { notIn: [...unplannedIds] },
+      },
+      select: { id: true, sku: true },
+    });
+    const packableParts = parts.filter((p) => !isNonInventoriedPackagingSku(p.sku));
+    if (packableParts.length === 0) return [];
+
+    const packReadyByPart = await this.calculations.getPackReadyByProduct(
+      packableParts.map((p) => p.id),
+    );
+
+    type PartCandidate = {
+      productId: string;
+      forecastNeed: number;
+      hardNeed: number;
+      stockOnHand: number;
+      packReady: number;
+      targetPack: number;
+      priority: number;
+      qtyNow: number;
+    };
+
+    const candidates: PartCandidate[] = [];
+    for (const part of packableParts) {
+      const packReady = packReadyByPart.get(part.id) ?? 0;
+      if (packReady <= 0) continue;
+
+      const stock = await this.calculations.getAvailability(part.id);
+      const hardNeed = input.demand.get(part.id)?.hard ?? 0;
+      const softNeed = input.demand.get(part.id)?.soft ?? 0;
+      const forecastNeed = input.forecast14.get(part.id) ?? 0;
+      const mixedNeed = mixKitDemand(
+        input.settings.demandMix,
+        hardNeed,
+        forecastNeed,
+        softNeed,
+      );
+      const demandPack = uncoveredKitDemand(mixedNeed, stock.available);
+      const targetPack = demandPack > 0 ? demandPack : packReady;
+      const qtyNow = Math.min(packReady, targetPack);
+      if (qtyNow <= 0) continue;
+
+      candidates.push({
+        productId: part.id,
+        forecastNeed,
+        hardNeed,
+        stockOnHand: stock.available,
+        packReady,
+        targetPack,
+        priority: hardNeed > stock.available ? 0 : 1,
+        qtyNow,
+      });
+    }
+
+    candidates.sort((a, b) => a.priority - b.priority || b.targetPack - a.targetPack);
+
+    let remainingCap = Math.max(0, input.capacityLimit - input.usedCapacity);
+    const allocated = new Map<string, number>();
+
+    for (const c of candidates.filter((x) => x.priority === 0)) {
+      if (remainingCap <= 0) break;
+      const take = Math.min(c.qtyNow, remainingCap);
+      if (take <= 0) continue;
+      allocated.set(c.productId, take);
+      remainingCap -= take;
+    }
+
+    const soft = candidates.filter((x) => x.priority === 1);
+    const softTotal = soft.reduce((s, x) => s + x.qtyNow, 0);
+    if (remainingCap > 0 && softTotal > 0) {
+      for (const c of soft) {
+        const share = Math.floor((c.qtyNow / softTotal) * remainingCap);
+        if (share <= 0) continue;
+        allocated.set(
+          c.productId,
+          Math.min(c.qtyNow, (allocated.get(c.productId) ?? 0) + share),
+        );
+      }
+      const used = [...allocated.values()].reduce((a, b) => a + b, 0);
+      let residual = input.capacityLimit - input.usedCapacity - used;
+      for (const c of soft) {
+        if (residual <= 0) break;
+        const cur = allocated.get(c.productId) ?? 0;
+        const room = c.qtyNow - cur;
+        if (room <= 0) continue;
+        const add = Math.min(room, residual);
+        allocated.set(c.productId, cur + add);
+        residual -= add;
+      }
+    }
+
+    const lines: PackLineDraft[] = [];
+    for (const c of candidates) {
+      const qtyApproved = allocated.get(c.productId) ?? 0;
+      if (qtyApproved <= 0) continue;
+      lines.push({
+        kitProductId: c.productId,
+        qtySuggested: qtyApproved,
+        qtyApproved,
+        maxFromParts: c.packReady,
+        priority: c.priority,
+        hardNeed: c.hardNeed,
+        forecastNeed: c.forecastNeed,
+        stockKits: c.stockOnHand,
+        targetPack: c.targetPack,
+      });
+    }
+    return lines;
   }
 
   private async loadInventoriableBom(
@@ -421,6 +581,7 @@ export class PackingListService {
         .map((l) => ({
           componentProductId: l.componentProductId,
           qtyPerKit: l.qtyPerKit.toNumber(),
+          scrapPct: l.scrapPct?.toNumber() ?? 0,
           sku: l.component?.sku ?? "",
         })) ?? [];
     bomByKit.set(kitProductId, bom);
@@ -442,7 +603,11 @@ export class PackingListService {
         avail = (await this.calculations.getAvailability(line.componentProductId)).available;
         partStock.set(line.componentProductId, avail);
       }
-      ratios.push(line.qtyPerKit > 0 ? Math.floor(avail / line.qtyPerKit) : 0);
+      ratios.push(
+        line.qtyPerKit > 0
+          ? Math.floor(avail / (line.qtyPerKit * (1 + line.scrapPct / 100)))
+          : 0,
+      );
     }
     return Math.min(desired, ...ratios);
   }
@@ -456,17 +621,31 @@ export class PackingListService {
     const bom = await this.loadInventoriableBom(kitProductId, bomByKit);
     for (const line of bom) {
       const prev = partStock.get(line.componentProductId) ?? 0;
-      partStock.set(line.componentProductId, Math.max(0, prev - qty * line.qtyPerKit));
+      const effectiveQtyPerKit = line.qtyPerKit * (1 + line.scrapPct / 100);
+      partStock.set(line.componentProductId, Math.max(0, prev - qty * effectiveQtyPerKit));
     }
   }
 
   private async assertApprovedQtyFeasible(
-    lines: Array<{ kitProductId: string; qtyApproved: number; kitProduct: { sku: string } }>,
+    lines: Array<{
+      kitProductId: string;
+      qtyApproved: number;
+      maxFromParts: number;
+      kitProduct: { sku: string; kind: ProductKind };
+    }>,
   ): Promise<void> {
     const partStock = new Map<string, number>();
     const bomByKit = new Map<string, BomPartLine[]>();
     for (const line of lines) {
       if (line.qtyApproved <= 0) continue;
+      if (line.kitProduct.kind === ProductKind.PART) {
+        if (line.qtyApproved > line.maxFromParts) {
+          throw new BadRequestException(
+            `Not enough WIP for ${line.kitProduct.sku}: can pack ${line.maxFromParts}, listed ${line.qtyApproved}`,
+          );
+        }
+        continue;
+      }
       const max = await this.maxBuildFromParts(
         line.kitProductId,
         line.qtyApproved,

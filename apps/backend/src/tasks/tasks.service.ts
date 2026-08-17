@@ -17,6 +17,22 @@ import { buildTaskOverdueWhere, isTaskAttentionPreset } from "./tasks-attention.
 import { sortTasksByPriority } from "./tasks-priority-sort.util";
 import type { UpdateTaskDto } from "./dto/update-task.dto";
 
+const TASK_INCLUDE = {
+  assignee: { select: { id: true, fullName: true } },
+  createdBy: { select: { id: true, fullName: true } },
+  contact: { select: { id: true, firstName: true, lastName: true, phone: true } },
+  company: { select: { id: true, name: true } },
+  lead: { select: { id: true, fullName: true, phone: true, companyName: true } },
+  order: { select: { id: true, orderNumber: true } },
+  collaborators: {
+    select: {
+      userId: true,
+      user: { select: { id: true, fullName: true } },
+    },
+  },
+  _count: { select: { comments: true } },
+} as const;
+
 @Injectable()
 export class TasksService {
   constructor(
@@ -25,10 +41,85 @@ export class TasksService {
     @Optional() private readonly notifications?: NotificationsService,
   ) {}
 
-  private assertTaskAccess(task: { assigneeId: string; createdById?: string | null }, actor: AuthUser): void {
-    if (actor.role === UserRole.MANAGER && task.assigneeId !== actor.id && task.createdById !== actor.id) {
+  private assertTaskAccess(
+    task: {
+      assigneeId: string;
+      createdById?: string | null;
+      collaborators?: { userId: string }[];
+    },
+    actor: AuthUser,
+  ): void {
+    if (actor.role !== UserRole.MANAGER) return;
+    const collaboratorIds = task.collaborators?.map((row) => row.userId) ?? [];
+    if (
+      task.assigneeId !== actor.id &&
+      task.createdById !== actor.id &&
+      !collaboratorIds.includes(actor.id)
+    ) {
       throw new ForbiddenException("You can only access your own tasks or tasks you created");
     }
+  }
+
+  private async resolveCollaboratorIds(
+    actor: AuthUser,
+    requestedIds: string[] | undefined,
+    primaryAssigneeId: string,
+  ): Promise<string[]> {
+    if (!requestedIds?.length) return [];
+    const unique = [...new Set(requestedIds.filter((id) => id && id !== primaryAssigneeId))];
+    if (unique.length === 0) return [];
+    const users = await this.prisma.user.findMany({
+      where: { id: { in: unique }, isActive: true },
+      select: { id: true },
+    });
+    if (users.length !== unique.length) {
+      throw new NotFoundException("One or more collaborators not found");
+    }
+    return unique;
+  }
+
+  private async syncCollaborators(
+    taskId: string,
+    actor: AuthUser,
+    primaryAssigneeId: string,
+    collaboratorIds: string[],
+    previousCollaboratorIds: string[],
+  ): Promise<void> {
+    await this.prisma.taskCollaborator.deleteMany({
+      where: {
+        taskId,
+        userId: { notIn: collaboratorIds },
+      },
+    });
+    const toAdd = collaboratorIds.filter((id) => !previousCollaboratorIds.includes(id));
+    if (toAdd.length === 0) return;
+    await this.prisma.taskCollaborator.createMany({
+      data: toAdd.map((userId) => ({ taskId, userId, addedById: actor.id })),
+      skipDuplicates: true,
+    });
+    const task = await this.prisma.task.findUnique({
+      where: { id: taskId },
+      select: { title: true, body: true, orderId: true, leadId: true },
+    });
+    if (!task) return;
+    for (const userId of toAdd) {
+      if (userId === actor.id || userId === primaryAssigneeId) continue;
+      void this.notifications?.notifyTaskAssigned({
+        assigneeId: userId,
+        taskId,
+        title: `Вас додано до задачі: ${task.title}`,
+        body: task.body,
+        actorId: actor.id,
+        orderId: task.orderId,
+        leadId: task.leadId,
+      });
+    }
+  }
+
+  private involvedUserFilter(userId: string): Prisma.TaskWhereInput {
+    return {
+      OR: [{ assigneeId: userId }, { collaborators: { some: { userId } } }],
+    };
   }
 
   private async resolveAndValidateAssigneeId(actor: AuthUser, requestedAssigneeId?: string | null): Promise<string> {
@@ -90,12 +181,10 @@ export class TasksService {
     const companyId = body.companyId ?? null;
     const leadId = body.leadId ?? null;
     const orderId = body.orderId ?? null;
-    if (!contactId && !companyId && !leadId && !orderId) {
-      throw new BadRequestException("At least one of contactId, companyId, leadId, orderId is required");
-    }
     await this.assertEntityAccess(actor, { contactId, companyId, leadId, orderId });
 
     const assigneeId = await this.resolveAndValidateAssigneeId(actor, body.assigneeId);
+    const collaboratorIds = await this.resolveCollaboratorIds(actor, body.collaboratorIds, assigneeId);
     const dueAt =
       typeof body.dueAt === "string" && body.dueAt
         ? new Date(body.dueAt)
@@ -112,15 +201,13 @@ export class TasksService {
         title: body.title.trim(),
         body: body.body?.trim() ?? null,
         dueAt: dueAt ?? null,
+        ...(collaboratorIds.length > 0 && {
+          collaborators: {
+            create: collaboratorIds.map((userId) => ({ userId, addedById: actor.id })),
+          },
+        }),
       },
-      include: {
-        assignee: { select: { id: true, fullName: true } },
-        createdBy: { select: { id: true, fullName: true } },
-        contact: { select: { id: true, firstName: true, lastName: true, phone: true } },
-        company: { select: { id: true, name: true } },
-        lead: { select: { id: true, fullName: true, phone: true, companyName: true } },
-        order: { select: { id: true, orderNumber: true } },
-      },
+      include: TASK_INCLUDE,
     });
     this.workflowEmitter?.emitRecordCreated(
       CustomFieldEntityType.TASK,
@@ -132,6 +219,18 @@ export class TasksService {
         assigneeId,
         taskId: task.id,
         title: `Нова задача: ${task.title}`,
+        body: task.body,
+        actorId: actor.id,
+        orderId: task.orderId,
+        leadId: task.leadId,
+      });
+    }
+    for (const userId of collaboratorIds) {
+      if (userId === actor.id || userId === assigneeId) continue;
+      void this.notifications?.notifyTaskAssigned({
+        assigneeId: userId,
+        taskId: task.id,
+        title: `Вас додано до задачі: ${task.title}`,
         body: task.body,
         actorId: actor.id,
         orderId: task.orderId,
@@ -160,10 +259,16 @@ export class TasksService {
     }
 
     if (actor.role === UserRole.MANAGER) {
-      andParts.push({ OR: [{ assigneeId: actor.id }, { createdById: actor.id }] });
+      andParts.push({
+        OR: [
+          { assigneeId: actor.id },
+          { createdById: actor.id },
+          { collaborators: { some: { userId: actor.id } } },
+        ],
+      });
     }
     if (query.assigneeId) {
-      where.assigneeId = query.assigneeId;
+      andParts.push(this.involvedUserFilter(query.assigneeId));
     }
     if (query.createdById) {
       where.createdById = query.createdById;
@@ -239,14 +344,7 @@ export class TasksService {
     const pageSize = Math.min(100, Math.max(1, Number(query.pageSize) || 50));
     const skip = (page - 1) * pageSize;
 
-    const taskInclude = {
-      assignee: { select: { id: true, fullName: true } },
-      createdBy: { select: { id: true, fullName: true } },
-      contact: { select: { id: true, firstName: true, lastName: true, phone: true } },
-      company: { select: { id: true, name: true } },
-      lead: { select: { id: true, fullName: true, phone: true, companyName: true } },
-      order: { select: { id: true, orderNumber: true } },
-    } as const;
+    const taskInclude = TASK_INCLUDE;
 
     const sortBy =
       query.sortBy === "priority" ||
@@ -294,14 +392,7 @@ export class TasksService {
     }
     const task = await this.prisma.task.findUnique({
       where: { id },
-      include: {
-        assignee: { select: { id: true, fullName: true } },
-        createdBy: { select: { id: true, fullName: true } },
-        contact: { select: { id: true, firstName: true, lastName: true, phone: true } },
-        company: { select: { id: true, name: true } },
-        lead: { select: { id: true, fullName: true, phone: true, companyName: true } },
-        order: { select: { id: true, orderNumber: true } },
-      },
+      include: TASK_INCLUDE,
     });
     if (!task) {
       throw new NotFoundException("Task not found");
@@ -314,7 +405,10 @@ export class TasksService {
     if (!actor) {
       throw new BadRequestException("User is required");
     }
-    const task = await this.prisma.task.findUnique({ where: { id } });
+    const task = await this.prisma.task.findUnique({
+      where: { id },
+      include: { collaborators: { select: { userId: true } } },
+    });
     if (!task) {
       throw new NotFoundException("Task not found");
     }
@@ -331,6 +425,12 @@ export class TasksService {
         ? await this.resolveAndValidateAssigneeId(actor, body.assigneeId)
         : undefined;
 
+    const nextPrimaryAssigneeId = assigneeId ?? task.assigneeId;
+    const collaboratorIds =
+      body.collaboratorIds !== undefined
+        ? await this.resolveCollaboratorIds(actor, body.collaboratorIds, nextPrimaryAssigneeId)
+        : undefined;
+
     const updated = await this.prisma.task.update({
       where: { id },
       data: {
@@ -342,16 +442,23 @@ export class TasksService {
         ...(body.status === "DONE" && { completedAt: new Date() }),
         ...(body.status !== "DONE" && body.status !== undefined && { completedAt: null }),
       },
-      include: {
-        assignee: { select: { id: true, fullName: true } },
-        createdBy: { select: { id: true, fullName: true } },
-        contact: { select: { id: true, firstName: true, lastName: true, phone: true } },
-        company: { select: { id: true, name: true } },
-        lead: { select: { id: true, fullName: true, phone: true, companyName: true } },
-        order: { select: { id: true, orderNumber: true } },
-      },
+      include: TASK_INCLUDE,
     });
-    const nextSnapshot = taskRecordFromRow(updated as unknown as TaskRowLike);
+
+    if (collaboratorIds !== undefined) {
+      const previousCollaboratorIds = task.collaborators.map((row) => row.userId);
+      await this.syncCollaborators(id, actor, nextPrimaryAssigneeId, collaboratorIds, previousCollaboratorIds);
+    }
+
+    const result =
+      collaboratorIds !== undefined
+        ? await this.prisma.task.findUnique({ where: { id }, include: TASK_INCLUDE })
+        : updated;
+    if (!result) {
+      throw new NotFoundException("Task not found");
+    }
+
+    const nextSnapshot = taskRecordFromRow(result as unknown as TaskRowLike);
     const changes = diffTaskRecords(prevSnapshot, nextSnapshot);
     this.workflowEmitter?.emitRecordUpdated(CustomFieldEntityType.TASK, id, nextSnapshot, changes);
     if (
@@ -361,22 +468,25 @@ export class TasksService {
     ) {
       void this.notifications?.notifyTaskAssigned({
         assigneeId,
-        taskId: updated.id,
-        title: `Нова задача: ${updated.title}`,
-        body: updated.body,
+        taskId: result.id,
+        title: `Нова задача: ${result.title}`,
+        body: result.body,
         actorId: actor.id,
-        orderId: updated.orderId,
-        leadId: updated.leadId,
+        orderId: result.orderId,
+        leadId: result.leadId,
       });
     }
-    return updated;
+    return result;
   }
 
   async complete(id: string, actor: AuthUser | undefined) {
     if (!actor) {
       throw new BadRequestException("User is required");
     }
-    const task = await this.prisma.task.findUnique({ where: { id } });
+    const task = await this.prisma.task.findUnique({
+      where: { id },
+      include: { collaborators: { select: { userId: true } } },
+    });
     if (!task) {
       throw new NotFoundException("Task not found");
     }
@@ -385,14 +495,7 @@ export class TasksService {
     const updated = await this.prisma.task.update({
       where: { id },
       data: { status: "DONE", completedAt: new Date() },
-      include: {
-        assignee: { select: { id: true, fullName: true } },
-        createdBy: { select: { id: true, fullName: true } },
-        contact: { select: { id: true, firstName: true, lastName: true, phone: true } },
-        company: { select: { id: true, name: true } },
-        lead: { select: { id: true, fullName: true, phone: true, companyName: true } },
-        order: { select: { id: true, orderNumber: true } },
-      },
+      include: TASK_INCLUDE,
     });
     const nextSnapshot = taskRecordFromRow(updated as unknown as TaskRowLike);
     this.workflowEmitter?.emitRecordUpdated(
@@ -408,7 +511,10 @@ export class TasksService {
     if (!actor) {
       throw new BadRequestException("User is required");
     }
-    const task = await this.prisma.task.findUnique({ where: { id } });
+    const task = await this.prisma.task.findUnique({
+      where: { id },
+      include: { collaborators: { select: { userId: true } } },
+    });
     if (!task) {
       throw new NotFoundException("Task not found");
     }
@@ -417,14 +523,7 @@ export class TasksService {
     const updated = await this.prisma.task.update({
       where: { id },
       data: { status: "CANCELED" },
-      include: {
-        assignee: { select: { id: true, fullName: true } },
-        createdBy: { select: { id: true, fullName: true } },
-        contact: { select: { id: true, firstName: true, lastName: true, phone: true } },
-        company: { select: { id: true, name: true } },
-        lead: { select: { id: true, fullName: true, phone: true, companyName: true } },
-        order: { select: { id: true, orderNumber: true } },
-      },
+      include: TASK_INCLUDE,
     });
     const nextSnapshot = taskRecordFromRow(updated as unknown as TaskRowLike);
     this.workflowEmitter?.emitRecordUpdated(
@@ -434,6 +533,51 @@ export class TasksService {
       diffTaskRecords(prevSnapshot, nextSnapshot),
     );
     return updated;
+  }
+
+  async listComments(taskId: string, actor: AuthUser | undefined) {
+    if (!actor) {
+      throw new BadRequestException("User is required");
+    }
+    const task = await this.prisma.task.findUnique({
+      where: { id: taskId },
+      include: { collaborators: { select: { userId: true } } },
+    });
+    if (!task) throw new NotFoundException("Task not found");
+    this.assertTaskAccess(task, actor);
+
+    const items = await this.prisma.taskComment.findMany({
+      where: { taskId },
+      orderBy: { createdAt: "asc" },
+      include: { author: { select: { id: true, fullName: true } } },
+    });
+    return { items };
+  }
+
+  async addComment(taskId: string, body: string, actor: AuthUser | undefined) {
+    if (!actor) {
+      throw new BadRequestException("User is required");
+    }
+    const trimmed = body.trim();
+    if (!trimmed) {
+      throw new BadRequestException("Comment body is required");
+    }
+    const task = await this.prisma.task.findUnique({
+      where: { id: taskId },
+      include: { collaborators: { select: { userId: true } } },
+    });
+    if (!task) throw new NotFoundException("Task not found");
+    this.assertTaskAccess(task, actor);
+
+    const comment = await this.prisma.taskComment.create({
+      data: {
+        taskId,
+        authorId: actor.id,
+        body: trimmed,
+      },
+      include: { author: { select: { id: true, fullName: true } } },
+    });
+    return comment;
   }
 }
 

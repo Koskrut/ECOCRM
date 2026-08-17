@@ -41,8 +41,13 @@ export const en = {
     warehouseReturns: "Returns",
     monitoring: "Monitoring",
     activeLeadsCount: "{count} active leads",
+    activeTasksCount: "{count} active tasks",
     help: "Instructions",
     risk: "Risk",
+  },
+  notifications: {
+    activeTasksLink: "My task queue",
+    noActiveTasks: "All clear",
   },
   risk: {
     pageTitle: "Risk control tower",
@@ -777,6 +782,8 @@ export const en = {
       factoryDueHint: "Expected factory parts delivery date",
       packingDueHint: "Deadline to pack kits in this cycle",
       needQty: "Gap / need",
+      componentOnStock: "Part on hand",
+      componentNeed: "Part need",
       whatToDo: "What to do",
       packNowCard: "Can pack now",
       makeNowCard: "Make / order",
@@ -865,7 +872,7 @@ export const en = {
       forecastHint:
         "MRP forecast from posted sales XLS (SKU × month): average sales over lookback × cover horizon.",
       packingHint:
-        "Propose a draft from the 1C snapshot: only kits that can be assembled from parts already in stock. Correct quantities, then approve. Packing fact is confirmed by the next snapshot.",
+        "Propose a draft from the 1C snapshot: kits that can be assembled from parts in stock, and parts with WIP at QC/pack. Correct quantities, then approve. Packing fact is confirmed by the next snapshot.",
       factoryHint:
         "Propose a factory-order draft, correct quantities and due date, then approve. After approval enter the 1C order code and track the deadline.",
       salesHistoryHint:
@@ -888,9 +895,9 @@ export const en = {
         "MRP is older than the latest snapshot or sales upload. Click Recalculate MRP.",
       mrpRecalculated: "MRP recalculated.",
       packListHint:
-        "Need to pack = forecast and pipeline demand. Can pack now = min(need, max from parts). Blocked = need exists but inventoriable parts are missing.",
+        "Demand from forecast and orders — kits and parts. Can pack now = min(need, available): kits from BOM parts, parts from WIP at QC/pack. Blocked = need exists but resources are missing.",
       packScreenHint:
-        "Single packing list: need, can build from parts (BOM-dependent), parts gap, and bottleneck.",
+        "Packing list: kits (BOM assembly) and parts (final pack from WIP). Need, can pack now, gap, and bottleneck.",
       makeScreenHint:
         "Production actions (kits/parts) and factory orders. Critical items live on the Today screen.",
     },
@@ -1516,12 +1523,29 @@ export const en = {
       noteOptional: "Optional",
       description: "Description",
       linkTo: "Link to",
+      linkOptional: "Optional",
       searchLink: "Search {type}…",
       createdBy: "Created by",
       dates: "Dates",
       created: "Created",
       updated: "Updated",
       completed: "Completed",
+    },
+    collaborators: {
+      title: "Additional assignees",
+      empty: "No additional assignees",
+      addHint: "Select colleagues who also work on this task",
+    },
+    comments: {
+      title: "Replies",
+      empty: "No replies yet",
+      placeholder: "Write a reply…",
+      send: "Send",
+      sending: "Sending…",
+    },
+    tableMeta: {
+      hasDescription: "Has description",
+      replies: "replies",
     },
     linkedTo: {
       contact: "Contact",

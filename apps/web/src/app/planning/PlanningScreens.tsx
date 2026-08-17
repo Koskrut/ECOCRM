@@ -446,6 +446,9 @@ export function TodayScreen({
             t.labels.sku,
             t.labels.name,
             t.labels.needQty,
+            t.labels.component,
+            t.labels.componentOnStock,
+            t.labels.componentNeed,
             t.labels.desiredDate,
             t.labels.whatToDo,
           ]}
@@ -453,6 +456,17 @@ export function TodayScreen({
             item.sku,
             item.name,
             String(item.needQty),
+            item.bottleneckComponent?.sku ? (
+              <span title={item.bottleneckComponent.name}>{item.bottleneckComponent.sku}</span>
+            ) : (
+              "—"
+            ),
+            item.bottleneckComponent != null
+              ? String(item.bottleneckComponent.availableQty)
+              : "—",
+            item.bottleneckComponent?.needQty != null
+              ? String(item.bottleneckComponent.needQty)
+              : "—",
             item.desiredDate,
             <span key={item.lineId} className="flex flex-wrap gap-1">
               {item.suggestedActions.map((a) => (

@@ -4,6 +4,7 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { ListTodo, Search } from "lucide-react";
+import { TaskCommentsSection } from "@/components/tasks/TaskCommentsSection";
 import { HelpHint } from "@/components/help/HelpHint";
 import {
   tasksApi,
@@ -229,14 +230,30 @@ function TaskTableRow({
   onComplete: () => void;
   onCancel: () => void;
 }) {
+  const commentCount = task._count?.comments ?? 0;
+  const extraAssignees = task.collaborators?.length ?? 0;
+
   return (
     <tr
       className={`cursor-pointer border-b border-zinc-100 hover:bg-zinc-50/80 ${taskUrgencyRowClass(task)}`}
       onClick={onSelect}
     >
-      <td className="px-4 py-3">
-        <p className="font-medium text-zinc-900">{task.title}</p>
-        {task.body && <p className="mt-0.5 truncate text-xs text-zinc-500">{task.body}</p>}
+      <td className="max-w-xs px-4 py-3">
+        <p className="line-clamp-2 font-medium text-zinc-900">{task.title}</p>
+        {(task.body?.trim() || commentCount > 0) && (
+          <div className="mt-1 flex flex-wrap gap-1">
+            {task.body?.trim() ? (
+              <span className="rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium text-zinc-500">
+                {t.tableMeta.hasDescription}
+              </span>
+            ) : null}
+            {commentCount > 0 ? (
+              <span className="rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-700">
+                {commentCount} {t.tableMeta.replies}
+              </span>
+            ) : null}
+          </div>
+        )}
       </td>
       <td className="px-4 py-3">
         <span className={`inline-flex rounded px-1.5 py-0.5 text-xs ${taskUrgencyBadgeClass(task)}`}>
@@ -257,7 +274,12 @@ function TaskTableRow({
         </span>
       </td>
       <td className="px-4 py-3 text-zinc-600">
-        {task.assignee?.fullName ?? "—"}
+        <p>{task.assignee?.fullName ?? "—"}</p>
+        {extraAssignees > 0 ? (
+          <p className="mt-0.5 text-xs text-zinc-400">
+            +{extraAssignees} {t.collaborators.title.toLowerCase()}
+          </p>
+        ) : null}
         {task.createdBy && task.createdBy.id !== task.assigneeId ? (
           <p className="mt-0.5 text-xs text-zinc-400">
             {t.fields.createdBy}: {task.createdBy.fullName}
@@ -371,6 +393,7 @@ function TasksPageContent() {
   const [cardSaving, setCardSaving] = useState(false);
   const [cardError, setCardError] = useState<string | null>(null);
   const [editAssigneeId, setEditAssigneeId] = useState<string>("");
+  const [editCollaboratorIds, setEditCollaboratorIds] = useState<string[]>([]);
   const [actionError, setActionError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -380,6 +403,7 @@ function TasksPageContent() {
       setEditDueAt(selectedTask.dueAt ? new Date(selectedTask.dueAt).toISOString().slice(0, 16) : "");
       setEditStatus(selectedTask.status);
       setEditAssigneeId(selectedTask.assigneeId);
+      setEditCollaboratorIds(selectedTask.collaborators?.map((row) => row.userId) ?? []);
       setCardEditing(false);
       setCardError(null);
     }
@@ -540,10 +564,6 @@ function TasksPageContent() {
       else if (linkType === "lead") body.leadId = selectedLinkId;
       else body.orderId = selectedLinkId;
     }
-    if (!body.contactId && !body.companyId && !body.leadId && !body.orderId) {
-      setAddError(t.errors.linkRequired);
-      return;
-    }
     setSaving(true);
     setAddError(null);
     try {
@@ -615,6 +635,7 @@ function TasksPageContent() {
           dueAt: editDueAt ? new Date(editDueAt).toISOString() : null,
           status: editStatus,
           assigneeId: editAssigneeId || null,
+          collaboratorIds: editCollaboratorIds,
         });
         closeTaskIfHidden(id, editStatus);
         await load();
@@ -625,7 +646,7 @@ function TasksPageContent() {
         setCardSaving(false);
       }
     },
-    [closeTaskIfHidden, editTitle, editBody, editDueAt, editStatus, editAssigneeId, load],
+    [closeTaskIfHidden, editTitle, editBody, editDueAt, editStatus, editAssigneeId, editCollaboratorIds, load],
   );
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -883,7 +904,9 @@ function TasksPageContent() {
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-zinc-600">{t.fields.linkTo}</label>
+              <label className="block text-xs font-medium text-zinc-600">
+                {t.fields.linkTo} <span className="font-normal text-zinc-400">({t.fields.linkOptional})</span>
+              </label>
               <div className="mt-1 flex gap-2">
                 <select
                   value={linkType}
@@ -1016,7 +1039,7 @@ function TasksPageContent() {
               onClick={() => setSelectedTaskId(null)}
             >
               <div
-                className="max-h-[85vh] w-full max-w-lg overflow-auto rounded-xl border border-zinc-200 bg-white shadow-lg"
+                className="max-h-[85vh] w-full max-w-2xl overflow-auto rounded-xl border border-zinc-200 bg-white shadow-lg"
                 onClick={(e) => e.stopPropagation()}
               >
                 <div className="border-b border-zinc-200 p-4">
@@ -1061,6 +1084,30 @@ function TasksPageContent() {
                           </option>
                         ))}
                       </select>
+                      <div>
+                        <label className="block text-xs font-medium text-zinc-600">{t.collaborators.title}</label>
+                        <p className="mt-0.5 text-[11px] text-zinc-400">{t.collaborators.addHint}</p>
+                        <div className="mt-2 max-h-32 space-y-1 overflow-y-auto rounded border border-zinc-200 p-2">
+                          {users
+                            .filter((u) => u.id !== editAssigneeId)
+                            .map((u) => (
+                              <label key={u.id} className="flex items-center gap-2 text-sm text-zinc-700">
+                                <input
+                                  type="checkbox"
+                                  checked={editCollaboratorIds.includes(u.id)}
+                                  onChange={(e) => {
+                                    setEditCollaboratorIds((prev) =>
+                                      e.target.checked
+                                        ? [...prev, u.id]
+                                        : prev.filter((id) => id !== u.id),
+                                    );
+                                  }}
+                                />
+                                {u.fullName}
+                              </label>
+                            ))}
+                        </div>
+                      </div>
                     </div>
                   ) : (
                     <>
@@ -1099,13 +1146,31 @@ function TasksPageContent() {
                   )}
                 </div>
 
-                <div className="border-b border-zinc-100 p-4">
-                  <p className="text-xs font-medium text-zinc-500">{t.fields.assignee}</p>
-                  <p className="mt-0.5 text-sm text-zinc-700">{selectedTask.assignee?.fullName ?? "—"}</p>
-                  <p className="mt-1 text-xs text-zinc-500">
-                    {t.fields.createdBy}: {selectedTask.createdBy?.fullName ?? "—"}
-                  </p>
-                </div>
+                {!cardEditing ? (
+                  <div className="border-b border-zinc-100 p-4">
+                    <p className="text-xs font-medium text-zinc-500">{t.fields.assignee}</p>
+                    <p className="mt-0.5 text-sm text-zinc-700">{selectedTask.assignee?.fullName ?? "—"}</p>
+                    <p className="mt-2 text-xs font-medium text-zinc-500">{t.collaborators.title}</p>
+                    {selectedTask.collaborators && selectedTask.collaborators.length > 0 ? (
+                      <ul className="mt-1 space-y-0.5 text-sm text-zinc-700">
+                        {selectedTask.collaborators.map((row) => (
+                          <li key={row.userId}>{row.user?.fullName ?? row.userId}</li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="mt-0.5 text-sm text-zinc-400">{t.collaborators.empty}</p>
+                    )}
+                    <p className="mt-2 text-xs text-zinc-500">
+                      {t.fields.createdBy}: {selectedTask.createdBy?.fullName ?? "—"}
+                    </p>
+                  </div>
+                ) : null}
+
+                <TaskCommentsSection
+                  taskId={selectedTask.id}
+                  initialCount={selectedTask._count?.comments ?? 0}
+                  onChanged={() => void load()}
+                />
 
                 <div className="border-b border-zinc-100 p-4">
                   <p className="text-xs font-medium text-zinc-500">{t.columns.linkedTo}</p>

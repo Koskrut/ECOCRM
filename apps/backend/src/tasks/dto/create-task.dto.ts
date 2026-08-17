@@ -7,4 +7,5 @@ export type CreateTaskDto = {
   leadId?: string | null;
   orderId?: string | null;
   assigneeId?: string | null; // optional; default actor.id, ADMIN can set
+  collaboratorIds?: string[];
 };

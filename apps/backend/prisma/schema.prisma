@@ -684,6 +684,9 @@ model User {
   assignedConversations      Conversation[]
   outboundMessages           Message[]
   tasks                      Task[]
+  taskComments               TaskComment[]
+  taskCollaborations         TaskCollaborator[]
+  taskCollaboratorsAdded     TaskCollaborator[] @relation("TaskCollaboratorAddedBy")
   companies                  Company[]
   importedInventorySnapshots InventorySnapshot[] @relation("InventorySnapshotImportedBy")
   postedInventorySnapshots   InventorySnapshot[] @relation("InventorySnapshotPostedBy")
@@ -2348,6 +2351,8 @@ model Task {
   order     Order?   @relation(fields: [orderId], references: [id], onDelete: SetNull)
   call      Call?    @relation("MissedCallTask", fields: [callId], references: [id], onDelete: SetNull)
   dailyWorkPlanItems DailyWorkPlanItem[]
+  comments           TaskComment[]
+  collaborators      TaskCollaborator[]
 
   @@unique([legacySource, legacyId])
   @@index([assigneeId, status])
@@ -2357,6 +2362,33 @@ model Task {
   @@index([companyId])
   @@index([leadId])
   @@index([orderId])
+}
+
+model TaskComment {
+  id        String   @id @default(cuid())
+  taskId    String
+  authorId  String
+  body      String
+  createdAt DateTime @default(now())
+
+  task   Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  author User @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([taskId, createdAt])
+}
+
+model TaskCollaborator {
+  taskId    String
+  userId    String
+  addedById String?
+  createdAt DateTime @default(now())
+
+  task    Task  @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user    User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  addedBy User? @relation("TaskCollaboratorAddedBy", fields: [addedById], references: [id], onDelete: SetNull)
+
+  @@id([taskId, userId])
+  @@index([userId])
 }
 
 // ===== NP Catalog cache (daily sync) =====

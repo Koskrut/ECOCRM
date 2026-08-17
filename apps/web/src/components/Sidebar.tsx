@@ -34,6 +34,7 @@ import { ModuleIds } from "@/lib/modules/module-ids";
 import { useInboxUnread } from "@/lib/use-inbox-unread";
 import { useMetaInboxUnread } from "@/lib/use-meta-inbox-unread";
 import { useActiveLeadsCount } from "@/lib/use-active-leads-count";
+import { useActiveTasksCount } from "@/lib/use-active-tasks-count";
 
 type MenuItem = {
   label: string;
@@ -49,6 +50,7 @@ const INBOX_TELEGRAM_HREF = "/inbox/telegram";
 const INBOX_INSTAGRAM_HREF = "/inbox/instagram";
 const INBOX_FACEBOOK_HREF = "/inbox/facebook";
 const LEADS_HREF = "/leads";
+const TASKS_HREF = "/tasks";
 
 const INBOX_UNREAD_HREFS = new Set([
   INBOX_TELEGRAM_HREF,
@@ -225,10 +227,16 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
     return gatedMenuItems.some((it) => it.href === LEADS_HREF);
   }, [gatedMenuItems, role]);
 
+  const tasksPollEnabled = useMemo(() => {
+    if (role === "WAREHOUSE") return false;
+    return gatedMenuItems.some((it) => it.href === TASKS_HREF);
+  }, [gatedMenuItems, role]);
+
   const telegramInboxHasUnread = useInboxUnread(telegramInboxPollEnabled, pathname);
   const instagramInboxHasUnread = useMetaInboxUnread("INSTAGRAM", metaInboxPollEnabled, pathname);
   const facebookInboxHasUnread = useMetaInboxUnread("FACEBOOK", metaInboxPollEnabled, pathname);
   const activeLeadsCount = useActiveLeadsCount(leadsPollEnabled, pathname);
+  const activeTasksCount = useActiveTasksCount(tasksPollEnabled, pathname);
 
   const inboxUnreadByHref: Record<string, boolean> = {
     [INBOX_TELEGRAM_HREF]: telegramInboxHasUnread,
@@ -302,7 +310,14 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
       const leadsBadgeAriaLabel = leadsBadge
         ? strings.nav.activeLeadsCount.replace("{count}", String(activeLeadsCount))
         : null;
-      const showIconOverlay = collapsed && !onNavigate && (showInboxDot || !!leadsBadge);
+      const tasksBadge =
+        item.href === TASKS_HREF ? formatCountBadge(activeTasksCount) : null;
+      const tasksBadgeAriaLabel = tasksBadge
+        ? strings.nav.activeTasksCount.replace("{count}", String(activeTasksCount))
+        : null;
+      const countBadge = leadsBadge ?? tasksBadge;
+      const countBadgeAriaLabel = leadsBadgeAriaLabel ?? tasksBadgeAriaLabel;
+      const showIconOverlay = collapsed && !onNavigate && (showInboxDot || !!countBadge);
       return (
         <Link
           key={item.href}
@@ -316,16 +331,16 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
           <span className="relative shrink-0">
             <Icon className="size-5" aria-hidden />
             {showIconOverlay && showInboxDot && <NavInboxDot overlay />}
-            {showIconOverlay && leadsBadge && leadsBadgeAriaLabel && (
-              <NavCountBadge badge={leadsBadge} ariaLabel={leadsBadgeAriaLabel} overlay />
+            {showIconOverlay && countBadge && countBadgeAriaLabel && (
+              <NavCountBadge badge={countBadge} ariaLabel={countBadgeAriaLabel} overlay />
             )}
           </span>
           {(!collapsed || onNavigate) && (
             <span className="flex min-w-0 flex-1 items-center justify-between gap-2">
               <span className="truncate">{item.label}</span>
               {showInboxDot && <NavInboxDot active={isActive} />}
-              {leadsBadge && leadsBadgeAriaLabel && (
-                <NavCountBadge badge={leadsBadge} ariaLabel={leadsBadgeAriaLabel} active={isActive} />
+              {countBadge && countBadgeAriaLabel && (
+                <NavCountBadge badge={countBadge} ariaLabel={countBadgeAriaLabel} active={isActive} />
               )}
             </span>
           )}

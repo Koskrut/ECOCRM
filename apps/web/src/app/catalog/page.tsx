@@ -46,7 +46,7 @@ function warehouseDisplayOrder(name: string): number {
   return idx >= 0 ? idx : WAREHOUSE_ORDER.length;
 }
 
-/** Physical on-hand qty (catalog columns). Orders/store keep using availableQty. */
+/** Available qty per warehouse (physical minus hard reservations). Tooltip shows full breakdown. */
 function stockAtWarehouse(
   p: ProductCatalogItem,
   warehouseName: string,
@@ -64,7 +64,7 @@ function qtyAtWarehouse(
   p: ProductCatalogItem,
   warehouseName: string,
 ): number {
-  return stockAtWarehouse(p, warehouseName).qty;
+  return stockAtWarehouse(p, warehouseName).available;
 }
 
 function stockTitleAtWarehouse(

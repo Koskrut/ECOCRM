@@ -104,7 +104,6 @@ export class MrpActionListService {
       needItems.push(enriched);
 
       if (
-        line.kind === "KIT" &&
         packNeed > 0 &&
         maxFromParts <= 0 &&
         !canByProduct.has(line.productId)
@@ -112,10 +111,13 @@ export class MrpActionListService {
         blockedItems.push({
           ...enriched,
           qty: 0,
-          blockers: ["no_components"],
-          reason: enriched.bottleneckSku
-            ? `Blocked: no stock for ${enriched.bottleneckSku}`
-            : "Blocked: missing inventoried BOM parts",
+          blockers: line.kind === "PART" ? ["no_wip_ready"] : ["no_components"],
+          reason:
+            line.kind === "PART"
+              ? "Blocked: no WIP at QC/PACK"
+              : enriched.bottleneckSku
+                ? `Blocked: no stock for ${enriched.bottleneckSku}`
+                : "Blocked: missing inventoried BOM parts",
         });
       }
     }

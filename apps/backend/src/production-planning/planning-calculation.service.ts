@@ -5,6 +5,7 @@ import {
   PackingListStatus,
   ProductKind,
   ProductionBatchStatus,
+  ProductionStageCode,
   ReservationHardness,
   ReservationStatus,
   SalesHistoryUploadStatus,
@@ -101,6 +102,46 @@ export class PlanningCalculationService {
       available,
       expectedOutput,
     };
+  }
+
+  /** WIP qty at QC/PACK ready for final packaging (parts finishing, not kit assembly). */
+  async getPackReadyByProduct(productIds?: string[]): Promise<Map<string, number>> {
+    const [packStage, qcStage] = await Promise.all([
+      this.prisma.productionStage.findUnique({
+        where: { code: ProductionStageCode.PACK },
+        select: { id: true },
+      }),
+      this.prisma.productionStage.findUnique({
+        where: { code: ProductionStageCode.QC },
+        select: { id: true },
+      }),
+    ]);
+    const stageIds = [packStage?.id, qcStage?.id].filter((id): id is string => Boolean(id));
+    if (stageIds.length === 0) return new Map();
+
+    const wipBatches = await this.prisma.productionBatch.findMany({
+      where: {
+        status: { in: [ProductionBatchStatus.DRAFT, ProductionBatchStatus.IN_PROGRESS] },
+        currentStageId: { in: stageIds },
+        ...(productIds?.length ? { productId: { in: productIds } } : {}),
+      },
+      select: {
+        productId: true,
+        qtyPlanned: true,
+        qtyGood: true,
+      },
+    });
+
+    const packReadyByProduct = new Map<string, number>();
+    for (const batch of wipBatches) {
+      const remaining = Math.max(0, batch.qtyPlanned - batch.qtyGood);
+      if (remaining <= 0) continue;
+      packReadyByProduct.set(
+        batch.productId,
+        (packReadyByProduct.get(batch.productId) ?? 0) + remaining,
+      );
+    }
+    return packReadyByProduct;
   }
 
   async getKitCapacity(kitProductId: string) {
@@ -361,10 +402,15 @@ export class PlanningCalculationService {
 
     for (const kit of kits) {
       const avail = await this.getAvailability(kit.id);
+      const forecast14 = forecast14Map.get(kit.id) ?? 0;
+      const forecast30 = forecast30Map.get(kit.id) ?? 0;
+      const hard = hardDemand.get(kit.id) ?? 0;
       const weekly =
-        (forecast14Map.get(kit.id) ?? 0) / 2 ||
-        (forecast30Map.get(kit.id) ?? 0) / (30 / 7) ||
-        (hardDemand.get(kit.id) ?? 0) / 2;
+        forecast14 > 0
+          ? forecast14 / 2
+          : forecast30 > 0
+            ? forecast30 / (30 / 7)
+            : hard / 2;
       totalKitStock += avail.available;
       totalWeeklyDemand += weekly;
       const daysOfCover = weekly > 0 ? Math.round((avail.available / weekly) * 7 * 10) / 10 : null;

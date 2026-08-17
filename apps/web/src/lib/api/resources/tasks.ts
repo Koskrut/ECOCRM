@@ -17,12 +17,28 @@ export function resolveTaskListStatus(
   return statusFilter;
 }
 
+export type TaskCollaborator = {
+  userId: string;
+  user?: { id: string; fullName: string } | null;
+};
+
+export type TaskComment = {
+  id: string;
+  taskId: string;
+  authorId: string;
+  author?: { id: string; fullName: string } | null;
+  body: string;
+  createdAt: string;
+};
+
 export type Task = {
   id: string;
   assigneeId: string;
   assignee?: { id: string; fullName: string } | null;
   createdById?: string | null;
   createdBy?: { id: string; fullName: string } | null;
+  collaborators?: TaskCollaborator[];
+  _count?: { comments: number };
   contactId?: string | null;
   contact?: { id: string; firstName: string; lastName: string; phone: string } | null;
   companyId?: string | null;
@@ -81,6 +97,7 @@ export type CreateTaskBody = {
   leadId?: string | null;
   orderId?: string | null;
   assigneeId?: string | null;
+  collaboratorIds?: string[];
 };
 
 export type UpdateTaskBody = Partial<{
@@ -89,6 +106,7 @@ export type UpdateTaskBody = Partial<{
   dueAt: string | null;
   status: TaskStatus;
   assigneeId: string | null;
+  collaboratorIds?: string[];
 }>;
 
 export const tasksApi = {
@@ -139,6 +157,16 @@ export const tasksApi = {
 
   cancel: async (id: string): Promise<Task> => {
     const res = await apiHttp.post<Task>(`/tasks/${id}/cancel`);
+    return res.data;
+  },
+
+  listComments: async (id: string): Promise<{ items: TaskComment[] }> => {
+    const res = await apiHttp.get<{ items: TaskComment[] }>(`/tasks/${id}/comments`);
+    return res.data;
+  },
+
+  addComment: async (id: string, body: string): Promise<TaskComment> => {
+    const res = await apiHttp.post<TaskComment>(`/tasks/${id}/comments`, { body });
     return res.data;
   },
 };

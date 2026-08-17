@@ -6,4 +6,5 @@ export type UpdateTaskDto = {
   dueAt?: string | null; // ISO date
   status?: TaskStatus;
   assigneeId?: string | null;
+  collaboratorIds?: string[];
 };

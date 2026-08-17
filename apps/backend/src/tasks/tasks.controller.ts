@@ -91,6 +91,9 @@ export class TasksController {
         leadId: body.leadId != null ? (body.leadId as string) : undefined,
         orderId: body.orderId != null ? (body.orderId as string) : undefined,
         assigneeId: body.assigneeId != null ? (body.assigneeId as string) : undefined,
+        collaboratorIds: Array.isArray(body.collaboratorIds)
+          ? (body.collaboratorIds as string[])
+          : undefined,
       },
       req.user,
     );
@@ -119,6 +122,9 @@ export class TasksController {
         dueAt,
         status: body.status !== undefined ? (body.status as TaskStatus) : undefined,
         assigneeId: body.assigneeId !== undefined ? (body.assigneeId != null ? String(body.assigneeId) : null) : undefined,
+        collaboratorIds: Array.isArray(body.collaboratorIds)
+          ? (body.collaboratorIds as string[])
+          : undefined,
       },
       req.user,
     );
@@ -132,5 +138,22 @@ export class TasksController {
   @Post(":id/cancel")
   async cancel(@Param("id") id: string, @Req() req: Request & { user?: AuthUser }) {
     return this.tasks.cancel(id, req?.user);
+  }
+
+  @Get(":id/comments")
+  async listComments(@Param("id") id: string, @Req() req: Request & { user?: AuthUser }) {
+    return this.tasks.listComments(id, req?.user);
+  }
+
+  @Post(":id/comments")
+  async addComment(
+    @Param("id") id: string,
+    @Body() body: Record<string, unknown>,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    if (!req.user) {
+      throw new BadRequestException("User is required");
+    }
+    return this.tasks.addComment(id, String(body.body ?? ""), req.user);
   }
 }

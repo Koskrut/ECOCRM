@@ -2,14 +2,23 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-import { DateTime } from "luxon";
+import { usePathname, useRouter } from "next/navigation";
+import { ListTodo } from "lucide-react";
 import {
   notificationsApi,
   notificationHref,
   type UserNotification,
 } from "@/lib/api/resources/notifications";
 import { CRM_LOCALE, CRM_TIME_ZONE } from "@/lib/crmDatetime";
+import { strings } from "@/locales";
+import { useActiveTasksCount } from "@/lib/use-active-tasks-count";
+
+import { DateTime } from "luxon";
+
+function formatCountBadge(count: number): string | null {
+  if (count <= 0) return null;
+  return count > 99 ? "99+" : String(count);
+}
 
 function formatWhen(iso: string): string {
   const d = DateTime.fromISO(iso, { setZone: true }).setZone(CRM_TIME_ZONE);
@@ -19,6 +28,9 @@ function formatWhen(iso: string): string {
 
 export default function NotificationsPage() {
   const router = useRouter();
+  const pathname = usePathname();
+  const activeTasksCount = useActiveTasksCount(true, pathname);
+  const tasksBadge = formatCountBadge(activeTasksCount);
   const [items, setItems] = useState<UserNotification[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -98,6 +110,28 @@ export default function NotificationsPage() {
           </Link>
         </div>
       </div>
+
+      <Link
+        href="/tasks"
+        className="flex items-center justify-between gap-3 rounded-xl border border-zinc-200 bg-white px-4 py-3 shadow-sm transition hover:bg-zinc-50"
+      >
+        <span className="flex min-w-0 items-center gap-3">
+          <span className="flex size-9 items-center justify-center rounded-full bg-zinc-100 text-zinc-600">
+            <ListTodo className="size-4" aria-hidden />
+          </span>
+          <span>
+            <span className="block text-sm font-medium text-zinc-900">{strings.notifications.activeTasksLink}</span>
+            <span className="block text-xs text-zinc-500">{strings.nav.tasks}</span>
+          </span>
+        </span>
+        {tasksBadge ? (
+          <span className="flex min-w-[24px] items-center justify-center rounded-full bg-red-600 px-2 py-1 text-xs font-semibold text-white">
+            {tasksBadge}
+          </span>
+        ) : (
+          <span className="text-xs text-zinc-400">{strings.notifications.noActiveTasks}</span>
+        )}
+      </Link>
 
       <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white">
         {loading ? (

@@ -16,6 +16,7 @@ const SIDEcar_PROXY_ENV_BY_MODULE: Record<string, string> = {
   ClientBalancesModule: "FINANCE_UPSTREAM_URL",
   Privat24Module: "FINANCE_UPSTREAM_URL",
   UpcModule: "FINANCE_UPSTREAM_URL",
+  OneCPaymentsModule: "FINANCE_UPSTREAM_URL",
   NpModule: "NP_UPSTREAM_URL",
   GoogleSheetModule: "GOOGLE_SHEET_UPSTREAM_URL",
   BitrixSyncModule: "BITRIX_UPSTREAM_URL",

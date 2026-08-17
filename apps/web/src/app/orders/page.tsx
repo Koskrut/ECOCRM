@@ -591,7 +591,7 @@ function OrdersPageContent() {
   };
 
   return (
-    <div className="mx-auto max-w-7xl">
+    <div className="w-full min-w-0">
         <div className="mb-6 flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold text-zinc-900">{strings.nav.orders}</h1>

@@ -21,6 +21,14 @@ export type {
 
 export type TodaySuggestedAction = "pack" | "production" | "factory";
 
+export type TodayBurningComponent = {
+  sku: string;
+  name: string;
+  availableQty: number;
+  /** Units of this component required to cover kit needQty (kits only). */
+  needQty: number | null;
+};
+
 export type TodayBurningItem = {
   lineId: string;
   productId: string;
@@ -31,6 +39,7 @@ export type TodayBurningItem = {
   coverDays: number | null;
   reason: string;
   suggestedActions: TodaySuggestedAction[];
+  bottleneckComponent: TodayBurningComponent | null;
 };
 
 export type PlanningTodayView = {
@@ -65,32 +74,36 @@ export class PlanningTodayService {
         qtyShipped: true,
         productId: true,
         productNameSnapshot: true,
-        product: { select: { sku: true, name: true, stock: true } },
+        product: { select: { sku: true, name: true } },
         order: { select: { id: true, orderNumber: true, warehouseId: true } },
       },
     });
-
-    const productStockById = new Map<string, number>();
-    for (const item of items) {
-      if (item.productId && item.product) {
-        productStockById.set(item.productId, item.product.stock);
-      }
-    }
 
     const productIds = [...new Set(items.map((i) => i.productId).filter((id): id is string => Boolean(id)))];
     const warehouseIds = [
       ...new Set(items.map((i) => i.order.warehouseId).filter((id): id is string => Boolean(id))),
     ];
-    const warehouseRows =
-      warehouseIds.length > 0 && productIds.length > 0
-        ? await this.prisma.productWarehouseStock.findMany({
-            where: { warehouseId: { in: warehouseIds }, productId: { in: productIds } },
-            select: { warehouseId: true, productId: true, qty: true },
-          })
-        : [];
-    const warehouseStockByKey = new Map(
-      warehouseRows.map((r) => [`${r.warehouseId}:${r.productId}`, r.qty]),
+
+    // Same 1C snapshot availability as MRP/pack — not Product.stock from the catalog.
+    const productStockById = new Map<string, number>();
+    await Promise.all(
+      productIds.map(async (productId) => {
+        const avail = await this.calculations.getAvailability(productId);
+        productStockById.set(productId, avail.available);
+      }),
     );
+
+    const warehouseStockByKey = new Map<string, number>();
+    if (warehouseIds.length > 0 && productIds.length > 0) {
+      await Promise.all(
+        warehouseIds.flatMap((warehouseId) =>
+          productIds.map(async (productId) => {
+            const avail = await this.calculations.getAvailability(productId, warehouseId);
+            warehouseStockByKey.set(`${warehouseId}:${productId}`, avail.available);
+          }),
+        ),
+      );
+    }
 
     return groupAwaitingStockLines(
       items.map((item) => ({
@@ -169,12 +182,18 @@ export class PlanningTodayService {
     };
 
     const burning: TodayBurningItem[] = [];
+    const kitCapacityCache = new Map<
+      string,
+      Awaited<ReturnType<PlanningCalculationService["getKitCapacity"]>>
+    >();
+
     for (const line of criticalLines.slice(0, 20)) {
       const details = line.details ?? {};
       const hardDeficitQty = Number(details.hardDeficitQty ?? details.hardDeficit ?? 0);
       const hasHardDeficit = hardDeficitQty > 0;
       const productionLeadDays = Number(details.productionLeadDays ?? 14);
       const packLeadDays = Number(details.packLeadDays ?? ctx.defaultPackLeadDays);
+      const needQty = Math.max(0, Math.ceil(line.qty));
       const desiredDate = computeDesiredDate({
         monthOffset: line.monthBucket ?? 0,
         hasHardDeficit,
@@ -201,16 +220,51 @@ export class PlanningTodayService {
         if (!suggestedActions.includes("factory")) suggestedActions.push("factory");
       }
 
+      let bottleneckComponent: TodayBurningComponent | null = null;
+      if (line.kind === ProductKind.KIT) {
+        let capacity = kitCapacityCache.get(line.productId);
+        if (!capacity) {
+          capacity = await this.calculations.getKitCapacity(line.productId);
+          kitCapacityCache.set(line.productId, capacity);
+        }
+        const bottleneck = capacity.components.find(
+          (c) => c.componentProductId === capacity!.bottleneckComponentId,
+        );
+        if (bottleneck?.product) {
+          const effectiveQtyPerKit =
+            bottleneck.ratio > 0 && Number.isFinite(bottleneck.ratio)
+              ? bottleneck.available / bottleneck.ratio
+              : bottleneck.qtyPerKit > 0
+                ? bottleneck.qtyPerKit
+                : 1;
+          bottleneckComponent = {
+            sku: bottleneck.product.sku,
+            name: bottleneck.product.name,
+            availableQty: Math.max(0, Math.floor(bottleneck.available)),
+            needQty: needQty > 0 ? Math.ceil(needQty * effectiveQtyPerKit) : null,
+          };
+        }
+      } else if (line.kind === ProductKind.PART) {
+        const availability = await this.calculations.getAvailability(line.productId);
+        bottleneckComponent = {
+          sku: line.sku,
+          name: line.name,
+          availableQty: availability.available,
+          needQty: needQty > 0 ? needQty : null,
+        };
+      }
+
       burning.push({
         lineId: line.id,
         productId: line.productId,
         sku: line.sku,
         name: line.name,
-        needQty: Math.max(0, Math.ceil(line.qty)),
+        needQty,
         desiredDate,
         coverDays: line.coverDays,
         reason: line.reason ?? "",
         suggestedActions: [...new Set(suggestedActions)],
+        bottleneckComponent,
       });
     }
 
