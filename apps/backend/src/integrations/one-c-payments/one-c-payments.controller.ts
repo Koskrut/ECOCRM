@@ -18,7 +18,7 @@ import { Roles } from "../../auth/roles.decorator";
 import { RequireModule } from "../../modules/gating/require-module.decorator";
 import { ModuleIds } from "../../modules/module-ids";
 import { OneCPaymentsImportService } from "./one-c-payments-import.service";
-import type { CommitOneCPaymentsDto, SetOneCOverridesDto } from "./dto/one-c-payments.dto";
+import type { CommitOneCPaymentsDto, CreateOneCContactDto, SetOneCOverridesDto } from "./dto/one-c-payments.dto";
 
 @Controller("one-c-payments")
 @RequireModule(ModuleIds.OneCPayments)
@@ -77,6 +77,17 @@ export class OneCPaymentsController {
   @Roles(UserRole.ADMIN, UserRole.LEAD)
   revalidate(@Param("id") id: string, @Req() req: Request & { user?: AuthUser }) {
     return this.service.revalidate(id, this.requireUser(req));
+  }
+
+  @Post("jobs/:id/create-contact")
+  @Roles(UserRole.ADMIN, UserRole.LEAD)
+  async createContact(
+    @Param("id") id: string,
+    @Body() body: CreateOneCContactDto,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    const actor = this.requireUser(req);
+    return this.service.createContactFromImport(id, actor, body);
   }
 
   @Post("jobs/:id/commit")

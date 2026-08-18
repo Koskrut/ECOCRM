@@ -239,6 +239,7 @@ describe("OrdersService.setOrderStage", () => {
       },
       orderStatusHistory: { create: async () => ({}) },
       materialReservation: { updateMany: async () => ({ count: 0 }) },
+      $transaction: async <T>(cb: (tx: unknown) => Promise<T>) => cb(prisma as unknown),
     } as unknown as PrismaSvc;
     const integrations = {
       recalcOrderFinance: async (orderId: string) => {

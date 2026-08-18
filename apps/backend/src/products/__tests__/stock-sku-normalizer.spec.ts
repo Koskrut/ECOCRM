@@ -47,6 +47,7 @@ describe("stock-sku-normalizer", () => {
       { id: "p", sku: "10.046", externalCode: "000000190" },
     ]);
     assert.strictEqual(resolveStockSkuToProduct("000000190", index)?.id, "p");
+    assert.strictEqual(resolveStockSkuToProduct("190", index)?.id, "p");
     assert.strictEqual(resolveStockSkuToProduct("10.046", index)?.id, "p");
   });
 

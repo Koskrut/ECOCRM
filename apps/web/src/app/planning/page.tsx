@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { strings } from "@/locales";
 import { HelpHint } from "@/components/help/HelpHint";
+import { apiHttp } from "@/lib/api/client";
 import {
   planningApi,
   resolvePlanningUploadError,
@@ -23,7 +24,7 @@ import {
   type StockProjection,
 } from "@/lib/api/resources/planning";
 import { productsApi, type ProductCatalogItem } from "@/lib/api/resources/products";
-import { formatDateTime } from "@/lib/crmDatetime";
+import { formatDate, formatDateTime } from "@/lib/crmDatetime";
 import {
   FactoryPanel,
   ForecastPanel,
@@ -36,6 +37,13 @@ import {
 import { TodayScreen } from "./PlanningScreens";
 
 type PlanningScreen = "today" | "pack" | "make" | "data";
+type BomEditorLine = {
+  id: string;
+  componentProductId: string;
+  qtyPerKit: string;
+  scrapPct: string;
+  sortOrder: number;
+};
 
 /** Legacy ?tab= keys → new IA (soft redirect). */
 const LEGACY_TAB_MAP: Record<string, PlanningScreen> = {
@@ -63,6 +71,10 @@ function resolveScreen(tab: string | null): PlanningScreen {
   if (tab in LEGACY_TAB_MAP) return LEGACY_TAB_MAP[tab]!;
   if (PLANNING_SCREENS.includes(tab as PlanningScreen)) return tab as PlanningScreen;
   return "today";
+}
+
+function createEmptyBomLine(id: string, sortOrder = 0): BomEditorLine {
+  return { id, componentProductId: "", qtyPerKit: "1", scrapPct: "", sortOrder };
 }
 
 const ORDER_STAGE_VALUES = [
@@ -127,9 +139,14 @@ function PlanningPageInner() {
     else if (tabParam === "settings") setDataSection("settings");
     else if (tabParam === "inventory") setDataSection("inventory");
   }, [tabParam]);
+  useEffect(() => {
+    setProductSearch("");
+  }, [dataSection]);
   const [howToOpen, setHowToOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
+  const [userRole, setUserRole] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [horizonWeeks, setHorizonWeeks] = useState(1);
 
@@ -201,14 +218,20 @@ function PlanningPageInner() {
     qtyScrapIncrement: "",
     note: "",
   });
-  const [bomLines, setBomLines] = useState<
-    Array<{ componentProductId: string; qtyPerKit: string; scrapPct: string; sortOrder: number }>
-  >([{ componentProductId: "", qtyPerKit: "1", scrapPct: "", sortOrder: 0 }]);
+  const [bomLines, setBomLines] = useState<BomEditorLine[]>([createEmptyBomLine("row-0", 0)]);
 
   const selectedProduct = useMemo(
     () => products.find((item) => item.id === selectedProductId) ?? null,
     [products, selectedProductId],
   );
+  const canManagePlanning = userRole === "ADMIN" || userRole === "LEAD";
+
+  useEffect(() => {
+    void apiHttp
+      .get<{ user?: { role?: string } }>("/auth/me")
+      .then((res) => setUserRole(res.data?.user?.role ?? null))
+      .catch(() => setUserRole(null));
+  }, []);
   const selectedKit = useMemo(
     () => products.find((item) => item.id === selectedKitId) ?? null,
     [products, selectedKitId],
@@ -292,6 +315,7 @@ function PlanningPageInner() {
     if (bomRes) {
       setBomLines(
         bomRes.lines.map((line, idx) => ({
+          id: `${line.componentProductId}-${idx}`,
           componentProductId: line.componentProductId,
           qtyPerKit: String(line.qtyPerKit),
           scrapPct: line.scrapPct != null ? String(line.scrapPct) : "",
@@ -299,7 +323,7 @@ function PlanningPageInner() {
         })),
       );
     } else {
-      setBomLines([{ componentProductId: "", qtyPerKit: "1", scrapPct: "", sortOrder: 0 }]);
+      setBomLines([createEmptyBomLine(`row-${Date.now()}`, 0)]);
     }
   }, []);
 
@@ -379,7 +403,7 @@ function PlanningPageInner() {
     } else {
       setBom(null);
       setCapacity(null);
-      setBomLines([{ componentProductId: "", qtyPerKit: "1", scrapPct: "", sortOrder: 0 }]);
+      setBomLines([createEmptyBomLine(`row-${Date.now()}`, 0)]);
     }
   }, [loadBomDetails, selectedKitId]);
 
@@ -433,7 +457,12 @@ function PlanningPageInner() {
     }
   };
 
-  const handlePublishSnapshot = async (snapshotId: string) => {
+  const handlePublishSnapshot = async (
+    snapshotId: string,
+    importedAt: string,
+  ) => {
+    const importedDate = importedAt.slice(0, 10);
+    if (!window.confirm(t.messages.publishSnapshotConfirm(importedDate))) return;
     try {
       await planningApi.postSnapshot(snapshotId);
       await planningApi.runMrp("FULL");
@@ -552,8 +581,12 @@ function PlanningPageInner() {
 
   const handleRunWeekly = async () => {
     setRunningWeekly(true);
+    setInfo(null);
     try {
-      await planningApi.runWeeklyPlan();
+      const res = await planningApi.runWeeklyPlan();
+      setInfo(
+        `Weekly refresh: QC ${res.qcQueue}, PACK ${res.packQueue}, launch ${res.launch}.`,
+      );
       await handleRefresh();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : t.errors.runWeeklyPlan);
@@ -594,7 +627,7 @@ function PlanningPageInner() {
           <button
             type="button"
             onClick={() => void handleRunWeekly()}
-            disabled={runningWeekly}
+            disabled={runningWeekly || !canManagePlanning}
             className="rounded-lg bg-cyan-600 px-4 py-2 text-sm font-medium text-white hover:bg-cyan-700 disabled:opacity-50"
           >
             {runningWeekly ? strings.common.loading : t.actions.runWeeklyPlan}
@@ -612,6 +645,9 @@ function PlanningPageInner() {
           mrpStaleWarning={mrpStaleWarning}
         />
       ) : null}
+      <div className="rounded-lg border border-cyan-200 bg-cyan-50 p-3 text-sm text-cyan-900">
+        {t.messages.stockSourceHint}
+      </div>
 
       <div className="flex flex-wrap gap-2">
         {PLANNING_SCREENS.map((tab) => (
@@ -642,6 +678,19 @@ function PlanningPageInner() {
             type="button"
             onClick={() => setError(null)}
             className="shrink-0 leading-none text-red-500 hover:text-red-800"
+            aria-label={strings.common.close}
+          >
+            ×
+          </button>
+        </div>
+      )}
+      {info && (
+        <div className="flex items-start justify-between gap-3 rounded-lg border border-cyan-200 bg-cyan-50 p-3 text-sm text-cyan-800">
+          <span>{info}</span>
+          <button
+            type="button"
+            onClick={() => setInfo(null)}
+            className="shrink-0 leading-none text-cyan-600 hover:text-cyan-900"
             aria-label={strings.common.close}
           >
             ×
@@ -778,7 +827,7 @@ function PlanningPageInner() {
                   <button
                     type="button"
                     onClick={() => void handleUploadSnapshot()}
-                    disabled={uploadingSnapshot}
+                    disabled={uploadingSnapshot || !canManagePlanning}
                     className="rounded-lg bg-cyan-600 px-4 py-2 text-sm font-medium text-white hover:bg-cyan-700 disabled:opacity-50"
                   >
                     {uploadingSnapshot ? strings.common.loading : t.actions.uploadSnapshot}
@@ -830,13 +879,15 @@ function PlanningPageInner() {
                   rows={snapshots.map((snapshot) => [
                     snapshot.status,
                     snapshot.source,
-                    formatDateTime(snapshot.importedAt),
-                    snapshot.postedAt ? formatDateTime(snapshot.postedAt) : t.states.none,
+                    formatDate(snapshot.importedAt),
+                    snapshot.postedAt ? formatDate(snapshot.postedAt) : t.states.none,
                     String(snapshot._count?.lines ?? snapshot.lines?.length ?? 0),
-                    snapshot.status === "STAGED" ? (
+                    snapshot.status === "STAGED" && canManagePlanning ? (
                       <button
                         type="button"
-                        onClick={() => void handlePublishSnapshot(snapshot.id)}
+                        onClick={() =>
+                          void handlePublishSnapshot(snapshot.id, snapshot.importedAt)
+                        }
                         className="rounded border border-cyan-200 bg-cyan-50 px-3 py-1 text-xs font-medium text-cyan-800 hover:bg-cyan-100"
                       >
                         {t.actions.publishSnapshot}
@@ -868,7 +919,7 @@ function PlanningPageInner() {
                   <button
                     type="button"
                     onClick={() => void handleImportBomFile()}
-                    disabled={importingBom}
+                    disabled={importingBom || !canManagePlanning}
                     className="rounded-lg bg-cyan-600 px-4 py-2 text-sm font-medium text-white hover:bg-cyan-700 disabled:opacity-50"
                   >
                     {importingBom ? strings.common.loading : t.actions.uploadBom}
@@ -973,7 +1024,7 @@ function PlanningPageInner() {
               <Panel title={t.labels.components}>
                 <div className="space-y-3">
                   {bomLines.map((line, idx) => (
-                    <div key={`${idx}-${line.componentProductId}`} className="grid grid-cols-1 gap-3 md:grid-cols-[2fr_1fr_1fr_auto]">
+                    <div key={line.id} className="grid grid-cols-1 gap-3 md:grid-cols-[2fr_1fr_1fr_auto]">
                       <select
                         value={line.componentProductId}
                         onChange={(e) =>
@@ -1014,7 +1065,9 @@ function PlanningPageInner() {
                       />
                       <button
                         type="button"
-                        onClick={() => setBomLines((prev) => prev.filter((_, i) => i !== idx))}
+                        onClick={() =>
+                          setBomLines((prev) => prev.filter((item) => item.id !== line.id))
+                        }
                         className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 hover:bg-red-100"
                       >
                         {t.actions.removeLine}
@@ -1027,7 +1080,7 @@ function PlanningPageInner() {
                       onClick={() =>
                         setBomLines((prev) => [
                           ...prev,
-                          { componentProductId: "", qtyPerKit: "1", scrapPct: "", sortOrder: prev.length },
+                          createEmptyBomLine(`row-${Date.now()}-${prev.length}`, prev.length),
                         ])
                       }
                       className="rounded-lg border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
@@ -1037,7 +1090,7 @@ function PlanningPageInner() {
                     <button
                       type="button"
                       onClick={() => void handleCreateBomRevision()}
-                      disabled={savingBom}
+                      disabled={savingBom || !canManagePlanning}
                       className="rounded-lg bg-cyan-600 px-4 py-2 text-sm font-medium text-white hover:bg-cyan-700 disabled:opacity-50"
                     >
                       {savingBom ? strings.common.loading : t.actions.createRevision}
@@ -1103,7 +1156,7 @@ function PlanningPageInner() {
                   <button
                     type="button"
                     onClick={() => void handleSaveRules()}
-                    disabled={savingRules}
+                    disabled={savingRules || !canManagePlanning}
                     className="rounded-lg bg-cyan-600 px-4 py-2 text-sm font-medium text-white hover:bg-cyan-700 disabled:opacity-50"
                   >
                     {savingRules ? strings.common.loading : t.actions.saveRules}

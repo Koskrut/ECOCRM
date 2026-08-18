@@ -61,7 +61,13 @@ export class OrderMaterialReservationService {
     orderId: string,
     tx?: Prisma.TransactionClient,
   ): Promise<void> {
-    const db: DbClient = tx ?? this.prisma;
+    if (!tx) {
+      await this.prisma.$transaction(async (innerTx) => {
+        await this.syncActiveReservationsForOrder(orderId, innerTx);
+      });
+      return;
+    }
+    const db: DbClient = tx;
     const order = await db.order.findUnique({
       where: { id: orderId },
       select: {

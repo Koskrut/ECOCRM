@@ -5,7 +5,8 @@ export type OneCMatchStatus =
   | "AMBIGUOUS"
   | "UNMATCHED"
   | "ALREADY_IMPORTED"
-  | "CONTACT_MISMATCH";
+  | "CONTACT_MISMATCH"
+  | "CONTACT_NOT_FOUND";
 
 export type OneCMatchedOrder = {
   orderId: string;
@@ -38,6 +39,7 @@ export type OneCPreviewRow = {
   matchedRef: string | null;
   order: OneCMatchedOrder | null;
   candidateOrders: OneCMatchedOrder[];
+  contactOrders: OneCMatchedOrder[];
   contactByCode: { contactId: string; label: string; externalCode: string } | null;
   warnings: string[];
   amountDebtDelta: number | null;
@@ -117,6 +119,13 @@ export const oneCPaymentsApi = {
     return apiHttp.post<OneCCommitResponse>(`/one-c-payments/jobs/${jobId}/commit`, {
       overrides: overrides ?? {},
     });
+  },
+
+  createContact(jobId: string, enterpriseCode: string, enterpriseName: string) {
+    return apiHttp.post<{ created: boolean; contactId: string; message?: string }>(
+      `/one-c-payments/jobs/${jobId}/create-contact`,
+      { enterpriseCode, enterpriseName },
+    );
   },
 
   listJobs(limit = 20) {

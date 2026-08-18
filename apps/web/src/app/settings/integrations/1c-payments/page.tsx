@@ -17,9 +17,16 @@ type OrderSearchItem = {
   orderNumber: string;
   debtAmount?: number;
   currency?: string;
-  contact?: { firstName?: string; lastName?: string } | null;
-  client?: { firstName?: string; lastName?: string } | null;
 };
+
+function contactOrdersToItems(orders: OneCPreviewRow["contactOrders"]): OrderSearchItem[] {
+  return orders.map((o) => ({
+    id: o.orderId,
+    orderNumber: o.orderNumber,
+    debtAmount: o.debtAmount,
+    currency: o.currency,
+  }));
+}
 
 const STATUS_LABEL: Record<OneCMatchStatus, string> = {
   MATCHED: "Знайдено",
@@ -27,6 +34,7 @@ const STATUS_LABEL: Record<OneCMatchStatus, string> = {
   UNMATCHED: "Не знайдено",
   ALREADY_IMPORTED: "Вже імпортовано",
   CONTACT_MISMATCH: "Інший контрагент",
+  CONTACT_NOT_FOUND: "Контакт не знайдено",
 };
 
 const STATUS_CLASS: Record<OneCMatchStatus, string> = {
@@ -35,6 +43,7 @@ const STATUS_CLASS: Record<OneCMatchStatus, string> = {
   UNMATCHED: "bg-zinc-100 text-zinc-700 ring-zinc-200",
   ALREADY_IMPORTED: "bg-sky-50 text-sky-800 ring-sky-200",
   CONTACT_MISMATCH: "bg-orange-50 text-orange-900 ring-orange-200",
+  CONTACT_NOT_FOUND: "bg-red-50 text-red-800 ring-red-200",
 };
 
 export default function OneCPaymentsImportPage() {
@@ -89,20 +98,35 @@ export default function OneCPaymentsImportPage() {
     }
   };
 
-  const searchOrders = async (importKey: string, q: string) => {
+  const filterContactOrders = (importKey: string, q: string, contactOrders: OrderSearchItem[]) => {
     setOrderSearch((prev) => ({ ...prev, [importKey]: q }));
-    if (!q.trim() || q.trim().length < 2) {
-      setOrderOptions((prev) => ({ ...prev, [importKey]: [] }));
+    if (!q.trim()) {
+      setOrderOptions((prev) => ({ ...prev, [importKey]: contactOrders }));
       return;
     }
+    const lower = q.toLowerCase();
+    const filtered = contactOrders.filter(
+      (o) =>
+        o.orderNumber.toLowerCase().includes(lower) ||
+        o.id.toLowerCase().includes(lower),
+    );
+    setOrderOptions((prev) => ({ ...prev, [importKey]: filtered }));
+  };
+
+  const createContact = async (r: OneCPreviewRow) => {
+    if (!jobId) return;
+    setBusy(true);
+    setErr(null);
     try {
-      const r = await apiHttp.get<{ items?: OrderSearchItem[] } | OrderSearchItem[]>("/orders", {
-        params: { q: q.trim(), pageSize: 10 },
-      });
-      const items = Array.isArray(r.data) ? r.data : (r.data?.items ?? []);
-      setOrderOptions((prev) => ({ ...prev, [importKey]: items }));
-    } catch {
-      setOrderOptions((prev) => ({ ...prev, [importKey]: [] }));
+      const res = await oneCPaymentsApi.createContact(jobId, r.enterpriseCode, r.enterpriseName);
+      if (res.data.contactId) {
+        const revalRes = await oneCPaymentsApi.revalidate(jobId);
+        applySummary(revalRes.data.summary);
+      }
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : "Не вдалося створити контакт");
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -213,6 +237,7 @@ export default function OneCPaymentsImportPage() {
                   "AMBIGUOUS",
                   "UNMATCHED",
                   "ALREADY_IMPORTED",
+                  "CONTACT_NOT_FOUND",
                 ] as OneCMatchStatus[]
               ).map((s) =>
                 counts[s] ? (
@@ -334,37 +359,56 @@ export default function OneCPaymentsImportPage() {
                               ))}
                             </ul>
                           )}
-                          {r.status !== "ALREADY_IMPORTED" && canWrite && (needsPick || orderSearch[r.importKey] !== undefined) && (
+                          {r.status === "CONTACT_NOT_FOUND" && canWrite && (
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={() => void createContact(r)}
+                              className="mt-1 rounded bg-red-600 px-2 py-1 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-50"
+                            >
+                              Створити контакт «{r.enterpriseName}»
+                            </button>
+                          )}
+                          {r.status !== "ALREADY_IMPORTED" && r.status !== "CONTACT_NOT_FOUND" && canWrite && (needsPick || orderSearch[r.importKey] !== undefined) && (
                             <div className="space-y-1">
-                              <input
-                                type="text"
-                                placeholder="Пошук замовлення…"
-                                value={orderSearch[r.importKey] ?? ""}
-                                onChange={(e) => void searchOrders(r.importKey, e.target.value)}
-                                className="w-full rounded border border-zinc-200 px-2 py-1 text-xs"
-                              />
-                              {(orderOptions[r.importKey]?.length ||
-                                r.candidateOrders.length > 0) && (
+                              {r.contactOrders.length > 5 && (
+                                <input
+                                  type="text"
+                                  placeholder="Фільтр замовлень клієнта…"
+                                  value={orderSearch[r.importKey] ?? ""}
+                                  onChange={(e) => filterContactOrders(r.importKey, e.target.value, contactOrdersToItems(r.contactOrders))}
+                                  className="w-full rounded border border-zinc-200 px-2 py-1 text-xs"
+                                />
+                              )}
+                              {(r.contactOrders.length > 0 || r.candidateOrders.length > 0) && (
                                 <select
                                   className="w-full rounded border border-zinc-200 px-2 py-1 text-xs"
                                   value={selectedId}
                                   onChange={(e) => void setOverride(r.importKey, e.target.value)}
                                 >
-                                  <option value="">Оберіть замовлення…</option>
+                                  <option value="">Оберіть замовлення клієнта…</option>
+                                  {(orderSearch[r.importKey] !== undefined
+                                    ? (orderOptions[r.importKey] ?? []).map((o) => (
+                                        <option key={o.id} value={o.id}>
+                                          #{o.orderNumber}
+                                          {o.debtAmount != null ? ` · борг ${o.debtAmount} ${o.currency ?? ""}` : ""}
+                                        </option>
+                                      ))
+                                    : r.contactOrders.map((c) => (
+                                        <option key={c.orderId} value={c.orderId}>
+                                          #{c.orderNumber} · борг {c.debtAmount} {c.currency}
+                                        </option>
+                                      ))
+                                  )}
                                   {r.candidateOrders.map((c) => (
                                     <option key={c.orderId} value={c.orderId}>
                                       #{c.orderNumber} · борг {c.debtAmount} {c.currency}
                                     </option>
                                   ))}
-                                  {(orderOptions[r.importKey] ?? []).map((o) => (
-                                    <option key={o.id} value={o.id}>
-                                      #{o.orderNumber}
-                                      {o.debtAmount != null
-                                        ? ` · борг ${o.debtAmount} ${o.currency ?? ""}`
-                                        : ""}
-                                    </option>
-                                  ))}
                                 </select>
+                              )}
+                              {r.contactOrders.length === 0 && r.candidateOrders.length === 0 && (
+                                <p className="text-[10px] text-zinc-500">У клієнта немає замовлень з боргом</p>
                               )}
                               {selectedId && overrides[r.importKey] && (
                                 <p className="text-[10px] text-emerald-700">Обрано вручну</p>
@@ -378,7 +422,11 @@ export default function OneCPaymentsImportPage() {
                               onClick={() => {
                                 setOrderSearch((p) => ({
                                   ...p,
-                                  [r.importKey]: r.order?.orderNumber ?? "",
+                                  [r.importKey]: "",
+                                }));
+                                setOrderOptions((p) => ({
+                                  ...p,
+                                  [r.importKey]: contactOrdersToItems(r.contactOrders),
                                 }));
                               }}
                             >

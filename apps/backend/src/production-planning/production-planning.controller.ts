@@ -93,6 +93,12 @@ export class ProductionPlanningController {
     if (hardStages.length === 0 && softStages.length === 0) {
       throw new BadRequestException("At least one stage must be configured");
     }
+    const overlap = hardStages.filter((stage) => softStages.includes(stage));
+    if (overlap.length > 0) {
+      throw new BadRequestException(
+        `Stages cannot be both hard and soft: ${overlap.join(", ")}`,
+      );
+    }
     const rules = await this.demandRules.setRules({
       hardStages,
       softStages,

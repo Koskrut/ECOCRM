@@ -169,4 +169,43 @@ describe("stock-upload.service", () => {
     assert.ok(productIds.has("p-1046"));
     assert.strictEqual(entries[0].warehouseId, "wh-dnipro");
   });
+
+  it("parses Код 1С column instead of Артикул and resolves via externalCode", () => {
+    const buffer = buildWorkbookBuffer([
+      ["Код 1С", "Название", "Днепр"],
+      ["000000190", "Test item", 12],
+    ]);
+    const entries = service.parseExcelBufferByWarehouses(buffer, [warehouses[0]]);
+    assert.strictEqual(entries.length, 1);
+    assert.strictEqual(entries[0].fileSku, "000000190");
+    assert.strictEqual(entries[0].qty, 12);
+
+    const index = buildStockSkuIndex([
+      { id: "p-ext", sku: "10.046", externalCode: "000000190" },
+    ]);
+    const ref = resolveStockSkuToProduct(entries[0].sku, index);
+    assert.strictEqual(ref?.id, "p-ext");
+  });
+
+  it("prefers Артикул over Код 1С when both columns are present", () => {
+    const buffer = buildWorkbookBuffer([
+      ["Артикул", "Код 1С", "Днепр"],
+      ["10.046", "000000999", 7],
+    ]);
+    const entries = service.parseExcelBufferByWarehouses(buffer, [warehouses[0]]);
+    assert.strictEqual(entries.length, 1);
+    assert.strictEqual(entries[0].sku, "10.046");
+    assert.strictEqual(entries[0].fileSku, "10.046");
+  });
+
+  it("falls back to Код 1С when Артикул cell is empty", () => {
+    const buffer = buildWorkbookBuffer([
+      ["Артикул", "Код 1С", "Днепр"],
+      ["", "000000190", 5],
+    ]);
+    const entries = service.parseExcelBufferByWarehouses(buffer, [warehouses[0]]);
+    assert.strictEqual(entries.length, 1);
+    assert.strictEqual(entries[0].sku, "190");
+    assert.strictEqual(entries[0].fileSku, "000000190");
+  });
 });

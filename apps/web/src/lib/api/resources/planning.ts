@@ -641,6 +641,7 @@ export const planningApi = {
     qcQueue: number;
     packQueue: number;
     launch: number;
+    mrpRunId?: string;
   }> => {
     const res = await apiHttp.post("/planning/jobs/weekly-plan/run");
     return res.data;

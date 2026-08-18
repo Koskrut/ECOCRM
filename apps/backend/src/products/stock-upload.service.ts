@@ -1,11 +1,19 @@
 import { Injectable } from "@nestjs/common";
 import * as XLSX from "xlsx";
 import { normalizeArticle } from "./article-normalizer";
+import { normalizeStockExternalCode } from "./stock-sku-normalizer";
 import type { StockUpdateEntry, StockByWarehouseEntry } from "./product.store";
 
 export type WarehouseForUpload = { id: string; name: string };
 
 const SKU_HEADERS = ["артикул", "sku", "article"];
+const ONE_C_CODE_HEADERS = [
+  "код 1с",
+  "код1с",
+  "код номенклатуры",
+  "externalcode",
+  "external code",
+];
 const NAME_HEADERS = ["название", "name", "наименование", "товар"];
 const PRICE_HEADERS = ["цена", "price", "базовая цена", "baseprice", "base_price"];
 const STOCK_HEADERS = ["остаток", "qty", "quantity", "stock"];
@@ -121,6 +129,62 @@ export function readArticleFromCell(
   return { raw, normalized: normalizeArticle(raw) };
 }
 
+/** Read 1C nomenclature code from cell (preserve formatted text, normalize for lookup). */
+export function readOneCCodeFromCell(
+  sheet: XLSX.WorkSheet,
+  rowIndex: number,
+  colIndex: number,
+): { raw: string; normalized: string } {
+  const addr = XLSX.utils.encode_cell({ r: rowIndex, c: colIndex });
+  const cell = sheet[addr];
+  if (!cell || cell.v == null || cell.v === "") return { raw: "", normalized: "" };
+
+  let raw: string;
+  if (cell.t === "n") {
+    if (cell.z != null && XLSX.SSF) {
+      raw = String(XLSX.SSF.format(cell.z, cell.v)).trim();
+    } else if (cell.w != null && String(cell.w).trim() !== "") {
+      raw = String(cell.w).trim();
+    } else {
+      raw = String(cell.v);
+    }
+  } else if (cell.w != null && String(cell.w).trim() !== "") {
+    raw = String(cell.w).trim();
+  } else if (cell.t === "s") {
+    raw = String(cell.v).trim();
+  } else {
+    raw = String(cell.v).trim();
+  }
+
+  const normalized = normalizeStockExternalCode(raw);
+  return { raw, normalized };
+}
+
+export function findStockIdentifierColumns(headerRow: string[]): {
+  articleIdx: number;
+  oneCIdx: number;
+} {
+  return {
+    articleIdx: findColumnIndex(headerRow, SKU_HEADERS),
+    oneCIdx: findColumnIndex(headerRow, ONE_C_CODE_HEADERS),
+  };
+}
+
+/** Prefer article column; fall back to 1C code column when article is empty. */
+export function readStockIdentifierFromRow(
+  sheet: XLSX.WorkSheet,
+  rowIndex: number,
+  articleIdx: number,
+  oneCIdx: number,
+): { raw: string; normalized: string } {
+  if (articleIdx >= 0) {
+    const article = readArticleFromCell(sheet, rowIndex, articleIdx);
+    if (article.normalized) return article;
+  }
+  if (oneCIdx >= 0) return readOneCCodeFromCell(sheet, rowIndex, oneCIdx);
+  return { raw: "", normalized: "" };
+}
+
 function readQtyFromCell(sheet: XLSX.WorkSheet, rowIndex: number, colIndex: number): number {
   const addr = XLSX.utils.encode_cell({ r: rowIndex, c: colIndex });
   const cell = sheet[addr];
@@ -140,16 +204,16 @@ export class StockUploadService {
     if (!parsed || parsed.rows.length < 2) return [];
 
     const { sheet, headerRow, rows } = parsed;
-    const skuIdx = findColumnIndex(headerRow, SKU_HEADERS);
+    const { articleIdx, oneCIdx } = findStockIdentifierColumns(headerRow);
     const nameIdx = findColumnIndex(headerRow, NAME_HEADERS);
     const priceIdx = findColumnIndex(headerRow, PRICE_HEADERS);
     const stockIdx = findColumnIndex(headerRow, STOCK_HEADERS);
 
-    if (skuIdx < 0) return [];
+    if (articleIdx < 0 && oneCIdx < 0) return [];
     const entries: StockUpdateEntry[] = [];
 
     for (let i = 1; i < rows.length; i++) {
-      const { raw, normalized } = readArticleFromCell(sheet, i, skuIdx);
+      const { raw, normalized } = readStockIdentifierFromRow(sheet, i, articleIdx, oneCIdx);
       if (!normalized) continue;
       const stock = stockIdx >= 0 ? readQtyFromCell(sheet, i, stockIdx) : 0;
       const name =
@@ -182,12 +246,14 @@ export class StockUploadService {
     if (!parsed || parsed.rows.length < 2 || warehouses.length === 0) return [];
 
     const { sheet, headerRow } = parsed;
-    const skuIdx = findColumnIndex(headerRow, SKU_HEADERS);
+    const { articleIdx, oneCIdx } = findStockIdentifierColumns(headerRow);
     const nameIdx = findColumnIndex(headerRow, NAME_HEADERS);
-    if (skuIdx < 0) return [];
+    if (articleIdx < 0 && oneCIdx < 0) return [];
 
     // One column → one warehouse; never treat sku/name/empty headers as qty.
-    const usedColIndexes = new Set<number>([skuIdx]);
+    const usedColIndexes = new Set<number>();
+    if (articleIdx >= 0) usedColIndexes.add(articleIdx);
+    if (oneCIdx >= 0) usedColIndexes.add(oneCIdx);
     if (nameIdx >= 0) usedColIndexes.add(nameIdx);
 
     const warehouseColIndices: { warehouseId: string; colIndex: number }[] = [];
@@ -201,7 +267,7 @@ export class StockUploadService {
 
     const entries: StockByWarehouseEntry[] = [];
     for (let i = 1; i < parsed.rows.length; i++) {
-      const { raw, normalized } = readArticleFromCell(sheet, i, skuIdx);
+      const { raw, normalized } = readStockIdentifierFromRow(sheet, i, articleIdx, oneCIdx);
       if (!normalized) continue;
       const name =
         nameIdx >= 0
@@ -231,10 +297,11 @@ export class StockUploadService {
     if (!parsed || warehouses.length === 0) return [];
 
     const { headerRow } = parsed;
-    const skuIdx = findColumnIndex(headerRow, SKU_HEADERS);
+    const { articleIdx, oneCIdx } = findStockIdentifierColumns(headerRow);
     const nameIdx = findColumnIndex(headerRow, NAME_HEADERS);
     const usedColIndexes = new Set<number>();
-    if (skuIdx >= 0) usedColIndexes.add(skuIdx);
+    if (articleIdx >= 0) usedColIndexes.add(articleIdx);
+    if (oneCIdx >= 0) usedColIndexes.add(oneCIdx);
     if (nameIdx >= 0) usedColIndexes.add(nameIdx);
 
     const matched: Array<{ warehouseId: string; warehouseName: string; columnHeader: string }> = [];

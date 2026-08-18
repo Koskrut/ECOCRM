@@ -44,7 +44,14 @@ describe("OrderMaterialReservationService.applyReservationPolicy", () => {
 
   it("resyncs ACTIVE reservations for open pipeline stages", async () => {
     let created = 0;
-    const prisma = {
+    const prisma: {
+      order: { findUnique: () => Promise<unknown> };
+      materialReservation: {
+        updateMany: () => Promise<{ count: number }>;
+        createMany: ({ data }: { data: unknown[] }) => Promise<{ count: number }>;
+      };
+      $transaction: <T>(cb: (tx: unknown) => Promise<T>) => Promise<T>;
+    } = {
       order: {
         findUnique: async () => ({
           id: "o1",
@@ -60,6 +67,8 @@ describe("OrderMaterialReservationService.applyReservationPolicy", () => {
           return { count: data.length };
         },
       },
+      $transaction: async <T>(cb: (tx: unknown) => Promise<T>) =>
+        cb(prisma as unknown),
     };
     const svc = new OrderMaterialReservationService(prisma as never, {
       getRules: async () => ({

@@ -8,6 +8,18 @@ import {
 
 /** SKU lookup for stock Excel uploads (primary article + fuzzy match). */
 
+/** Trim + strip leading zeros; handles Excel float codes (`000006495`, `455.0`). */
+export function normalizeStockExternalCode(raw: unknown): string {
+  const trimmed = String(raw ?? "").trim();
+  if (!trimmed) return "";
+  if (/^\d+(\.0+)?$/.test(trimmed)) {
+    const asInt = String(Math.trunc(Number(trimmed)));
+    return asInt.replace(/^0+/, "") || "0";
+  }
+  const withoutLeadingZeros = trimmed.replace(/^0+/, "");
+  return withoutLeadingZeros || "0";
+}
+
 export type StockSkuProductRef = { id: string; sku: string; externalCode?: string | null };
 
 export type StockSkuIndex = {
@@ -33,13 +45,25 @@ function indexProductArticles(
   }
 }
 
+function externalCodeLookupKeys(raw: unknown): string[] {
+  const trimmed = String(raw ?? "").trim();
+  if (!trimmed) return [];
+  const normalized = normalizeStockExternalCode(trimmed);
+  const keys = new Set<string>([trimmed]);
+  if (normalized) keys.add(normalized);
+  if (/^\d+(\.0+)?$/.test(trimmed)) {
+    keys.add(String(Math.trunc(Number(trimmed))));
+  }
+  return [...keys];
+}
+
 function indexExternalCode(
   product: StockSkuProductRef,
   byExternalCode: Map<string, StockSkuProductRef>,
 ): void {
-  const code = product.externalCode?.trim();
-  if (!code || byExternalCode.has(code)) return;
-  byExternalCode.set(code, product);
+  for (const key of externalCodeLookupKeys(product.externalCode)) {
+    if (!byExternalCode.has(key)) byExternalCode.set(key, product);
+  }
 }
 
 export function buildStockSkuIndex(products: StockSkuProductRef[]): StockSkuIndex {
@@ -121,8 +145,10 @@ export function resolveStockSkuToProduct(
   const exactHit = index.exact.get(trimmed);
   if (exactHit) return exactHit;
 
-  const codeHit = index.byExternalCode.get(trimmed);
-  if (codeHit) return codeHit;
+  for (const key of externalCodeLookupKeys(trimmed)) {
+    const codeHit = index.byExternalCode.get(key);
+    if (codeHit) return codeHit;
+  }
 
   const articleHit = lookupByArticleKeys(articleLookupKeys(trimmed), index.byArticle);
   if (articleHit) return articleHit;

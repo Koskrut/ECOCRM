@@ -9,7 +9,8 @@ export type OneCMatchStatus =
   | "AMBIGUOUS"
   | "UNMATCHED"
   | "ALREADY_IMPORTED"
-  | "CONTACT_MISMATCH";
+  | "CONTACT_MISMATCH"
+  | "CONTACT_NOT_FOUND";
 
 export type OneCMatchedOrder = {
   orderId: string;
@@ -32,6 +33,8 @@ export type OneCMatchResult = {
   matchedRef: string | null;
   order: OneCMatchedOrder | null;
   candidateOrders: OneCMatchedOrder[];
+  /** All orders with debt belonging to the resolved contact — for the manual picker. */
+  contactOrders: OneCMatchedOrder[];
   contactByCode: { contactId: string; label: string; externalCode: string } | null;
   warnings: string[];
   amountDebtDelta: number | null;
@@ -88,9 +91,63 @@ export class OneCPaymentsMatcherService {
       if (norm && !contactByNormCode.has(norm)) contactByNormCode.set(norm, c);
     }
 
+    // Pre-load orders with debt for each resolved contact
+    const contactIds = [...new Set(contacts.map((c) => c.id))];
+    const contactOrdersMap = new Map<string, OneCMatchedOrder[]>();
+    if (contactIds.length > 0) {
+      const ordersWithDebt = await this.prisma.order.findMany({
+        where: {
+          OR: [
+            { contactId: { in: contactIds } },
+            { clientId: { in: contactIds } },
+          ],
+          debtAmount: { gt: 0 },
+        },
+        select: {
+          id: true,
+          orderNumber: true,
+          invoiceNumber: true,
+          waybillNumber: true,
+          debtAmount: true,
+          currency: true,
+          contactId: true,
+          companyId: true,
+          clientId: true,
+          contact: {
+            select: { id: true, firstName: true, lastName: true, documentDisplayName: true, externalCode: true },
+          },
+          client: {
+            select: { id: true, firstName: true, lastName: true, documentDisplayName: true, externalCode: true },
+          },
+        },
+        orderBy: { createdAt: "desc" },
+        take: 500,
+      });
+      for (const o of ordersWithDebt) {
+        const cId = o.contactId ?? o.clientId;
+        if (!cId) continue;
+        const c = o.contact ?? o.client;
+        const mapped: OneCMatchedOrder = {
+          orderId: o.id,
+          orderNumber: o.orderNumber,
+          invoiceNumber: o.invoiceNumber,
+          waybillNumber: o.waybillNumber,
+          debtAmount: o.debtAmount,
+          currency: o.currency,
+          contactId: cId,
+          companyId: o.companyId,
+          contactExternalCode: c?.externalCode ?? null,
+          contactLabel: contactLabel(c),
+        };
+        const list = contactOrdersMap.get(cId) ?? [];
+        list.push(mapped);
+        contactOrdersMap.set(cId, list);
+      }
+    }
+
     const results: OneCMatchResult[] = [];
     for (const row of rows) {
-      results.push(await this.matchOne(row, existingKeys, contactByNormCode));
+      results.push(await this.matchOne(row, existingKeys, contactByNormCode, contactOrdersMap));
     }
     return results;
   }
@@ -108,6 +165,7 @@ export class OneCPaymentsMatcherService {
         externalCode: string | null;
       }
     >,
+    contactOrdersMap: Map<string, OneCMatchedOrder[]>,
   ): Promise<OneCMatchResult> {
     const warnings: string[] = [];
     const contact = row.enterpriseCode ? contactByNormCode.get(row.enterpriseCode) ?? null : null;
@@ -119,9 +177,7 @@ export class OneCPaymentsMatcherService {
         }
       : null;
 
-    if (row.enterpriseCode && !contact) {
-      warnings.push(`Contact with externalCode=${row.enterpriseCode} not found`);
-    }
+    const contactOrders = contact ? contactOrdersMap.get(contact.id) ?? [] : [];
 
     if (existingKeys.has(row.importKey)) {
       return {
@@ -132,62 +188,65 @@ export class OneCPaymentsMatcherService {
         matchedRef: null,
         order: null,
         candidateOrders: [],
+        contactOrders: [],
         contactByCode,
         warnings,
         amountDebtDelta: null,
       };
     }
 
-    const refs = extractOneCDocumentRefs(row.purpose || null);
-    const fromPurpose = await this.resolveFromRefs(refs);
-    let matchSource: OneCMatchResult["matchSource"] = null;
-    let matchedRef: string | null = null;
-    let order: OneCMatchedOrder | null = null;
-    let ambiguous = false;
-    const candidates: OneCMatchedOrder[] = [];
-
-    if (fromPurpose.ambiguous) {
-      ambiguous = true;
-    } else if (fromPurpose.order) {
-      order = fromPurpose.order;
-      matchedRef = fromPurpose.matchedRef;
-      matchSource =
-        fromPurpose.matchType === "invoice"
-          ? "purpose_invoice"
-          : fromPurpose.matchType === "waybill"
-            ? "purpose_waybill"
-            : "purpose_unlabeled";
-    }
-
-    if (!order && !ambiguous && row.documentNumber) {
-      const byDoc = await this.resolveByDocumentNumber(row.documentNumber);
-      if (byDoc.ambiguous) {
-        ambiguous = true;
-        candidates.push(...byDoc.candidates);
-      } else if (byDoc.order) {
-        order = byDoc.order;
-        matchedRef = row.documentNumber;
-        matchSource = "document_number";
-      }
-    }
-
-    if (ambiguous && candidates.length === 0 && fromPurpose.candidates.length) {
-      candidates.push(...fromPurpose.candidates);
-    }
-
-    if (ambiguous) {
+    // Contact not found in CRM — cannot match orders
+    if (row.enterpriseCode && !contact) {
       return {
         rowIndex: row.rowIndex,
         importKey: row.importKey,
-        status: "AMBIGUOUS",
+        status: "CONTACT_NOT_FOUND",
         matchSource: null,
-        matchedRef,
+        matchedRef: null,
         order: null,
-        candidateOrders: candidates,
-        contactByCode,
-        warnings,
+        candidateOrders: [],
+        contactOrders: [],
+        contactByCode: null,
+        warnings: [`Контакт з кодом 1С «${row.enterpriseCode}» (${row.enterpriseName}) не знайдено в CRM`],
         amountDebtDelta: null,
       };
+    }
+
+    // Try to match by invoice/waybill refs from purpose text, but only accept if the order belongs to our contact
+    const refs = extractOneCDocumentRefs(row.purpose || null);
+    let matchSource: OneCMatchResult["matchSource"] = null;
+    let matchedRef: string | null = null;
+    let order: OneCMatchedOrder | null = null;
+
+    if (contact) {
+      const fromPurpose = await this.resolveFromRefs(refs);
+      if (fromPurpose.order && this.orderBelongsToContact(fromPurpose.order, contact.id)) {
+        order = fromPurpose.order;
+        matchedRef = fromPurpose.matchedRef;
+        matchSource =
+          fromPurpose.matchType === "invoice"
+            ? "purpose_invoice"
+            : fromPurpose.matchType === "waybill"
+              ? "purpose_waybill"
+              : "purpose_unlabeled";
+      }
+
+      // Fallback: try document number
+      if (!order && row.documentNumber) {
+        const byDoc = await this.resolveByDocumentNumber(row.documentNumber);
+        if (byDoc.order && this.orderBelongsToContact(byDoc.order, contact.id)) {
+          order = byDoc.order;
+          matchedRef = row.documentNumber;
+          matchSource = "document_number";
+        }
+      }
+
+      // Auto-match: if contact has exactly one order with debt and no ref match, suggest it
+      if (!order && contactOrders.length === 1) {
+        order = contactOrders[0]!;
+        matchSource = null;
+        warnings.push("Єдине замовлення клієнта з боргом — обрано автоматично");
+      }
     }
 
     if (!order) {
@@ -198,50 +257,40 @@ export class OneCPaymentsMatcherService {
         matchSource: null,
         matchedRef: null,
         order: null,
-        candidateOrders: [],
+        candidateOrders: contactOrders,
+        contactOrders,
         contactByCode,
-        warnings,
+        warnings: contactOrders.length === 0
+          ? [...warnings, "У клієнта немає замовлень з боргом"]
+          : warnings,
         amountDebtDelta: null,
       };
-    }
-
-    let status: OneCMatchStatus = "MATCHED";
-    if (contact) {
-      if (order.contactId && order.contactId !== contact.id) {
-        status = "CONTACT_MISMATCH";
-        warnings.push("Matched order belongs to a different contact than enterprise code");
-      } else {
-        const orderCode = normalizeOneCCode(order.contactExternalCode);
-        if (orderCode && orderCode !== row.enterpriseCode) {
-          status = "CONTACT_MISMATCH";
-          warnings.push(
-            `Order contact externalCode=${orderCode} ≠ enterprise ${row.enterpriseCode}`,
-          );
-        } else if (!orderCode) {
-          warnings.push("Order contact has no externalCode; enterprise code not verified");
-        }
-      }
     }
 
     const delta = Math.abs(row.amountLv - order.debtAmount);
     if (delta > DEBT_TOLERANCE) {
       warnings.push(
-        `Amount ${row.amountLv} differs from order debt ${order.debtAmount} by ${delta.toFixed(2)}`,
+        `Сума ${row.amountLv} відрізняється від боргу замовлення ${order.debtAmount} на ${delta.toFixed(2)}`,
       );
     }
 
     return {
       rowIndex: row.rowIndex,
       importKey: row.importKey,
-      status,
+      status: "MATCHED",
       matchSource,
       matchedRef,
       order,
       candidateOrders: [],
+      contactOrders,
       contactByCode,
       warnings,
       amountDebtDelta: Number((row.amountLv - order.debtAmount).toFixed(2)),
     };
+  }
+
+  private orderBelongsToContact(order: OneCMatchedOrder, contactId: string): boolean {
+    return order.contactId === contactId;
   }
 
   private async loadOrder(orderId: string): Promise<OneCMatchedOrder | null> {
@@ -301,82 +350,36 @@ export class OneCPaymentsMatcherService {
     order: OneCMatchedOrder | null;
     matchType: "invoice" | "waybill" | null;
     matchedRef: string | null;
-    ambiguous: boolean;
-    candidates: OneCMatchedOrder[];
   }> {
     const resolved = await resolveUniqueDocumentOrder(this.prisma, refs);
-    if (resolved.ambiguous) {
-      return { order: null, matchType: null, matchedRef: null, ambiguous: true, candidates: [] };
-    }
-    if (!resolved.orderId) {
-      return { order: null, matchType: null, matchedRef: null, ambiguous: false, candidates: [] };
+    if (resolved.ambiguous || !resolved.orderId) {
+      return { order: null, matchType: null, matchedRef: null };
     }
     const order = await this.loadOrder(resolved.orderId);
     return {
       order,
       matchType: resolved.matchType,
       matchedRef: resolved.matchedRef,
-      ambiguous: false,
-      candidates: [],
     };
   }
 
   private async resolveByDocumentNumber(docNumber: string): Promise<{
     order: OneCMatchedOrder | null;
-    ambiguous: boolean;
-    candidates: OneCMatchedOrder[];
   }> {
     const token = docNumber.trim();
-    if (!token) return { order: null, ambiguous: false, candidates: [] };
+    if (!token) return { order: null };
 
-    const byInvoice = await this.prisma.order.findMany({
-      where: { invoiceNumber: token },
-      select: { id: true },
-      take: 5,
-    });
-    if (byInvoice.length === 1) {
-      const order = await this.loadOrder(byInvoice[0]!.id);
-      return { order, ambiguous: false, candidates: [] };
+    for (const field of ["invoiceNumber", "waybillNumber", "orderNumber"] as const) {
+      const rows = await this.prisma.order.findMany({
+        where: { [field]: token },
+        select: { id: true },
+        take: 2,
+      });
+      if (rows.length === 1) {
+        const order = await this.loadOrder(rows[0]!.id);
+        return { order };
+      }
     }
-    if (byInvoice.length > 1) {
-      const candidates = (
-        await Promise.all(byInvoice.map((r) => this.loadOrder(r.id)))
-      ).filter(Boolean) as OneCMatchedOrder[];
-      return { order: null, ambiguous: true, candidates };
-    }
-
-    const byWaybill = await this.prisma.order.findMany({
-      where: { waybillNumber: token },
-      select: { id: true },
-      take: 5,
-    });
-    if (byWaybill.length === 1) {
-      const order = await this.loadOrder(byWaybill[0]!.id);
-      return { order, ambiguous: false, candidates: [] };
-    }
-    if (byWaybill.length > 1) {
-      const candidates = (
-        await Promise.all(byWaybill.map((r) => this.loadOrder(r.id)))
-      ).filter(Boolean) as OneCMatchedOrder[];
-      return { order: null, ambiguous: true, candidates };
-    }
-
-    const byOrderNumber = await this.prisma.order.findMany({
-      where: { orderNumber: token },
-      select: { id: true },
-      take: 5,
-    });
-    if (byOrderNumber.length === 1) {
-      const order = await this.loadOrder(byOrderNumber[0]!.id);
-      return { order, ambiguous: false, candidates: [] };
-    }
-    if (byOrderNumber.length > 1) {
-      const candidates = (
-        await Promise.all(byOrderNumber.map((r) => this.loadOrder(r.id)))
-      ).filter(Boolean) as OneCMatchedOrder[];
-      return { order: null, ambiguous: true, candidates };
-    }
-
-    return { order: null, ambiguous: false, candidates: [] };
+    return { order: null };
   }
 }

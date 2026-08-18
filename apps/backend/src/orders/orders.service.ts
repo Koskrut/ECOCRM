@@ -1862,31 +1862,34 @@ export class OrdersService {
       debtAmount: current.debtAmount,
     });
 
-    await this.prisma.orderStatusHistory.create({
-      data: {
-        orderId: id,
-        fromStatus: current.status ?? undefined,
-        toStatus: legacyStatus,
-        fromOrderStage: current.orderStage ?? undefined,
-        toOrderStage: toStage,
-        changedBy,
-        reason: reason ?? null,
-      },
-    });
+    const updated = await this.prisma.$transaction(async (tx) => {
+      await tx.orderStatusHistory.create({
+        data: {
+          orderId: id,
+          fromStatus: current.status ?? undefined,
+          toStatus: legacyStatus,
+          fromOrderStage: current.orderStage ?? undefined,
+          toOrderStage: toStage,
+          changedBy,
+          reason: reason ?? null,
+        },
+      });
 
-    const updated = await this.prisma.order.update({
-      where: { id },
-      data: {
-        orderStage: toStage,
-        deliveryStatus,
-        financialStatus,
-      },
-      include: ORDER_INCLUDE,
+      const next = await tx.order.update({
+        where: { id },
+        data: {
+          orderStage: toStage,
+          deliveryStatus,
+          financialStatus,
+        },
+        include: ORDER_INCLUDE,
+      });
+      await this.materialReservations.applyReservationPolicy(id, toStage, tx);
+      return next;
     });
     if (toStage === "CANCELED") {
       await this.integrations.recalcOrderFinance(id);
     }
-    await this.materialReservations.applyReservationPolicy(id, toStage);
 
     if (toStage === "READY_TO_SHIP") {
       this.settings.getGoogleSheetSecrets().then(({ sendOnReadyToShip }) => {

@@ -57,6 +57,7 @@ export type OneCPaymentsPreviewRow = {
   matchedRef: string | null;
   order: OneCMatchResult["order"];
   candidateOrders: OneCMatchResult["candidateOrders"];
+  contactOrders: OneCMatchResult["contactOrders"];
   contactByCode: OneCMatchResult["contactByCode"];
   warnings: string[];
   amountDebtDelta: number | null;
@@ -328,6 +329,45 @@ export class OneCPaymentsImportService {
     };
   }
 
+  async createContactFromImport(
+    jobId: string,
+    actor: AuthUser,
+    body: { enterpriseCode: string; enterpriseName: string },
+  ) {
+    await this.loadJob(jobId, actor);
+    if (!body.enterpriseCode?.trim()) {
+      throw new BadRequestException("enterpriseCode is required");
+    }
+
+    const existing = await this.prisma.contact.findFirst({
+      where: {
+        OR: [
+          { externalCode: body.enterpriseCode },
+          { externalCode: body.enterpriseCode.padStart(9, "0") },
+        ],
+      },
+      select: { id: true, firstName: true, lastName: true, externalCode: true },
+    });
+    if (existing) {
+      return { created: false, contactId: existing.id, message: "Contact already exists" };
+    }
+
+    const nameParts = body.enterpriseName.trim().split(/\s+/);
+    const contact = await this.prisma.contact.create({
+      data: {
+        firstName: nameParts.slice(1).join(" ") || body.enterpriseName.trim(),
+        lastName: nameParts[0] ?? "",
+        phone: "",
+        region: "",
+        externalCode: body.enterpriseCode,
+        documentDisplayName: body.enterpriseName.trim(),
+      },
+      select: { id: true, firstName: true, lastName: true, externalCode: true, documentDisplayName: true },
+    });
+
+    return { created: true, contactId: contact.id, contact };
+  }
+
   async listJobs(actor: AuthUser, limit = 20) {
     const items = await this.prisma.dataImportJob.findMany({
       where: {
@@ -416,6 +456,7 @@ export class OneCPaymentsImportService {
         matchedRef: m.matchedRef,
         order: m.order,
         candidateOrders: m.candidateOrders,
+        contactOrders: m.contactOrders,
         contactByCode: m.contactByCode,
         warnings: m.warnings,
         amountDebtDelta: m.amountDebtDelta,
@@ -430,6 +471,7 @@ export class OneCPaymentsImportService {
       UNMATCHED: 0,
       ALREADY_IMPORTED: 0,
       CONTACT_MISMATCH: 0,
+      CONTACT_NOT_FOUND: 0,
       readyToCommit: 0,
     };
     for (const r of previewRows) {

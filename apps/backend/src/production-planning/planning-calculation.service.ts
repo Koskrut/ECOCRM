@@ -251,11 +251,13 @@ export class PlanningCalculationService {
     const now = new Date();
     const until = new Date(now);
     until.setDate(until.getDate() + horizonWeeks * 7);
+    const lookbackFrom = new Date(now);
+    lookbackFrom.setDate(lookbackFrom.getDate() - 90);
 
     const demandRows = await this.prisma.orderItem.findMany({
       where: {
         order: {
-          createdAt: { lte: until },
+          createdAt: { gte: lookbackFrom, lte: until },
           orderStage: {
             in: [...rules.hardStages, ...rules.softStages],
             notIn: ["CANCELED", "REFUSED", "COMPLETED"],

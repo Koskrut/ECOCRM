@@ -6,3 +6,8 @@ export type CommitOneCPaymentsDto = {
 export type SetOneCOverridesDto = {
   overrides: Record<string, string>;
 };
+
+export type CreateOneCContactDto = {
+  enterpriseCode: string;
+  enterpriseName: string;
+};

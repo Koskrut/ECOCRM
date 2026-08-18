@@ -289,15 +289,24 @@ export class InventorySnapshotService {
       throw new BadRequestException("Cannot post VOID snapshot");
     }
     if (snapshot.status === InventorySnapshotStatus.POSTED) return snapshot;
-
-    return this.prisma.inventorySnapshot.update({
-      where: { id },
-      data: {
-        status: InventorySnapshotStatus.POSTED,
-        postedAt: new Date(),
-        postedById: userId,
-      },
-      include: { lines: true },
+    const postedAt = new Date();
+    return this.prisma.$transaction(async (tx) => {
+      await tx.inventorySnapshot.updateMany({
+        where: {
+          id: { not: id },
+          status: InventorySnapshotStatus.POSTED,
+        },
+        data: { status: InventorySnapshotStatus.VOID },
+      });
+      return tx.inventorySnapshot.update({
+        where: { id },
+        data: {
+          status: InventorySnapshotStatus.POSTED,
+          postedAt,
+          postedById: userId,
+        },
+        include: { lines: true },
+      });
     });
   }
 }

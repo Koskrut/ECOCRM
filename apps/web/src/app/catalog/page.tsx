@@ -845,7 +845,7 @@ function StockUploadModal({
           Загрузить остатки из Excel
         </h2>
         <p className="mb-4 text-sm text-zinc-600">
-          Первая строка — заголовки. Обязательно: <b>Артикул</b> (или sku),{" "}
+          Первая строка — заголовки. Обязательно: <b>Артикул</b> (или sku) <b>или Код 1С</b>,{" "}
           <b>Остаток</b> (или qty, quantity, stock). По желанию: <b>Название</b> (name, наименование), <b>Цена</b> (price, базовая цена).
         </p>
         <form onSubmit={handleSubmit}>
@@ -964,7 +964,7 @@ function StockUploadByWarehousesModal({
           Остатки по складам (Excel)
         </h2>
         <p className="mb-4 text-sm text-zinc-600">
-          Первая строка — заголовки. Обязательно: <b>Артикул</b> (или sku) и колонки по складам
+          Первая строка — заголовки. Обязательно: <b>Артикул</b> (или sku) <b>или Код 1С</b> и колонки по складам
           {warehouses.length > 0 ? (
             <>
               :{" "}

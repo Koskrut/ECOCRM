@@ -186,7 +186,7 @@ export class ProductsController {
     if (entries.length === 0) {
       const namesHint = warehouses.map((w) => w.name).join(", ");
       throw new BadRequestException(
-        `No rows with valid артикул and warehouse columns. Expected: Артикул (or sku) + columns matching warehouse names (${namesHint}).`,
+        `No rows with valid артикул/код 1С and warehouse columns. Expected: Артикул or Код 1С (or sku) + columns matching warehouse names (${namesHint}).`,
       );
     }
     const warehouseIds = Array.from(new Set(entries.map((e) => e.warehouseId).filter(Boolean)));

@@ -866,8 +866,12 @@ export const en = {
         "Supports the 1C stock report (SKU × warehouses) or flat Excel: SKU, qty, optional warehouse.",
       snapshotsHint:
         "Upload the full 1C stock file (all warehouses). CRM unpivots warehouses, skips totals, and keeps only kit SKUs and BOM component (semi-finished) SKUs; unrelated lines are skipped. Then publish as the physical baseline.",
+      stockSourceHint:
+        "Planning uses stock from the latest published 1C snapshot. Store checkout uses CRM warehouse stock.",
       snapshotFilterSummary: (rowsInFile: number, kept: number, skipped: number, relevant: number) =>
         `File rows: ${rowsInFile}. Kept: ${kept} (of ${relevant} planning SKUs). Skipped irrelevant: ${skipped}.`,
+      publishSnapshotConfirm: (snapshotDate: string) =>
+        `Publish snapshot from ${snapshotDate}? This replaces the current planning baseline.`,
       bomHint: "Each new save creates a fresh active BOM revision for the selected kit.",
       bomUploadHint:
         "Supports the Suprex specification workbook (all kit sheets) or a flat Excel/CSV with kitSku, componentSku and qtyPerKit. Kits resolve from the catalog; components/packaging are stored separately as PART (not in the sales catalog).",

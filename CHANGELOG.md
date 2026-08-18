@@ -4,7 +4,30 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.160**.)_
+_(планируемые изменения после **0.2.161**.)_
+
+## [0.2.161] — 2026-08-18
+
+### Summary
+
+Патч **0.2.161**: доработки planning (lookback/recalc guards), 1C payments matching/preview, нормализация stock SKU + upload по 1C code, и корректировки order material reservations.
+
+### Added
+
+- **Planning tests**: `inventory-snapshot.service.spec.ts`, `planning-launch-lookback.spec.ts` для 90-day lookback и стабильности snapshot-фильтров.
+- **1C payments API**: дополнительные preview-поля/фильтры и улучшенное сопоставление `contactOrders`.
+
+### Changed
+
+- **Planning UI (`/planning`)**: обновлены тексты/подсказки и поведение пересчета.
+- **Weekly planning job**: упрощен flow и ручки запуска в `production-planning.controller`.
+- **Products stock upload**: расширены алиасы заголовков/нормализация (`externalCode`, article parsing), тесты обновлены.
+- **Orders**: уточнена логика material reservation и stage transition tests.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.161`**.
+- **Миграции:** новых Prisma-миграций в этом патче нет (после `20260817140000_product_external_code`).
 
 ## [0.2.160] — 2026-08-17
 
