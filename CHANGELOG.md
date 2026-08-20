@@ -4,7 +4,32 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.161**.)_
+_(планируемые изменения после **0.2.162**.)_
+
+## [0.2.162] — 2026-08-20
+
+### Summary
+
+Патч **0.2.162**: GPS tracking idempotency и telemetry — stable deviceId/sampleId, audit log, duplicate-rate alarms, visit-complete GPS filters, partial unique index для NULL deviceId.
+
+### Added
+
+- **Mobile tracking audit log** (`tracking-audit-log.ts`): локальный журнал sample/batch flush (batchId, reason, attempt, sampleIds head/tail).
+- **Stable tracking IDs**: `tracking-device-id.ts` (persistent device UUID), `tracking-ids.ts` (UUID v4 sampleId).
+- **Backend `reconcile-gps-window.ts`**: скрипт reconcile sampleIds за окно времени для owner.
+- **Migration** `20260820094000_field_location_sample_null_device_id_guard`: partial unique `(ownerId, sampleId) WHERE deviceId IS NULL`.
+
+### Changed
+
+- **Mobile flush pipeline**: batchId/reason/attempt в buffer/processor/offline-queue; native Android uploader + TrackingDatabase dedup hardening.
+- **Field shifts ingest**: duplicate-rate alarm (>30%), ghostDuplicate flag, расширенный batch telemetry log.
+- **Visit complete GPS dual-write**: UA region classify, relative filter, explicit `sampleId` + `EXPO` source.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.162`**.
+- **Миграции:** `20260820094000_field_location_sample_null_device_id_guard` — **`prisma migrate deploy`**.
+- **Mobile:** новый **EAS build** (`preview-native`) — native tracking + JS pipeline changes.
 
 ## [0.2.161] — 2026-08-18
 

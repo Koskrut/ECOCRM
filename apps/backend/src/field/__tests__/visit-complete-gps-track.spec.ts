@@ -30,12 +30,16 @@ describe("dualWriteCompleteGpsToActiveShift", () => {
 
     assert.equal(result.created, true);
     assert.equal(created.length, 1);
+    assert.match(String((created[0] as { sampleId?: string }).sampleId), /^[0-9a-f-]{36}$/);
     assert.deepEqual(created[0], {
       shiftId: "shift-1",
+      ownerId: "owner-1",
+      sampleId: (created[0] as { sampleId: string }).sampleId,
       lat: 50.45,
       lng: 30.52,
       accuracyM: 12,
       clientRecordedAt: new Date("2026-07-16T12:00:00.000Z"),
+      source: "EXPO",
     });
   });
 
@@ -66,7 +70,7 @@ describe("dualWriteCompleteGpsToActiveShift", () => {
     assert.equal(result.reason, "no_active_tracking_shift");
   });
 
-  it("creates sample even when near last sample (visit complete anchor)", async () => {
+  it("skips near-duplicate sample to mirror ingest filter", async () => {
     const created: unknown[] = [];
     const prisma = {
       fieldShift: {
@@ -93,8 +97,9 @@ describe("dualWriteCompleteGpsToActiveShift", () => {
       accuracyM: 10,
       clientRecordedAt: new Date("2026-07-16T12:00:00.000Z"),
     });
-    assert.equal(result.created, true);
-    assert.equal(created.length, 1);
+    assert.equal(result.created, false);
+    assert.equal(result.reason, "duplicate");
+    assert.equal(created.length, 0);
   });
 
   it("skips when accuracy is too poor", async () => {

@@ -1,7 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import { apiFetch, ApiError } from "@/lib/api";
-import { retargetShiftSamplesBatchJob } from "@/lib/location-flush-errors";
 import { setAuthRequired } from "@/lib/session-auth";
 
 export type OfflineJobKind =
@@ -79,21 +78,6 @@ export async function enqueueOfflineJob(
   return job;
 }
 
-async function fetchActiveShiftId(token: string): Promise<string | null> {
-  try {
-    const res = await apiFetch<{ shift: { id: string; status: string } | null }>(
-      "/field/shifts/active",
-      { token },
-    );
-    if (res.shift?.status === "ACTIVE" && res.shift.id) {
-      return res.shift.id;
-    }
-  } catch {
-    /* no active shift */
-  }
-  return null;
-}
-
 async function runJob(job: OfflineJob, token: string): Promise<void> {
   switch (job.kind) {
     case "visitStart": {
@@ -147,18 +131,25 @@ async function runJob(job: OfflineJob, token: string): Promise<void> {
       const shiftId = String(job.payload.shiftId ?? "");
       const items = job.payload.items;
       const clientMutationId = String(job.payload.clientMutationId ?? job.id);
+      const batchId = String(job.payload.batchId ?? job.id);
+      const reason = String(job.payload.reason ?? "watchdog");
       const body = await apiFetch<{
         created?: number;
+        duplicate?: number;
         rejected?: number;
         rejectReasons?: Record<string, number>;
+        ghostDuplicate?: boolean;
       }>(`/field/shifts/${encodeURIComponent(shiftId)}/samples`, {
         method: "POST",
-        body: JSON.stringify({ items, clientMutationId }),
+        body: JSON.stringify({ items, clientMutationId, batchId, reason }),
         token,
       });
       const created = typeof body?.created === "number" ? body.created : undefined;
       const rejected = typeof body?.rejected === "number" ? body.rejected : 0;
       const reasons = body?.rejectReasons;
+      if (body?.ghostDuplicate === true && created === 0 && (body.duplicate ?? 0) > 0) {
+        throw new Error("ghost duplicate");
+      }
       if (created === 0 && reasons && (reasons.wrong_day ?? 0) >= Math.ceil(rejected * 0.5)) {
         const { setFlushBlockReason } = await import("@/lib/session-auth");
         const AsyncStorage = (await import("@react-native-async-storage/async-storage")).default;
@@ -207,33 +198,6 @@ export async function flushOfflineJobs(opts: {
           next.push(remaining);
         }
         break;
-      }
-
-      if (
-        job.kind === "shiftSamplesBatch" &&
-        e instanceof ApiError &&
-        e.status === 400
-      ) {
-        const activeShiftId = await fetchActiveShiftId(opts.token);
-        const retargeted = retargetShiftSamplesBatchJob(job, activeShiftId);
-        if (retargeted) {
-          try {
-            await runJob(retargeted, opts.token);
-            sent += 1;
-            continue;
-          } catch (retryErr) {
-            const msg = retryErr instanceof Error ? retryErr.message : String(retryErr);
-            lastError = msg;
-            next.push({
-              ...retargeted,
-              attempts: retargeted.attempts + 1,
-              lastError: msg,
-            });
-            continue;
-          }
-        }
-        lastError = "discarded shiftSamplesBatch after dead shift 400";
-        continue;
       }
 
       const msg = e instanceof Error ? e.message : String(e);

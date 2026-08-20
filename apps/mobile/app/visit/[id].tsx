@@ -187,8 +187,9 @@ export default function VisitDetailScreen() {
               lng: g.lng,
               accuracyM: g.accuracyM,
               clientRecordedAt: g.clientRecordedAt ?? new Date().toISOString(),
+              source: "live_callback",
             });
-            await flushPendingSamples().catch(() => undefined);
+            await flushPendingSamples(undefined, "manual").catch(() => undefined);
           }
         } catch {
           /* best-effort — backend already dual-wrote when possible */

@@ -32,6 +32,15 @@ import {
 } from "./session-auth";
 import { buildFlushTelemetryPayload } from "./location-flush-telemetry";
 import { isJsLocationPipelineDisabled } from "./native-tracking-gates";
+import { getTrackingDeviceId } from "./tracking-device-id";
+import {
+  buildBatchSamplesSummary,
+  type FlushReason,
+  logBatchAudit,
+  type SampleSource,
+  type TrackingSampleAuditEntry,
+} from "./tracking-audit-log";
+import { newUuidV4 } from "./tracking-ids";
 
 const MAX_BATCH = 100;
 export const MAX_PENDING_SAMPLES = 500;
@@ -69,6 +78,8 @@ export type PendingLocationSample = {
   lng: number;
   accuracyM?: number | null;
   clientRecordedAt: string;
+  source?: SampleSource;
+  attempt?: number;
 };
 
 let bufferLock: Promise<void> = Promise.resolve();
@@ -83,7 +94,12 @@ function withBufferLock<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 function newSampleId(): string {
-  return `${Date.now()}_${Math.random().toString(16).slice(2)}_${Math.random().toString(16).slice(2)}`;
+  return newUuidV4();
+}
+
+function normalizeAttempt(value: number | undefined): number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 1) return 1;
+  return Math.floor(value);
 }
 
 async function readPending(): Promise<PendingLocationSample[]> {
@@ -179,6 +195,8 @@ async function applyFlushFailure(
   message: string,
 ): Promise<void> {
   if (action === "retry") {
+    const bumped = pending.map((s) => ({ ...s, attempt: normalizeAttempt(s.attempt) + 1 }));
+    await writePending(bumped);
     return;
   }
   if (action === "auth_required") {
@@ -207,10 +225,13 @@ async function applyFlushFailure(
     return;
   }
   const rest = pending.slice(batch.length);
+  const retriedBatch = batch.map((s) => ({ ...s, attempt: normalizeAttempt(s.attempt) + 1 }));
   await enqueueOfflineJob("shiftSamplesBatch", {
     shiftId,
+    batchId: newUuidV4(),
     clientMutationId: newSampleId(),
-    items: batch,
+    reason: "watchdog",
+    items: retriedBatch,
   });
   await writePending(rest);
   void rememberFlushError(message);
@@ -252,7 +273,12 @@ export async function appendPendingSample(sample: PendingLocationSample): Promis
     }
     const pending = trimPending([
       ...current,
-      { ...sample, sampleId: sample.sampleId ?? newSampleId() },
+      {
+        ...sample,
+        sampleId: sample.sampleId ?? newSampleId(),
+        source: sample.source ?? "live_callback",
+        attempt: normalizeAttempt(sample.attempt),
+      },
     ]);
     await writePending(pending);
     await markGpsPointReceived(sample.clientRecordedAt);
@@ -299,7 +325,20 @@ async function resolveFlushShiftId(
   return null;
 }
 
-export async function flushPendingSamples(shiftId?: string): Promise<number> {
+async function logSampleAudit(entry: Omit<TrackingSampleAuditEntry, "kind" | "at">): Promise<void> {
+  await import("./tracking-audit-log").then(({ appendTrackingAudit }) =>
+    appendTrackingAudit({
+      kind: "sample",
+      at: new Date().toISOString(),
+      ...entry,
+    }),
+  );
+}
+
+export async function flushPendingSamples(
+  shiftId?: string,
+  reason: FlushReason = "interval",
+): Promise<number> {
   if (isJsLocationPipelineDisabled()) {
     return 0;
   }
@@ -330,7 +369,6 @@ export async function flushPendingSamples(shiftId?: string): Promise<number> {
     }
 
     let uploaded = 0;
-    let retargetAttempted = false;
     let authRetryAttempted = false;
 
     while (true) {
@@ -339,14 +377,51 @@ export async function flushPendingSamples(shiftId?: string): Promise<number> {
 
       const batch = pending.slice(0, MAX_BATCH);
       const rest = pending.slice(MAX_BATCH);
+      const batchId = newUuidV4();
+      const deviceId = await getTrackingDeviceId();
 
       const lastGpsCapturedAt = await getLastGpsPointAt();
       const telemetry = buildFlushTelemetryPayload({
         lastGpsCapturedAt,
         nowIso: new Date().toISOString(),
       });
+      const sampleIds = batch.map((s) => s.sampleId ?? "missing_sample_id");
+      await logBatchAudit({ batchId, shiftId: sid, sampleIds, reason });
+      void appendErrorLog(
+        `flush batch ${batchId} shiftId=${sid} reason=${reason} count=${batch.length} ${buildBatchSamplesSummary(sampleIds)}`,
+        "info",
+      );
 
       try {
+        const payloadItems = batch.map((s) => {
+          const attempt = normalizeAttempt(s.attempt);
+          const sampleSource: SampleSource =
+            attempt > 1 ? "retry_flush" : (s.source ?? "replay_buffer");
+          return {
+            ...s,
+            source: "expo",
+            deviceId,
+            attempt,
+            sampleSource,
+          };
+        });
+        for (const s of batch) {
+          const attempt = normalizeAttempt(s.attempt);
+          const sampleSource: SampleSource =
+            attempt > 1 ? "retry_flush" : (s.source ?? "replay_buffer");
+          await logSampleAudit({
+            sampleId: s.sampleId ?? "missing_sample_id",
+            shiftId: sid,
+            deviceId,
+            clientRecordedAt: s.clientRecordedAt,
+            lat: s.lat,
+            lng: s.lng,
+            accuracyM: s.accuracyM ?? null,
+            source: sampleSource,
+            batchId,
+            attempt,
+          });
+        }
         const res = await fetchWithTimeout(`${getApiBaseUrl()}/field/shifts/${sid}/samples`, {
           method: "POST",
           headers: {
@@ -354,11 +429,13 @@ export async function flushPendingSamples(shiftId?: string): Promise<number> {
             Authorization: `Bearer ${token}`,
           },
           body: JSON.stringify({
-            items: batch.map((s) => ({
-              ...s,
-              source: "expo",
-            })),
-            telemetry,
+            batchId,
+            reason,
+            items: payloadItems,
+            telemetry: {
+              ...telemetry,
+              deviceId,
+            },
           }),
         });
 
@@ -392,31 +469,6 @@ export async function flushPendingSamples(shiftId?: string): Promise<number> {
             break;
           }
 
-          // Dead shift after re-login: retarget once to today's active shift.
-          if (action === "discard_batch" && !retargetAttempted) {
-            retargetAttempted = true;
-            try {
-              const activeRes = await fetchWithTimeout(`${getApiBaseUrl()}/field/shifts/active`, {
-                headers: { Authorization: `Bearer ${token}` },
-              });
-              if (activeRes.ok) {
-                const body = (await activeRes.json()) as { shift?: { id?: string } | null };
-                const newSid = body.shift?.id;
-                if (typeof newSid === "string" && newSid.length > 0 && newSid !== sid) {
-                  await AsyncStorage.setItem(STORAGE_KEYS.ACTIVE_SHIFT_ID, newSid);
-                  void appendErrorLog(
-                    `flush retarget shift ${sid} → ${newSid} after 400`,
-                    "warn",
-                  );
-                  sid = newSid;
-                  continue;
-                }
-              }
-            } catch {
-              /* fall through to discard_batch */
-            }
-          }
-
           await applyFlushFailure(action, pending, batch, sid, message);
           break;
         }
@@ -431,6 +483,7 @@ export async function flushPendingSamples(shiftId?: string): Promise<number> {
             duplicate?: number;
             rejected?: number;
             rejectReasons?: SampleRejectReasons;
+            ghostDuplicate?: boolean;
           };
           if (typeof body.created === "number" && Number.isFinite(body.created)) {
             created = body.created;
@@ -443,6 +496,14 @@ export async function flushPendingSamples(shiftId?: string): Promise<number> {
           }
           if (body.rejectReasons && typeof body.rejectReasons === "object") {
             rejectReasons = body.rejectReasons;
+          }
+          if (body.ghostDuplicate === true && created === 0 && duplicate > 0) {
+            void appendErrorLog(
+              `flush ghost duplicate batch=${batchId} shiftId=${sid} count=${duplicate} (buffer kept)`,
+              "warn",
+            );
+            await applyFlushFailure("retry", pending, batch, sid, "ghost duplicate");
+            break;
           }
         } catch {
           /* non-JSON body — treat as full batch accepted */

@@ -218,7 +218,7 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
   const maybeFlushJsBuffer = useCallback(
     async (shiftId: string) => {
       if (shouldUseNativeTracking()) return;
-      await flushPendingSamples(shiftId).catch(() => undefined);
+      await flushPendingSamples(shiftId, "app_resume").catch(() => undefined);
     },
     [],
   );

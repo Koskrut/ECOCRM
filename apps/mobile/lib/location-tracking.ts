@@ -342,7 +342,7 @@ async function handleRawLocation(input: {
         "info",
       );
     }
-    const count = await appendPendingSample(result.sample);
+    const count = await appendPendingSample({ ...result.sample, source: "live_callback" });
     // Threshold flush + 30s timer cover delivery; per-sample flush doubled network churn.
     void maybeFlushAfterAppend(count).catch(() => undefined);
   } else if (
@@ -493,6 +493,16 @@ async function stopExpoLocationWriters(): Promise<void> {
   if (started) {
     await Location.stopLocationUpdatesAsync(FIELD_LOCATION_TASK).catch(() => undefined);
   }
+}
+
+async function flushNativeBeforePurge(context: string): Promise<void> {
+  try {
+    await flushNativePendingSamples();
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    void appendErrorLog(`${context}: native pre-purge flush failed (${message})`, "warn");
+  }
+  await purgeNativePendingSamples();
 }
 
 async function resolvePermissionsForTrackingStart(): Promise<TrackingPermissionStatus> {
@@ -665,7 +675,7 @@ export async function captureImmediateFixAndFlush(): Promise<boolean> {
       clientRecordedAt: new Date(pos.timestamp).toISOString(),
       mocked: false,
     });
-    const uploaded = await flushPendingSamples();
+    const uploaded = await flushPendingSamples(undefined, "manual");
     return uploaded > 0;
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
@@ -712,7 +722,7 @@ export async function restartTrackingPipeline(): Promise<RestartTrackingResult> 
       void appendErrorLog("manualRestart(native): skipped (cooldown)", "info");
     }
 
-    await purgeNativePendingSamples();
+    await flushNativeBeforePurge("manualRestart(native)");
     const sync = await syncNativeTrackingSessionDetailed({ retries: 1 });
     if (!sync.ok) {
       void appendErrorLog(
@@ -893,7 +903,7 @@ export async function stopLocationTracking(): Promise<void> {
     const shiftId = await AsyncStorage.getItem(STORAGE_KEYS.ACTIVE_SHIFT_ID);
     if (shiftId && !shouldUseNativeTracking()) {
       try {
-        await flushPendingSamples(shiftId);
+        await flushPendingSamples(shiftId, "manual");
       } catch {
         /* keep buffer for next session */
       }
@@ -1392,7 +1402,7 @@ export async function maintainBackgroundTracking(): Promise<TrackingMode> {
   }
 
   if (mode === "background" || mode === "foreground") {
-    void flushPendingSamples().catch(() => undefined);
+    void flushPendingSamples(undefined, "app_resume").catch(() => undefined);
   }
 
   if (mode === "background") {
@@ -1428,7 +1438,7 @@ export async function runBackgroundTrackingWatchdog(): Promise<void> {
     return;
   }
 
-  void flushPendingSamples().catch(() => undefined);
+  void flushPendingSamples(undefined, "watchdog").catch(() => undefined);
   await inspectBackgroundTrackingHealth("backgroundWatchdog");
 }
 
@@ -1460,7 +1470,7 @@ export async function recoverDeadBackgroundTaskOnForeground(): Promise<TrackingM
     if (!attempt.allowed) {
       void appendErrorLog("foregroundRecover(native): restart skipped (cooldown)", "info");
     }
-    await purgeNativePendingSamples();
+    await flushNativeBeforePurge("foregroundRecover(native)");
     await stopNativeTracking();
     const ok = await startNativeTracking(shiftId);
     if (ok) {
@@ -1514,7 +1524,7 @@ export async function recoverDeadBackgroundTaskOnForeground(): Promise<TrackingM
       await recordRecoveryEvent("TASK_RECREATED");
       startFlushTimer();
       clearStaleGpsFlushBlockIfNeeded();
-      await flushPendingSamples(shiftId).catch(() => undefined);
+      await flushPendingSamples(shiftId, "app_resume").catch(() => undefined);
       await captureImmediateFixAndFlush().catch(() => false);
 
       const newAcceptedAt = await getLastAcceptedAt();
@@ -1541,7 +1551,7 @@ export async function recoverDeadBackgroundTaskOnForeground(): Promise<TrackingM
   }
 
   void clearGpsStoppedNotificationDedupe().catch(() => undefined);
-  await flushPendingSamples(shiftId).catch(() => undefined);
+  await flushPendingSamples(shiftId, "app_resume").catch(() => undefined);
   await captureImmediateFixAndFlush().catch(() => false);
   return "background";
 }

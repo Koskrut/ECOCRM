@@ -35,13 +35,21 @@ interface TrackingSampleDao {
   )
   suspend fun pendingReady(nowIso: String, limit: Int = 50): List<TrackingSampleEntity>
 
+  @Query(
+    "UPDATE tracking_samples SET uploadState = 'IN_FLIGHT' WHERE sampleId IN (:sampleIds) AND uploadState = 'PENDING'",
+  )
+  suspend fun markInFlight(sampleIds: List<String>)
+
   @Query("UPDATE tracking_samples SET uploadState = 'UPLOADED' WHERE sampleId = :sampleId")
   suspend fun markUploaded(sampleId: String)
 
   @Query(
-    "UPDATE tracking_samples SET attemptCount = attemptCount + 1, nextRetryAt = :nextRetryAt WHERE sampleId = :sampleId",
+    "UPDATE tracking_samples SET uploadState = 'PENDING', attemptCount = attemptCount + 1, nextRetryAt = :nextRetryAt WHERE sampleId = :sampleId",
   )
   suspend fun markRetry(sampleId: String, nextRetryAt: String)
+
+  @Query("UPDATE tracking_samples SET uploadState = 'PENDING' WHERE sampleId IN (:sampleIds)")
+  suspend fun restorePending(sampleIds: List<String>)
 
   @Query("SELECT COUNT(*) FROM tracking_samples WHERE uploadState = 'PENDING'")
   suspend fun pendingCount(): Int

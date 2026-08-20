@@ -40,6 +40,16 @@ export type ProcessLocationResult = {
 let lastAcceptedMemory: LocationSampleInput | null = null;
 let currentTierMemory: SamplingTier = DEFAULT_TIER;
 let tierChangedAtMemory = 0;
+let processLock: Promise<void> = Promise.resolve();
+
+async function withProcessLock<T>(fn: () => Promise<T>): Promise<T> {
+  const run = processLock.then(fn, fn);
+  processLock = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
+}
 
 async function readLastAccepted(): Promise<LocationSampleInput | null> {
   if (lastAcceptedMemory) return lastAcceptedMemory;
@@ -87,60 +97,62 @@ async function persistTier(tier: SamplingTier): Promise<void> {
 }
 
 export async function processLocationUpdate(raw: RawLocationInput): Promise<ProcessLocationResult> {
-  const sample: LocationSampleInput = {
-    lat: raw.lat,
-    lng: raw.lng,
-    accuracyM: raw.accuracyM,
-    clientRecordedAt: raw.clientRecordedAt,
-  };
+  return withProcessLock(async () => {
+    const sample: LocationSampleInput = {
+      lat: raw.lat,
+      lng: raw.lng,
+      accuracyM: raw.accuracyM,
+      clientRecordedAt: raw.clientRecordedAt,
+    };
 
-  const prev = await readLastAccepted();
-  const filterResult = filterLocationSample(prev, sample);
-  const currentTier = await readCurrentTier();
+    const prev = await readLastAccepted();
+    const filterResult = filterLocationSample(prev, sample);
+    const currentTier = await readCurrentTier();
 
-  if (!filterResult.accept) {
+    if (!filterResult.accept) {
+      return {
+        accepted: false,
+        sample: null,
+        tier: currentTier,
+        watchOptions: watchOptionsForTier(currentTier),
+        tierChanged: false,
+        speedKmh: null,
+        rejectReason: filterResult.reason,
+        prevSample: prev,
+        gapMs: filterResult.gapMs,
+        distM: filterResult.distM,
+      };
+    }
+
+    const speedKmh = prev ? speedKmhBetween(prev, sample) : null;
+    const desiredTier = tierFromSpeedKmh(speedKmh);
+    let tier = currentTier;
+    let tierChanged = false;
+
+    if (desiredTier !== currentTier) {
+      const changedAt = await readTierChangedAt();
+      if (Date.now() - changedAt >= TIER_CHANGE_DEBOUNCE_MS) {
+        tier = desiredTier;
+        tierChanged = true;
+        await persistTier(tier);
+      }
+    }
+
+    await writeLastAccepted(sample);
+
     return {
-      accepted: false,
-      sample: null,
-      tier: currentTier,
-      watchOptions: watchOptionsForTier(currentTier),
-      tierChanged: false,
-      speedKmh: null,
-      rejectReason: filterResult.reason,
+      accepted: true,
+      sample,
+      tier,
+      watchOptions: watchOptionsForTier(tier),
+      tierChanged,
+      speedKmh,
+      reanchor: filterResult.reanchor === true,
       prevSample: prev,
       gapMs: filterResult.gapMs,
       distM: filterResult.distM,
     };
-  }
-
-  const speedKmh = prev ? speedKmhBetween(prev, sample) : null;
-  const desiredTier = tierFromSpeedKmh(speedKmh);
-  let tier = currentTier;
-  let tierChanged = false;
-
-  if (desiredTier !== currentTier) {
-    const changedAt = await readTierChangedAt();
-    if (Date.now() - changedAt >= TIER_CHANGE_DEBOUNCE_MS) {
-      tier = desiredTier;
-      tierChanged = true;
-      await persistTier(tier);
-    }
-  }
-
-  await writeLastAccepted(sample);
-
-  return {
-    accepted: true,
-    sample,
-    tier,
-    watchOptions: watchOptionsForTier(tier),
-    tierChanged,
-    speedKmh,
-    reanchor: filterResult.reanchor === true,
-    prevSample: prev,
-    gapMs: filterResult.gapMs,
-    distM: filterResult.distM,
-  };
+  });
 }
 
 export async function resetLocationProcessorState(): Promise<void> {

@@ -153,7 +153,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const { getPendingCount } = await import("@/lib/location-tracking-buffer");
         const pending = await getPendingCount();
         if (cancelled || pending <= 0) return;
-        await flushPendingSamples();
+        await flushPendingSamples(undefined, "app_resume");
       } catch {
         /* watchdog / AppState recover retry */
       }
@@ -183,7 +183,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Грибовская: after re-login, flush preserved GPS buffer (+ offline GPS jobs).
     void (async () => {
       try {
-        const n = await flushPendingSamples();
+        const n = await flushPendingSamples(undefined, "app_resume");
         try {
           const { flushOfflineJobs } = await import("@/lib/offline-queue");
           await flushOfflineJobs({ token: data.token });
@@ -204,7 +204,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Flush GPS while JWT still valid — token-null path cannot upload.
     if (token) {
       try {
-        await flushPendingSamples();
+        await flushPendingSamples(undefined, "app_resume");
       } catch {
         /* best-effort */
       }

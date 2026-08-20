@@ -1,6 +1,11 @@
-import { FieldShiftStatus, type Prisma } from "@prisma/client";
+import { FieldLocationSampleSource, FieldShiftStatus, type Prisma } from "@prisma/client";
+import { randomUUID } from "node:crypto";
 import { instantToKyivYmd } from "../crm-timezone";
-import { TRACK_MAX_ACCURACY_M } from "../field/gps-sample-filter";
+import {
+  classifyUaFieldCoords,
+  filterGpsSampleRelative,
+  TRACK_MAX_ACCURACY_M,
+} from "../field/gps-sample-filter";
 
 type PrismaClientLike = {
   fieldShift: {
@@ -24,10 +29,12 @@ type PrismaClientLike = {
       data: {
         shiftId: string;
         ownerId: string;
+        sampleId?: string;
         lat: number;
         lng: number;
         accuracyM?: number;
         clientRecordedAt: Date;
+        source?: FieldLocationSampleSource | null;
       };
     }) => Promise<unknown>;
   };
@@ -77,6 +84,12 @@ export async function dualWriteCompleteGpsToActiveShift(
         : undefined,
     clientRecordedAt: opts.clientRecordedAt,
   };
+  const region = classifyUaFieldCoords(candidate.lat, candidate.lng);
+  if (!region.ok) {
+    return { created: false, reason: region.reason };
+  }
+  candidate.lat = region.lat;
+  candidate.lng = region.lng;
 
   const acc = candidate.accuracyM;
   if (
@@ -87,15 +100,26 @@ export async function dualWriteCompleteGpsToActiveShift(
   ) {
     return { created: false, reason: "bad_accuracy" };
   }
+  const prev = await prisma.fieldLocationSample.findFirst({
+    where: { shiftId: shift.id },
+    orderBy: { clientRecordedAt: "desc" },
+    select: { lat: true, lng: true, accuracyM: true, clientRecordedAt: true },
+  });
+  const verdict = filterGpsSampleRelative(prev, candidate);
+  if (!verdict.accept) {
+    return { created: false, reason: verdict.reason ?? "rejected" };
+  }
 
   await prisma.fieldLocationSample.create({
     data: {
       shiftId: shift.id,
       ownerId: opts.ownerId,
+      sampleId: randomUUID(),
       lat: candidate.lat,
       lng: candidate.lng,
       accuracyM: candidate.accuracyM,
       clientRecordedAt: candidate.clientRecordedAt,
+      source: FieldLocationSampleSource.EXPO,
     },
   });
 

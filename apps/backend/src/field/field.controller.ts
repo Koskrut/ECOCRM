@@ -101,7 +101,11 @@ export class FieldController {
         sampleId?: string | null;
         deviceId?: string | null;
         source?: string;
+        sampleSource?: string;
+        attempt?: number;
       }[];
+      batchId?: string;
+      reason?: string;
       telemetry?: {
         nativeLastSeenAt?: string;
         appLastSeenAt?: string;
@@ -113,7 +117,10 @@ export class FieldController {
     @Req() req: Request & { user?: AuthUser },
   ) {
     const items = Array.isArray(body?.items) ? body.items : [];
-    return this.shifts.appendSamples(req.user, id, items, body?.telemetry);
+    return this.shifts.appendSamples(req.user, id, items, body?.telemetry, {
+      batchId: body?.batchId,
+      reason: body?.reason,
+    });
   }
 
   @Post("shifts/:id/tracking-telemetry")

@@ -83,7 +83,7 @@ export async function processFieldLocationBatch(
     });
 
     if (result.accepted && result.sample) {
-      const count = await appendPendingSample(result.sample);
+      const count = await appendPendingSample({ ...result.sample, source: "live_callback" });
       void maybeFlushAfterAppend(count).catch(() => undefined);
       void sendPresenceHeartbeatFromTask().catch(() => undefined);
     }
@@ -114,7 +114,7 @@ if (!TaskManager.isTaskDefined(FIELD_LOCATION_TASK)) {
       await hydrateSessionAuthFromStorage();
       const lastFlushAt = await AsyncStorage.getItem(STORAGE_KEYS.LAST_FLUSH_AT);
       if (shouldFlushByInterval(lastFlushAt)) {
-        await flushPendingSamples();
+        await flushPendingSamples(undefined, "interval");
       }
     };
 
@@ -134,7 +134,7 @@ if (!TaskManager.isTaskDefined(FIELD_LOCATION_TASK)) {
 
     try {
       await hydrateSessionAuthFromStorage();
-      await flushPendingSamples();
+      await flushPendingSamples(undefined, "interval");
     } catch {
       /* buffered for next flush */
     }
