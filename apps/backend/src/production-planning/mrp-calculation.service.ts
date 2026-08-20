@@ -8,7 +8,7 @@ import {
   ProductionStageCode,
 } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
-import { constrainsKitCapacity, isNonInventoriedPackagingSku } from "./bom-part.util";
+import { constrainsKitCapacity, displayBottleneckSku, isNonInventoriedPackagingSku } from "./bom-part.util";
 import { DemandForecastService } from "./demand-forecast.service";
 import { MrpConfigService } from "./mrp-config.service";
 import { allocateMonthlyQuota } from "./mrp-quota.util";
@@ -459,9 +459,15 @@ export class MrpCalculationService {
 
       if (row.product.kind === ProductKind.KIT && row.hasBom) {
         const kitCapacity = await this.calculations.getKitCapacity(row.product.id);
-        const bottleneckSku = kitCapacity.components.find(
+        const bottleneckComponent = kitCapacity.components.find(
           (c) => c.componentProductId === kitCapacity.bottleneckComponentId,
-        )?.product?.sku;
+        );
+        const bottleneckSku = bottleneckComponent?.product
+          ? displayBottleneckSku(
+              bottleneckComponent.product.sku,
+              bottleneckComponent.product.name,
+            )
+          : null;
         const unmetPackNeed = Math.max(0, Math.ceil(row.netNeed));
         const packDetails = {
           ...baseDetails(row),

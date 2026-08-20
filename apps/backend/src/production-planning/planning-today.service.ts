@@ -1,10 +1,13 @@
 import { Injectable } from "@nestjs/common";
 import { OrderStage, PlanningRunLineType, ProductKind } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
+import { displayBottleneckSku } from "./bom-part.util";
 import { FactoryOrderService } from "./factory-order.service";
 import { computeDesiredDate } from "./mrp-desired-date.util";
 import {
+  enrichAndSortAwaitingStockView,
   groupAwaitingStockLines,
+  type AwaitingStockCapacityInfo,
   type TodayAwaitingStockView,
 } from "./planning-awaiting-stock.util";
 import { PlanningCalculationService } from "./planning-calculation.service";
@@ -12,20 +15,25 @@ import { PlanningRemindersService, type PlanningDueReminderItem } from "./planni
 import { PlanningRunService } from "./planning-run.service";
 import { PlanningSettingsService } from "./planning-settings.service";
 import { MrpConfigService } from "./mrp-config.service";
+import {
+  rankTodaySuggestedActions,
+  type TodaySuggestedAction,
+} from "./planning-today-suggested-actions.util";
 
 export type {
   TodayAwaitingStockGroup,
   TodayAwaitingStockOrderLine,
+  TodayAwaitingStockPrimaryAction,
   TodayAwaitingStockView,
 } from "./planning-awaiting-stock.util";
 
-export type TodaySuggestedAction = "pack" | "production" | "factory";
+export type { TodaySuggestedAction };
 
 export type TodayBurningComponent = {
   sku: string;
   name: string;
   availableQty: number;
-  /** Units of this component required to cover kit needQty (kits only). */
+  /** Part gap: max(0, gross need − on-hand). */
   needQty: number | null;
 };
 
@@ -35,6 +43,8 @@ export type TodayBurningItem = {
   sku: string;
   name: string;
   needQty: number;
+  maxFromParts: number;
+  canAssemble: number;
   desiredDate: string;
   coverDays: number | null;
   reason: string;
@@ -105,21 +115,40 @@ export class PlanningTodayService {
       );
     }
 
-    return groupAwaitingStockLines(
-      items.map((item) => ({
-        orderItemId: item.id,
-        orderId: item.order.id,
-        orderNumber: item.order.orderNumber,
-        warehouseId: item.order.warehouseId,
-        productId: item.productId,
-        sku: item.product?.sku ?? null,
-        name: item.product?.name ?? item.productNameSnapshot ?? "",
-        qty: item.qty,
-        qtyShipped: item.qtyShipped,
-      })),
-      productStockById,
-      warehouseStockByKey,
+    return enrichAndSortAwaitingStockView(
+      groupAwaitingStockLines(
+        items.map((item) => ({
+          orderItemId: item.id,
+          orderId: item.order.id,
+          orderNumber: item.order.orderNumber,
+          warehouseId: item.order.warehouseId,
+          productId: item.productId,
+          sku: item.product?.sku ?? null,
+          name: item.product?.name ?? item.productNameSnapshot ?? "",
+          qty: item.qty,
+          qtyShipped: item.qtyShipped,
+        })),
+        productStockById,
+        warehouseStockByKey,
+      ),
+      await this.buildAwaitingStockCapacityMap(productIds),
     );
+  }
+
+  private async buildAwaitingStockCapacityMap(
+    productIds: string[],
+  ): Promise<Map<string, AwaitingStockCapacityInfo>> {
+    const capacityByProductId = new Map<string, AwaitingStockCapacityInfo>();
+    await Promise.all(
+      productIds.map(async (productId) => {
+        const capacity = await this.calculations.getKitCapacity(productId);
+        capacityByProductId.set(productId, {
+          maxFromParts: capacity.maxBuildNow,
+          hasBom: capacity.components.length > 0,
+        });
+      }),
+    );
+    return capacityByProductId;
   }
 
   async getToday(): Promise<PlanningTodayView> {
@@ -166,9 +195,6 @@ export class PlanningTodayService {
     const canPackByProduct = new Map(
       (packaging.canItems ?? []).map((i) => [i.productId, i]),
     );
-    const productionByProduct = new Map(
-      (production.items ?? []).map((i) => [i.productId, i]),
-    );
     const factoryByProduct = new Map(
       factoryRecs.recommendations.map((r) => [r.partProductId, r]),
     );
@@ -204,54 +230,75 @@ export class PlanningTodayService {
       });
 
       const suggestedActions: TodaySuggestedAction[] = [];
-      if (canPackByProduct.has(line.productId)) suggestedActions.push("pack");
-      if (productionByProduct.has(line.productId)) suggestedActions.push("production");
-      if (factoryByProduct.has(line.productId)) suggestedActions.push("factory");
-      if (line.kind === ProductKind.KIT && !suggestedActions.includes("pack")) {
-        suggestedActions.push("pack");
-      }
-      if (
-        (line.kind === ProductKind.KIT || line.kind === ProductKind.PART) &&
-        !suggestedActions.includes("production")
-      ) {
-        suggestedActions.push("production");
-      }
-      if (line.kind === ProductKind.PART && factoryByProduct.has(line.productId)) {
-        if (!suggestedActions.includes("factory")) suggestedActions.push("factory");
-      }
-
+      let maxFromParts = 0;
+      let canAssemble = 0;
       let bottleneckComponent: TodayBurningComponent | null = null;
+
       if (line.kind === ProductKind.KIT) {
         let capacity = kitCapacityCache.get(line.productId);
         if (!capacity) {
           capacity = await this.calculations.getKitCapacity(line.productId);
           kitCapacityCache.set(line.productId, capacity);
         }
+        maxFromParts = capacity.maxBuildNow;
+        canAssemble = Math.min(needQty, maxFromParts);
+
         const bottleneck = capacity.components.find(
           (c) => c.componentProductId === capacity!.bottleneckComponentId,
         );
         if (bottleneck?.product) {
-          const effectiveQtyPerKit =
-            bottleneck.ratio > 0 && Number.isFinite(bottleneck.ratio)
-              ? bottleneck.available / bottleneck.ratio
-              : bottleneck.qtyPerKit > 0
-                ? bottleneck.qtyPerKit
-                : 1;
+          const qtyPerKit = bottleneck.qtyPerKit > 0 ? bottleneck.qtyPerKit : 1;
+          const availableQty = Math.max(0, Math.floor(bottleneck.available));
+          const grossNeed = needQty > 0 ? Math.ceil(needQty * qtyPerKit) : 0;
+          const partGap = Math.max(0, grossNeed - availableQty);
           bottleneckComponent = {
-            sku: bottleneck.product.sku,
+            sku: displayBottleneckSku(bottleneck.product.sku, bottleneck.product.name),
             name: bottleneck.product.name,
-            availableQty: Math.max(0, Math.floor(bottleneck.available)),
-            needQty: needQty > 0 ? Math.ceil(needQty * effectiveQtyPerKit) : null,
+            availableQty,
+            needQty: needQty > 0 ? partGap : null,
           };
         }
+
+        suggestedActions.push(
+          ...rankTodaySuggestedActions({
+            kind: line.kind,
+            kitNeed: needQty,
+            maxFromParts,
+            canAssemble,
+            inCanPack: canPackByProduct.has(line.productId),
+            hasFactoryRec: factoryByProduct.has(line.productId),
+          }),
+        );
       } else if (line.kind === ProductKind.PART) {
         const availability = await this.calculations.getAvailability(line.productId);
+        const availableQty = availability.available;
         bottleneckComponent = {
           sku: line.sku,
           name: line.name,
-          availableQty: availability.available,
-          needQty: needQty > 0 ? needQty : null,
+          availableQty,
+          needQty: needQty > 0 ? Math.max(0, needQty - availableQty) : null,
         };
+        suggestedActions.push(
+          ...rankTodaySuggestedActions({
+            kind: line.kind,
+            kitNeed: needQty,
+            maxFromParts: 0,
+            canAssemble: 0,
+            inCanPack: canPackByProduct.has(line.productId),
+            hasFactoryRec: factoryByProduct.has(line.productId),
+          }),
+        );
+      } else {
+        suggestedActions.push(
+          ...rankTodaySuggestedActions({
+            kind: line.kind as ProductKind,
+            kitNeed: needQty,
+            maxFromParts: 0,
+            canAssemble: 0,
+            inCanPack: canPackByProduct.has(line.productId),
+            hasFactoryRec: factoryByProduct.has(line.productId),
+          }),
+        );
       }
 
       burning.push({
@@ -260,6 +307,8 @@ export class PlanningTodayService {
         sku: line.sku,
         name: line.name,
         needQty,
+        maxFromParts,
+        canAssemble,
         desiredDate,
         coverDays: line.coverDays,
         reason: line.reason ?? "",

@@ -18,6 +18,7 @@ import {
   UserRole,
 } from "@prisma/client";
 import type { AuthUser } from "../auth/auth.types";
+import { AuditService } from "../audit/audit.service";
 import { BankAccountsService } from "../bank/bank-accounts.service";
 import {
   allocationExceedsTransaction,
@@ -28,11 +29,6 @@ import {
 } from "../bank/bank-allocation.util";
 import { MatchSuggestionService } from "../bank/match-suggestion.service";
 import { PayerAliasService } from "../bank/payer-alias.service";
-import {
-  computeFinancialStatusFromOrder,
-  orderStageToDeliveryStatus,
-} from "../orders/order-status-sync.mapper";
-import { getOrderCompletionBlockers } from "../orders/order-completion-guards";
 import { PrismaService } from "../prisma/prisma.service";
 import type { AllocateMatchMetaDto, AllocatePaymentDto } from "./dto/allocate-payment.dto";
 import type { AllocateSplitDto } from "./dto/allocate-split.dto";
@@ -44,8 +40,10 @@ import type { ExchangeRates } from "../settings/settings.service";
 import { SettingsService } from "../settings/settings.service";
 import { toUsd } from "../common/currency.util";
 import { buildPaymentSearchWhere } from "./payment-search.util";
-import { computeOrderDebtAndCredit, roundMoney } from "./order-finance.utils";
-import { cashPaymentPaidAtWindow } from "./cash-payment-dedup.util";
+import { roundMoney } from "./order-finance.utils";
+import { cashPaymentConfirmDedupWindow } from "./cash-payment-dedup.util";
+import { paymentAuditSnapshot, writePaymentChangeAudit } from "./payment-audit.util";
+import { recalcOrderFinance } from "./order-finance.recalc";
 import { randomUUID } from "node:crypto";
 
 export type AllocateMatchMeta = AllocateMatchMetaDto;
@@ -90,6 +88,7 @@ export class PaymentsService {
     private readonly prisma: PrismaService,
     private readonly settings: SettingsService,
     private readonly bankAccounts: BankAccountsService,
+    private readonly audit: AuditService,
     @Optional()
     @Inject(forwardRef(() => PayerAliasService))
     private readonly payerAliases?: PayerAliasService,
@@ -677,7 +676,7 @@ export class PaymentsService {
   async createCash(dto: CreateCashPaymentDto, actor?: AuthUser) {
     const order = await this.prisma.order.findUnique({
       where: { id: dto.orderId },
-      select: { id: true, ownerId: true, currency: true },
+      select: { id: true, ownerId: true, currency: true, clientId: true, contactId: true },
     });
     if (!order) throw new NotFoundException("Order not found");
     if (actor?.role === UserRole.MANAGER && order.ownerId !== actor.id) {
@@ -692,68 +691,149 @@ export class PaymentsService {
       throw new BadRequestException("Invalid paidAt date");
     }
 
-    const currency = (dto.currency && dto.currency.trim()) || order.currency;
+    const currency = (dto.currency && dto.currency.trim().toUpperCase()) || order.currency;
+    if (!["USD", "UAH", "EUR"].includes(currency)) {
+      throw new BadRequestException("Currency must be USD, UAH, or EUR");
+    }
 
-    const duplicate = await this.prisma.payment.findFirst({
-      where: {
-        orderId: dto.orderId,
+    if (!dto.confirmDuplicate) {
+      await this.assertNoRecentDuplicateCash({
         amount,
         currency,
-        status: PaymentStatus.COMPLETED,
-        bankTransactionId: null,
-        sourceType: PaymentSourceType.CASH,
-        paidAt: cashPaymentPaidAtWindow(paidAt),
-      },
-    });
-    if (duplicate) {
-      return this.listByOrderId(dto.orderId, actor);
+        paidAt,
+        orderId: dto.orderId,
+        clientId: order.clientId,
+        contactId: dto.contactId ?? order.contactId,
+      });
+    }
+
+    const allocations = dto.allocations?.length
+      ? dto.allocations.map((a) => ({ orderId: a.orderId, amount: Number(a.amount) }))
+      : [{ orderId: dto.orderId, amount }];
+
+    const totalAlloc = allocations.reduce((s, a) => s + a.amount, 0);
+    if (Math.abs(totalAlloc - amount) > BANK_ALLOCATION_EPSILON) {
+      throw new BadRequestException(
+        `Total allocated ${totalAlloc} must equal payment amount ${amount}`,
+      );
+    }
+    for (const a of allocations) {
+      if (!Number.isFinite(a.amount) || a.amount <= 0) {
+        throw new BadRequestException("Each allocation amount must be positive");
+      }
+    }
+
+    const anchorClientId = order.clientId;
+    const anchorContactId = order.contactId;
+    const orderIds = new Set<string>();
+    for (const a of allocations) {
+      const target = await this.prisma.order.findUnique({
+        where: { id: a.orderId },
+        select: { id: true, ownerId: true, clientId: true, contactId: true },
+      });
+      if (!target) throw new NotFoundException(`Order not found: ${a.orderId}`);
+      if (actor?.role === UserRole.MANAGER && target.ownerId !== actor.id) {
+        throw new ForbiddenException("You can only add payments to orders assigned to you");
+      }
+      const sameClient =
+        (anchorClientId && target.clientId === anchorClientId) ||
+        (anchorContactId && target.contactId === anchorContactId) ||
+        (order.clientId && target.clientId === order.clientId) ||
+        (order.contactId && target.contactId === order.contactId) ||
+        a.orderId === dto.orderId;
+      if (!sameClient) {
+        throw new BadRequestException("All allocations must belong to the same client");
+      }
+      orderIds.add(a.orderId);
     }
 
     const rates = await this.settings.getExchangeRates();
-    const amountUsd = convertToUsd(amount, currency, rates);
+    const createdOrderIds: string[] = [];
+
     try {
-      await this.prisma.payment.create({
-        data: {
-          orderId: dto.orderId,
-          contactId: dto.contactId ?? null,
-          companyId: dto.companyId ?? null,
-          sourceType: PaymentSourceType.CASH,
-          amount,
-          currency,
-          amountUsd,
-          paidAt,
-          status: PaymentStatus.COMPLETED,
-          createdByUserId: actor?.id ?? null,
-          note: dto.note ?? null,
-        },
-      });
-    } catch (err) {
-      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
-        const raced = await this.prisma.payment.findFirst({
-          where: {
-            orderId: dto.orderId,
-            amount,
-            currency,
-            status: PaymentStatus.COMPLETED,
-            bankTransactionId: null,
+      for (const a of allocations) {
+        const amountUsd = convertToUsd(a.amount, currency, rates);
+        await this.prisma.payment.create({
+          data: {
+            orderId: a.orderId,
+            contactId: dto.contactId ?? null,
+            companyId: dto.companyId ?? null,
             sourceType: PaymentSourceType.CASH,
-            paidAt: cashPaymentPaidAtWindow(paidAt),
+            amount: a.amount,
+            currency,
+            amountUsd,
+            paidAt,
+            status: PaymentStatus.COMPLETED,
+            createdByUserId: actor?.id ?? null,
+            note: dto.note ?? null,
           },
         });
-        if (raced) return this.listByOrderId(dto.orderId, actor);
+        createdOrderIds.push(a.orderId);
+      }
+    } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
         throw new ConflictException("Duplicate cash payment");
       }
       throw err;
     }
 
-    await this.recalcOrder(dto.orderId);
+    for (const oid of orderIds) {
+      await this.recalcOrder(oid);
+    }
     return this.listByOrderId(dto.orderId, actor);
+  }
+
+  private async assertNoRecentDuplicateCash(input: {
+    amount: number;
+    currency: string;
+    paidAt: Date;
+    orderId: string;
+    clientId: string | null;
+    contactId: string | null;
+  }): Promise<void> {
+    const window = cashPaymentConfirmDedupWindow(input.paidAt);
+    const baseWhere: Prisma.PaymentWhereInput = {
+      amount: input.amount,
+      currency: input.currency,
+      status: PaymentStatus.COMPLETED,
+      bankTransactionId: null,
+      sourceType: PaymentSourceType.CASH,
+      paidAt: window,
+    };
+    const orFilters: Prisma.PaymentWhereInput[] = [{ orderId: input.orderId }];
+    if (input.clientId) {
+      orFilters.push({ order: { clientId: input.clientId } });
+    }
+    if (input.contactId) {
+      orFilters.push({ contactId: input.contactId });
+    }
+    const duplicate = await this.prisma.payment.findFirst({
+      where: { AND: [baseWhere, { OR: orFilters }] },
+      include: {
+        order: { select: { orderNumber: true } },
+        createdBy: { select: { fullName: true } },
+      },
+    });
+    if (!duplicate) return;
+    throw new ConflictException({
+      message: "A cash payment with the same amount was recorded recently for this client or order",
+      code: "CASH_PAYMENT_DUPLICATE",
+      existing: {
+        id: duplicate.id,
+        orderId: duplicate.orderId,
+        orderNumber: duplicate.order?.orderNumber ?? null,
+        amount: Number(duplicate.amount),
+        currency: duplicate.currency,
+        paidAt: duplicate.paidAt.toISOString(),
+        createdByName: duplicate.createdBy?.fullName ?? null,
+      },
+    });
   }
 
   async update(id: string, dto: UpdatePaymentDto, actor?: AuthUser) {
     const payment = await this.prisma.payment.findUnique({
       where: { id },
-      include: { order: { select: { id: true, ownerId: true } } },
+      include: { order: { select: { id: true, ownerId: true, orderNumber: true } } },
     });
     if (!payment) throw new NotFoundException("Payment not found");
     if (actor?.role === UserRole.MANAGER && payment.order?.ownerId !== actor.id) {
@@ -824,13 +904,53 @@ export class PaymentsService {
     if (Object.keys(data).length === 0) return this.listByOrderId(payment.orderId, actor);
     const oldOrderId = payment.orderId;
     const newOrderId = data.orderId ?? payment.orderId;
+    const beforeAudit = paymentAuditSnapshot(payment, payment.order?.orderNumber);
     await this.prisma.payment.update({
       where: { id },
       data,
     });
+    const afterPayment = await this.prisma.payment.findUnique({
+      where: { id },
+      include: { order: { select: { orderNumber: true } } },
+    });
+    if (actor && afterPayment) {
+      await writePaymentChangeAudit(this.audit, {
+        action: "UPDATE",
+        changedBy: actor.id,
+        changedByRole: actor.role,
+        before: beforeAudit,
+        after: paymentAuditSnapshot(afterPayment, afterPayment.order?.orderNumber),
+      });
+    }
     await this.recalcOrder(oldOrderId);
     if (newOrderId !== oldOrderId) await this.recalcOrder(newOrderId);
     return this.listByOrderId(newOrderId, actor);
+  }
+
+  async deleteCashPayment(id: string, actor?: AuthUser) {
+    if (!actor || actor.role !== UserRole.ADMIN) {
+      throw new ForbiddenException("Only ADMIN can delete cash payments");
+    }
+    const payment = await this.prisma.payment.findUnique({
+      where: { id },
+      include: { order: { select: { id: true, orderNumber: true } } },
+    });
+    if (!payment) throw new NotFoundException("Payment not found");
+    if (payment.sourceType !== PaymentSourceType.CASH) {
+      throw new BadRequestException("Only cash payments can be deleted");
+    }
+    const orderId = payment.orderId;
+    const beforeAudit = paymentAuditSnapshot(payment, payment.order?.orderNumber);
+    await this.prisma.payment.delete({ where: { id } });
+    await writePaymentChangeAudit(this.audit, {
+      action: "DELETE",
+      changedBy: actor.id,
+      changedByRole: actor.role,
+      before: beforeAudit,
+      after: null,
+    });
+    await this.recalcOrder(orderId);
+    return { ok: true as const, orderId };
   }
 
   async splitPayment(id: string, dto: SplitPaymentDto, actor?: AuthUser) {
@@ -1132,83 +1252,6 @@ export class PaymentsService {
   }
 
   async recalcOrder(orderId: string): Promise<void> {
-    const [payments, rates] = await Promise.all([
-      this.prisma.payment.findMany({
-        where: { orderId, status: PaymentStatus.COMPLETED },
-        select: { amount: true, currency: true, amountUsd: true },
-      }),
-      this.settings.getExchangeRates(),
-    ]);
-    const paidAmount = payments.reduce((sum, p) => {
-      const usd =
-        p.amountUsd != null
-          ? Number(p.amountUsd)
-          : convertToUsd(Number(p.amount), p.currency || "USD", rates);
-      return sum + usd;
-    }, 0);
-    const order = await this.prisma.order.findUnique({
-      where: { id: orderId },
-      select: {
-        totalAmount: true,
-        subtotalAmount: true,
-        paidAmount: true,
-        returnAdjustmentAmount: true,
-        fxWriteOffAmount: true,
-        paymentType: true,
-        paymentDueDate: true,
-        orderStage: true,
-        debtAmount: true,
-      },
-    });
-    if (!order) return;
-    const { effectiveTotal, debtAmount, creditAmount } = computeOrderDebtAndCredit({
-      totalAmount: order.totalAmount,
-      returnAdjustmentAmount: order.returnAdjustmentAmount,
-      paidAmount,
-      fxWriteOffAmount: order.fxWriteOffAmount,
-      orderStage: order.orderStage,
-    });
-    const financialStatus = computeFinancialStatusFromOrder({
-      paymentType: order.paymentType,
-      totalAmount: effectiveTotal,
-      paidAmount,
-      debtAmount,
-      paymentDueDate: order.paymentDueDate ?? undefined,
-      orderStage: order.orderStage ?? undefined,
-    });
-
-    const stage = order.orderStage ?? null;
-    let autoComplete = stage === "RECEIVED" && debtAmount <= 0.00001;
-    if (autoComplete) {
-      const blockers = await getOrderCompletionBlockers(this.prisma, orderId, {
-        paymentType: order.paymentType,
-        paidAmount,
-        totalAmount: order.totalAmount,
-        subtotalAmount: order.subtotalAmount ?? 0,
-        debtAmount,
-        returnAdjustmentAmount: order.returnAdjustmentAmount,
-        fxWriteOffAmount: order.fxWriteOffAmount,
-        paymentDueDate: order.paymentDueDate,
-      });
-      autoComplete = blockers.length === 0;
-    }
-    const nextStage = autoComplete ? "COMPLETED" : stage;
-    const deliveryStatus = nextStage
-      ? orderStageToDeliveryStatus(nextStage as import("@prisma/client").OrderStage)
-      : undefined;
-
-    await this.prisma.order.update({
-      where: { id: orderId },
-      data: {
-        paidAmount,
-        debtAmount,
-        creditAmount,
-        financialStatus,
-        ...(autoComplete && {
-          orderStage: "COMPLETED",
-          deliveryStatus,
-        }),
-      },
-    });
+    await recalcOrderFinance(this.prisma, this.settings, orderId);
   }
 }

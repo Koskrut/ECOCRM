@@ -46,12 +46,39 @@ export type WorkClientRow = {
   externalCode: string | null;
   debtAmount: number;
   overdueAmount: number;
+  overpaymentAmount?: number;
   orderCount: number;
   ownerId: string | null;
   ownerName: string | null;
+  lastPaymentAt?: string | null;
   lastCommentAt: string | null;
   lastCommentPreview: string | null;
   lastCommentAuthorName: string | null;
+};
+
+export type PeriodPaymentRow = {
+  id: string;
+  amount: number;
+  currency: string;
+  amountUsd: number | null;
+  paidAt: string;
+  sourceType: string;
+  orderId: string | null;
+  orderNumber: string | null;
+  clientId: string | null;
+  clientName: string | null;
+};
+
+export type ContactPaymentRow = {
+  id: string;
+  amount: number;
+  currency: string;
+  amountUsd: number | null;
+  paidAt: string;
+  sourceType: string;
+  note: string | null;
+  orderId: string | null;
+  orderNumber: string | null;
 };
 
 export type WorkOrderRow = {
@@ -59,6 +86,7 @@ export type WorkOrderRow = {
   orderNumber: string;
   debtAmount: number;
   debtAmountBase: number;
+  creditAmount?: number;
   paidAmount: number;
   totalAmount: number;
   currency: string;
@@ -78,6 +106,7 @@ export type ContactReceivablesResponse = {
   kpi: {
     debtTotal: number;
     overdueDebt: number;
+    overpaymentTotal?: number;
     ordersWithDebtCount: number;
     bitrixLegacyDebt: number;
   };
@@ -92,6 +121,10 @@ export type ContactReceivablesResponse = {
   } | null;
   orders: WorkOrderRow[];
   ordersTotal: number;
+  payments?: ContactPaymentRow[];
+  paymentsTotal?: number;
+  paymentsPage?: number;
+  paymentsPageSize?: number;
   comments: DebtComment[];
 };
 
@@ -232,7 +265,28 @@ export const receivablesApi = {
     }>("/receivables/work/orders", { params });
   },
 
-  contactReceivables(contactId: string) {
-    return apiHttp.get<ContactReceivablesResponse>(`/receivables/contacts/${contactId}`);
+  contactReceivables(
+    contactId: string,
+    params?: { paymentsPage?: number; paymentsPageSize?: number; ordersPage?: number; ordersPageSize?: number },
+  ) {
+    return apiHttp.get<ContactReceivablesResponse>(`/receivables/contacts/${contactId}`, {
+      params,
+    });
+  },
+
+  periodPayments(params: {
+    paidFrom?: string;
+    paidTo?: string;
+    ownerId?: string;
+    page?: number;
+    pageSize?: number;
+  }) {
+    return apiHttp.get<{
+      currency: string;
+      items: PeriodPaymentRow[];
+      total: number;
+      page: number;
+      pageSize: number;
+    }>("/receivables/work/period-payments", { params });
   },
 };

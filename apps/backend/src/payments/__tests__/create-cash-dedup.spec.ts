@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { ConflictException } from "@nestjs/common";
 import { PaymentSourceType, PaymentStatus, UserRole } from "@prisma/client";
 import { PaymentsService } from "../payments.service";
 import type { AuthUser } from "../../auth/auth.types";
@@ -24,6 +25,13 @@ function admin(): AuthUser {
   return { id: "a1", email: "a@t.com", fullName: "Admin", role: UserRole.ADMIN };
 }
 
+function mockAudit() {
+  return {
+    write: mockFn(async () => ({})),
+    buildUpdatePayload: (input: unknown) => input,
+  };
+}
+
 describe("PaymentsService.createCash dedup", () => {
   const paidAt = new Date("2026-06-01T12:00:00.000Z");
   const dto = {
@@ -33,7 +41,7 @@ describe("PaymentsService.createCash dedup", () => {
     paidAt: paidAt.toISOString(),
   };
 
-  it("returns existing order payments when duplicate cash payment detected", async () => {
+  it("throws ConflictException when duplicate cash payment detected", async () => {
     const paymentCreate = mockFn();
     const findFirst = mockFn(async () => ({
       id: "existing",
@@ -43,28 +51,42 @@ describe("PaymentsService.createCash dedup", () => {
       paidAt,
       status: PaymentStatus.COMPLETED,
       sourceType: PaymentSourceType.CASH,
+      order: { orderNumber: "ORD-1" },
+      createdBy: { fullName: "Manager" },
     }));
     const findMany = mockFn(async () => [{ id: "existing", amount: 500, currency: "UAH", amountUsd: 12 }]);
     const prisma = {
       order: {
-        findUnique: mockFn(async () => ({ id: "o1", ownerId: "m1", currency: "UAH" })),
+        findUnique: mockFn(async () => ({
+          id: "o1",
+          ownerId: "m1",
+          currency: "UAH",
+          clientId: "c1",
+          contactId: null,
+        })),
       },
       payment: { findFirst, create: paymentCreate, findMany },
     };
     const settings = { getExchangeRates: async () => ({ UAH_TO_USD: 0.024 }) };
-    const svc = new PaymentsService(prisma as any, settings as any, {} as any);
+    const audit = mockAudit();
+    const svc = new PaymentsService(prisma as any, settings as any, {} as any, audit as any);
 
-    const result = await svc.createCash(dto, manager());
+    await assert.rejects(() => svc.createCash(dto, manager()), ConflictException);
     assert.equal(paymentCreate.calls.length, 0);
     assert.equal(findFirst.calls.length, 1);
-    assert.ok(Array.isArray(result));
   });
 
   it("creates payment when no duplicate exists", async () => {
     const paymentCreate = mockFn(async () => ({ id: "p-new" }));
     const prisma = {
       order: {
-        findUnique: mockFn(async () => ({ id: "o1", ownerId: "m1", currency: "UAH" })),
+        findUnique: mockFn(async () => ({
+          id: "o1",
+          ownerId: "m1",
+          currency: "UAH",
+          clientId: "c1",
+          contactId: null,
+        })),
         update: mockFn(async () => ({})),
       },
       payment: {
@@ -74,7 +96,12 @@ describe("PaymentsService.createCash dedup", () => {
       },
     };
     const settings = { getExchangeRates: async () => ({ UAH_TO_USD: 0.024 }) };
-    const svc = new PaymentsService(prisma as any, settings as any, {} as any);
+    const audit = {
+      write: mockFn(async () => ({})),
+      buildUpdatePayload: (input: unknown) => input,
+    };
+    const svc = new PaymentsService(prisma as any, settings as any, {} as any, audit as any);
+    (svc as any).recalcOrder = mockFn(async () => {});
 
     await svc.createCash(dto, manager());
     assert.equal(paymentCreate.calls.length, 1);
@@ -120,8 +147,9 @@ describe("PaymentsService.allocate race safety", () => {
       ),
     };
     const settings = { getExchangeRates: async () => ({ UAH_TO_USD: 0.024 }) };
+    const audit = mockAudit();
     const bankAccounts = { getVisibleBankAccountIds: mockFn(async () => ["ba1"]) };
-    const svc = new PaymentsService(prisma as any, settings as any, bankAccounts as any);
+    const svc = new PaymentsService(prisma as any, settings as any, bankAccounts as any, audit as any);
 
     await assert.rejects(
       () => svc.allocate({ transactionId: txId, orderId }, admin()),
@@ -153,8 +181,9 @@ describe("PaymentsService.allocateSplit", () => {
       $transaction: mockFn(async () => undefined),
     };
     const settings = { getExchangeRates: async () => ({ UAH_TO_USD: 0.024 }) };
+    const audit = mockAudit();
     const bankAccounts = { getVisibleBankAccountIds: mockFn(async () => ["ba1"]) };
-    const svc = new PaymentsService(prisma as any, settings as any, bankAccounts as any);
+    const svc = new PaymentsService(prisma as any, settings as any, bankAccounts as any, audit as any);
 
     await assert.rejects(
       () =>

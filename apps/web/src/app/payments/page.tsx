@@ -14,6 +14,11 @@ import {
   formatDebtForAllocation,
   suggestedAllocationAmount,
 } from "@/lib/debt-in-payment-currency";
+import {
+  convertPaymentToUsd,
+  paymentUsdVarianceExceedsTolerance,
+  type ExchangeRates,
+} from "@/lib/payment-usd";
 import { ordersApi, type FxVarianceQueueItem } from "@/lib/api/resources/orders";
 import { FxWriteOffModal } from "./FxWriteOffModal";
 import { InfiniteScrollSentinel } from "@/components/InfiniteScrollSentinel";
@@ -169,6 +174,7 @@ type OrderOption = {
   debtAmount?: number;
   currency?: string;
   exchangeRate?: number | null;
+  paymentDueDate?: string | null;
   createdAt?: string;
 };
 
@@ -229,9 +235,54 @@ type SplitRow = { orderId: string; orderNumber: string; amount: string };
 function orderDebtInPaymentCurrency(order: OrderOption, paymentCurrency: string): number {
   const debt = Number(order.debtAmount ?? 0);
   if (!(debt > 0)) return 0;
-  return (
-    debtInPaymentCurrency(debt, order.currency, paymentCurrency, order.exchangeRate) ?? 0
-  );
+  return debtInPaymentCurrency(debt, "USD", paymentCurrency, order.exchangeRate) ?? 0;
+}
+
+/** Prefill split rows using debts converted into the payment currency (FIFO by due date). */
+function buildSplitRowsFromOrdersFifo(
+  orders: OrderOption[],
+  totalAmount: number,
+  paymentCurrency: string,
+): SplitRow[] {
+  const sorted = [...orders].sort((a, b) => {
+    const aDue = a.paymentDueDate ? new Date(a.paymentDueDate).getTime() : Number.MAX_SAFE_INTEGER;
+    const bDue = b.paymentDueDate ? new Date(b.paymentDueDate).getTime() : Number.MAX_SAFE_INTEGER;
+    if (aDue !== bDue) return aDue - bDue;
+    return new Date(a.createdAt ?? 0).getTime() - new Date(b.createdAt ?? 0).getTime();
+  });
+  const debts = sorted.map((o) => orderDebtInPaymentCurrency(o, paymentCurrency));
+  const totalDebt = debts.reduce((s, d) => s + d, 0);
+  let rows: SplitRow[];
+  if (totalDebt > 0) {
+    let remaining = totalAmount;
+    rows = sorted.map((o, i) => {
+      const debt = debts[i] ?? 0;
+      const amount = Math.min(remaining, debt);
+      remaining -= amount;
+      return {
+        orderId: o.id,
+        orderNumber: o.orderNumber ?? o.id,
+        amount: amount.toFixed(2),
+      };
+    });
+    if (remaining > 0.01 && rows.length > 0) {
+      rows[rows.length - 1]!.amount = (
+        parseFloat(rows[rows.length - 1]!.amount) + remaining
+      ).toFixed(2);
+    }
+  } else if (sorted.length > 0) {
+    const perOrder = totalAmount / sorted.length;
+    rows = sorted.map((o, i) => ({
+      orderId: o.id,
+      orderNumber: o.orderNumber ?? o.id,
+      amount: (
+        i === sorted.length - 1 ? totalAmount - perOrder * (sorted.length - 1) : perOrder
+      ).toFixed(2),
+    }));
+  } else {
+    rows = [];
+  }
+  return rows.filter((r) => parseFloat(r.amount) > 0);
 }
 
 /** Prefill split rows using debts converted into the payment currency. */
@@ -379,6 +430,8 @@ function PaymentsContent() {
   const [editContactOrders, setEditContactOrders] = useState<OrderOption[]>([]);
   const [editContactOrdersLoading, setEditContactOrdersLoading] = useState(false);
   const [editAmountUsd, setEditAmountUsd] = useState("");
+  const [editAmountUsdTouched, setEditAmountUsdTouched] = useState(false);
+  const [exchangeRates, setExchangeRates] = useState<ExchangeRates | null>(null);
   const [userRole, setUserRole] = useState<string | null>(null);
   const [savingPayment, setSavingPayment] = useState(false);
   const [showAddCashPayment, setShowAddCashPayment] = useState(false);
@@ -397,6 +450,8 @@ function PaymentsContent() {
     new Date().toISOString().slice(0, 16),
   );
   const [addCashNote, setAddCashNote] = useState("");
+  const [addCashSplitRows, setAddCashSplitRows] = useState<SplitRow[]>([]);
+  const [addCashConfirmDuplicate, setAddCashConfirmDuplicate] = useState(false);
   const [addCashSubmitting, setAddCashSubmitting] = useState(false);
   const addCashIdempotencyKeyRef = useRef<string | null>(null);
   const addCashLastSubmitAtRef = useRef(0);
@@ -440,6 +495,30 @@ function PaymentsContent() {
       .then((res) => setUserRole(res.data?.user?.role ?? null))
       .catch(() => setUserRole(null));
   }, []);
+
+  useEffect(() => {
+    apiHttp
+      .get<ExchangeRates>("/settings/exchange-rates")
+      .then((res) => setExchangeRates(res.data ?? null))
+      .catch(() => setExchangeRates(null));
+  }, []);
+
+  const editPreviewUsd = useMemo(() => {
+    if (!exchangeRates || editPayment?.sourceType !== "CASH") return null;
+    const num = parseFloat(editAmount.replace(/,/g, "."));
+    if (!Number.isFinite(num) || num <= 0) return null;
+    const cur = (editCurrency || editPayment.currency || "UAH").trim().toUpperCase();
+    return convertPaymentToUsd(num, cur, exchangeRates);
+  }, [editAmount, editCurrency, editPayment, exchangeRates]);
+
+  const editUsdFxWarning = useMemo(() => {
+    if (!exchangeRates || editPayment?.sourceType !== "CASH" || !editAmountUsdTouched) return false;
+    const num = parseFloat(editAmount.replace(/,/g, "."));
+    const usd = parseFloat(editAmountUsd.replace(/,/g, "."));
+    if (!Number.isFinite(num) || num <= 0 || !Number.isFinite(usd)) return false;
+    const cur = (editCurrency || editPayment.currency || "UAH").trim().toUpperCase();
+    return paymentUsdVarianceExceedsTolerance(num, cur, usd, exchangeRates);
+  }, [editAmount, editAmountUsd, editAmountUsdTouched, editCurrency, editPayment, exchangeRates]);
 
   const fetchAccounts = useCallback(async () => {
     try {
@@ -906,12 +985,10 @@ function PaymentsContent() {
     setAddCashOrdersLoading(true);
     try {
       const r = await apiHttp.get<{ items: OrderOption[] }>(
-        `/orders?contactId=${encodeURIComponent(contactId)}&page=1&pageSize=100&withCompanyClient=true`,
+        `/orders?partyContactId=${encodeURIComponent(contactId)}&hasDebt=true&page=1&pageSize=100&withCompanyClient=true&sortBy=paymentDueDate&sortDir=asc`,
       );
       const list = (r.data?.items ?? []) as (OrderOption & { debtAmount?: number })[];
-      setAddCashOrders(
-        list.filter((o) => (Number(o.debtAmount ?? 0) > 0)),
-      );
+      setAddCashOrders(list.filter((o) => Number(o.debtAmount ?? 0) > 0.009));
     } catch {
       setAddCashOrders([]);
     } finally {
@@ -943,10 +1020,10 @@ function PaymentsContent() {
     setAllocateOrdersLoading(true);
     try {
       const r = await apiHttp.get<{ items: OrderOption[] }>(
-        `/orders?contactId=${encodeURIComponent(contactId)}&page=1&pageSize=100&withCompanyClient=true`,
+        `/orders?partyContactId=${encodeURIComponent(contactId)}&hasDebt=true&page=1&pageSize=100&withCompanyClient=true&sortBy=paymentDueDate&sortDir=asc`,
       );
       const list = (r.data?.items ?? []) as (OrderOption & { debtAmount?: number })[];
-      setAllocateOrders(list.filter((o) => (Number((o as { debtAmount?: number }).debtAmount ?? 0) > 0)));
+      setAllocateOrders(list.filter((o) => Number((o as { debtAmount?: number }).debtAmount ?? 0) > 0.009));
     } catch {
       setAllocateOrders([]);
     } finally {
@@ -1039,19 +1116,95 @@ function PaymentsContent() {
     if (editContactId) void fetchOrdersForEdit(editContactId);
   }, [editContactId, fetchOrdersForEdit]);
 
-  const submitAddCashPayment = async () => {
+  const addCashAmountNum = useMemo(() => {
+    const num = parseFloat(addCashAmount.replace(/,/g, "."));
+    return Number.isFinite(num) && num > 0 ? num : null;
+  }, [addCashAmount]);
+
+  const addCashNeedsSplit = useMemo(() => {
+    if (!addCashContactId || addCashOrders.length === 0 || addCashAmountNum == null) return false;
+    if (addCashOrders.length > 1) return true;
+    const order = addCashOrderId
+      ? addCashOrders.find((o) => o.id === addCashOrderId)
+      : addCashOrders[0];
+    if (!order) return false;
+    const debt = orderDebtInPaymentCurrency(order, addCashCurrency);
+    return addCashAmountNum > debt + 0.01;
+  }, [
+    addCashContactId,
+    addCashOrders,
+    addCashAmountNum,
+    addCashOrderId,
+    addCashCurrency,
+  ]);
+
+  useEffect(() => {
+    if (!addCashNeedsSplit || addCashAmountNum == null) {
+      setAddCashSplitRows([]);
+      return;
+    }
+    setAddCashSplitRows(
+      buildSplitRowsFromOrdersFifo(addCashOrders, addCashAmountNum, addCashCurrency),
+    );
+  }, [addCashNeedsSplit, addCashAmountNum, addCashOrders, addCashCurrency]);
+
+  const addCashSplitTotal = useMemo(
+    () =>
+      addCashSplitRows.reduce(
+        (s, r) => s + (parseFloat(r.amount.replace(/,/g, ".")) || 0),
+        0,
+      ),
+    [addCashSplitRows],
+  );
+
+  const addCashSplitValid =
+    addCashNeedsSplit &&
+    addCashSplitRows.length > 0 &&
+    addCashSplitRows.every((r) => r.orderId && parseFloat(r.amount.replace(/,/g, ".")) > 0) &&
+    addCashAmountNum != null &&
+    Math.abs(addCashSplitTotal - addCashAmountNum) <= 0.01;
+
+  const resetAddCashForm = () => {
+    setShowAddCashPayment(false);
+    setAddCashContactId(null);
+    setAddCashContactName("");
+    setAddCashOrderId(null);
+    setAddCashOrderNumber("");
+    setAddCashOrders([]);
+    setAddCashAmount("");
+    setAddCashCurrency("UAH");
+    setAddCashNote("");
+    setAddCashSplitRows([]);
+    setAddCashConfirmDuplicate(false);
+    addCashIdempotencyKeyRef.current = null;
+  };
+
+  const submitAddCashPayment = async (confirmDuplicate = false) => {
     if (addCashSubmitting) return;
     const now = Date.now();
     if (now - addCashLastSubmitAtRef.current < 500) return;
     addCashLastSubmitAtRef.current = now;
 
-    if (!addCashOrderId) {
+    const targetOrderId =
+      addCashOrderId ?? (addCashNeedsSplit ? addCashSplitRows[0]?.orderId : null);
+    if (!targetOrderId) {
       pushToast(t.payments.errors.selectOrder, "error");
       return;
     }
-    const num = parseFloat(addCashAmount.replace(/,/g, "."));
-    if (!Number.isFinite(num) || num <= 0) {
+    const num = addCashAmountNum;
+    if (num == null) {
       pushToast(t.payments.errors.positiveAmount, "error");
+      return;
+    }
+    if (addCashNeedsSplit && !addCashSplitValid) {
+      pushToast(
+        t.payments.errors.splitTotal(
+          addCashSplitTotal.toFixed(2),
+          num.toFixed(2),
+          addCashCurrency,
+        ),
+        "error",
+      );
       return;
     }
     setAddCashSubmitting(true);
@@ -1059,30 +1212,73 @@ function PaymentsContent() {
       if (!addCashIdempotencyKeyRef.current) {
         addCashIdempotencyKeyRef.current = crypto.randomUUID();
       }
-      await apiHttp.post(
-        "/payments/cash",
-        {
-          orderId: addCashOrderId,
-          amount: num,
-          currency: addCashCurrency,
-          paidAt: new Date(addCashPaidAt).toISOString(),
-          note: addCashNote.trim() || undefined,
-        },
-        { headers: { "Idempotency-Key": addCashIdempotencyKeyRef.current } },
-      );
-      addCashIdempotencyKeyRef.current = null;
-      setShowAddCashPayment(false);
-      setAddCashContactId(null);
-      setAddCashContactName("");
-      setAddCashOrderId(null);
-      setAddCashOrderNumber("");
-      setAddCashOrders([]);
-      setAddCashAmount("");
-      setAddCashCurrency("UAH");
-      setAddCashNote("");
+      const payload: Record<string, unknown> = {
+        orderId: targetOrderId,
+        amount: num,
+        currency: addCashCurrency,
+        paidAt: new Date(addCashPaidAt).toISOString(),
+        note: addCashNote.trim() || undefined,
+        contactId: addCashContactId ?? undefined,
+      };
+      if (addCashNeedsSplit && addCashSplitRows.length > 0) {
+        payload.allocations = addCashSplitRows.map((r) => ({
+          orderId: r.orderId,
+          amount: parseFloat(r.amount.replace(/,/g, ".")),
+        }));
+      }
+      if (confirmDuplicate || addCashConfirmDuplicate) {
+        payload.confirmDuplicate = true;
+      }
+      await apiHttp.post("/payments/cash", payload, {
+        headers: { "Idempotency-Key": addCashIdempotencyKeyRef.current },
+      });
+      resetAddCashForm();
       await fetchPayments({ bankIdOverride: "" });
     } catch (e) {
-      pushToast(e instanceof Error ? e.message : t.payments.errors.addPaymentFailed, "error");
+      const err = e as { code?: string; status?: number; details?: unknown; message?: string };
+      const details = err.details as
+        | {
+            code?: string;
+            message?:
+              | string
+              | {
+                  code?: string;
+                  existing?: { orderNumber?: string | null; amount?: number; currency?: string };
+                };
+            existing?: { orderNumber?: string | null; amount?: number; currency?: string };
+          }
+        | undefined;
+      const nested =
+        details && typeof details.message === "object" && details.message !== null
+          ? details.message
+          : details;
+      const dupCode = nested && "code" in nested ? nested.code : details?.code;
+      const existing =
+        nested && typeof nested === "object" && "existing" in nested
+          ? nested.existing
+          : details?.existing;
+      if (
+        err.status === 409 &&
+        dupCode === "CASH_PAYMENT_DUPLICATE" &&
+        !confirmDuplicate &&
+        !addCashConfirmDuplicate
+      ) {
+        const exLabel = existing
+          ? t.payments.cashDuplicateExisting(
+              existing.orderNumber ?? "—",
+              `${existing.amount?.toFixed(2) ?? "?"} ${existing.currency ?? ""}`,
+            )
+          : "";
+        if (window.confirm(`${t.payments.cashDuplicateConfirm}\n${exLabel}`)) {
+          setAddCashConfirmDuplicate(true);
+          setAddCashSubmitting(false);
+          addCashLastSubmitAtRef.current = 0;
+          await submitAddCashPayment(true);
+          return;
+        }
+      } else {
+        pushToast(err instanceof Error ? err.message : t.payments.errors.addPaymentFailed, "error");
+      }
     } finally {
       setAddCashSubmitting(false);
     }
@@ -1092,7 +1288,7 @@ function PaymentsContent() {
     setSplitClientOrdersLoading(true);
     try {
       const r = await apiHttp.get<{ items: OrderOption[] }>(
-        `/orders?contactId=${encodeURIComponent(contactId)}&page=1&pageSize=100&withCompanyClient=true`,
+        `/orders?partyContactId=${encodeURIComponent(contactId)}&page=1&pageSize=100&withCompanyClient=true&sortBy=paymentDueDate&sortDir=asc`,
       );
       setSplitClientOrders(r.data?.items ?? []);
     } catch {
@@ -1346,6 +1542,7 @@ function PaymentsContent() {
     setEditAmount(String(p.amount));
     setEditCurrency(p.currency || "UAH");
     setEditAmountUsd(typeof p.amountUsd === "number" ? String(p.amountUsd) : "");
+    setEditAmountUsdTouched(false);
     setEditPaidAt(new Date(p.paidAt).toISOString().slice(0, 16));
     setEditNote(p.note ?? "");
     setEditOrderId(p.orderId);
@@ -1387,13 +1584,30 @@ function PaymentsContent() {
         payload.amount = num;
         if (editCurrency.trim()) payload.currency = editCurrency.trim().toUpperCase();
       }
-      if (userRole === "ADMIN" && editAmountUsd.trim() !== "") {
+      if (userRole === "ADMIN" && editAmountUsdTouched && editAmountUsd.trim() !== "") {
         const usd = parseFloat(editAmountUsd.replace(/,/g, "."));
         if (Number.isFinite(usd) && usd >= 0) payload.amountUsd = usd;
       }
       payload.note = editNote.trim() || undefined;
       if (editOrderId && editOrderId !== editPayment.orderId) payload.orderId = editOrderId;
       await apiHttp.patch(`/payments/${editPayment.id}`, payload);
+      setEditPayment(null);
+      await fetchPayments();
+    } catch (e) {
+      pushToast(e instanceof Error ? e.message : t.payments.errors.updateFailed, "error");
+    } finally {
+      setSavingPayment(false);
+    }
+  };
+
+  const submitDeleteCash = async () => {
+    if (!editPayment || editPayment.sourceType !== "CASH" || userRole !== "ADMIN") return;
+    const amountLabel = formatPaymentAmount(editPayment);
+    const orderLabel = editPayment.orderNumber ?? editPayment.orderId;
+    if (!window.confirm(t.payments.deleteCashPaymentConfirm(orderLabel, amountLabel))) return;
+    setSavingPayment(true);
+    try {
+      await apiHttp.delete(`/payments/${editPayment.id}`);
       setEditPayment(null);
       await fetchPayments();
     } catch (e) {
@@ -2486,20 +2700,47 @@ function PaymentsContent() {
                 placeholder={t.payments.noteOptional}
                 className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
               />
+              {addCashNeedsSplit && addCashSplitRows.length > 0 && (
+                <div className="rounded-lg border border-zinc-200 p-3">
+                  <p className="text-xs font-medium text-zinc-600">{t.payments.cashSplitHint}</p>
+                  <div className="mt-2 space-y-2">
+                    {addCashSplitRows.map((row, idx) => (
+                      <div key={row.orderId || idx} className="flex items-center gap-2">
+                        <span className="min-w-0 flex-1 truncate text-sm text-zinc-800">
+                          {row.orderNumber}
+                        </span>
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          value={row.amount}
+                          onChange={(e) =>
+                            setAddCashSplitRows((prev) => {
+                              const next = [...prev];
+                              next[idx] = { ...next[idx]!, amount: e.target.value };
+                              return next;
+                            })
+                          }
+                          className="w-24 rounded-md border border-zinc-300 px-2 py-1.5 text-sm"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                  <p className="mt-2 text-xs text-zinc-600">
+                    {t.payments.totalProgress(
+                      addCashCurrency,
+                      addCashSplitTotal.toFixed(2),
+                      (addCashAmountNum ?? 0).toFixed(2),
+                    )}
+                  </p>
+                </div>
+              )}
             </div>
             <div className="mt-6 flex justify-end gap-2">
               <button
                 type="button"
                 onClick={() => {
-                  setShowAddCashPayment(false);
-                  setAddCashContactId(null);
-                  setAddCashContactName("");
-                  setAddCashOrderId(null);
-                  setAddCashOrderNumber("");
-                  setAddCashOrders([]);
-                  setAddCashAmount("");
-                  setAddCashCurrency("UAH");
-                  setAddCashNote("");
+                  if (addCashSubmitting) return;
+                  resetAddCashForm();
                 }}
                 disabled={addCashSubmitting}
                 className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
@@ -2509,7 +2750,12 @@ function PaymentsContent() {
               <button
                 type="button"
                 onClick={() => void submitAddCashPayment()}
-                disabled={!addCashOrderId || !addCashAmount.trim() || addCashSubmitting}
+                disabled={
+                  addCashSubmitting ||
+                  addCashAmountNum == null ||
+                  (!addCashNeedsSplit && !addCashOrderId) ||
+                  (addCashNeedsSplit && !addCashSplitValid)
+                }
                 className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
               >
                 {addCashSubmitting ? t.payments.saving : t.payments.addPaymentSubmit}
@@ -3289,13 +3535,19 @@ function PaymentsContent() {
                       type="text"
                       inputMode="decimal"
                       value={editAmount}
-                      onChange={(e) => setEditAmount(e.target.value)}
+                      onChange={(e) => {
+                        setEditAmount(e.target.value);
+                        setEditAmountUsdTouched(false);
+                      }}
                       placeholder={t.payments.amountInCurrency(editCurrency || editPayment.currency)}
                       className="min-w-0 flex-1 rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
                     />
                     <select
                       value={editCurrency}
-                      onChange={(e) => setEditCurrency(e.target.value)}
+                      onChange={(e) => {
+                        setEditCurrency(e.target.value);
+                        setEditAmountUsdTouched(false);
+                      }}
                       className="shrink-0 rounded-lg border border-zinc-300 bg-white px-2 py-2 text-sm text-zinc-900"
                       aria-label={t.payments.currencyLabel}
                     >
@@ -3318,11 +3570,22 @@ function PaymentsContent() {
                 type="text"
                 inputMode="decimal"
                 value={editAmountUsd}
-                onChange={(e) => setEditAmountUsd(e.target.value)}
+                onChange={(e) => {
+                  setEditAmountUsd(e.target.value);
+                  setEditAmountUsdTouched(true);
+                }}
                 disabled={userRole !== "ADMIN"}
                 placeholder={t.payments.amountUsdFixed}
                 className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 disabled:bg-zinc-100 disabled:text-zinc-500"
               />
+              {editPreviewUsd != null && !editAmountUsdTouched ? (
+                <p className="text-xs text-zinc-500">
+                  {t.payments.usdPreview}: {editPreviewUsd.toFixed(2)} $
+                </p>
+              ) : null}
+              {editUsdFxWarning ? (
+                <p className="text-xs text-amber-700">{t.payments.usdFxVarianceWarning}</p>
+              ) : null}
               <input
                 type="text"
                 value={editNote}
@@ -3332,6 +3595,18 @@ function PaymentsContent() {
               />
             </div>
             <div className="mt-5 flex flex-wrap items-end justify-end gap-2">
+              {editPayment.sourceType === "CASH" && userRole === "ADMIN" && (
+                <div className="mr-auto max-w-[14rem]">
+                  <button
+                    type="button"
+                    onClick={() => void submitDeleteCash()}
+                    disabled={savingPayment}
+                    className="rounded-lg border border-red-300 px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"
+                  >
+                    {t.payments.deleteCashPayment}
+                  </button>
+                </div>
+              )}
               {editPayment.sourceType === "BANK" &&
                 (userRole === "ADMIN" || userRole === "LEAD" || userRole === "MANAGER") && (
                 <div className="mr-auto max-w-[14rem]">

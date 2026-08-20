@@ -37,7 +37,7 @@ export function isOperationalDebtOrder(order: {
 
 function buildReceivablesDebtOrderBase(scope: AnalyticsScope): Prisma.OrderWhereInput {
   const extra: Prisma.OrderWhereInput = {
-    debtAmount: { gt: 0 },
+    OR: [{ debtAmount: { gt: 0 } }, { creditAmount: { gt: 0 } }],
     clientId: { not: null },
   };
 

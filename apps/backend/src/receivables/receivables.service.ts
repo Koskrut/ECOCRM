@@ -32,6 +32,8 @@ import {
   parseReceivablesExcel,
 } from "./receivables-excel.parser";
 import { financialOverdueWhere } from "../orders/order-status-sync.mapper";
+import { DateTime } from "luxon";
+import { CRM_TIME_ZONE } from "../crm-timezone";
 import {
   buildBitrixLegacyDebtOrderWhere,
   buildOperationalDebtOrderWhere,
@@ -46,11 +48,27 @@ type ContactDebtRow = {
   externalCode: string;
   debtBase: number;
   overdueBase: number;
+  creditBase: number;
   orderCount: number;
   ownerId: string | null;
   firstName: string;
   lastName: string;
+  lastPaymentAt: Date | null;
 };
+
+/** debtAmount / creditAmount on Order are stored in USD (see recalcOrder). */
+function orderStoredUsdAmount(value: unknown): number {
+  return safeNum(value);
+}
+
+function isOrderOverdueByDueDate(
+  paymentDueDate: Date | null | undefined,
+  debtAmount: number,
+): boolean {
+  if (!(debtAmount > 0) || !paymentDueDate) return false;
+  const startOfToday = DateTime.fromISO(todayYmdKyiv(), { zone: CRM_TIME_ZONE }).startOf("day");
+  return paymentDueDate < startOfToday.toJSDate();
+}
 
 @Injectable()
 export class ReceivablesService {
@@ -281,12 +299,12 @@ export class ReceivablesService {
 
   private async loadContactDebtMap(
     scope: Awaited<ReturnType<AnalyticsScopeService["resolveDashboardScope"]>> | null,
-    rates: Awaited<ReturnType<SettingsService["getExchangeRates"]>>,
+    _rates: Awaited<ReturnType<SettingsService["getExchangeRates"]>>,
   ) {
     const orderWhere: Prisma.OrderWhereInput = scope
       ? buildReceivablesDebtOrderWhere(scope)
       : buildOperationalDebtOrderWhere({
-          debtAmount: { gt: 0 },
+          OR: [{ debtAmount: { gt: 0 } }, { creditAmount: { gt: 0 } }],
           clientId: { not: null },
         });
 
@@ -296,8 +314,9 @@ export class ReceivablesService {
         id: true,
         clientId: true,
         debtAmount: true,
+        creditAmount: true,
         currency: true,
-        financialStatus: true,
+        paymentDueDate: true,
         client: {
           select: {
             id: true,
@@ -310,18 +329,39 @@ export class ReceivablesService {
       },
     });
 
+    const clientIds = [...new Set(orders.map((o) => o.clientId).filter(Boolean))] as string[];
+    const lastPaymentByClient = new Map<string, Date>();
+    if (clientIds.length > 0) {
+      const paymentRows = await this.prisma.payment.findMany({
+        where: {
+          status: "COMPLETED",
+          order: { clientId: { in: clientIds } },
+        },
+        select: { paidAt: true, order: { select: { clientId: true } } },
+      });
+      for (const p of paymentRows) {
+        const cid = p.order?.clientId;
+        if (!cid) continue;
+        const prev = lastPaymentByClient.get(cid);
+        if (!prev || p.paidAt > prev) lastPaymentByClient.set(cid, p.paidAt);
+      }
+    }
+
     const map = new Map<string, ContactDebtRow>();
     for (const o of orders) {
       const client = o.client;
       if (!client) continue;
-      const debtBase = toBaseCurrency(safeNum(o.debtAmount), o.currency, rates);
-      const overdueBase =
-        o.financialStatus === "OVERDUE" && safeNum(o.debtAmount) > 0 ? debtBase : 0;
+      const debtUsd = orderStoredUsdAmount(o.debtAmount);
+      const creditUsd = orderStoredUsdAmount(o.creditAmount);
+      const debtBase = debtUsd > 0 ? debtUsd : 0;
+      const creditBase = creditUsd > 0 ? creditUsd : 0;
+      const overdueBase = isOrderOverdueByDueDate(o.paymentDueDate, debtUsd) ? debtBase : 0;
       const code = normalizeCounterpartyCode1C(client.externalCode ?? "");
       const prev = map.get(client.id);
       if (prev) {
         prev.debtBase += debtBase;
         prev.overdueBase += overdueBase;
+        prev.creditBase += creditBase;
         prev.orderCount += 1;
       } else {
         map.set(client.id, {
@@ -329,11 +369,18 @@ export class ReceivablesService {
           externalCode: code,
           debtBase,
           overdueBase,
+          creditBase,
           orderCount: 1,
           ownerId: client.ownerId,
           firstName: client.firstName,
           lastName: client.lastName,
+          lastPaymentAt: lastPaymentByClient.get(client.id) ?? null,
         });
+      }
+    }
+    for (const row of map.values()) {
+      if (!row.lastPaymentAt) {
+        row.lastPaymentAt = lastPaymentByClient.get(row.contactId) ?? null;
       }
     }
     return map;
@@ -602,15 +649,15 @@ export class ReceivablesService {
 
   private async sumOrderDebtBase(
     where: Prisma.OrderWhereInput,
-    rates: Awaited<ReturnType<SettingsService["getExchangeRates"]>>,
+    _rates: Awaited<ReturnType<SettingsService["getExchangeRates"]>>,
   ): Promise<number> {
     const rows = await this.prisma.order.findMany({
       where,
-      select: { debtAmount: true, currency: true },
+      select: { debtAmount: true },
     });
     let total = 0;
     for (const row of rows) {
-      total += toBaseCurrency(safeNum(row.debtAmount), row.currency, rates);
+      total += orderStoredUsdAmount(row.debtAmount);
     }
     return total;
   }
@@ -641,8 +688,10 @@ export class ReceivablesService {
       externalCode: row.externalCode || null,
       debtAmount: Math.round(row.debtBase * 100) / 100,
       overdueAmount: Math.round(row.overdueBase * 100) / 100,
+      overpaymentAmount: Math.round(row.creditBase * 100) / 100,
       orderCount: row.orderCount,
       ownerId: row.ownerId,
+      lastPaymentAt: row.lastPaymentAt?.toISOString() ?? null,
     }));
 
     if (query.overdue) {
@@ -839,7 +888,9 @@ export class ReceivablesService {
       q?: string;
       ownerId?: string;
       overdue?: boolean;
+      /** CRM client (Order.clientId), not TTN recipient contact. */
       contactId?: string;
+      clientId?: string;
     },
   ) {
     const scope = await this.scopeService.resolveDashboardScope(actor, { managerId: query.ownerId });
@@ -853,8 +904,9 @@ export class ReceivablesService {
     if (query.overdue) {
       and.push(financialOverdueWhere());
     }
-    if (query.contactId) {
-      and.push({ clientId: query.contactId });
+    const clientFilterId = query.clientId ?? query.contactId;
+    if (clientFilterId) {
+      and.push({ clientId: clientFilterId });
     }
 
     const q = query.q?.trim();
@@ -884,6 +936,7 @@ export class ReceivablesService {
           id: true,
           orderNumber: true,
           debtAmount: true,
+          creditAmount: true,
           paidAmount: true,
           totalAmount: true,
           currency: true,
@@ -910,7 +963,8 @@ export class ReceivablesService {
         id: o.id,
         orderNumber: o.orderNumber,
         debtAmount: safeNum(o.debtAmount),
-        debtAmountBase: toBaseCurrency(safeNum(o.debtAmount), o.currency, rates),
+        debtAmountBase: orderStoredUsdAmount(o.debtAmount),
+        creditAmount: safeNum(o.creditAmount),
         paidAmount: safeNum(o.paidAmount),
         totalAmount: safeNum(o.totalAmount),
         currency: o.currency,
@@ -937,7 +991,11 @@ export class ReceivablesService {
     }
   }
 
-  async getContactReceivables(actor: AuthUser, contactId: string) {
+  async getContactReceivables(
+    actor: AuthUser,
+    contactId: string,
+    query?: { paymentsPage?: number; paymentsPageSize?: number; ordersPage?: number; ordersPageSize?: number },
+  ) {
     const contact = await this.prisma.contact.findUnique({
       where: { id: contactId },
       select: {
@@ -952,9 +1010,9 @@ export class ReceivablesService {
     this.assertContactAccess(contact, actor);
 
     const ordersResult = await this.listWorkOrders(actor, {
-      contactId,
-      page: 1,
-      pageSize: 100,
+      clientId: contactId,
+      page: query?.ordersPage ?? 1,
+      pageSize: query?.ordersPageSize ?? 100,
     });
 
     const scope = await this.scopeService.resolveDashboardScope(actor, {});
@@ -973,12 +1031,47 @@ export class ReceivablesService {
 
     let debtTotal = 0;
     let overdueDebt = 0;
+    let overpaymentTotal = 0;
     for (const order of ordersResult.items) {
       debtTotal += order.debtAmountBase;
-      if (order.financialStatus === "OVERDUE") {
+      overpaymentTotal += order.creditAmount ?? 0;
+      if (
+        isOrderOverdueByDueDate(
+          order.paymentDueDate ? new Date(order.paymentDueDate) : null,
+          order.debtAmount,
+        )
+      ) {
         overdueDebt += order.debtAmountBase;
       }
     }
+
+    const paymentsPagination = normalizePagination(
+      { page: query?.paymentsPage, pageSize: query?.paymentsPageSize },
+      { page: 1, pageSize: 50 },
+    );
+    const paymentsWhere: Prisma.PaymentWhereInput = {
+      status: "COMPLETED",
+      order: { clientId: contactId },
+    };
+    const [paymentsTotal, paymentRows] = await Promise.all([
+      this.prisma.payment.count({ where: paymentsWhere }),
+      this.prisma.payment.findMany({
+        where: paymentsWhere,
+        skip: paymentsPagination.offset,
+        take: paymentsPagination.limit,
+        orderBy: { paidAt: "desc" },
+        select: {
+          id: true,
+          amount: true,
+          currency: true,
+          amountUsd: true,
+          paidAt: true,
+          sourceType: true,
+          note: true,
+          order: { select: { id: true, orderNumber: true } },
+        },
+      }),
+    ]);
 
     const latestSnapshotId = await this.getLatestSnapshotId();
     let reconciliation: {
@@ -1030,13 +1123,116 @@ export class ReceivablesService {
       kpi: {
         debtTotal: Math.round(debtTotal * 100) / 100,
         overdueDebt: Math.round(overdueDebt * 100) / 100,
+        overpaymentTotal: Math.round(overpaymentTotal * 100) / 100,
         ordersWithDebtCount: ordersResult.total,
         bitrixLegacyDebt: Math.round(bitrixLegacyDebt * 100) / 100,
       },
       reconciliation,
       orders: ordersResult.items,
       ordersTotal: ordersResult.total,
+      payments: paymentRows.map((p) => ({
+        id: p.id,
+        amount: safeNum(p.amount),
+        currency: p.currency,
+        amountUsd: p.amountUsd != null ? safeNum(p.amountUsd) : null,
+        paidAt: p.paidAt.toISOString(),
+        sourceType: p.sourceType,
+        note: p.note,
+        orderId: p.order?.id ?? null,
+        orderNumber: p.order?.orderNumber ?? null,
+      })),
+      paymentsTotal,
+      paymentsPage: paymentsPagination.page,
+      paymentsPageSize: paymentsPagination.pageSize,
       comments: comments.items,
+    };
+  }
+
+  async listPeriodPayments(
+    actor: AuthUser,
+    query: {
+      paidFrom?: string;
+      paidTo?: string;
+      ownerId?: string;
+      page?: number;
+      pageSize?: number;
+    },
+  ) {
+    const scope = await this.scopeService.resolveDashboardScope(actor, { managerId: query.ownerId });
+    const pagination = normalizePagination(query, { page: 1, pageSize: 50 });
+    const rates = await this.settings.getExchangeRates();
+    const currency = getBaseCurrency(rates);
+
+    if (scope.emptyTeam) {
+      return { currency, items: [], total: 0, page: 1, pageSize: pagination.pageSize };
+    }
+
+    const orderFilter: Prisma.OrderWhereInput = {};
+    if (scope.orderScope.managerId) orderFilter.ownerId = scope.orderScope.managerId;
+    else if (scope.orderScope.allowedOwnerIds !== undefined) {
+      orderFilter.ownerId = { in: scope.orderScope.allowedOwnerIds };
+    }
+
+    const paidAt: Prisma.DateTimeFilter = {};
+    if (query.paidFrom) {
+      const from = new Date(query.paidFrom);
+      if (!Number.isNaN(from.getTime())) paidAt.gte = from;
+    }
+    if (query.paidTo) {
+      const to = new Date(query.paidTo);
+      if (!Number.isNaN(to.getTime())) paidAt.lte = to;
+    }
+
+    const where: Prisma.PaymentWhereInput = {
+      status: "COMPLETED",
+      ...(Object.keys(paidAt).length > 0 ? { paidAt } : {}),
+      order: orderFilter,
+    };
+
+    const [total, rows] = await Promise.all([
+      this.prisma.payment.count({ where }),
+      this.prisma.payment.findMany({
+        where,
+        skip: pagination.offset,
+        take: pagination.limit,
+        orderBy: { paidAt: "desc" },
+        select: {
+          id: true,
+          amount: true,
+          currency: true,
+          amountUsd: true,
+          paidAt: true,
+          sourceType: true,
+          order: {
+            select: {
+              id: true,
+              orderNumber: true,
+              client: { select: { id: true, firstName: true, lastName: true } },
+            },
+          },
+        },
+      }),
+    ]);
+
+    return {
+      currency,
+      items: rows.map((p) => ({
+        id: p.id,
+        amount: safeNum(p.amount),
+        currency: p.currency,
+        amountUsd: p.amountUsd != null ? safeNum(p.amountUsd) : null,
+        paidAt: p.paidAt.toISOString(),
+        sourceType: p.sourceType,
+        orderId: p.order?.id ?? null,
+        orderNumber: p.order?.orderNumber ?? null,
+        clientId: p.order?.client?.id ?? null,
+        clientName: p.order?.client
+          ? [p.order.client.firstName, p.order.client.lastName].filter(Boolean).join(" ")
+          : null,
+      })),
+      total,
+      page: pagination.page,
+      pageSize: pagination.pageSize,
     };
   }
 }

@@ -31,8 +31,13 @@ test("false PKG metal parts constrain capacity after hardening", () => {
     isNonInventoriedPackagingSku("PKG:mg-pf-cadcam-mu", "MG-PF-CAD_CAM-MU"),
     false,
   );
+  assert.equal(
+    isNonInventoriedPackagingSku("PKG-mg-pf-cadcam-mu", "MG-PF-CAD_CAM-MU"),
+    false,
+  );
   assert.equal(constrainsKitCapacity({ sku: "PKG:mg-pf-cadcam-mu", name: "MG-PF-CAD_CAM-MU" }), true);
   assert.equal(isNonInventoriedPackagingSku("PKG:блистер-suprex"), true);
+  assert.equal(isNonInventoriedPackagingSku("PKG-блистер-suprex"), true);
 });
 
 test("kit 04.042 maxBuildNow=0 when platform has 0 stock (screws do not dominate)", () => {
@@ -42,7 +47,16 @@ test("kit 04.042 maxBuildNow=0 when platform has 0 stock (screws do not dominate
     { sku: "PKG:blister", name: "Блистер Suprex", qtyPerKit: 1, available: 0 },
   ]);
   assert.equal(maxBuildNow, 0);
-  assert.equal(bottleneckSku, "PKG:mg-pf-cadcam-mu");
+  assert.equal(bottleneckSku, "MG-PF-CAD_CAM-MU");
+});
+
+test("PKG- prefix false metal constrains and displays inferred article", () => {
+  const { maxBuildNow, bottleneckSku } = computeMaxBuildFromBomLines([
+    { sku: "PKG-mg-pf-cadcam-mu", name: "MG-PF-CAD_CAM-MU", qtyPerKit: 1, available: 0 },
+    { sku: "PKG-блистер", name: "Блистер Suprex", qtyPerKit: 1, available: 999 },
+  ]);
+  assert.equal(maxBuildNow, 0);
+  assert.equal(bottleneckSku, "MG-PF-CAD_CAM-MU");
 });
 
 test("CAN_PACK qty is min(need, maxFromParts) not raw maxBuildNow", () => {

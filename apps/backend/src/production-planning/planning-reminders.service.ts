@@ -3,6 +3,11 @@ import { FactoryOrderStatus, PackingListStatus, UserRole } from "@prisma/client"
 import { instantToKyivYmd, kyivDayBounds, todayYmdKyiv } from "../crm-timezone";
 import { NotificationsService } from "../notifications/notifications.service";
 import { PrismaService } from "../prisma/prisma.service";
+import {
+  countOverdueLines,
+  effectiveLineDueAt,
+  factoryLineTrackingStatus,
+} from "./factory-order-tracking.util";
 
 export type PlanningDueReminderItem = {
   id: string;
@@ -13,6 +18,8 @@ export type PlanningDueReminderItem = {
   isOverdue: boolean;
   lineCount: number;
   totalQty: number;
+  overdueLineCount?: number;
+  overdueSkus?: string[];
 };
 
 @Injectable()
@@ -31,13 +38,23 @@ export class PlanningRemindersService {
     const [factoryOrders, packingLists] = await Promise.all([
       this.prisma.factoryOrder.findMany({
         where: {
-          dueAt: { lte: endOfToday },
           status: { in: [FactoryOrderStatus.DRAFT, FactoryOrderStatus.OPEN, FactoryOrderStatus.PARTIAL] },
+          OR: [
+            { dueAt: { lte: endOfToday } },
+            { lines: { some: { dueAt: { lte: endOfToday } } } },
+          ],
         },
         orderBy: { dueAt: "asc" },
         take: 30,
         include: {
-          lines: { select: { qtyOrdered: true } },
+          lines: {
+            select: {
+              qtyOrdered: true,
+              qtyReceived: true,
+              dueAt: true,
+              partProduct: { select: { sku: true } },
+            },
+          },
         },
       }),
       this.prisma.packingList.findMany({
@@ -56,7 +73,25 @@ export class PlanningRemindersService {
     const items: PlanningDueReminderItem[] = [];
 
     for (const order of factoryOrders) {
-      const dueYmd = instantToKyivYmd(order.dueAt);
+      const overdueLineCount = countOverdueLines(order.lines, order.dueAt, todayYmd);
+      const overdueSkus = order.lines
+        .filter(
+          (l) =>
+            factoryLineTrackingStatus({
+              qtyOrdered: l.qtyOrdered,
+              qtyReceived: l.qtyReceived,
+              effectiveDueAt: effectiveLineDueAt(l.dueAt, order.dueAt),
+              todayYmd,
+            }) === "overdue",
+        )
+        .map((l) => l.partProduct.sku)
+        .slice(0, 3);
+      const nearestOpen = order.lines
+        .filter((l) => l.qtyReceived < l.qtyOrdered)
+        .map((l) => instantToKyivYmd(effectiveLineDueAt(l.dueAt, order.dueAt)))
+        .sort()[0];
+      const dueYmd = nearestOpen ?? instantToKyivYmd(order.dueAt);
+      const isOverdue = overdueLineCount > 0 || dueYmd < todayYmd;
       items.push({
         id: order.id,
         kind: "factory",
@@ -65,9 +100,11 @@ export class PlanningRemindersService {
         label: order.externalCode
           ? `Замовлення на завод ${order.externalCode}`
           : "Замовлення на завод",
-        isOverdue: dueYmd < todayYmd,
+        isOverdue,
         lineCount: order.lines.length,
         totalQty: order.lines.reduce((s, l) => s + l.qtyOrdered, 0),
+        overdueLineCount,
+        overdueSkus,
       });
     }
 
@@ -112,10 +149,22 @@ export class PlanningRemindersService {
     const [factoryOrders, packingLists] = await Promise.all([
       this.prisma.factoryOrder.findMany({
         where: {
-          dueAt: { lte: endOfToday },
           status: { in: [FactoryOrderStatus.DRAFT, FactoryOrderStatus.OPEN, FactoryOrderStatus.PARTIAL] },
+          OR: [
+            { dueAt: { lte: endOfToday } },
+            { lines: { some: { dueAt: { lte: endOfToday } } } },
+          ],
         },
-        include: { lines: { select: { qtyOrdered: true } } },
+        include: {
+          lines: {
+            select: {
+              qtyOrdered: true,
+              qtyReceived: true,
+              dueAt: true,
+              partProduct: { select: { sku: true } },
+            },
+          },
+        },
       }),
       this.prisma.packingList.findMany({
         where: {
@@ -169,12 +218,28 @@ export class PlanningRemindersService {
         skipped += 1;
         continue;
       }
+      const overdueLineCount = countOverdueLines(order.lines, order.dueAt, todayYmd);
+      const overdueSkus = order.lines
+        .filter(
+          (l) =>
+            factoryLineTrackingStatus({
+              qtyOrdered: l.qtyOrdered,
+              qtyReceived: l.qtyReceived,
+              effectiveDueAt: effectiveLineDueAt(l.dueAt, order.dueAt),
+              todayYmd,
+            }) === "overdue",
+        )
+        .map((l) => l.partProduct.sku)
+        .slice(0, 3);
       const dueYmd = instantToKyivYmd(order.dueAt);
-      const isOverdue = dueYmd < todayYmd;
+      const isOverdue = overdueLineCount > 0 || dueYmd < todayYmd;
       const qty = order.lines.reduce((s, l) => s + l.qtyOrdered, 0);
+      const skuHint = overdueSkus.length > 0 ? `: ${overdueSkus.join(", ")}` : "";
+      const overdueHint =
+        overdueLineCount > 0 ? ` ${overdueLineCount} поз. прострочено${skuHint}.` : "";
       const title = isOverdue ? "Прострочене замовлення на завод" : "Термін замовлення на завод";
       const body = isOverdue
-        ? `Замовлення (${order.lines.length} поз., ${qty} шт) прострочене з ${dueYmd}. Підтвердіть надходження або перенесіть термін.`
+        ? `Замовлення (${order.lines.length} поз., ${qty} шт) прострочене.${overdueHint} Підтвердіть надходження або перенесіть термін.`
         : `Сьогодні термін замовлення на завод (${order.lines.length} поз., ${qty} шт). Підтвердіть надходження або перенесіть термін.`;
 
       for (const user of recipients) {

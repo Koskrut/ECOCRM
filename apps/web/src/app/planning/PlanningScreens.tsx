@@ -151,8 +151,9 @@ function AwaitingStockTable({
               t.labels.sku,
               t.labels.name,
               t.labels.packNeed,
-              t.labels.onStock,
-              t.labels.partsGap,
+              t.labels.finishedOnStock,
+              t.labels.finishedGap,
+              t.labels.canAssembleFromParts,
               t.labels.ordersCount,
               t.labels.actions,
             ].map((header) => (
@@ -165,7 +166,7 @@ function AwaitingStockTable({
         <tbody className="divide-y divide-zinc-100">
           {groups.length === 0 ? (
             <tr>
-              <td className="px-3 py-6 text-zinc-500" colSpan={7}>
+              <td className="px-3 py-6 text-zinc-500" colSpan={8}>
                 {t.states.none}
               </td>
             </tr>
@@ -180,20 +181,29 @@ function AwaitingStockTable({
                     <td className="px-3 py-2 align-top text-zinc-900">{group.totalQtyRemaining}</td>
                     <td className="px-3 py-2 align-top text-zinc-900">{formatQty(group.availableQty)}</td>
                     <td className="px-3 py-2 align-top text-zinc-900">{group.stockGap}</td>
+                    <td className="px-3 py-2 align-top text-zinc-900">{group.canAssemble}</td>
                     <td className="px-3 py-2 align-top text-zinc-900">{group.orderCount}</td>
                     <td className="px-3 py-2 align-top">
-                      <button
-                        type="button"
-                        className="text-xs text-cyan-700 underline"
-                        onClick={() => onToggle(group.groupKey)}
-                      >
-                        {expanded ? t.labels.hideOrders : t.labels.showOrders}
-                      </button>
+                      <div className="flex flex-col gap-1">
+                        <Link
+                          href={actionHref(group.primaryAction, group.sku)}
+                          className="inline-flex w-fit rounded-md bg-cyan-600 px-2 py-1 text-xs font-medium text-white hover:bg-cyan-700"
+                        >
+                          {actionLabel(group.primaryAction)}
+                        </Link>
+                        <button
+                          type="button"
+                          className="w-fit text-xs text-cyan-700 underline"
+                          onClick={() => onToggle(group.groupKey)}
+                        >
+                          {expanded ? t.labels.hideOrders : t.labels.showOrders}
+                        </button>
+                      </div>
                     </td>
                   </tr>
                   {expanded ? (
                     <tr>
-                      <td className="bg-zinc-50 px-3 py-2" colSpan={7}>
+                      <td className="bg-zinc-50 px-3 py-2" colSpan={8}>
                         <table className="min-w-full text-sm">
                           <thead>
                             <tr>
@@ -344,6 +354,7 @@ export function TodayScreen({
               t.labels.dueAt,
               t.labels.status,
               t.labels.lineCount,
+              t.labels.overdueLinesCount,
               t.labels.qty,
               t.labels.actions,
             ]}
@@ -355,13 +366,21 @@ export function TodayScreen({
               >
                 {formatDateTime(item.dueAt)}
                 {item.isOverdue ? ` (${t.labels.dueOverdue})` : ""}
+                {item.kind === "factory" && item.overdueSkus?.length
+                  ? `: ${item.overdueSkus.join(", ")}`
+                  : ""}
               </span>,
               item.status,
               String(item.lineCount),
+              item.kind === "factory" ? String(item.overdueLineCount ?? 0) : "—",
               String(item.totalQty),
               <span key={`${item.id}-act`} className="flex flex-wrap gap-2">
                 <Link
-                  href={item.kind === "factory" ? "/planning?tab=make" : "/planning?tab=pack"}
+                  href={
+                    item.kind === "factory"
+                      ? "/planning?tab=make#factory-tracking"
+                      : "/planning?tab=pack"
+                  }
                   className="text-cyan-700 underline"
                 >
                   {t.actions.open}
@@ -445,10 +464,11 @@ export function TodayScreen({
           headers={[
             t.labels.sku,
             t.labels.name,
-            t.labels.needQty,
+            t.labels.kitNeed,
             t.labels.component,
             t.labels.componentOnStock,
-            t.labels.componentNeed,
+            t.labels.partGap,
+            t.labels.canAssemble,
             t.labels.desiredDate,
             t.labels.whatToDo,
           ]}
@@ -467,13 +487,18 @@ export function TodayScreen({
             item.bottleneckComponent?.needQty != null
               ? String(item.bottleneckComponent.needQty)
               : "—",
+            String(item.canAssemble),
             item.desiredDate,
             <span key={item.lineId} className="flex flex-wrap gap-1">
-              {item.suggestedActions.map((a) => (
+              {item.suggestedActions.map((a, index) => (
                 <Link
                   key={a}
                   href={actionHref(a, item.sku)}
-                  className="rounded-md border border-cyan-600 px-2 py-0.5 text-xs text-cyan-700 hover:bg-cyan-50"
+                  className={
+                    index === 0
+                      ? "rounded-md bg-cyan-600 px-2 py-0.5 text-xs font-medium text-white hover:bg-cyan-700"
+                      : "rounded-md border border-cyan-600 px-2 py-0.5 text-xs text-cyan-700 hover:bg-cyan-50"
+                  }
                 >
                   {actionLabel(a)}
                 </Link>

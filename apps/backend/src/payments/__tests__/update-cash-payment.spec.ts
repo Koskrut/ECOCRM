@@ -35,7 +35,7 @@ describe("PaymentsService.update cash", () => {
           amount: 1000,
           currency: "USD",
           amountUsd: 1000,
-          order: { id: "o1", ownerId },
+          order: { id: "o1", ownerId, orderNumber: "7001" },
         })),
         update: paymentUpdate,
         findMany: mockFn(async () => [
@@ -62,7 +62,11 @@ describe("PaymentsService.update cash", () => {
     const settings = {
       getExchangeRates: async () => ({ UAH_TO_USD: 0.024, EUR_TO_USD: 1.05 }),
     };
-    const svc = new PaymentsService(prisma as any, settings as any, {} as any);
+    const audit = {
+      write: mockFn(async () => ({})),
+      buildUpdatePayload: (input: unknown) => input,
+    };
+    const svc = new PaymentsService(prisma as any, settings as any, {} as any, audit as any);
     return { svc, paymentUpdate, prisma };
   }
 

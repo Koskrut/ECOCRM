@@ -5,6 +5,8 @@ import { Pool } from "mysql2/promise";
 import { createPool } from "mysql2/promise";
 import { withAuditSource } from "../../audit/audit-context";
 import { PrismaService } from "../../prisma/prisma.service";
+import { recalcOrderFinance } from "../../payments/order-finance.recalc";
+import { SettingsService } from "../../settings/settings.service";
 import {
   mapBitrixUserToPrisma,
   mapBitrixCompanyToPrisma,
@@ -87,7 +89,10 @@ async function runWithConcurrency<T>(limit: number, tasks: (() => Promise<T>)[])
 export class BitrixInitialImportService {
   private readonly logger = new Logger(BitrixInitialImportService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly settings: SettingsService,
+  ) {}
 
   private getPool(): Pool {
     const host = process.env.BITRIX_MYSQL_HOST ?? "localhost";
@@ -1166,6 +1171,7 @@ export class BitrixInitialImportService {
     for (let i = 0; i < existingRecords.length; i += ORDER_UPDATE_CHUNK_SIZE) {
       const chunk = existingRecords.slice(i, i + ORDER_UPDATE_CHUNK_SIZE);
       try {
+        const recalcOrderIds: string[] = [];
         await this.prisma.$transaction(
           async (tx) => {
             for (const row of chunk) {
@@ -1190,12 +1196,6 @@ export class BitrixInitialImportService {
                 loggedWriteSample = true;
               }
               const orderId = existingByLegacyId.get(id)!.id;
-              const financialStatus = computeFinancialStatusFromOrder({
-                totalAmount: d.totalAmount,
-                paidAmount: d.paidAmount,
-                debtAmount: d.debtAmount,
-                orderStage: d.orderStage,
-              });
               await tx.order.update({
                 where: { legacySource_legacyId: { legacySource: LEGACY_SOURCE, legacyId: id } },
                 data: {
@@ -1210,8 +1210,6 @@ export class BitrixInitialImportService {
                   subtotalAmount: d.subtotalAmount,
                   discountAmount: d.discountAmount,
                   totalAmount: d.totalAmount,
-                  paidAmount: d.paidAmount,
-                  debtAmount: d.debtAmount,
                   comment: d.comment,
                   legacyRaw: d.legacyRaw as object,
                   syncedAt: d.syncedAt,
@@ -1219,14 +1217,17 @@ export class BitrixInitialImportService {
                   updatedAt: d.updatedAt,
                   orderStage: d.orderStage,
                   deliveryStatus: orderStageToDeliveryStatus(d.orderStage),
-                  financialStatus,
                 },
               });
+              recalcOrderIds.push(orderId);
               if (d.ttnNumber) await ensureOrderTtnFromBitrix(tx, orderId, d.ttnNumber);
             }
           },
           { timeout: orderTxTimeout },
         );
+        for (const orderId of recalcOrderIds) {
+          await recalcOrderFinance(this.prisma, this.settings, orderId);
+        }
         result.updated += chunk.length;
       } catch (e) {
         this.logger.warn(`Order batch update error (legacyIds ${chunk.map((r) => Number(r["ID"])).join(",")}): ${e}`);
@@ -1882,7 +1883,7 @@ export class BitrixInitialImportService {
         where: { legacySource_legacyId: { legacySource: LEGACY_SOURCE, legacyId: id } },
       });
       const { status: _s, ...orderData } = data;
-      await this.prisma.order.upsert({
+      const upserted = await this.prisma.order.upsert({
         where: { legacySource_legacyId: { legacySource: LEGACY_SOURCE, legacyId: id } },
         create: {
           ...orderData,
@@ -1900,8 +1901,6 @@ export class BitrixInitialImportService {
           subtotalAmount: data.subtotalAmount,
           discountAmount: data.discountAmount,
           totalAmount: data.totalAmount,
-          paidAmount: data.paidAmount,
-          debtAmount: data.debtAmount,
           comment: data.comment,
           legacyRaw: data.legacyRaw as object,
           syncedAt: data.syncedAt,
@@ -1909,9 +1908,11 @@ export class BitrixInitialImportService {
           updatedAt: data.updatedAt,
           orderStage: data.orderStage,
           deliveryStatus: orderStageToDeliveryStatus(data.orderStage),
-          financialStatus,
         },
       });
+      if (existed) {
+        await recalcOrderFinance(this.prisma, this.settings, upserted.id);
+      }
       return existed ? "updated" : "created";
     } catch (e) {
       this.logger.warn(`Order legacyId=${id} error: ${e}`);

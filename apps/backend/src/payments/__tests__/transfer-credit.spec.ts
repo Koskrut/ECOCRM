@@ -25,6 +25,11 @@ function admin(): AuthUser {
   return { id: "a1", email: "a@t.com", fullName: "Admin", role: UserRole.ADMIN };
 }
 
+const mockAudit = {
+  write: mockFn(async () => ({})),
+  buildUpdatePayload: (input: unknown) => input,
+};
+
 describe("PaymentsService.transferCredit", () => {
   it("rejects different clients", async () => {
     const prisma = {
@@ -60,7 +65,7 @@ describe("PaymentsService.transferCredit", () => {
       payment: { create: mockFn(), findMany: mockFn(async () => []) },
     };
     const settings = { getExchangeRates: async () => ({ UAH_TO_USD: 0.024, EUR_TO_USD: 1.05 }) };
-    const svc = new PaymentsService(prisma as any, settings as any, {} as any);
+    const svc = new PaymentsService(prisma as any, settings as any, {} as any, mockAudit as any);
 
     await assert.rejects(
       () =>
@@ -106,7 +111,7 @@ describe("PaymentsService.transferCredit", () => {
       payment: { create: mockFn(), findMany: mockFn(async () => []) },
     };
     const settings = { getExchangeRates: async () => ({ UAH_TO_USD: 0.024, EUR_TO_USD: 1.05 }) };
-    const svc = new PaymentsService(prisma as any, settings as any, {} as any);
+    const svc = new PaymentsService(prisma as any, settings as any, {} as any, mockAudit as any);
 
     await assert.rejects(
       () =>
@@ -232,7 +237,7 @@ describe("PaymentsService.transferCredit", () => {
     };
 
     const settings = { getExchangeRates: async () => ({ UAH_TO_USD: 0.024, EUR_TO_USD: 1.05 }) };
-    const svc = new PaymentsService(prisma as any, settings as any, {} as any);
+    const svc = new PaymentsService(prisma as any, settings as any, {} as any, mockAudit as any);
 
     const result = await svc.transferCredit(
       { fromOrderId: "from", toOrderId: "to", amount: 200 },
@@ -278,7 +283,7 @@ describe("PaymentsService.transferCredit", () => {
       },
     };
     const settings = { getExchangeRates: async () => ({ UAH_TO_USD: 0.024, EUR_TO_USD: 1.05 }) };
-    const svc = new PaymentsService(prisma as any, settings as any, {} as any);
+    const svc = new PaymentsService(prisma as any, settings as any, {} as any, mockAudit as any);
     await svc.recalcOrder("o1");
     const update = (prisma.order.update as any).calls[0][0].data;
     assert.equal(update.creditAmount, 300);
@@ -302,7 +307,7 @@ describe("PaymentsService.transferCredit", () => {
         })),
       },
     };
-    const svc = new PaymentsService(prisma as any, {} as any, {} as any);
+    const svc = new PaymentsService(prisma as any, {} as any, {} as any, mockAudit as any);
     await assert.rejects(
       () =>
         svc.transferCredit(
@@ -387,7 +392,7 @@ describe("PaymentsService.transferCredit", () => {
       ),
     };
     const settings = { getExchangeRates: async () => ({ UAH_TO_USD: 0.024, EUR_TO_USD: 1.05 }) };
-    const svc = new PaymentsService(prisma as any, settings as any, {} as any);
+    const svc = new PaymentsService(prisma as any, settings as any, {} as any, mockAudit as any);
     const result = await svc.transferCredit(
       { fromOrderId: "from", toOrderId: "to", amount: 50 },
       admin(),

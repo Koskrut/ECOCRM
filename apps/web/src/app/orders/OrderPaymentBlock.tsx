@@ -132,6 +132,17 @@ export function OrderPaymentBlock({
   const [payLinksLoading, setPayLinksLoading] = useState(true);
   const [payLinksError, setPayLinksError] = useState<string | null>(null);
   const [showPayLinkModal, setShowPayLinkModal] = useState(false);
+  const [userRole, setUserRole] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch(`${apiBaseUrl}/auth/me`, { credentials: "include" })
+      .then(async (r) => {
+        if (!r.ok) return;
+        const data = (await r.json()) as { user?: { role?: string } };
+        setUserRole(data.user?.role ?? null);
+      })
+      .catch(() => setUserRole(null));
+  }, [apiBaseUrl]);
 
   const fetchPayments = useCallback(async () => {
     setLoading(true);
@@ -470,6 +481,8 @@ export function OrderPaymentBlock({
         <EditCashPaymentModal
           apiBaseUrl={apiBaseUrl}
           payment={editCash}
+          orderNumber={orderNumber}
+          isAdmin={userRole === "ADMIN"}
           onClose={() => setEditCash(null)}
           onSaved={async () => {
             setEditCash(null);
@@ -1083,6 +1096,8 @@ function AddCashPaymentModal({
 type EditCashPaymentModalProps = {
   apiBaseUrl: string;
   payment: PaymentItem;
+  orderNumber: string;
+  isAdmin?: boolean;
   onClose: () => void;
   onSaved: () => void | Promise<void>;
 };
@@ -1090,6 +1105,8 @@ type EditCashPaymentModalProps = {
 function EditCashPaymentModal({
   apiBaseUrl,
   payment,
+  orderNumber,
+  isAdmin = false,
   onClose,
   onSaved,
 }: EditCashPaymentModalProps) {
@@ -1103,6 +1120,30 @@ function EditCashPaymentModal({
   const [note, setNote] = useState(payment.note ?? "");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const deletePayment = async () => {
+    const amountLabel = formatPaymentAmount(payment);
+    if (!window.confirm(`Видалити готівкову оплату ${amountLabel} по замовленню ${orderNumber}?`)) {
+      return;
+    }
+    setSubmitting(true);
+    setError(null);
+    try {
+      const r = await fetch(`${apiBaseUrl}/payments/${payment.id}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      if (!r.ok) {
+        const t = await r.text();
+        throw new Error(t || `HTTP ${r.status}`);
+      }
+      await Promise.resolve(onSaved());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : pt.saveFailed);
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   const submit = async () => {
     const num = parseFloat(amount.replace(/,/g, "."));
@@ -1187,7 +1228,17 @@ function EditCashPaymentModal({
           </div>
         </div>
         {error ? <p className="mt-2 text-xs text-red-600">{error}</p> : null}
-        <div className="mt-4 flex justify-end gap-2">
+        <div className="mt-4 flex flex-wrap justify-end gap-2">
+          {isAdmin ? (
+            <button
+              type="button"
+              onClick={() => void deletePayment()}
+              disabled={submitting}
+              className="mr-auto rounded-md border border-red-300 px-3 py-2 text-sm text-red-700 hover:bg-red-50 disabled:opacity-50"
+            >
+              Видалити
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={onClose}

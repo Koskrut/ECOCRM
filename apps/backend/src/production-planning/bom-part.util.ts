@@ -23,6 +23,21 @@ const PACKAGING_TOKENS = [
   "manual",
 ];
 
+/** True when SKU uses synthetic packaging prefix (`PKG:` or `PKG-`). */
+export function isPackagingSkuPrefix(sku: string): boolean {
+  const upper = sku.trim().toUpperCase();
+  return upper.startsWith("PKG:") || upper.startsWith("PKG-");
+}
+
+/** Strip `PKG:` / `PKG-` prefix for slug/name inference. */
+export function packagingSkuSuffix(sku: string): string {
+  const trimmed = sku.trim();
+  const upper = trimmed.toUpperCase();
+  if (upper.startsWith("PKG:")) return trimmed.slice(4);
+  if (upper.startsWith("PKG-")) return trimmed.slice(4);
+  return trimmed;
+}
+
 /** Cyrillic / Latin packaging descriptions — not inventoriable metal parts. */
 export function looksLikePackagingName(value: string): boolean {
   const normalized = value
@@ -42,7 +57,7 @@ export function looksLikePackagingName(value: string): boolean {
 export function looksLikeComponentSku(value: string): boolean {
   const trimmed = value.trim();
   if (!trimmed) return false;
-  if (trimmed.toUpperCase().startsWith("PKG:")) return false;
+  if (isPackagingSkuPrefix(trimmed)) return false;
   if (looksLikePackagingName(trimmed)) return false;
   if (/^\d+\.\d+$/.test(trimmed)) return true;
   // MG-PF-CAD_CAM-MU, MG-SF-M2.0, ST-RC-AN, OS-TB-LNK-1x6 D4.5, MG-HA 4030, OS-ATS-MU-1 mm
@@ -54,8 +69,8 @@ export function looksLikeComponentSku(value: string): boolean {
 
 /** Derive article SKU from a false PKG slug or product name (e.g. PKG:mg-pf-cadcam-mu → MG-PF-CAD_CAM-MU). */
 export function inferArticleSkuFromFalsePkg(sku: string, name?: string | null): string | null {
-  if (!sku.trim().toUpperCase().startsWith("PKG:")) return null;
-  const source = (name?.trim() || sku.slice(4).replace(/-/g, " ")).trim();
+  if (!isPackagingSkuPrefix(sku)) return null;
+  const source = (name?.trim() || packagingSkuSuffix(sku).replace(/-/g, " ")).trim();
   if (!source || looksLikePackagingName(source)) return null;
   if (!looksLikeComponentSku(source) && !/^(MG|ND|ST|OS|RC|PF|SF|TB|HA|NC|ATS)/i.test(source)) {
     return null;
@@ -73,14 +88,19 @@ export function isNonInventoriedPackagingSku(
 ): boolean {
   if (typeof sku !== "string") return false;
   const s = sku.trim();
-  if (!s.toUpperCase().startsWith("PKG:")) return false;
-  const label = name?.trim() || s.slice(4).replace(/-/g, " ");
+  if (!isPackagingSkuPrefix(s)) return false;
+  const label = name?.trim() || packagingSkuSuffix(s).replace(/-/g, " ");
   if (looksLikeComponentSku(label) && !looksLikePackagingName(label)) {
     return false;
   }
   const inferred = inferArticleSkuFromFalsePkg(s, name);
   if (inferred && looksLikeComponentSku(inferred)) return false;
   return true;
+}
+
+/** Prefer inferred metal article over raw `PKG-*` slug in UI/MRP labels. */
+export function displayBottleneckSku(sku: string, name?: string | null): string {
+  return inferArticleSkuFromFalsePkg(sku, name) ?? sku;
 }
 
 /** Whether this BOM component limits kit capacity / packing / MRP explode. */

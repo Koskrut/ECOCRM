@@ -17,6 +17,7 @@ import {
 } from "../../orders/orders-attention.util";
 import { previousPeriodOfSameLength, type ResolvedPeriod } from "../utils/analytics-date.util";
 import { getBaseCurrency, paymentToBase, safeNum, toBaseCurrency } from "../utils/analytics-currency.util";
+import { buildReceivablesDebtOrderWhere } from "../../receivables/receivables-scope.util";
 
 export type OverviewCharts = {
   bookedRevenueByDay: { date: string; amount: number; ordersCount: number }[];
@@ -128,7 +129,7 @@ export class AnalyticsOverviewService {
     rates: ExchangeRates,
   ): Promise<OverviewPayload> {
     const orderWhere = buildPeriodOrderWhere(period.from, period.to, scope.orderScope);
-    const periodDebtWhere = buildPeriodOrderWhere(period.from, period.to, scope.orderScope);
+    const snapshotDebtWhere = buildReceivablesDebtOrderWhere(scope);
     const overduePaymentsWhere = buildOrderOverduePaymentsWhere({
       managerId: scope.orderScope.managerId,
       allowedOwnerIds: scope.orderScope.allowedOwnerIds,
@@ -181,10 +182,10 @@ export class AnalyticsOverviewService {
         where: orderWhere,
         _count: { id: true },
       }),
-      this.prisma.order.findMany({ where: periodDebtWhere, select: { debtAmount: true, currency: true } }),
+      this.prisma.order.findMany({ where: snapshotDebtWhere, select: { debtAmount: true } }),
       this.prisma.order.findMany({
         where: overduePaymentsWhere,
-        select: { debtAmount: true, currency: true },
+        select: { debtAmount: true },
       }),
       this.prisma.lead.count({ where: leadWhere }),
       this.prisma.lead.count({ where: { ...leadWhere, status: "WON" } }),
@@ -215,9 +216,9 @@ export class AnalyticsOverviewService {
     }
 
     let debtTotal = 0;
-    for (const o of debtOrders) debtTotal += toBaseCurrency(safeNum(o.debtAmount), o.currency, rates);
+    for (const o of debtOrders) debtTotal += safeNum(o.debtAmount);
     let overdueDebt = 0;
-    for (const o of overdueDebtOrders) overdueDebt += toBaseCurrency(safeNum(o.debtAmount), o.currency, rates);
+    for (const o of overdueDebtOrders) overdueDebt += safeNum(o.debtAmount);
     const overdueDebtAmount = overdueDebt;
 
     const charts: OverviewCharts = {

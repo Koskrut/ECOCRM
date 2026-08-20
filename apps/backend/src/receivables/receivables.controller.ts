@@ -131,10 +131,19 @@ export class ReceivablesController {
   @Roles(UserRole.ADMIN, UserRole.LEAD, UserRole.MANAGER)
   contactReceivables(
     @Param("contactId") contactId: string,
-    @Req() req: Request & { user?: AuthUser },
+    @Query("paymentsPage") paymentsPage?: string,
+    @Query("paymentsPageSize") paymentsPageSize?: string,
+    @Query("ordersPage") ordersPage?: string,
+    @Query("ordersPageSize") ordersPageSize?: string,
+    @Req() req?: Request & { user?: AuthUser },
   ) {
     if (!contactId?.trim()) throw new BadRequestException("contactId is required");
-    return this.service.getContactReceivables(this.requireUser(req), contactId.trim());
+    return this.service.getContactReceivables(this.requireUser(req!), contactId.trim(), {
+      paymentsPage: paymentsPage ? Number(paymentsPage) : undefined,
+      paymentsPageSize: paymentsPageSize ? Number(paymentsPageSize) : undefined,
+      ordersPage: ordersPage ? Number(ordersPage) : undefined,
+      ordersPageSize: ordersPageSize ? Number(ordersPageSize) : undefined,
+    });
   }
 
   @Get("contacts/:contactId/comments")
@@ -172,6 +181,7 @@ export class ReceivablesController {
     @Query("ownerId") ownerId?: string,
     @Query("overdue") overdue?: string,
     @Query("contactId") contactId?: string,
+    @Query("clientId") clientId?: string,
     @Req() req?: Request & { user?: AuthUser },
   ) {
     return this.service.listWorkOrders(this.requireUser(req!), {
@@ -181,6 +191,26 @@ export class ReceivablesController {
       ownerId,
       overdue: overdue === "true" || overdue === "1",
       contactId,
+      clientId,
+    });
+  }
+
+  @Get("work/period-payments")
+  @Roles(UserRole.ADMIN, UserRole.LEAD, UserRole.MANAGER)
+  periodPayments(
+    @Query("paidFrom") paidFrom?: string,
+    @Query("paidTo") paidTo?: string,
+    @Query("ownerId") ownerId?: string,
+    @Query("page") page?: string,
+    @Query("pageSize") pageSize?: string,
+    @Req() req?: Request & { user?: AuthUser },
+  ) {
+    return this.service.listPeriodPayments(this.requireUser(req!), {
+      paidFrom,
+      paidTo,
+      ownerId,
+      page: page ? Number(page) : undefined,
+      pageSize: pageSize ? Number(pageSize) : undefined,
     });
   }
 }

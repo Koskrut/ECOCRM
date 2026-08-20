@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Patch,
@@ -384,7 +385,7 @@ export class ProductionPlanningController {
   createFactoryOrder(
     @Body()
     body: {
-      lines?: Array<{ partProductId: string; qtyOrdered: number }>;
+      lines?: Array<{ partProductId: string; qtyOrdered: number; dueAt?: string | null }>;
       note?: string;
       dueAt?: string;
     },
@@ -392,14 +393,58 @@ export class ProductionPlanningController {
     return this.factoryOrders.createFromRecommendations(body?.lines, body?.note, body?.dueAt);
   }
 
+  @Get("factory/tracking")
+  factoryTracking(@Query("overdueOnly") overdueOnly?: string) {
+    return this.factoryOrders.getTracking(overdueOnly === "1" || overdueOnly === "true");
+  }
+
   @Patch("factory/orders/:id/lines")
   @Roles(UserRole.ADMIN, UserRole.LEAD)
   updateFactoryLines(
     @Param("id") id: string,
-    @Body() body: { lines: Array<{ partProductId: string; qtyOrdered: number }> },
+    @Body()
+    body: { lines: Array<{ partProductId: string; qtyOrdered: number; dueAt?: string | null }> },
   ) {
     if (!Array.isArray(body?.lines)) throw new BadRequestException("lines array is required");
     return this.factoryOrders.updateLines(id, body.lines);
+  }
+
+  @Post("factory/orders/:id/lines")
+  @Roles(UserRole.ADMIN, UserRole.LEAD)
+  addFactoryLine(
+    @Param("id") id: string,
+    @Body() body: { partProductId: string; qtyOrdered: number; dueAt?: string | null },
+  ) {
+    if (!body?.partProductId) throw new BadRequestException("partProductId is required");
+    if (body.qtyOrdered == null) throw new BadRequestException("qtyOrdered is required");
+    return this.factoryOrders.addLine(id, body);
+  }
+
+  @Delete("factory/orders/:id/lines/:lineId")
+  @Roles(UserRole.ADMIN, UserRole.LEAD)
+  deleteFactoryLine(@Param("id") id: string, @Param("lineId") lineId: string) {
+    return this.factoryOrders.deleteLine(id, lineId);
+  }
+
+  @Patch("factory/orders/:id/lines/:lineId")
+  @Roles(UserRole.ADMIN, UserRole.LEAD)
+  updateFactoryLine(
+    @Param("id") id: string,
+    @Param("lineId") lineId: string,
+    @Body() body: { qtyOrdered?: number; dueAt?: string | null },
+  ) {
+    return this.factoryOrders.updateLine(id, lineId, body ?? {});
+  }
+
+  @Patch("factory/orders/:id/lines/:lineId/due-at")
+  @Roles(UserRole.ADMIN, UserRole.LEAD, UserRole.WAREHOUSE)
+  updateFactoryLineDueAt(
+    @Param("id") id: string,
+    @Param("lineId") lineId: string,
+    @Body() body: { dueAt: string },
+  ) {
+    if (!body?.dueAt) throw new BadRequestException("dueAt is required");
+    return this.factoryOrders.updateLineDueAt(id, lineId, body.dueAt);
   }
 
   @Post("factory/orders/:id/approve")

@@ -16,6 +16,8 @@ export type AwaitingStockLineInput = {
   qtyShipped: number;
 };
 
+export type TodayAwaitingStockPrimaryAction = "pack" | "production" | "factory";
+
 export type TodayAwaitingStockOrderLine = {
   orderItemId: string;
   orderId: string;
@@ -33,6 +35,9 @@ export type TodayAwaitingStockGroup = {
   totalQtyRemaining: number;
   availableQty: number | null;
   stockGap: number;
+  maxFromParts: number;
+  canAssemble: number;
+  primaryAction: TodayAwaitingStockPrimaryAction;
   orderCount: number;
   orders: TodayAwaitingStockOrderLine[];
 };
@@ -130,6 +135,9 @@ export function groupAwaitingStockLines(
       totalQtyRemaining: qtyRemaining,
       availableQty: catalogStock,
       stockGap: 0,
+      maxFromParts: 0,
+      canAssemble: 0,
+      primaryAction: "production",
       orderCount: 0,
       orders: [orderLine],
     });
@@ -163,4 +171,65 @@ export function groupAwaitingStockLines(
     },
     groups: result,
   };
+}
+
+export type AwaitingStockCapacityInfo = {
+  maxFromParts: number;
+  hasBom: boolean;
+};
+
+export function enrichAwaitingStockGroup(
+  group: TodayAwaitingStockGroup,
+  capacity: AwaitingStockCapacityInfo | null,
+): TodayAwaitingStockGroup {
+  if (!group.productId || !capacity) {
+    return {
+      ...group,
+      maxFromParts: 0,
+      canAssemble: 0,
+      primaryAction: "production",
+    };
+  }
+
+  const maxFromParts = Math.max(0, capacity.maxFromParts);
+  const canAssemble = Math.min(group.totalQtyRemaining, maxFromParts);
+  let primaryAction: TodayAwaitingStockPrimaryAction = "production";
+  if (canAssemble > 0) {
+    primaryAction = "pack";
+  } else if (!capacity.hasBom) {
+    primaryAction = "factory";
+  }
+
+  return { ...group, maxFromParts, canAssemble, primaryAction };
+}
+
+/** Operational priority: assemble-ready groups first, then largest finished-goods gap. */
+export function sortEnrichedAwaitingStockGroups(
+  groups: TodayAwaitingStockGroup[],
+): TodayAwaitingStockGroup[] {
+  return [...groups].sort((a, b) => {
+    const aCan = a.canAssemble > 0 ? 1 : 0;
+    const bCan = b.canAssemble > 0 ? 1 : 0;
+    if (bCan !== aCan) return bCan - aCan;
+    if (b.stockGap !== a.stockGap) return b.stockGap - a.stockGap;
+    if (b.totalQtyRemaining !== a.totalQtyRemaining) {
+      return b.totalQtyRemaining - a.totalQtyRemaining;
+    }
+    return a.sku.localeCompare(b.sku, "uk");
+  });
+}
+
+export function enrichAndSortAwaitingStockView(
+  view: TodayAwaitingStockView,
+  capacityByProductId: Map<string, AwaitingStockCapacityInfo>,
+): TodayAwaitingStockView {
+  const groups = sortEnrichedAwaitingStockGroups(
+    view.groups.map((group) =>
+      enrichAwaitingStockGroup(
+        group,
+        group.productId ? (capacityByProductId.get(group.productId) ?? null) : null,
+      ),
+    ),
+  );
+  return { ...view, groups };
 }

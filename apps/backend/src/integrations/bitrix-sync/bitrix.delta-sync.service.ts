@@ -22,6 +22,8 @@ import {
   orderStageToDeliveryStatus,
 } from "../../orders/order-status-sync.mapper";
 import { OrderMaterialReservationService } from "../../orders/order-material-reservation.service";
+import { recalcOrderFinance } from "../../payments/order-finance.recalc";
+import { SettingsService } from "../../settings/settings.service";
 import { ensureOrderTtnFromBitrix } from "./bitrix-order-ttn.helper";
 import {
   syncCompanyAddressesFromBitrixRow,
@@ -40,6 +42,7 @@ export class BitrixDeltaSyncService {
     private readonly syncState: BitrixSyncStateService,
     private readonly client: BitrixClient,
     private readonly materialReservations: OrderMaterialReservationService,
+    private readonly settings: SettingsService,
     @Inject(ModuleStateService) private readonly modules: ModuleStateService,
   ) {}
 
@@ -310,8 +313,10 @@ export class BitrixDeltaSyncService {
         };
         let orderId: string;
         if (existing) {
-          await this.prisma.order.update({ where: { id: existing.id }, data: payload });
+          const { paidAmount: _p, debtAmount: _d, financialStatus: _f, ...updateData } = payload;
+          await this.prisma.order.update({ where: { id: existing.id }, data: updateData });
           orderId = existing.id;
+          await recalcOrderFinance(this.prisma, this.settings, orderId);
           updated++;
         } else {
           const createdOrder = await this.prisma.order.create({ data: { ...payload, orderSource: "CRM" } });
@@ -542,8 +547,10 @@ export class BitrixDeltaSyncService {
     };
     let orderId: string;
     if (existing) {
-      await this.prisma.order.update({ where: { id: existing.id }, data: payload });
+      const { paidAmount: _p, debtAmount: _d, financialStatus: _f, ...updateData } = payload;
+      await this.prisma.order.update({ where: { id: existing.id }, data: updateData });
       orderId = existing.id;
+      await recalcOrderFinance(this.prisma, this.settings, orderId);
     } else {
       const created = await this.prisma.order.create({ data: { ...payload, orderSource: "CRM" } });
       orderId = created.id;

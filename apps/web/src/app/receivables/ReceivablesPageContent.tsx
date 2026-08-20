@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   AlertTriangle,
@@ -20,6 +20,8 @@ import {
   type ReceivablesReconcileStatus,
   type ReceivablesSnapshot,
   type ReconciliationLine,
+  type ContactReceivablesResponse,
+  type PeriodPaymentRow,
   type WorkClientRow,
   type WorkOrderRow,
 } from "@/lib/api/resources/receivables";
@@ -140,6 +142,19 @@ export function ReceivablesPageContent() {
     contactId: string;
     clientName: string;
   } | null>(null);
+  const [expandedClients, setExpandedClients] = useState<Set<string>>(new Set());
+  const [clientDetails, setClientDetails] = useState<
+    Map<string, ContactReceivablesResponse>
+  >(new Map());
+  const [clientDetailsLoading, setClientDetailsLoading] = useState<Set<string>>(new Set());
+  const defaultPeriodFrom = useMemo(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 30);
+    return d.toISOString().slice(0, 10);
+  }, []);
+  const [periodPaidFrom, setPeriodPaidFrom] = useState(defaultPeriodFrom);
+  const [periodPaidTo, setPeriodPaidTo] = useState(() => new Date().toISOString().slice(0, 10));
+  const [periodPayments, setPeriodPayments] = useState<PeriodPaymentRow[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const canUpload = role === "ADMIN" || role === "LEAD";
@@ -215,6 +230,7 @@ export function ReceivablesPageContent() {
             ownerId: ownerId || undefined,
             q: q || undefined,
             overdue,
+            contactId: contactId || undefined,
             page: 1,
             pageSize: 100,
           })
@@ -235,7 +251,52 @@ export function ReceivablesPageContent() {
       setWorkClients((listRes.data as { items: WorkClientRow[] }).items ?? []);
       setWorkOrders([]);
     }
-  }, [ownerId, q, overdue, needsComment, workView]);
+  }, [ownerId, q, overdue, needsComment, workView, contactId]);
+
+  const loadPeriodPayments = useCallback(async () => {
+    try {
+      const res = await receivablesApi.periodPayments({
+        paidFrom: periodPaidFrom ? new Date(periodPaidFrom).toISOString() : undefined,
+        paidTo: periodPaidTo
+          ? new Date(`${periodPaidTo}T23:59:59.999Z`).toISOString()
+          : undefined,
+        ownerId: ownerId || undefined,
+        page: 1,
+        pageSize: 100,
+      });
+      setPeriodPayments(res.data.items ?? []);
+    } catch {
+      setPeriodPayments([]);
+    }
+  }, [periodPaidFrom, periodPaidTo, ownerId]);
+
+  const toggleClientExpand = useCallback(async (contactIdToToggle: string) => {
+    setExpandedClients((prev) => {
+      const next = new Set(prev);
+      if (next.has(contactIdToToggle)) next.delete(contactIdToToggle);
+      else next.add(contactIdToToggle);
+      return next;
+    });
+    if (clientDetails.has(contactIdToToggle)) return;
+    setClientDetailsLoading((prev) => new Set(prev).add(contactIdToToggle));
+    try {
+      const res = await receivablesApi.contactReceivables(contactIdToToggle, {
+        paymentsPage: 1,
+        paymentsPageSize: 50,
+        ordersPage: 1,
+        ordersPageSize: 100,
+      });
+      setClientDetails((prev) => new Map(prev).set(contactIdToToggle, res.data));
+    } catch {
+      pushToast(t.loadError, "error");
+    } finally {
+      setClientDetailsLoading((prev) => {
+        const next = new Set(prev);
+        next.delete(contactIdToToggle);
+        return next;
+      });
+    }
+  }, [clientDetails, pushToast, t.loadError]);
 
   const loadReconcile = useCallback(async () => {
     const sid = snapshotId || activeSnapshotId;
@@ -264,14 +325,16 @@ export function ReceivablesPageContent() {
     setLoading(true);
     try {
       await loadSnapshots();
-      if (tab === "work") await loadWork();
-      else await loadReconcile();
+      if (tab === "work") {
+        await loadWork();
+        await loadPeriodPayments();
+      } else await loadReconcile();
     } catch (e) {
       pushToast(t.loadError, "error");
     } finally {
       setLoading(false);
     }
-  }, [loadSnapshots, loadWork, loadReconcile, tab, pushToast, t.loadError]);
+  }, [loadSnapshots, loadWork, loadPeriodPayments, loadReconcile, tab, pushToast, t.loadError]);
 
   const openContact = (id: string) => {
     if (root) {
@@ -551,14 +614,74 @@ export function ReceivablesPageContent() {
             {loading ? (
               <div className="text-sm text-zinc-500">{strings.common.loading}</div>
             ) : workView === "clients" ? (
-              <WorkClientsTable
-                rows={workClients}
-                currency={currency}
-                onOpenContact={openContact}
-                onComment={(row) =>
-                  setCommentTarget({ contactId: row.contactId, clientName: row.clientName })
-                }
-              />
+              <>
+                <WorkClientsTable
+                  rows={workClients}
+                  currency={currency}
+                  expandedClients={expandedClients}
+                  clientDetails={clientDetails}
+                  clientDetailsLoading={clientDetailsLoading}
+                  onToggleExpand={(id) => void toggleClientExpand(id)}
+                  onOpenContact={openContact}
+                  onOpenOrder={openOrder}
+                  onComment={(row) =>
+                    setCommentTarget({ contactId: row.contactId, clientName: row.clientName })
+                  }
+                />
+                <div className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm">
+                  <div className="flex flex-wrap items-end gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-zinc-500">
+                        {t.periodPaymentsFrom}
+                      </label>
+                      <input
+                        type="date"
+                        value={periodPaidFrom}
+                        onChange={(e) => setPeriodPaidFrom(e.target.value)}
+                        className="mt-1 rounded-lg border border-zinc-200 px-2 py-1.5 text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-zinc-500">
+                        {t.periodPaymentsTo}
+                      </label>
+                      <input
+                        type="date"
+                        value={periodPaidTo}
+                        onChange={(e) => setPeriodPaidTo(e.target.value)}
+                        className="mt-1 rounded-lg border border-zinc-200 px-2 py-1.5 text-sm"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => void loadPeriodPayments()}
+                      className="rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
+                    >
+                      {t.periodPaymentsApply}
+                    </button>
+                  </div>
+                  <h3 className="mt-4 text-sm font-semibold text-zinc-900">{t.periodPaymentsTitle}</h3>
+                  {periodPayments.length === 0 ? (
+                    <p className="mt-2 text-sm text-zinc-500">{t.noPeriodPayments}</p>
+                  ) : (
+                    <ul className="mt-2 divide-y divide-zinc-100 text-sm">
+                      {periodPayments.map((p) => (
+                        <li key={p.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2">
+                          <span className="text-zinc-500">{formatDate(p.paidAt.slice(0, 10))}</span>
+                          <span className="font-medium tabular-nums">
+                            {p.amount.toFixed(2)} {p.currency}
+                          </span>
+                          <span className="text-zinc-600">{p.clientName ?? "—"}</span>
+                          <span className="text-zinc-500">{p.orderNumber ?? "—"}</span>
+                          <span className="rounded bg-zinc-100 px-1.5 py-0.5 text-xs text-zinc-600">
+                            {p.sourceType}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </>
             ) : (
               <WorkOrdersTable
                 rows={workOrders}
@@ -790,12 +913,22 @@ function isCommentStale(lastCommentAt: string | null): boolean {
 function WorkClientsTable({
   rows,
   currency,
+  expandedClients,
+  clientDetails,
+  clientDetailsLoading,
+  onToggleExpand,
   onOpenContact,
+  onOpenOrder,
   onComment,
 }: {
   rows: WorkClientRow[];
   currency: string;
+  expandedClients: Set<string>;
+  clientDetails: Map<string, ContactReceivablesResponse>;
+  clientDetailsLoading: Set<string>;
+  onToggleExpand: (contactId: string) => void;
   onOpenContact: (id: string) => void;
+  onOpenOrder: (id: string) => void;
   onComment: (row: WorkClientRow) => void;
 }) {
   const t = strings.receivables;
@@ -807,11 +940,14 @@ function WorkClientsTable({
       <table className="w-full text-sm">
         <thead className="border-b border-zinc-200 bg-zinc-50 text-left text-xs uppercase text-zinc-500">
           <tr>
+            <th className="px-4 py-3 w-8" />
             <th className="px-4 py-3">{t.colClient}</th>
             <th className="px-4 py-3">{t.colCode1C}</th>
             <th className="px-4 py-3 text-right">{t.colDebt}</th>
             <th className="px-4 py-3 text-right">{t.colOverdue}</th>
+            <th className="px-4 py-3 text-right">{t.colOverpayment}</th>
             <th className="px-4 py-3 text-right">{t.colOrders}</th>
+            <th className="px-4 py-3">{t.colLastPayment}</th>
             <th className="px-4 py-3">{t.colManager}</th>
             <th className="px-4 py-3">{t.colLastComment}</th>
             <th className="px-4 py-3">{t.colActions}</th>
@@ -820,62 +956,145 @@ function WorkClientsTable({
         <tbody className="divide-y divide-zinc-100">
           {rows.map((row) => {
             const stale = isCommentStale(row.lastCommentAt);
+            const expanded = expandedClients.has(row.contactId);
+            const detail = clientDetails.get(row.contactId);
+            const loadingDetail = clientDetailsLoading.has(row.contactId);
             return (
-              <tr key={row.contactId} className="hover:bg-zinc-50">
-                <td className="px-4 py-3">
-                  <button
-                    type="button"
-                    className="font-medium text-zinc-900 underline-offset-2 hover:underline"
-                    onClick={() => onOpenContact(row.contactId)}
-                  >
-                    {row.clientName}
-                  </button>
-                </td>
-                <td className="px-4 py-3 font-mono text-xs text-zinc-600">
-                  {row.externalCode ?? "—"}
-                </td>
-                <td className="px-4 py-3 text-right tabular-nums font-medium">
-                  {formatMoney(row.debtAmount, currency)}
-                </td>
-                <td className="px-4 py-3 text-right tabular-nums text-red-600">
-                  {row.overdueAmount > 0 ? formatMoney(row.overdueAmount, currency) : "—"}
-                </td>
-                <td className="px-4 py-3 text-right tabular-nums">{row.orderCount}</td>
-                <td className="px-4 py-3 text-zinc-600">{row.ownerName ?? "—"}</td>
-                <td className="px-4 py-3 max-w-[16rem]">
-                  {row.lastCommentAt ? (
-                    <div className={stale ? "text-amber-800" : "text-zinc-700"}>
-                      <div className="flex flex-wrap items-center gap-1.5 text-xs">
-                        <span>{formatDate(row.lastCommentAt.slice(0, 10))}</span>
-                        {row.lastCommentAuthorName ? (
-                          <span className="text-zinc-500">· {row.lastCommentAuthorName}</span>
-                        ) : null}
-                        {stale ? (
-                          <span className="rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 ring-1 ring-amber-200">
-                            {t.commentStale}
-                          </span>
+              <Fragment key={row.contactId}>
+                <tr className="hover:bg-zinc-50">
+                  <td className="px-4 py-3">
+                    <button
+                      type="button"
+                      onClick={() => onToggleExpand(row.contactId)}
+                      className="text-zinc-500 hover:text-zinc-800"
+                      aria-label={expanded ? t.collapseDetails : t.expandDetails}
+                    >
+                      {expanded ? "▾" : "▸"}
+                    </button>
+                  </td>
+                  <td className="px-4 py-3">
+                    <button
+                      type="button"
+                      className="font-medium text-zinc-900 underline-offset-2 hover:underline"
+                      onClick={() => onOpenContact(row.contactId)}
+                    >
+                      {row.clientName}
+                    </button>
+                  </td>
+                  <td className="px-4 py-3 font-mono text-xs text-zinc-600">
+                    {row.externalCode ?? "—"}
+                  </td>
+                  <td className="px-4 py-3 text-right tabular-nums font-medium">
+                    {formatMoney(row.debtAmount, currency)}
+                  </td>
+                  <td className="px-4 py-3 text-right tabular-nums text-red-600">
+                    {row.overdueAmount > 0 ? formatMoney(row.overdueAmount, currency) : "—"}
+                  </td>
+                  <td className="px-4 py-3 text-right tabular-nums text-emerald-700">
+                    {(row.overpaymentAmount ?? 0) > 0
+                      ? formatMoney(row.overpaymentAmount!, currency)
+                      : "—"}
+                  </td>
+                  <td className="px-4 py-3 text-right tabular-nums">{row.orderCount}</td>
+                  <td className="px-4 py-3 text-zinc-600">
+                    {row.lastPaymentAt ? formatDate(row.lastPaymentAt.slice(0, 10)) : "—"}
+                  </td>
+                  <td className="px-4 py-3 text-zinc-600">{row.ownerName ?? "—"}</td>
+                  <td className="px-4 py-3 max-w-[16rem]">
+                    {row.lastCommentAt ? (
+                      <div className={stale ? "text-amber-800" : "text-zinc-700"}>
+                        <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                          <span>{formatDate(row.lastCommentAt.slice(0, 10))}</span>
+                          {row.lastCommentAuthorName ? (
+                            <span className="text-zinc-500">· {row.lastCommentAuthorName}</span>
+                          ) : null}
+                          {stale ? (
+                            <span className="rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 ring-1 ring-amber-200">
+                              {t.commentStale}
+                            </span>
+                          ) : null}
+                        </div>
+                        {row.lastCommentPreview ? (
+                          <div className="mt-0.5 truncate text-xs text-zinc-500">
+                            {row.lastCommentPreview}
+                          </div>
                         ) : null}
                       </div>
-                      {row.lastCommentPreview ? (
-                        <div className="mt-0.5 truncate text-xs text-zinc-500">
-                          {row.lastCommentPreview}
+                    ) : (
+                      <span className="text-xs text-amber-700">{t.commentNone}</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3">
+                    <button
+                      type="button"
+                      onClick={() => onComment(row)}
+                      className="rounded-md border border-zinc-200 bg-white px-2.5 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
+                    >
+                      {t.commentAdd}
+                    </button>
+                  </td>
+                </tr>
+                {expanded ? (
+                  <tr className="bg-zinc-50/80">
+                    <td colSpan={11} className="px-6 py-4">
+                      {loadingDetail ? (
+                        <p className="text-sm text-zinc-500">{strings.common.loading}</p>
+                      ) : detail ? (
+                        <div className="grid gap-4 lg:grid-cols-2">
+                          <div>
+                            <h4 className="text-xs font-semibold uppercase text-zinc-500">
+                              {t.expandOrders}
+                            </h4>
+                            <ul className="mt-2 space-y-1 text-sm">
+                              {detail.orders.map((o) => (
+                                <li key={o.id} className="flex flex-wrap gap-2">
+                                  <button
+                                    type="button"
+                                    className="font-medium text-zinc-800 underline-offset-2 hover:underline"
+                                    onClick={() => onOpenOrder(o.id)}
+                                  >
+                                    {o.orderNumber}
+                                  </button>
+                                  <span className="tabular-nums">
+                                    {formatOrderAmount(o.debtAmount, o.currency)}
+                                  </span>
+                                  {(o.creditAmount ?? 0) > 0 ? (
+                                    <span className="text-emerald-700">
+                                      +{formatOrderAmount(o.creditAmount!, o.currency)}
+                                    </span>
+                                  ) : null}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                          <div>
+                            <h4 className="text-xs font-semibold uppercase text-zinc-500">
+                              {t.expandPayments}
+                            </h4>
+                            <ul className="mt-2 space-y-1 text-sm">
+                              {(detail.payments ?? []).length === 0 ? (
+                                <li className="text-zinc-500">{t.noPeriodPayments}</li>
+                              ) : (
+                                detail.payments!.map((p) => (
+                                  <li key={p.id} className="flex flex-wrap gap-2">
+                                    <span className="text-zinc-500">
+                                      {formatDate(p.paidAt.slice(0, 10))}
+                                    </span>
+                                    <span className="tabular-nums">
+                                      {p.amount.toFixed(2)} {p.currency}
+                                    </span>
+                                    <span className="text-zinc-600">{p.orderNumber ?? "—"}</span>
+                                  </li>
+                                ))
+                              )}
+                            </ul>
+                          </div>
                         </div>
                       ) : null}
-                    </div>
-                  ) : (
-                    <span className="text-xs text-amber-700">{t.commentNone}</span>
-                  )}
-                </td>
-                <td className="px-4 py-3">
-                  <button
-                    type="button"
-                    onClick={() => onComment(row)}
-                    className="rounded-md border border-zinc-200 bg-white px-2.5 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
-                  >
-                    {t.commentAdd}
-                  </button>
-                </td>
-              </tr>
+                    </td>
+                  </tr>
+                ) : null}
+              </Fragment>
             );
           })}
         </tbody>

@@ -4,7 +4,33 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.162**.)_
+_(планируемые изменения после **0.2.163**.)_
+
+## [0.2.163] — 2026-08-20
+
+### Summary
+
+Патч **0.2.163**: cash payments split/delete + financialStatus cron; factory order line `dueAt` tracking; planning today suggested actions / awaiting stock; receivables work queue.
+
+### Added
+
+- **Payments**: cash payment split create, delete cash payment, `order-finance.recalc`, payment audit util, daily `PaymentsFinancialStatusCron` (Kyiv 00:05).
+- **FactoryOrderLine.dueAt** + tracking util (`received` / `on_track` / `due_soon` / `overdue`); migration `20260820160000_factory_order_line_due_at`.
+- **Planning today**: suggested actions util, awaiting-stock grouping, factory order tracking in UI/API.
+- **Receivables work**: work summary/clients endpoints + richer contact receivables pagination; web receivables UX.
+
+### Changed
+
+- **Web payments page** / OrderPaymentBlock: USD helpers, cash split UX.
+- **Planning ops panels / screens**: factory line due dates, kit-parts helpers, reminders.
+- **Analytics finance/overview**, Bitrix sync wiring, orders list query filters.
+- **Cash payment dedup** + tests (create/update/transfer/split/delete/cron).
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.163`**.
+- **Миграции:** `20260820160000_factory_order_line_due_at` — **`prisma migrate deploy`**.
+- **Cron:** financial status refresh needs `CRON_ENABLED=true` (and finance module if gating on).
 
 ## [0.2.162] — 2026-08-20
 

@@ -12,7 +12,7 @@ import {
 import * as XLSX from "xlsx";
 import { PrismaService } from "../prisma/prisma.service";
 import { instantToKyivYmd, kyivDayBounds } from "../crm-timezone";
-import { constrainsKitCapacity, isNonInventoriedPackagingSku } from "./bom-part.util";
+import { constrainsKitCapacity, displayBottleneckSku, isNonInventoriedPackagingSku } from "./bom-part.util";
 import { mixKitDemand, uncoveredKitDemand } from "./demand-mix.util";
 import { ForecastService } from "./forecast.service";
 import { packCycleEndUtc, packCycleStartUtc, resolvePackCycleStartUtc } from "./pack-cycle.util";
@@ -118,12 +118,14 @@ export class PackingListService {
           const bottleneck = cap.components.find(
             (c) => c.componentProductId === cap!.bottleneckComponentId,
           );
-          bottleneckSku = bottleneck?.product?.sku ?? null;
+          bottleneckSku = bottleneck?.product
+            ? displayBottleneckSku(bottleneck.product.sku, bottleneck.product.name)
+            : null;
           bottleneckName = bottleneck?.product?.name ?? bottleneckSku;
           parts = cap.components
             .filter((c) => c.constrainsCapacity && c.product)
             .map((c) => ({
-              sku: c.product!.sku,
+              sku: displayBottleneckSku(c.product!.sku, c.product!.name),
               name: c.product!.name,
               qtyPerKit: c.qtyPerKit,
               available: c.available,

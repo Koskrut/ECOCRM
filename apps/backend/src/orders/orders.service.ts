@@ -388,6 +388,10 @@ export class OrdersService {
     if (q?.companyId) where.companyId = String(q.companyId);
     if (q?.clientId) where.clientId = String(q.clientId);
     if (q?.contactId) where.contactId = String(q.contactId);
+    if (q?.partyContactId) {
+      const partyId = String(q.partyContactId);
+      andWhere.push({ OR: [{ clientId: partyId }, { contactId: partyId }] });
+    }
     if (q?.board === true && q?.financialBoard !== true) {
       // Phase 3: board shows "active" orders by orderStage; skip when financial board requested
       const closedStages: OrderStage[] = [

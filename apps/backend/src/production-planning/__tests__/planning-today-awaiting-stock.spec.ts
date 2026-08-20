@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  enrichAwaitingStockGroup,
   groupAwaitingStockLines,
+  sortEnrichedAwaitingStockGroups,
   type AwaitingStockLineInput,
 } from "../planning-awaiting-stock.util";
 
@@ -151,5 +153,75 @@ test("sorts groups by stockGap then remaining qty", () => {
   assert.deepEqual(
     view.groups.map((g) => g.sku),
     ["GAP", "BIG", "SMALL"],
+  );
+});
+
+test("enrich adds canAssemble and primaryAction from kit capacity", () => {
+  const view = groupAwaitingStockLines(
+    [line({ orderItemId: "i1", qty: 10 })],
+    new Map([["p1", 2]]),
+    new Map(),
+  );
+  const enriched = enrichAwaitingStockGroup(view.groups[0]!, {
+    maxFromParts: 6,
+    hasBom: true,
+  });
+  assert.equal(enriched.maxFromParts, 6);
+  assert.equal(enriched.canAssemble, 6);
+  assert.equal(enriched.primaryAction, "pack");
+});
+
+test("enrich picks production when parts cannot cover orders", () => {
+  const view = groupAwaitingStockLines(
+    [line({ orderItemId: "i1", qty: 10 })],
+    new Map([["p1", 0]]),
+    new Map(),
+  );
+  const enriched = enrichAwaitingStockGroup(view.groups[0]!, {
+    maxFromParts: 0,
+    hasBom: true,
+  });
+  assert.equal(enriched.canAssemble, 0);
+  assert.equal(enriched.primaryAction, "production");
+});
+
+test("enrich picks factory when no BOM exists", () => {
+  const view = groupAwaitingStockLines(
+    [line({ orderItemId: "i1", qty: 5 })],
+    new Map([["p1", 0]]),
+    new Map(),
+  );
+  const enriched = enrichAwaitingStockGroup(view.groups[0]!, {
+    maxFromParts: 0,
+    hasBom: false,
+  });
+  assert.equal(enriched.primaryAction, "factory");
+});
+
+test("sortEnrichedAwaitingStockGroups prioritizes canAssemble over stockGap", () => {
+  const base = groupAwaitingStockLines(
+    [
+      line({ orderItemId: "i1", productId: "p-gap", sku: "GAP", qty: 20 }),
+      line({ orderItemId: "i2", productId: "p-pack", sku: "PACK", qty: 5 }),
+    ],
+    new Map([
+      ["p-gap", 0],
+      ["p-pack", 0],
+    ]),
+    new Map(),
+  );
+  const groups = sortEnrichedAwaitingStockGroups([
+    enrichAwaitingStockGroup(base.groups.find((g) => g.sku === "GAP")!, {
+      maxFromParts: 0,
+      hasBom: true,
+    }),
+    enrichAwaitingStockGroup(base.groups.find((g) => g.sku === "PACK")!, {
+      maxFromParts: 8,
+      hasBom: true,
+    }),
+  ]);
+  assert.deepEqual(
+    groups.map((g) => g.sku),
+    ["PACK", "GAP"],
   );
 });

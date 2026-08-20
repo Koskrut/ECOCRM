@@ -1,4 +1,10 @@
-import { constrainsKitCapacity, inferArticleSkuFromFalsePkg, looksLikeComponentSku, looksLikePackagingName } from "./bom-part.util";
+import {
+  constrainsKitCapacity,
+  displayBottleneckSku,
+  inferArticleSkuFromFalsePkg,
+  looksLikeComponentSku,
+  looksLikePackagingName,
+} from "./bom-part.util";
 
 export type BomCapacityLine = {
   sku: string;
@@ -18,7 +24,7 @@ export function computeMaxBuildFromBomLines(lines: BomCapacityLine[]): {
     const effectiveQty = line.qtyPerKit * (1 + (line.scrapPct ?? 0) / 100);
     const ratio =
       constrains && effectiveQty > 0 ? line.available / effectiveQty : Number.POSITIVE_INFINITY;
-    return { sku: line.sku, constrains, ratio };
+    return { sku: line.sku, name: line.name, constrains, ratio };
   });
   const constraining = components
     .filter((c) => c.constrains)
@@ -26,7 +32,9 @@ export function computeMaxBuildFromBomLines(lines: BomCapacityLine[]): {
   const bottleneck = constraining[0];
   return {
     maxBuildNow: bottleneck ? Math.max(0, Math.floor(bottleneck.ratio)) : 0,
-    bottleneckSku: bottleneck?.sku ?? null,
+    bottleneckSku: bottleneck
+      ? displayBottleneckSku(bottleneck.sku, bottleneck.name)
+      : null,
   };
 }
 
@@ -35,4 +43,4 @@ export function computeCanPackQty(unmetPackNeed: number, maxBuildNow: number): n
   return Math.min(maxBuildNow, Math.ceil(unmetPackNeed));
 }
 
-export { looksLikeComponentSku, looksLikePackagingName, inferArticleSkuFromFalsePkg, constrainsKitCapacity };
+export { looksLikeComponentSku, looksLikePackagingName, inferArticleSkuFromFalsePkg, displayBottleneckSku, constrainsKitCapacity };

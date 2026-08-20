@@ -423,11 +423,16 @@ export type FactoryRecommendation = {
   suggestedQty: number;
 };
 
+export type FactoryLineTrackingStatus = "received" | "on_track" | "due_soon" | "overdue";
+
 export type FactoryOrderLine = {
   id: string;
   partProductId: string;
   qtyOrdered: number;
   qtyReceived: number;
+  dueAt?: string | null;
+  effectiveDueAt?: string;
+  trackingStatus?: FactoryLineTrackingStatus;
   partProduct: { id: string; sku: string; name: string };
 };
 
@@ -442,6 +447,22 @@ export type FactoryOrder = {
   approvedById?: string | null;
   lines?: FactoryOrderLine[];
   _count?: { lines: number };
+  overdueLineCount?: number;
+  nearestLineDueYmd?: string | null;
+};
+
+export type FactoryTrackingRow = {
+  orderId: string;
+  externalCode: string | null;
+  orderStatus: string;
+  lineId: string;
+  partProductId: string;
+  sku: string;
+  name: string;
+  qtyOrdered: number;
+  qtyReceived: number;
+  dueAt: string;
+  trackingStatus: FactoryLineTrackingStatus;
 };
 
 export type PlanningDashboard = {
@@ -780,7 +801,7 @@ export const planningApi = {
     return res.data;
   },
   createFactoryOrder: async (payload?: {
-    lines?: Array<{ partProductId: string; qtyOrdered: number }>;
+    lines?: Array<{ partProductId: string; qtyOrdered: number; dueAt?: string | null }>;
     note?: string;
     dueAt?: string;
   }): Promise<FactoryOrder> => {
@@ -789,9 +810,48 @@ export const planningApi = {
   },
   updateFactoryLines: async (
     id: string,
-    lines: Array<{ partProductId: string; qtyOrdered: number }>,
+    lines: Array<{ partProductId: string; qtyOrdered: number; dueAt?: string | null }>,
   ): Promise<FactoryOrder> => {
     const res = await apiHttp.patch<FactoryOrder>(`/planning/factory/orders/${id}/lines`, { lines });
+    return res.data;
+  },
+  addFactoryLine: async (
+    id: string,
+    body: { partProductId: string; qtyOrdered: number; dueAt?: string | null },
+  ): Promise<FactoryOrder> => {
+    const res = await apiHttp.post<FactoryOrder>(`/planning/factory/orders/${id}/lines`, body);
+    return res.data;
+  },
+  deleteFactoryLine: async (id: string, lineId: string): Promise<FactoryOrder> => {
+    const res = await apiHttp.delete<FactoryOrder>(`/planning/factory/orders/${id}/lines/${lineId}`);
+    return res.data;
+  },
+  updateFactoryLine: async (
+    id: string,
+    lineId: string,
+    body: { qtyOrdered?: number; dueAt?: string | null },
+  ): Promise<FactoryOrder> => {
+    const res = await apiHttp.patch<FactoryOrder>(
+      `/planning/factory/orders/${id}/lines/${lineId}`,
+      body,
+    );
+    return res.data;
+  },
+  updateFactoryLineDueAt: async (
+    id: string,
+    lineId: string,
+    dueAt: string,
+  ): Promise<FactoryOrder> => {
+    const res = await apiHttp.patch<FactoryOrder>(
+      `/planning/factory/orders/${id}/lines/${lineId}/due-at`,
+      { dueAt },
+    );
+    return res.data;
+  },
+  getFactoryTracking: async (overdueOnly = false): Promise<{ rows: FactoryTrackingRow[] }> => {
+    const res = await apiHttp.get<{ rows: FactoryTrackingRow[] }>("/planning/factory/tracking", {
+      params: overdueOnly ? { overdueOnly: "1" } : undefined,
+    });
     return res.data;
   },
   approveFactoryOrder: async (id: string): Promise<FactoryOrder> => {
@@ -926,6 +986,8 @@ export type TodayBurningItem = {
   sku: string;
   name: string;
   needQty: number;
+  maxFromParts: number;
+  canAssemble: number;
   desiredDate: string;
   coverDays: number | null;
   reason: string;
@@ -942,7 +1004,11 @@ export type PlanningDueReminder = {
   isOverdue: boolean;
   lineCount: number;
   totalQty: number;
+  overdueLineCount?: number;
+  overdueSkus?: string[];
 };
+
+export type TodayAwaitingStockPrimaryAction = "pack" | "production" | "factory";
 
 export type TodayAwaitingStockOrderLine = {
   orderItemId: string;
@@ -961,6 +1027,9 @@ export type TodayAwaitingStockGroup = {
   totalQtyRemaining: number;
   availableQty: number | null;
   stockGap: number;
+  maxFromParts: number;
+  canAssemble: number;
+  primaryAction: TodayAwaitingStockPrimaryAction;
   orderCount: number;
   orders: TodayAwaitingStockOrderLine[];
 };

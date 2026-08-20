@@ -116,4 +116,10 @@ export class PaymentsController {
   unallocate(@Param("id") id: string, @Req() req: Request & { user?: AuthUser }) {
     return this.service.unallocateBankPayment(id, req.user);
   }
+
+  @Delete(":id")
+  @Roles(UserRole.ADMIN)
+  deleteCash(@Param("id") id: string, @Req() req: Request & { user?: AuthUser }) {
+    return this.service.deleteCashPayment(id, req.user);
+  }
 }

@@ -58,6 +58,11 @@ export class ListOrdersQueryDto {
   contactId?: string;
 
   @IsOptional()
+  @IsString()
+  /** Match orders where clientId OR contactId equals this contact (cash allocation lists). */
+  partyContactId?: string;
+
+  @IsOptional()
   @IsEnum(OrderStatus)
   status?: OrderStatus;
 

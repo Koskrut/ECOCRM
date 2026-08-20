@@ -3164,19 +3164,22 @@ model FactoryOrder {
 }
 
 model FactoryOrderLine {
-  id            String   @id @default(cuid())
+  id             String    @id @default(cuid())
   factoryOrderId String
-  partProductId String
-  qtyOrdered    Int
-  qtyReceived   Int      @default(0)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  partProductId  String
+  qtyOrdered     Int
+  qtyReceived    Int       @default(0)
+  /// Promised delivery date from factory for this part (falls back to order.dueAt).
+  dueAt          DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   factoryOrder FactoryOrder @relation(fields: [factoryOrderId], references: [id], onDelete: Cascade)
   partProduct  Product      @relation(fields: [partProductId], references: [id], onDelete: Restrict)
 
   @@unique([factoryOrderId, partProductId])
   @@index([partProductId])
+  @@index([dueAt])
 }
 
 // ===== Payment module =====

@@ -6,8 +6,10 @@ import { strings } from "@/locales";
 import {
   planningApi,
   resolvePlanningUploadError,
+  type FactoryLineTrackingStatus,
   type FactoryOrder,
   type FactoryRecommendation,
+  type FactoryTrackingRow,
   type MrpForecastView,
   type MrpRun,
   type MrpRunLine,
@@ -21,12 +23,18 @@ import {
   type SnapshotFreshness,
   type StockProjection,
 } from "@/lib/api/resources/planning";
+import { productsApi, type ProductCatalogItem } from "@/lib/api/resources/products";
 import { formatDateTime } from "@/lib/crmDatetime";
+import { isKitPartShort } from "@/lib/planning-kit-parts";
 import { planningCycleStatusLabel, planningDocStatusLabel } from "@/lib/status-labels";
 
 function toDateInputValue(iso: string | null | undefined): string {
   if (!iso) return "";
   return iso.slice(0, 10);
+}
+
+function formatSkuNameLabel(sku: string, name: string): string {
+  return name && name !== sku ? `${sku} — ${name}` : sku;
 }
 
 function useStableErrorHandler(onError: (msg: string) => void) {
@@ -475,7 +483,7 @@ function KitPartsCell({
     <ul className="space-y-1 text-xs text-zinc-700">
       {parts.map((part) => {
         const need = part.qtyPerKit * kitsForParts;
-        const short = part.available < need || part.isBottleneck;
+        const short = isKitPartShort(part.available, need);
         const title = part.name && part.name !== part.sku ? part.name : part.sku;
         const skuHint = part.name && part.name !== part.sku ? ` (${part.sku})` : "";
         return (
@@ -495,6 +503,7 @@ function KitPartsCell({
             ) : null}
             {" · "}
             {t.labels.partOnStock(formatPartQty(part.available))}
+            {part.isBottleneck ? ` · ${t.labels.bottleneck}` : null}
             {short ? ` · ${t.labels.missingPart}` : null}
           </li>
         );
@@ -851,6 +860,29 @@ function isFactoryDueOverdue(dueAt: string): boolean {
   return dueAt.slice(0, 10) < new Date().toISOString().slice(0, 10);
 }
 
+function trackingLabel(status: FactoryLineTrackingStatus | undefined): string {
+  const t = strings.planning.labels;
+  if (status === "received") return t.trackingReceived;
+  if (status === "due_soon") return t.trackingDueSoon;
+  if (status === "overdue") return t.trackingOverdue;
+  return t.trackingOnTrack;
+}
+
+function TrackingBadge({ status }: { status: FactoryLineTrackingStatus | undefined }) {
+  const label = trackingLabel(status);
+  const cls =
+    status === "overdue"
+      ? "bg-rose-100 text-rose-800"
+      : status === "due_soon"
+        ? "bg-amber-100 text-amber-900"
+        : status === "received"
+          ? "bg-emerald-100 text-emerald-800"
+          : "bg-zinc-100 text-zinc-700";
+  return (
+    <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${cls}`}>{label}</span>
+  );
+}
+
 export function FactoryPanel({ onError }: { onError: (msg: string) => void }) {
   const t = strings.planning;
   const reportError = useStableErrorHandler(onError);
@@ -862,19 +894,50 @@ export function FactoryPanel({ onError }: { onError: (msg: string) => void }) {
   const [createDueAt, setCreateDueAt] = useState("");
   const [activeDueEdit, setActiveDueEdit] = useState("");
   const [lineQtys, setLineQtys] = useState<Record<string, string>>({});
+  const [lineDues, setLineDues] = useState<Record<string, string>>({});
+  const [lineReceived, setLineReceived] = useState<Record<string, string>>({});
   const [externalCodeEdit, setExternalCodeEdit] = useState("");
   const [freshness, setFreshness] = useState<SnapshotFreshness | null>(null);
   const [busy, setBusy] = useState(false);
+  const [partSearch, setPartSearch] = useState("");
+  const [partHits, setPartHits] = useState<ProductCatalogItem[]>([]);
+  const [addQty, setAddQty] = useState("1");
+  const [addDue, setAddDue] = useState("");
+  const [selectedPartId, setSelectedPartId] = useState<string | null>(null);
+  const [trackingRows, setTrackingRows] = useState<FactoryTrackingRow[]>([]);
 
   const applyActive = useCallback((order: FactoryOrder) => {
     setActive(order);
     setActiveDueEdit(toDateInputValue(order.dueAt));
     setExternalCodeEdit(order.externalCode ?? "");
-    setLineQtys(Object.fromEntries((order.lines ?? []).map((l) => [l.partProductId, String(l.qtyOrdered)])));
+    setLineQtys(
+      Object.fromEntries((order.lines ?? []).map((l) => [l.partProductId, String(l.qtyOrdered)])),
+    );
+    setLineDues(
+      Object.fromEntries(
+        (order.lines ?? []).map((l) => [
+          l.id,
+          toDateInputValue(l.dueAt ?? l.effectiveDueAt ?? order.dueAt),
+        ]),
+      ),
+    );
+    setLineReceived(
+      Object.fromEntries((order.lines ?? []).map((l) => [l.partProductId, String(l.qtyReceived)])),
+    );
+    setAddDue(toDateInputValue(order.dueAt));
   }, []);
 
   const reloadOrders = useCallback(async () => {
     setOrders(await planningApi.listFactoryOrders(30));
+  }, []);
+
+  const reloadTracking = useCallback(async () => {
+    try {
+      const res = await planningApi.getFactoryTracking(false);
+      setTrackingRows(res.rows);
+    } catch {
+      /* optional panel */
+    }
   }, []);
 
   useEffect(() => {
@@ -883,10 +946,36 @@ export function FactoryPanel({ onError }: { onError: (msg: string) => void }) {
       .then((f) => setFreshness(f.snapshot))
       .catch(() => undefined);
     void reloadOrders().catch((e) => reportError(e instanceof Error ? e.message : t.errors.factory));
-  }, [reportError, reloadOrders, t.errors.factory]);
+    void reloadTracking();
+  }, [reportError, reloadOrders, reloadTracking, t.errors.factory]);
+
+  useEffect(() => {
+    if (partSearch.trim().length < 2) {
+      setPartHits([]);
+      return;
+    }
+    const handle = window.setTimeout(() => {
+      void productsApi
+        .listParts({ search: partSearch.trim(), pageSize: 12 })
+        .then((res) => setPartHits(res.items ?? []))
+        .catch(() => setPartHits([]));
+    }, 250);
+    return () => window.clearTimeout(handle);
+  }, [partSearch]);
+
+  const runBusy = async (fn: () => Promise<void>) => {
+    setBusy(true);
+    try {
+      await fn();
+    } catch (e) {
+      reportError(e instanceof Error ? e.message : t.errors.factory);
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4" id="factory-tracking">
       <p className="text-sm text-zinc-600">{t.messages.factoryHint}</p>
       <FreshnessBanner freshness={freshness} />
       <div className="flex flex-wrap gap-2">
@@ -894,25 +983,18 @@ export function FactoryPanel({ onError }: { onError: (msg: string) => void }) {
           type="button"
           disabled={busy}
           className="rounded-lg border border-zinc-200 bg-white px-4 py-2 text-sm"
-          onClick={() => {
-            void (async () => {
-              setBusy(true);
-              try {
-                const res = await planningApi.getFactoryRecommendations();
-                setRecs(res.recommendations);
-                setRecQtys(
-                  Object.fromEntries(res.recommendations.map((r) => [r.partProductId, String(r.suggestedQty)])),
-                );
-                setDueAt(res.dueAt);
-                setCreateDueAt(toDateInputValue(res.dueAt));
-                setFreshness(res.freshness);
-              } catch (e) {
-                reportError(e instanceof Error ? e.message : t.errors.factory);
-              } finally {
-                setBusy(false);
-              }
-            })();
-          }}
+          onClick={() =>
+            void runBusy(async () => {
+              const res = await planningApi.getFactoryRecommendations();
+              setRecs(res.recommendations);
+              setRecQtys(
+                Object.fromEntries(res.recommendations.map((r) => [r.partProductId, String(r.suggestedQty)])),
+              );
+              setDueAt(res.dueAt);
+              setCreateDueAt(toDateInputValue(res.dueAt));
+              setFreshness(res.freshness);
+            })
+          }
         >
           {t.actions.loadFactoryRecs}
         </button>
@@ -920,26 +1002,20 @@ export function FactoryPanel({ onError }: { onError: (msg: string) => void }) {
           type="button"
           disabled={busy || recs.length === 0}
           className="rounded-lg bg-cyan-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-          onClick={() => {
-            void (async () => {
-              setBusy(true);
-              try {
-                const created = await planningApi.createFactoryOrder({
-                  lines: recs.map((r) => ({
-                    partProductId: r.partProductId,
-                    qtyOrdered: Number(recQtys[r.partProductId]) || r.suggestedQty,
-                  })),
-                  dueAt: createDueAt || undefined,
-                });
-                applyActive(created);
-                await reloadOrders();
-              } catch (e) {
-                reportError(e instanceof Error ? e.message : t.errors.factory);
-              } finally {
-                setBusy(false);
-              }
-            })();
-          }}
+          onClick={() =>
+            void runBusy(async () => {
+              const created = await planningApi.createFactoryOrder({
+                lines: recs.map((r) => ({
+                  partProductId: r.partProductId,
+                  qtyOrdered: Number(recQtys[r.partProductId]) || r.suggestedQty,
+                })),
+                dueAt: createDueAt || undefined,
+              });
+              applyActive(created);
+              await reloadOrders();
+              await reloadTracking();
+            })
+          }
         >
           {t.actions.createFactoryOrder}
         </button>
@@ -960,6 +1036,7 @@ export function FactoryPanel({ onError }: { onError: (msg: string) => void }) {
           {t.labels.factoryDueHint}: {formatDateTime(dueAt)}
         </p>
       ) : null}
+
       <Panel title={t.actions.loadFactoryRecs}>
         <SimpleTable
           headers={[
@@ -969,13 +1046,16 @@ export function FactoryPanel({ onError }: { onError: (msg: string) => void }) {
             t.labels.openPo,
             t.labels.safetyStock,
             t.labels.netRequirement,
+            t.labels.qtyOrderedSum,
+            t.labels.actions,
           ]}
           rows={recs.map((r) => [
-            `${r.sku} — ${r.name}`,
+            formatSkuNameLabel(r.sku, r.name),
             String(r.grossRequirement),
             String(r.onHand),
             String(r.openPoQty),
             String(r.safetyStock),
+            String(r.netRequirement),
             <input
               key={r.partProductId}
               className="w-24 rounded border border-zinc-200 px-2 py-1"
@@ -984,16 +1064,85 @@ export function FactoryPanel({ onError }: { onError: (msg: string) => void }) {
                 setRecQtys((prev) => ({ ...prev, [r.partProductId]: e.target.value }))
               }
             />,
+            active?.status === "DRAFT" ? (
+              <button
+                key={`add-${r.partProductId}`}
+                type="button"
+                disabled={busy}
+                className="text-xs text-cyan-700 underline disabled:opacity-40"
+                onClick={() =>
+                  void runBusy(async () => {
+                    applyActive(
+                      await planningApi.addFactoryLine(active.id, {
+                        partProductId: r.partProductId,
+                        qtyOrdered: Number(recQtys[r.partProductId]) || r.suggestedQty,
+                        dueAt: activeDueEdit || undefined,
+                      }),
+                    );
+                    await reloadOrders();
+                  })
+                }
+              >
+                {t.actions.addToDraft}
+              </button>
+            ) : (
+              "—"
+            ),
           ])}
           noDataLabel={t.states.noFactoryRecs}
         />
       </Panel>
+
+      {(trackingRows.length > 0 || (orders.some((o) => (o.overdueLineCount ?? 0) > 0))) ? (
+        <Panel title={t.labels.factoryTracking}>
+          <SimpleTable
+            headers={[
+              t.labels.sku,
+              t.labels.externalCode,
+              t.labels.qty,
+              t.labels.qtyReceived,
+              t.labels.lineDueAt,
+              t.labels.lineTrackingStatus,
+              t.labels.actions,
+            ]}
+            rows={trackingRows.map((row) => [
+              formatSkuNameLabel(row.sku, row.name),
+              row.externalCode ?? "—",
+              String(row.qtyOrdered),
+              String(row.qtyReceived),
+              <span
+                key={`tdue-${row.lineId}`}
+                className={row.trackingStatus === "overdue" ? "font-medium text-rose-700" : undefined}
+              >
+                {formatDateTime(row.dueAt)}
+              </span>,
+              <TrackingBadge key={`tb-${row.lineId}`} status={row.trackingStatus} />,
+              <button
+                key={`to-${row.lineId}`}
+                type="button"
+                className="text-cyan-700 underline"
+                onClick={() =>
+                  void runBusy(async () => {
+                    applyActive(await planningApi.getFactoryOrder(row.orderId));
+                  })
+                }
+              >
+                {t.actions.open}
+              </button>,
+            ])}
+            noDataLabel={t.states.noData}
+          />
+        </Panel>
+      ) : null}
+
       <Panel title={t.tabs.factory}>
         <SimpleTable
           headers={[
             t.labels.status,
             t.labels.externalCode,
             t.labels.dueAt,
+            t.labels.nearestLineDue,
+            t.labels.overdueLinesCount,
             t.labels.lineCount,
             t.labels.qtyOrderedSum,
             t.labels.actions,
@@ -1008,21 +1157,25 @@ export function FactoryPanel({ onError }: { onError: (msg: string) => void }) {
               {formatDateTime(o.dueAt)}
               {isFactoryDueOverdue(o.dueAt) ? ` (${t.labels.dueOverdue})` : ""}
             </span>,
+            o.nearestLineDueYmd ?? "—",
+            (o.overdueLineCount ?? 0) > 0 ? (
+              <span key={`ov-${o.id}`} className="font-medium text-rose-700">
+                {o.overdueLineCount}
+              </span>
+            ) : (
+              "0"
+            ),
             String(o.lines?.length ?? o._count?.lines ?? 0),
             String((o.lines ?? []).reduce((s, l) => s + l.qtyOrdered, 0)),
             <span key={o.id} className="flex flex-wrap gap-2">
               <button
                 type="button"
                 className="text-cyan-700 underline"
-                onClick={() => {
-                  void (async () => {
-                    try {
-                      applyActive(await planningApi.getFactoryOrder(o.id));
-                    } catch (e) {
-                      reportError(e instanceof Error ? e.message : t.errors.factory);
-                    }
-                  })();
-                }}
+                onClick={() =>
+                  void runBusy(async () => {
+                    applyActive(await planningApi.getFactoryOrder(o.id));
+                  })
+                }
               >
                 {t.actions.open}
               </button>
@@ -1059,19 +1212,12 @@ export function FactoryPanel({ onError }: { onError: (msg: string) => void }) {
                   type="button"
                   disabled={busy || !activeDueEdit}
                   className="rounded-lg border border-zinc-200 bg-white px-3 py-1 text-sm disabled:opacity-50"
-                  onClick={() => {
-                    void (async () => {
-                      setBusy(true);
-                      try {
-                        applyActive(await planningApi.updateFactoryDueAt(active.id, activeDueEdit));
-                        await reloadOrders();
-                      } catch (e) {
-                        reportError(e instanceof Error ? e.message : t.errors.factory);
-                      } finally {
-                        setBusy(false);
-                      }
-                    })();
-                  }}
+                  onClick={() =>
+                    void runBusy(async () => {
+                      applyActive(await planningApi.updateFactoryDueAt(active.id, activeDueEdit));
+                      await reloadOrders();
+                    })
+                  }
                 >
                   {t.actions.saveDueAt}
                 </button>
@@ -1083,23 +1229,17 @@ export function FactoryPanel({ onError }: { onError: (msg: string) => void }) {
                   type="button"
                   disabled={busy}
                   className="rounded-lg border border-zinc-200 bg-white px-3 py-1 text-sm disabled:opacity-50"
-                  onClick={() => {
-                    void (async () => {
-                      setBusy(true);
-                      try {
-                        const lines = Object.entries(lineQtys).map(([partProductId, qty]) => ({
-                          partProductId,
-                          qtyOrdered: Number(qty) || 0,
-                        }));
-                        applyActive(await planningApi.updateFactoryLines(active.id, lines));
-                        await reloadOrders();
-                      } catch (e) {
-                        reportError(e instanceof Error ? e.message : t.errors.factory);
-                      } finally {
-                        setBusy(false);
-                      }
-                    })();
-                  }}
+                  onClick={() =>
+                    void runBusy(async () => {
+                      const lines = (active.lines ?? []).map((l) => ({
+                        partProductId: l.partProductId,
+                        qtyOrdered: Number(lineQtys[l.partProductId]) || l.qtyOrdered,
+                        dueAt: lineDues[l.id] || null,
+                      }));
+                      applyActive(await planningApi.updateFactoryLines(active.id, lines));
+                      await reloadOrders();
+                    })
+                  }
                 >
                   {t.actions.saveFactoryLines}
                 </button>
@@ -1107,21 +1247,28 @@ export function FactoryPanel({ onError }: { onError: (msg: string) => void }) {
                   type="button"
                   disabled={busy}
                   className="rounded-lg bg-emerald-600 px-3 py-1 text-sm font-medium text-white disabled:opacity-50"
-                  onClick={() => {
-                    void (async () => {
-                      setBusy(true);
-                      try {
-                        applyActive(await planningApi.approveFactoryOrder(active.id));
-                        await reloadOrders();
-                      } catch (e) {
-                        reportError(e instanceof Error ? e.message : t.errors.factory);
-                      } finally {
-                        setBusy(false);
-                      }
-                    })();
-                  }}
+                  onClick={() =>
+                    void runBusy(async () => {
+                      applyActive(await planningApi.approveFactoryOrder(active.id));
+                      await reloadOrders();
+                      await reloadTracking();
+                    })
+                  }
                 >
                   {t.actions.approveFactory}
+                </button>
+                <button
+                  type="button"
+                  disabled={busy}
+                  className="rounded-lg border border-rose-200 bg-white px-3 py-1 text-sm text-rose-700 disabled:opacity-50"
+                  onClick={() =>
+                    void runBusy(async () => {
+                      applyActive(await planningApi.updateFactoryStatus(active.id, "CANCELLED"));
+                      await reloadOrders();
+                    })
+                  }
+                >
+                  {t.actions.cancelFactoryDraft}
                 </button>
               </>
             ) : null}
@@ -1139,35 +1286,49 @@ export function FactoryPanel({ onError }: { onError: (msg: string) => void }) {
                   type="button"
                   disabled={busy}
                   className="rounded-lg border border-zinc-200 bg-white px-3 py-1 text-sm disabled:opacity-50"
-                  onClick={() => {
-                    void (async () => {
-                      setBusy(true);
-                      try {
-                        applyActive(
-                          await planningApi.updateFactoryExternalCode(active.id, externalCodeEdit),
-                        );
-                        await reloadOrders();
-                      } catch (e) {
-                        reportError(e instanceof Error ? e.message : t.errors.factory);
-                      } finally {
-                        setBusy(false);
-                      }
-                    })();
-                  }}
+                  onClick={() =>
+                    void runBusy(async () => {
+                      applyActive(
+                        await planningApi.updateFactoryExternalCode(active.id, externalCodeEdit),
+                      );
+                      await reloadOrders();
+                    })
+                  }
                 >
                   {t.actions.saveExternalCode}
                 </button>
               </>
             ) : null}
             {active.status === "OPEN" || active.status === "PARTIAL" ? (
-              <button
-                type="button"
-                disabled={busy}
-                className="rounded-lg border border-zinc-200 bg-white px-3 py-1 text-sm disabled:opacity-50"
-                onClick={() => {
-                  void (async () => {
-                    setBusy(true);
-                    try {
+              <>
+                <button
+                  type="button"
+                  disabled={busy}
+                  className="rounded-lg border border-zinc-200 bg-white px-3 py-1 text-sm disabled:opacity-50"
+                  onClick={() =>
+                    void runBusy(async () => {
+                      applyActive(
+                        await planningApi.updateFactoryReceived(
+                          active.id,
+                          (active.lines ?? []).map((l) => ({
+                            partProductId: l.partProductId,
+                            qtyReceived: Number(lineReceived[l.partProductId]) || 0,
+                          })),
+                        ),
+                      );
+                      await reloadOrders();
+                      await reloadTracking();
+                    })
+                  }
+                >
+                  {t.actions.saveFactoryReceived}
+                </button>
+                <button
+                  type="button"
+                  disabled={busy}
+                  className="rounded-lg border border-zinc-200 bg-white px-3 py-1 text-sm disabled:opacity-50"
+                  onClick={() =>
+                    void runBusy(async () => {
                       applyActive(
                         await planningApi.updateFactoryReceived(
                           active.id,
@@ -1178,37 +1339,191 @@ export function FactoryPanel({ onError }: { onError: (msg: string) => void }) {
                         ),
                       );
                       await reloadOrders();
-                    } catch (e) {
-                      reportError(e instanceof Error ? e.message : t.errors.factory);
-                    } finally {
-                      setBusy(false);
-                    }
-                  })();
-                }}
-              >
-                {t.actions.markFactoryReceived}
-              </button>
+                      await reloadTracking();
+                    })
+                  }
+                >
+                  {t.actions.markFactoryReceived}
+                </button>
+              </>
             ) : null}
             <p className="text-xs text-zinc-500">{t.labels.factoryDueHint}</p>
           </div>
-          <SimpleTable
-            headers={[t.labels.sku, t.labels.qty, t.labels.qtyOrderedSum]}
-            rows={(active.lines ?? []).map((line) => [
-              `${line.partProduct.sku} — ${line.partProduct.name}`,
-              active.status === "DRAFT" ? (
-                <input
-                  key={line.id}
-                  className="w-24 rounded border border-zinc-200 px-2 py-1"
-                  value={lineQtys[line.partProductId] ?? String(line.qtyOrdered)}
-                  onChange={(e) =>
-                    setLineQtys((prev) => ({ ...prev, [line.partProductId]: e.target.value }))
+
+          {active.status === "DRAFT" ? (
+            <div className="mb-4 rounded-xl border border-zinc-100 bg-zinc-50 p-3">
+              <p className="mb-2 text-sm font-medium text-zinc-800">{t.actions.addFactoryLine}</p>
+              <div className="flex flex-wrap items-end gap-2">
+                <label className="flex min-w-[220px] flex-1 flex-col gap-1 text-xs text-zinc-600">
+                  {t.labels.searchPart}
+                  <input
+                    className="rounded border border-zinc-200 px-2 py-1 text-sm"
+                    value={partSearch}
+                    onChange={(e) => {
+                      setPartSearch(e.target.value);
+                      setSelectedPartId(null);
+                    }}
+                    placeholder={t.labels.searchPart}
+                  />
+                </label>
+                <label className="flex flex-col gap-1 text-xs text-zinc-600">
+                  {t.labels.addPartQty}
+                  <input
+                    className="w-24 rounded border border-zinc-200 px-2 py-1 text-sm"
+                    value={addQty}
+                    onChange={(e) => setAddQty(e.target.value)}
+                  />
+                </label>
+                <label className="flex flex-col gap-1 text-xs text-zinc-600">
+                  {t.labels.lineDueAt}
+                  <input
+                    type="date"
+                    className="rounded border border-zinc-200 px-2 py-1 text-sm"
+                    value={addDue}
+                    onChange={(e) => setAddDue(e.target.value)}
+                  />
+                </label>
+                <button
+                  type="button"
+                  disabled={busy || !selectedPartId}
+                  className="rounded-lg bg-cyan-600 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+                  onClick={() =>
+                    void runBusy(async () => {
+                      if (!selectedPartId) return;
+                      applyActive(
+                        await planningApi.addFactoryLine(active.id, {
+                          partProductId: selectedPartId,
+                          qtyOrdered: Number(addQty) || 1,
+                          dueAt: addDue || undefined,
+                        }),
+                      );
+                      setPartSearch("");
+                      setSelectedPartId(null);
+                      setPartHits([]);
+                      setAddQty("1");
+                      await reloadOrders();
+                    })
                   }
-                />
-              ) : (
-                String(line.qtyOrdered)
-              ),
-              String(line.qtyReceived),
-            ])}
+                >
+                  {t.actions.addFactoryLine}
+                </button>
+              </div>
+              {partHits.length > 0 ? (
+                <ul className="mt-2 max-h-40 overflow-y-auto rounded border border-zinc-200 bg-white text-sm">
+                  {partHits.map((p) => (
+                    <li key={p.id}>
+                      <button
+                        type="button"
+                        className={`block w-full px-3 py-1.5 text-left hover:bg-cyan-50 ${
+                          selectedPartId === p.id ? "bg-cyan-50 font-medium" : ""
+                        }`}
+                        onClick={() => {
+                          setSelectedPartId(p.id);
+                          setPartSearch(formatSkuNameLabel(p.sku, p.name));
+                          setPartHits([]);
+                        }}
+                      >
+                        {formatSkuNameLabel(p.sku, p.name)}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
+          ) : null}
+
+          <SimpleTable
+            headers={
+              active.status === "DRAFT"
+                ? [t.labels.sku, t.labels.qty, t.labels.lineDueAt, t.labels.actions]
+                : [
+                    t.labels.sku,
+                    t.labels.qty,
+                    t.labels.qtyReceived,
+                    t.labels.lineDueAt,
+                    t.labels.lineTrackingStatus,
+                  ]
+            }
+            rows={(active.lines ?? []).map((line) => {
+              const overdue = line.trackingStatus === "overdue";
+              if (active.status === "DRAFT") {
+                return [
+                  formatSkuNameLabel(line.partProduct.sku, line.partProduct.name),
+                  <input
+                    key={`${line.id}-qty`}
+                    className="w-24 rounded border border-zinc-200 px-2 py-1"
+                    value={lineQtys[line.partProductId] ?? String(line.qtyOrdered)}
+                    onChange={(e) =>
+                      setLineQtys((prev) => ({ ...prev, [line.partProductId]: e.target.value }))
+                    }
+                  />,
+                  <input
+                    key={`${line.id}-due`}
+                    type="date"
+                    className="rounded border border-zinc-200 px-2 py-1"
+                    value={lineDues[line.id] ?? ""}
+                    onChange={(e) => setLineDues((prev) => ({ ...prev, [line.id]: e.target.value }))}
+                  />,
+                  <button
+                    key={`${line.id}-rm`}
+                    type="button"
+                    disabled={busy || (active.lines?.length ?? 0) <= 1}
+                    className="text-xs text-rose-700 underline disabled:opacity-40"
+                    onClick={() =>
+                      void runBusy(async () => {
+                        applyActive(await planningApi.deleteFactoryLine(active.id, line.id));
+                        await reloadOrders();
+                      })
+                    }
+                  >
+                    {t.actions.removeFactoryLine}
+                  </button>,
+                ];
+              }
+              return [
+                <span key={`${line.id}-sku`} className={overdue ? "text-rose-700" : undefined}>
+                  {formatSkuNameLabel(line.partProduct.sku, line.partProduct.name)}
+                </span>,
+                String(line.qtyOrdered),
+                active.status === "OPEN" || active.status === "PARTIAL" ? (
+                  <input
+                    key={`${line.id}-recv`}
+                    className="w-24 rounded border border-zinc-200 px-2 py-1"
+                    value={lineReceived[line.partProductId] ?? String(line.qtyReceived)}
+                    onChange={(e) =>
+                      setLineReceived((prev) => ({
+                        ...prev,
+                        [line.partProductId]: e.target.value,
+                      }))
+                    }
+                  />
+                ) : (
+                  String(line.qtyReceived)
+                ),
+                active.status === "OPEN" || active.status === "PARTIAL" ? (
+                  <input
+                    key={`${line.id}-ldue`}
+                    type="date"
+                    className={`rounded border border-zinc-200 px-2 py-1 ${overdue ? "border-rose-300" : ""}`}
+                    value={lineDues[line.id] ?? ""}
+                    onChange={(e) => {
+                      const next = e.target.value;
+                      setLineDues((prev) => ({ ...prev, [line.id]: next }));
+                      void runBusy(async () => {
+                        applyActive(
+                          await planningApi.updateFactoryLineDueAt(active.id, line.id, next),
+                        );
+                        await reloadOrders();
+                        await reloadTracking();
+                      });
+                    }}
+                  />
+                ) : (
+                  formatDateTime(line.effectiveDueAt ?? line.dueAt ?? active.dueAt)
+                ),
+                <TrackingBadge key={`${line.id}-st`} status={line.trackingStatus} />,
+              ];
+            })}
             noDataLabel={t.states.noData}
           />
         </Panel>
