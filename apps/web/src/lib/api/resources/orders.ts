@@ -32,6 +32,7 @@ export type FulfillmentQueueOrder = {
     lastName: string;
     externalCode?: string | null;
   } | null;
+  owner?: { id: string; fullName: string; email?: string | null } | null;
   items?: Array<{
     id: string;
     qty: number;

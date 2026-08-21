@@ -1,6 +1,8 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { DateTime } from "luxon";
 import { FuelCompensationStatus } from "@prisma/client";
+import { isKyivYmdAfterToday, kyivDayBounds, todayYmdKyiv } from "../../crm-timezone";
 
 const MAX_REFUELS_PER_DAY = 10;
 const MAX_AMOUNT = 100_000;
@@ -70,5 +72,36 @@ describe("fuel refuel validation", () => {
     assert.ok(ALLOWED_MIME.has("image/jpeg"));
     assert.ok(!ALLOWED_MIME.has("application/pdf"));
     assert.ok(MAX_FILE_BYTES === 5 * 1024 * 1024);
+  });
+});
+
+describe("refuel date is not future (Kyiv calendar)", () => {
+  it("allows today and yesterday", () => {
+    const today = todayYmdKyiv();
+    const yesterday = DateTime.now().setZone("Europe/Kyiv").minus({ days: 1 }).toISODate()!;
+    assert.equal(isKyivYmdAfterToday(today), false);
+    assert.equal(isKyivYmdAfterToday(yesterday), false);
+  });
+
+  it("rejects tomorrow", () => {
+    const tomorrow = DateTime.now().setZone("Europe/Kyiv").plus({ days: 1 }).toISODate()!;
+    assert.equal(isKyivYmdAfterToday(tomorrow), true);
+  });
+
+  it("allows same-day afternoon upload (end of today is still today)", () => {
+    const today = "2026-08-21";
+    const afternoon = new Date("2026-08-21T14:37:00+03:00");
+    assert.equal(isKyivYmdAfterToday(today, afternoon), false);
+    const { to } = kyivDayBounds(today);
+    assert.ok(
+      to.getTime() > afternoon.getTime(),
+      "end-of-day is still in the future; comparing `to` would wrongly block today",
+    );
+  });
+
+  it("allows next-day upload for yesterday's report", () => {
+    const visitDay = "2026-08-20";
+    const nextMorning = new Date("2026-08-21T08:00:00+03:00");
+    assert.equal(isKyivYmdAfterToday(visitDay, nextMorning), false);
   });
 });

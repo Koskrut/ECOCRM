@@ -13,7 +13,7 @@ import { join, dirname } from "path";
 import { randomUUID } from "crypto";
 import type { Response } from "express";
 import type { AuthUser } from "../auth/auth.types";
-import { kyivDayBounds } from "../crm-timezone";
+import { isKyivYmdAfterToday } from "../crm-timezone";
 import { PrismaService } from "../prisma/prisma.service";
 import { assertCanAccessOwner } from "../visits/visits-owner-scope";
 import type { FuelRefuelEntryDto, FuelRefuelTotals } from "./field-fuel-refuels.types";
@@ -113,9 +113,8 @@ export class FieldFuelRefuelsService {
   }
 
   private assertNotFutureDate(dateStr: string): void {
-    const { to } = kyivDayBounds(dateStr);
-    if (to.getTime() > Date.now() + 60_000) {
-      throw new BadRequestException("Cannot add refuel for a future date");
+    if (isKyivYmdAfterToday(dateStr)) {
+      throw new BadRequestException("Не можна додати заправку на майбутню дату");
     }
   }
 

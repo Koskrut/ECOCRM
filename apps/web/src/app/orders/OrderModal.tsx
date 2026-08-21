@@ -4253,7 +4253,7 @@ export function OrderModal({
       ) : null}
       {showCreateReturnForm && order ? (
         <div
-          className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 p-4"
+          className="fixed inset-0 z-[80] flex items-start justify-center overflow-y-auto bg-black/40 p-4"
           role="dialog"
           aria-modal="true"
           aria-labelledby="create-return-dialog-title"
@@ -4264,14 +4264,17 @@ export function OrderModal({
           }}
         >
           <div
-            className="w-full max-w-lg rounded-xl bg-white p-5 shadow-xl"
+            className="my-auto flex max-h-[min(90vh,calc(100dvh-2rem))] w-full max-w-lg flex-col overflow-hidden rounded-xl bg-white shadow-xl"
             onClick={(e) => e.stopPropagation()}
           >
+            <div className="shrink-0 px-5 pt-5">
             <h3 id="create-return-dialog-title" className="text-base font-semibold text-zinc-900">
               {t.returnFormTitle}
             </h3>
             <p className="mt-1 text-sm text-zinc-600">{t.returnItems}</p>
+            </div>
 
+            <div className="min-h-0 overflow-y-auto overscroll-contain px-5">
             <label className="mt-3 block text-sm font-medium text-zinc-700">
               {tr.returnReasonLabel}
               <select
@@ -4356,7 +4359,7 @@ export function OrderModal({
 
             {!returnItemsPending ? (
               (order.items as OrderItem[] | undefined)?.length ? (
-              <div className="mt-4 max-h-[50vh] space-y-2 overflow-y-auto">
+              <div className="mt-4 space-y-2 pb-2">
                 {(order.items as OrderItem[]).map((it) => (
                   <div
                     key={it.id}
@@ -4385,6 +4388,7 @@ export function OrderModal({
                           ),
                         }))
                       }
+                      onWheel={(e) => e.currentTarget.blur()}
                       className="w-16 rounded border border-zinc-300 bg-white px-2 py-1 text-right text-sm"
                     />
                     {returnReason === "WRONG_ITEM" && (returnItemQtys[it.id] ?? 0) > 0 ? (
@@ -4483,10 +4487,11 @@ export function OrderModal({
                 <p className="mt-4 text-sm text-zinc-500">У замовленні немає позицій</p>
               )
             ) : (
-              <p className="mt-4 text-sm text-zinc-500">{t.returnItemsPendingHint}</p>
+              <p className="mt-4 pb-2 text-sm text-zinc-500">{t.returnItemsPendingHint}</p>
             )}
+            </div>
 
-            <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+            <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-zinc-200 px-5 py-4">
               {!returnItemsPending ? (
               <button
                 type="button"

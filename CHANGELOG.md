@@ -4,7 +4,28 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.163**.)_
+_(планируемые изменения после **0.2.164**.)_
+
+## [0.2.164] — 2026-08-21
+
+### Summary
+
+Патч **0.2.164**: заправки — сравнение даты по календарю Kyiv (не блокировать «сегодня» вечером); warehouse queue показывает менеджера; диалог возврата в заказе — скролл без залипания.
+
+### Fixed
+
+- **Fuel refuels**: `isKyivYmdAfterToday` вместо сравнения `endOfDay > now` (ложно блокировало сегодняшний день после полудня); сообщение на UA.
+- **Order return dialog**: sticky footer, scrollable body, `overflow-y-auto` на overlay, blur qty on wheel.
+
+### Changed
+
+- **Warehouse work queue**: отображение менеджера заказа (список + pick panel).
+- **FulfillmentQueueOrder** type: optional `owner`.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.164`**.
+- **Миграции:** новых нет.
 
 ## [0.2.163] — 2026-08-20
 

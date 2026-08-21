@@ -20,6 +20,15 @@ export function todayYmdKyiv(now = new Date()): string {
   return DateTime.fromJSDate(now).setZone(CRM_TIME_ZONE).toISODate()!;
 }
 
+/** True if YYYY-MM-DD is after today's calendar date in Kyiv (today is not future). */
+export function isKyivYmdAfterToday(dateYmd: string, now = new Date()): boolean {
+  const start = DateTime.fromISO(dateYmd, { zone: CRM_TIME_ZONE }).startOf("day");
+  if (!start.isValid || start.toISODate() !== dateYmd) {
+    throw new Error("Invalid date");
+  }
+  return dateYmd > todayYmdKyiv(now);
+}
+
 /** Bucket an instant by Kyiv calendar date (for charts / grouping). */
 export function instantToKyivYmd(instant: Date): string {
   return DateTime.fromJSDate(instant).setZone(CRM_TIME_ZONE).toISODate()!;

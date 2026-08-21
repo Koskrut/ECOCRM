@@ -23,6 +23,11 @@ function clientLabel(order: FulfillmentQueueOrder): string {
   return order.company?.name ?? "—";
 }
 
+function managerLabel(order: FulfillmentQueueOrder): string | null {
+  const name = order.owner?.fullName?.trim();
+  return name || null;
+}
+
 function deliveryMethodLabel(method: string | null | undefined): string {
   if (method === "NOVA_POSHTA") return "Нова Пошта";
   if (method === "PICKUP") return "Самовивіз";
@@ -319,6 +324,9 @@ export default function WarehouseWorkPage() {
                       ) : null}
                     </div>
                     <div className="text-xs text-zinc-600">{clientLabel(o)}</div>
+                    {managerLabel(o) ? (
+                      <div className="text-xs text-zinc-500">Менеджер: {managerLabel(o)}</div>
+                    ) : null}
                     <div className="mt-1 flex flex-wrap items-center justify-between gap-2 text-xs">
                       <div className="flex flex-wrap gap-1">
                         <span className="rounded bg-zinc-100 px-1.5 py-0.5 text-zinc-700">
@@ -372,6 +380,9 @@ export default function WarehouseWorkPage() {
                   {pickOrder.orderNumber}
                 </h2>
                 <p className="text-sm text-zinc-600">{clientLabel(pickOrder)}</p>
+                {managerLabel(pickOrder) ? (
+                  <p className="text-xs text-zinc-500">Менеджер: {managerLabel(pickOrder)}</p>
+                ) : null}
               </div>
               <button
                 type="button"
@@ -400,6 +411,14 @@ export default function WarehouseWorkPage() {
               ) : null}
 
               <div className="mb-3 grid grid-cols-2 gap-3 text-sm">
+                <div>
+                  <div className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+                    Менеджер
+                  </div>
+                  <div className="mt-0.5 font-medium text-zinc-900">
+                    {managerLabel(pickOrder) ?? "—"}
+                  </div>
+                </div>
                 <div>
                   <div className="text-xs font-medium uppercase tracking-wide text-zinc-500">
                     Склад
