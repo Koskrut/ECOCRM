@@ -16,6 +16,7 @@ import { strings } from "@/locales";
 import { AlertTriangle } from "lucide-react";
 import { StatusBadge } from "../../components/StatusBadge";
 import { DocumentsRequestedBadge } from "@/components/orders/DocumentsRequestedBadge";
+import { OrderPromoBadge } from "@/components/orders/OrderPromoBadge";
 import {
   StockReadinessBadge,
   stockReadinessHint,
@@ -61,6 +62,7 @@ type BoardOrder = {
   warehouseId?: string | null;
   warehouse?: { id: string; name: string } | null;
   documentsRequested?: boolean | null;
+  hasPromo?: boolean | null;
 };
 
 type OrdersListResponse = {
@@ -583,6 +585,7 @@ export function OrdersKanban({
                               </span>
                             ) : null}
                             <DocumentsRequestedBadge documentsRequested={o.documentsRequested} size="xs" />
+                            <OrderPromoBadge hasPromo={o.hasPromo} size="xs" />
                           </span>
                           {o.paymentType && (
                             <span

@@ -34,11 +34,17 @@ export function orderItemsToDraftLines(items: OrderItem[]): DraftOrderLine[] {
     qty: item.qty,
     price: item.price,
     discountPercent: item.discountPercent ?? 0,
+    promoType: item.promoType ?? null,
   }));
 }
 
 function lineChanged(a: DraftOrderLine, b: DraftOrderLine): boolean {
-  return a.qty !== b.qty || a.price !== b.price || a.discountPercent !== b.discountPercent;
+  return (
+    a.qty !== b.qty ||
+    a.price !== b.price ||
+    a.discountPercent !== b.discountPercent ||
+    (a.promoType ?? null) !== (b.promoType ?? null)
+  );
 }
 
 export async function applyItemDiff(
@@ -67,7 +73,8 @@ export async function applyItemDiff(
         order = await ordersApi.updateItem(token, orderId, line.itemId, {
           qty: line.qty,
           price: line.price,
-          discountPercent: line.discountPercent || undefined,
+          discountPercent: line.promoType ? 0 : line.discountPercent || undefined,
+          promoType: line.promoType || "NONE",
         });
       }
       continue;
@@ -76,7 +83,8 @@ export async function applyItemDiff(
       productId: line.productId,
       qty: line.qty,
       price: line.price,
-      discountPercent: line.discountPercent || undefined,
+      discountPercent: line.promoType ? 0 : line.discountPercent || undefined,
+      promoType: line.promoType || undefined,
     });
   }
 
@@ -164,7 +172,8 @@ export async function createOrderFull(
       productId: line.productId,
       qty: line.qty,
       price: line.price,
-      discountPercent: line.discountPercent || undefined,
+      discountPercent: line.promoType ? 0 : line.discountPercent || undefined,
+      promoType: line.promoType || undefined,
     });
   }
 

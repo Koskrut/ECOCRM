@@ -43,7 +43,14 @@ function formatAmount(
 }
 
 function itemLineTotal(item: OrderItem): number {
-  return item.lineTotal ?? item.qty * item.price * (1 - (item.discountPercent ?? 0) / 100);
+  if (item.lineTotal != null) return item.lineTotal;
+  return item.qty * item.price * (1 - (item.discountPercent ?? 0) / 100);
+}
+
+function itemPromoLabel(promoType: string | null | undefined): string {
+  if (promoType === "BUY_100_GET_30") return t("orderCreate.promoBuy100Get30");
+  if (promoType === "QTY_25_MINUS_2") return t("orderCreate.promoQty25Minus2");
+  return "";
 }
 
 export default function OrderDetailScreen() {
@@ -394,7 +401,8 @@ export default function OrderDetailScreen() {
                   </Text>
                   <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 4 }]}>
                     {item.qty} × {formatBaseMoney(item.price, order.currency ?? "USD")}
-                    {item.discountPercent ? ` (−${item.discountPercent}%)` : ""} ={" "}
+                    {item.discountPercent ? ` (−${item.discountPercent}%)` : ""}
+                    {item.promoType ? ` · ${itemPromoLabel(item.promoType)}` : ""} ={" "}
                     {formatBaseMoney(itemLineTotal(item), order.currency ?? "USD")}
                   </Text>
                 </View>

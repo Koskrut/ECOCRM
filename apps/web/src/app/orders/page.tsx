@@ -8,6 +8,7 @@ import { isTextSelected } from "@/lib/dom";
 import { formatOrderAmount } from "@/lib/formatOrderAmount";
 import { formatDate } from "@/lib/crmDatetime";
 import { DocumentsRequestedBadge } from "@/components/orders/DocumentsRequestedBadge";
+import { OrderPromoBadge } from "@/components/orders/OrderPromoBadge";
 import { StatusBadge } from "@/components/StatusBadge";
 import { OrderCard } from "./OrderCard";
 import { useListColumns } from "@/lib/lists/useListColumns";
@@ -65,6 +66,7 @@ type OrderSummary = {
   warehouseId?: string | null;
   warehouse?: { id: string; name: string } | null;
   documentsRequested?: boolean | null;
+  hasPromo?: boolean | null;
 };
 
 type OrdersListResponse = {
@@ -922,6 +924,7 @@ function OrdersPageContent() {
                               </span>
                             )}
                             <DocumentsRequestedBadge documentsRequested={order.documentsRequested} />
+                            <OrderPromoBadge hasPromo={order.hasPromo} />
                           </div>
                         </td>
                         <td className="px-4 py-4 text-zinc-700">

@@ -28,7 +28,7 @@ class NativeSampleUploader(private val context: Context) {
   private val db = TrackingDatabase.get(context)
   private val state = TrackingStateStore(context)
 
-  suspend fun flushPending(): Int {
+  suspend fun flushPending(reason: String = "watchdog"): Int {
     return flushMutex.withLock {
       val nowIso = TrackingHealthEvaluator.nowIso()
       val batch = db.sampleDao().pendingReady(nowIso)
@@ -78,7 +78,7 @@ class NativeSampleUploader(private val context: Context) {
           },
         )
         put("batchId", batchId)
-        put("reason", "watchdog")
+        put("reason", reason)
         put(
           "telemetry",
           JSONObject().apply {
@@ -94,7 +94,7 @@ class NativeSampleUploader(private val context: Context) {
       val tail = if (sampleIds.size > 10) sampleIds.takeLast(5).joinToString(",") else ""
       Log.i(
         TAG,
-        "flush batch=$batchId shift=$shiftId count=${items.size} reason=watchdog head=$head" +
+        "flush batch=$batchId shift=$shiftId count=${items.size} reason=$reason head=$head" +
           if (tail.isNotBlank()) " tail=$tail" else "",
       )
       for (sample in items) {

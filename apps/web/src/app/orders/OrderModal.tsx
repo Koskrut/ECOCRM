@@ -23,9 +23,14 @@ import { useModules } from "@/lib/modules/useModules";
 import { useConfirm, useToast } from "@/components/feedback";
 import { TtnStatusBadge } from "@/components/TtnStatusBadge";
 import {
-  computeLineTotal,
+  computeLinePricing,
   computeOrderGrossSubtotal,
   computeOrderLineDiscountSum,
+  ORDER_PROMO_BUY_100_GET_30,
+  ORDER_PROMO_QTY_25_MINUS_2,
+  isPromoApplicable,
+  parsePromoType,
+  type OrderPromoType,
 } from "@/lib/order-line-total";
 import type { FxVarianceSnapshot } from "@/lib/api/resources/orders";
 import { FxWriteOffModal } from "@/app/payments/FxWriteOffModal";
@@ -102,6 +107,7 @@ type OrderItem = {
   qty: number;
   price: number;
   discountPercent?: number;
+  promoType?: string | null;
   lineTotal: number;
 };
 
@@ -787,6 +793,10 @@ export function OrderModal({
   const [discountAmount, setDiscountAmount] = useState<number>(0);
   const [showDiscounts, setShowDiscounts] = useState(false);
   const [discountOptions, setDiscountOptions] = useState<number[]>([5, 10, 15, 20, 25, 30]);
+  const [promoOptions, setPromoOptions] = useState<OrderPromoType[]>([
+    ORDER_PROMO_BUY_100_GET_30,
+    ORDER_PROMO_QTY_25_MINUS_2,
+  ]);
   const [comment, setComment] = useState<string>("");
   const [deferredRiskGate, setDeferredRiskGate] = useState<RiskGateResult | null>(null);
   const [approvalRequesting, setApprovalRequesting] = useState(false);
@@ -1533,11 +1543,20 @@ export function OrderModal({
   useEffect(() => {
     if (isCreate) return;
     apiHttp
-      .get<{ percents: number[] }>("/settings/order-discounts")
+      .get<{ percents: number[]; promos?: string[] }>("/settings/order-discounts")
       .then((res) => {
         const percents = res.data?.percents;
         if (Array.isArray(percents) && percents.length > 0) {
           setDiscountOptions(percents);
+        }
+        const promos = res.data?.promos;
+        if (Array.isArray(promos)) {
+          setPromoOptions(
+            promos.filter(
+              (p): p is OrderPromoType =>
+                p === ORDER_PROMO_BUY_100_GET_30 || p === ORDER_PROMO_QTY_25_MINUS_2,
+            ),
+          );
         }
       })
       .catch(() => {
@@ -1562,7 +1581,15 @@ export function OrderModal({
   }, [editing, editingItem, returnsDocsMenuOpen]);
 
   const patchOrderItem = useCallback(
-    async (itemId: string, payload: { qty?: number; price?: number; discountPercent?: number }) => {
+    async (
+      itemId: string,
+      payload: {
+        qty?: number;
+        price?: number;
+        discountPercent?: number;
+        promoType?: string | null;
+      },
+    ) => {
       if (!orderId) return;
       setEditingItem(null);
       setSaving(true);
@@ -1574,26 +1601,54 @@ export function OrderModal({
             if (it.id !== itemId) return it;
             const qty = payload.qty ?? it.qty;
             const price = payload.price ?? it.price;
-            const discountPercent =
-              payload.discountPercent !== undefined
+            let promoType =
+              payload.promoType !== undefined
+                ? parsePromoType(payload.promoType)
+                : parsePromoType(it.promoType);
+            if (payload.discountPercent !== undefined && payload.promoType === undefined) {
+              promoType = null;
+            }
+            if (promoType && !isPromoApplicable(promoType, qty)) {
+              promoType = null;
+            }
+            const discountPercent = promoType
+              ? 0
+              : payload.discountPercent !== undefined
                 ? payload.discountPercent
                 : (it.discountPercent ?? 0);
+            const pricing = computeLinePricing(qty, price, discountPercent, promoType);
             return {
               ...it,
               qty,
               price,
-              discountPercent,
-              lineTotal: computeLineTotal(qty, price, discountPercent),
+              discountPercent: pricing.discountPercent,
+              promoType: pricing.promoType,
+              lineTotal: pricing.lineTotal,
             };
           }),
         };
       });
       try {
-        const body: { qty?: number; price?: number; discountPercent?: number } = {};
+        const body: {
+          qty?: number;
+          price?: number;
+          discountPercent?: number;
+          promoType?: string | null;
+        } = {};
         if (payload.qty !== undefined) body.qty = Number(payload.qty);
         if (payload.price !== undefined) body.price = Number(payload.price);
         if (payload.discountPercent !== undefined) {
           body.discountPercent = Number(payload.discountPercent);
+        }
+        if (payload.promoType !== undefined) {
+          body.promoType = payload.promoType || "NONE";
+        } else if (payload.qty !== undefined) {
+          // Clear promo on server when qty no longer meets the threshold
+          const current = order?.items.find((i) => i.id === itemId);
+          const currentPromo = parsePromoType(current?.promoType);
+          if (currentPromo && !isPromoApplicable(currentPromo, Number(payload.qty))) {
+            body.promoType = "NONE";
+          }
         }
         const r = await fetch(`${apiBaseUrl}/orders/${orderId}/items/${itemId}`, {
           method: "PATCH",
@@ -1622,7 +1677,7 @@ export function OrderModal({
         setSaving(false);
       }
     },
-    [apiBaseUrl, applyOrderToState, onSaved, orderId, pushToast, refreshOrder, refreshTimeline],
+    [apiBaseUrl, applyOrderToState, onSaved, order, orderId, pushToast, refreshOrder, refreshTimeline],
   );
 
   const deleteOrderItem = useCallback(
@@ -2930,31 +2985,70 @@ export function OrderModal({
                             </button>
                           )}
                           {showDiscounts && canEditLineDiscounts ? (
-                            <select
-                              value={it.discountPercent ?? 0}
-                              disabled={saving}
-                              onChange={(e) =>
-                                void patchOrderItem(it.id, {
-                                  discountPercent: Number(e.target.value),
-                                })
-                              }
-                              className="rounded border border-zinc-300 bg-white px-1 py-0.5 text-xs text-zinc-700"
-                              aria-label={t.lineDiscountAria}
-                            >
-                              <option value={0}>—</option>
-                              {discountOptions.map((p) => (
-                                <option key={p} value={p}>
-                                  −{p}%
-                                </option>
-                              ))}
-                            </select>
+                            <>
+                              {promoOptions.length > 0 ? (
+                                <select
+                                  value={it.promoType ?? ""}
+                                  disabled={saving}
+                                  onChange={(e) => {
+                                    const v = e.target.value;
+                                    void patchOrderItem(it.id, {
+                                      promoType: v || "NONE",
+                                      discountPercent: v ? 0 : undefined,
+                                    });
+                                  }}
+                                  className="rounded border border-zinc-300 bg-white px-1 py-0.5 text-xs text-zinc-700"
+                                  aria-label={t.linePromoAria}
+                                >
+                                  <option value="">{t.promoNone}</option>
+                                  {promoOptions.map((p) => {
+                                    const ok = isPromoApplicable(p, it.qty);
+                                    const label =
+                                      p === ORDER_PROMO_BUY_100_GET_30
+                                        ? t.promoBuy100Get30
+                                        : t.promoQty25Minus2;
+                                    return (
+                                      <option key={p} value={p} disabled={!ok}>
+                                        {label}
+                                        {!ok ? ` (${t.promoNeedQty})` : ""}
+                                      </option>
+                                    );
+                                  })}
+                                </select>
+                              ) : null}
+                              <select
+                                value={it.promoType ? 0 : (it.discountPercent ?? 0)}
+                                disabled={saving || Boolean(it.promoType)}
+                                onChange={(e) =>
+                                  void patchOrderItem(it.id, {
+                                    discountPercent: Number(e.target.value),
+                                    promoType: "NONE",
+                                  })
+                                }
+                                className="rounded border border-zinc-300 bg-white px-1 py-0.5 text-xs text-zinc-700 disabled:opacity-50"
+                                aria-label={t.lineDiscountAria}
+                              >
+                                <option value={0}>—</option>
+                                {discountOptions.map((p) => (
+                                  <option key={p} value={p}>
+                                    −{p}%
+                                  </option>
+                                ))}
+                              </select>
+                            </>
                           ) : null}
                           <span className="text-zinc-500">=</span>
                           <span className="w-14 text-right font-medium text-zinc-900">
                             {it.lineTotal.toFixed(2)}
-                            {(it.discountPercent ?? 0) > 0 ? (
+                            {(it.discountPercent ?? 0) > 0 || it.promoType ? (
                               <span className="ml-1 text-[10px] font-normal text-zinc-400 line-through">
                                 {(it.qty * it.price).toFixed(2)}
+                              </span>
+                            ) : null}
+                            {it.promoType ? (
+                              <span className="ml-1 block text-[10px] font-normal text-emerald-700">
+                                {t.promoEffectiveUnit}:{" "}
+                                {(it.lineTotal / Math.max(1, it.qty)).toFixed(2)}
                               </span>
                             ) : null}
                             {isForeignOrderCurrency(order.currency) &&

@@ -115,33 +115,37 @@ export default function VisitsTeamPage() {
     [items, selectedOwnerId],
   );
 
-  const loadRouteBundle = useCallback(async () => {
-    if (!selectedItem) {
-      setRouteBundle(null);
-      return;
-    }
-    setRouteLoading(true);
-    try {
-      const bundle = await routePlansApi.geometryBundle(today, {
-        ownerId: selectedItem.owner.id,
-        traffic: true,
-      });
-      setRouteBundle(bundle);
-    } catch {
-      setRouteBundle(null);
-    } finally {
-      setRouteLoading(false);
-    }
-  }, [selectedItem, today]);
+  const loadRouteBundle = useCallback(
+    async (silent = false) => {
+      if (!selectedOwnerId) {
+        setRouteBundle(null);
+        return;
+      }
+      if (!silent) setRouteLoading(true);
+      try {
+        const bundle = await routePlansApi.geometryBundle(today, {
+          ownerId: selectedOwnerId,
+          traffic: true,
+        });
+        setRouteBundle(bundle);
+      } catch {
+        if (!silent) setRouteBundle(null);
+      } finally {
+        if (!silent) setRouteLoading(false);
+      }
+    },
+    [selectedOwnerId, today],
+  );
 
   useEffect(() => {
+    setRouteBundle(null);
     void loadRouteBundle();
-    if (!selectedItem) return;
+    if (!selectedOwnerId) return;
     const id = setInterval(() => {
-      void loadRouteBundle();
+      void loadRouteBundle(true);
     }, POLL_MS);
     return () => clearInterval(id);
-  }, [loadRouteBundle, selectedItem]);
+  }, [loadRouteBundle, selectedOwnerId]);
 
   const loadShiftOnlyTrack = useCallback(async () => {
     if (!shiftOnly || !selectedItem) {

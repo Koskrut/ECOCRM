@@ -63,7 +63,7 @@ export function assertWarehouseOrderMutation(
 export function assertWarehouseOrderItemQtyUpdate(
   actor: AuthUser | undefined,
   orderStage: OrderStage | null | undefined,
-  dto: { qty?: number; price?: number; discountPercent?: number },
+  dto: { qty?: number; price?: number; discountPercent?: number; promoType?: string | null },
 ): void {
   if (!isWarehouseRole(actor)) return;
   if (dto.price !== undefined) {
@@ -71,6 +71,9 @@ export function assertWarehouseOrderItemQtyUpdate(
   }
   if (dto.discountPercent !== undefined) {
     throw new ForbiddenException("Кладовщик не може змінювати знижку позиції");
+  }
+  if (dto.promoType !== undefined) {
+    throw new ForbiddenException("Кладовщик не може змінювати акцію позиції");
   }
   if (dto.qty === undefined) return;
   const stage = orderStage ?? "NEW";

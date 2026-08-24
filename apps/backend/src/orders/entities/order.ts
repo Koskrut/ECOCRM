@@ -27,6 +27,7 @@ export type OrderItem = {
   qty: number;
   price: number;
   discountPercent: number;
+  promoType?: string | null;
   lineTotal: number;
 };
 

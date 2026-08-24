@@ -74,6 +74,9 @@ export function OrderFormWizard({
   const [originalLines, setOriginalLines] = useState<DraftOrderLine[]>([]);
   const [warehouseId, setWarehouseId] = useState<string | null>(null);
   const [discountPresets, setDiscountPresets] = useState<number[]>([]);
+  const [promoOptions, setPromoOptions] = useState<
+    Array<"BUY_100_GET_30" | "QTY_25_MINUS_2">
+  >(["BUY_100_GET_30", "QTY_25_MINUS_2"]);
 
   const [paymentType, setPaymentType] = useState<string | null>(null);
   const [paymentMethod, setPaymentMethod] = useState("FOP");
@@ -220,6 +223,7 @@ export function OrderFormWizard({
               qty: 1,
               price: product.basePrice ?? 0,
               discountPercent: 0,
+              promoType: null,
             },
           ];
         });
@@ -246,8 +250,18 @@ export function OrderFormWizard({
     if (!token) return;
     void settingsApi
       .orderDiscounts(token)
-      .then((cfg) => setDiscountPresets(cfg.percents ?? []))
-      .catch(() => setDiscountPresets([]));
+      .then((cfg) => {
+        setDiscountPresets(cfg.percents ?? []);
+        const promos = (cfg.promos ?? []).filter(
+          (p): p is "BUY_100_GET_30" | "QTY_25_MINUS_2" =>
+            p === "BUY_100_GET_30" || p === "QTY_25_MINUS_2",
+        );
+        setPromoOptions(promos);
+      })
+      .catch(() => {
+        setDiscountPresets([]);
+        setPromoOptions([]);
+      });
   }, [token]);
 
   function onProductSelect(product: Product) {
@@ -277,6 +291,7 @@ export function OrderFormWizard({
         qty: 1,
         price: product.basePrice ?? 0,
         discountPercent: 0,
+        promoType: null,
       },
     ]);
   }
@@ -431,6 +446,7 @@ export function OrderFormWizard({
                     index={index}
                     currency={displayCurrency}
                     discountPresets={discountPresets}
+                    promoOptions={promoOptions}
                     onChange={(patch) =>
                       setLines((prev) => prev.map((l) => (l.key === line.key ? { ...l, ...patch } : l)))
                     }

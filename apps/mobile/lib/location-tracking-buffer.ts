@@ -499,11 +499,13 @@ export async function flushPendingSamples(
           }
           if (body.ghostDuplicate === true && created === 0 && duplicate > 0) {
             void appendErrorLog(
-              `flush ghost duplicate batch=${batchId} shiftId=${sid} count=${duplicate} (buffer kept)`,
+              `flush ghost duplicate batch=${batchId} shiftId=${sid} count=${duplicate} (batch dropped, not retried)`,
               "warn",
             );
-            await applyFlushFailure("retry", pending, batch, sid, "ghost duplicate");
-            break;
+            await writePending(rest);
+            await AsyncStorage.setItem(STORAGE_KEYS.LAST_FLUSH_AT, new Date().toISOString());
+            if (rest.length === 0) break;
+            continue;
           }
         } catch {
           /* non-JSON body — treat as full batch accepted */

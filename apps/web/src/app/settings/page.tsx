@@ -1,13 +1,23 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { Search, Server, Settings2 } from "lucide-react";
 import { apiHttp } from "@/lib/api/client";
 import { useModules } from "@/lib/modules/useModules";
 import { settingsHrefModuleId } from "@/lib/modules/pathModuleGating";
 import { SettingCard, SettingCardSkeleton } from "@/components/SettingCard";
-import { HelpHint } from "@/components/help/HelpHint";
+import { PageShell } from "@/components/PageShell";
+import { EmptyState } from "@/components/feedback/EmptyState";
 import { strings } from "@/locales";
+import {
+  allCards,
+  filterSettingsCards,
+  SETTINGS_GROUP_ORDER,
+  GROUP_ICON_BG,
+  type CardDescriptor,
+  type SettingsGroup,
+} from "@/lib/settings/settings-hub-cards";
 
 type SystemReleaseResponse = {
   version: string | null;
@@ -21,102 +31,20 @@ function dash(v: string | null | undefined): string {
   return v != null && v !== "" ? v : "—";
 }
 
-type CardDescriptor = {
-  href: string;
-  title: string;
-  desc: string;
-  group: "accessTeam" | "salesProcesses" | "integrations" | "system" | "advanced";
-  /** When non-null, the card is shown only if the role matches. */
-  adminOnly?: boolean;
-  /** Visible to ADMIN and LEAD (not MANAGER). */
-  leadAccess?: boolean;
-  accent?: boolean;
-};
-
-function allCards(): CardDescriptor[] {
-  const t = strings.settings.cards;
-  return [
-    { href: "/settings/access", title: t.access.title, desc: t.access.desc, group: "accessTeam" },
-    { href: "/employees", title: t.employees.title, desc: t.employees.desc, group: "accessTeam" },
-    {
-      href: "/settings/notifications",
-      title: "Сповіщення",
-      desc: "In-app, browser push та Telegram для подій CRM",
-      group: "accessTeam",
-    },
-    {
-      href: "/settings/day-plan",
-      title: t.dayPlan.title,
-      desc: t.dayPlan.desc,
-      group: "salesProcesses",
-      leadAccess: true,
-    },
-    {
-      href: "/settings/orders-pipeline",
-      title: t.ordersPipeline.title,
-      desc: t.ordersPipeline.desc,
-      group: "salesProcesses",
-      adminOnly: true,
-    },
-    {
-      href: "/settings/order-discounts",
-      title: t.orderDiscounts.title,
-      desc: t.orderDiscounts.desc,
-      group: "salesProcesses",
-      adminOnly: true,
-    },
-    {
-      href: "/settings/leads-pipeline",
-      title: t.leadsPipeline.title,
-      desc: t.leadsPipeline.desc,
-      group: "salesProcesses",
-      adminOnly: true,
-    },
-    { href: "/settings/exchange-rates", title: t.exchangeRates.title, desc: t.exchangeRates.desc, group: "salesProcesses" },
-    { href: "/settings/google-maps", title: t.googleMaps.title, desc: t.googleMaps.desc, group: "integrations" },
-    { href: "/settings/meta-lead-ads", title: t.metaLeadAds.title, desc: t.metaLeadAds.desc, group: "integrations" },
-    { href: "/settings/meta-messaging", title: t.metaMessaging.title, desc: t.metaMessaging.desc, group: "integrations" },
-    { href: "/settings/bank", title: t.bank.title, desc: t.bank.desc, group: "integrations" },
-    { href: "/settings/privat24", title: t.privat24.title, desc: t.privat24.desc, group: "integrations" },
-    { href: "/settings/upc", title: t.upc.title, desc: t.upc.desc, group: "integrations" },
-    {
-      href: "/settings/integrations/1c-payments",
-      title: t.oneCPayments.title,
-      desc: t.oneCPayments.desc,
-      group: "integrations",
-      leadAccess: true,
-    },
-    { href: "/settings/google-sheet", title: t.googleSheet.title, desc: t.googleSheet.desc, group: "integrations" },
-    { href: "/settings/nova-poshta", title: t.novaPoshta.title, desc: t.novaPoshta.desc, group: "integrations" },
-    { href: "/settings/ringostat", title: t.ringostat.title, desc: t.ringostat.desc, group: "integrations" },
-    { href: "/settings/kyivstar-fmc", title: t.kyivstarFmc.title, desc: t.kyivstarFmc.desc, group: "integrations" },
-    { href: "/settings/outbound-voice", title: t.outboundVoice.title, desc: t.outboundVoice.desc, group: "integrations" },
-    { href: "/settings/telegram", title: t.telegram.title, desc: t.telegram.desc, group: "integrations" },
-    { href: "/settings/store", title: t.store.title, desc: t.store.desc, group: "integrations" },
-    { href: "/settings/health", title: t.health.title, desc: t.health.desc, group: "system", adminOnly: true },
-    {
-      href: "/settings/metadata",
-      title: t.metadata.title,
-      desc: t.metadata.desc,
-      group: "advanced",
-      adminOnly: true,
-      accent: true,
-    },
-    {
-      href: "/settings/data-import",
-      title: t.dataImport.title,
-      desc: t.dataImport.desc,
-      group: "advanced",
-      adminOnly: true,
-    },
-  ];
-}
-
 export default function SettingsHomePage() {
   const [role, setRole] = useState<string | null>(null);
   const [release, setRelease] = useState<SystemReleaseResponse | null>(null);
   const [releaseError, setReleaseError] = useState<string | null>(null);
   const { status: modulesStatus, effective: moduleEffective } = useModules();
+
+  const [query, setQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
+  const [groupFilter, setGroupFilter] = useState<SettingsGroup | "all">("all");
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedQuery(query.trim()), 250);
+    return () => clearTimeout(timer);
+  }, [query]);
 
   useEffect(() => {
     apiHttp
@@ -146,119 +74,256 @@ export default function SettingsHomePage() {
   }, [role]);
 
   const t = strings.settings;
-  const groupOrder: Array<CardDescriptor["group"]> = ["accessTeam", "salesProcesses", "integrations", "system", "advanced"];
-  const cardsByGroup = new Map<CardDescriptor["group"], CardDescriptor[]>(
-    groupOrder.map((group) => [group, []]),
+
+  const visibleCards = useMemo(() => {
+    const cards: CardDescriptor[] = [];
+    for (const card of allCards()) {
+      if (card.adminOnly && role !== "ADMIN") continue;
+      if (card.leadAccess && role !== "ADMIN" && role !== "LEAD") continue;
+      const mid = settingsHrefModuleId(card.href);
+      if (mid) {
+        if (modulesStatus !== "ready") continue;
+        if (!moduleEffective(mid)) continue;
+      }
+      cards.push(card);
+    }
+    return cards;
+  }, [role, modulesStatus, moduleEffective]);
+
+  const filtered = useMemo(
+    () => filterSettingsCards(visibleCards, debouncedQuery, groupFilter),
+    [visibleCards, debouncedQuery, groupFilter],
   );
 
-  for (const card of allCards()) {
-    if (card.adminOnly && role !== "ADMIN") continue;
-    if (card.leadAccess && role !== "ADMIN" && role !== "LEAD") continue;
-    const mid = settingsHrefModuleId(card.href);
-    if (mid) {
-      // Fail-closed: while modules are loading or errored, hide module-gated sections.
-      if (modulesStatus !== "ready") continue;
-      if (!moduleEffective(mid)) continue;
+  const cardsByGroup = useMemo(() => {
+    const map = new Map<SettingsGroup, CardDescriptor[]>(
+      SETTINGS_GROUP_ORDER.map((g) => [g, []]),
+    );
+    for (const card of filtered) {
+      map.get(card.group)?.push(card);
     }
-    cardsByGroup.get(card.group)?.push(card);
-  }
+    return map;
+  }, [filtered]);
+
+  const isSearching = debouncedQuery.length > 0 || groupFilter !== "all";
+
+  const modulesBanner =
+    modulesStatus === "error" ? (
+      <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+        {strings.modules.apiErrorBanner}
+      </div>
+    ) : null;
 
   return (
-    <div className="mx-auto w-full max-w-6xl">
-      <div className="mb-2 flex items-start justify-between gap-4">
-        <h1 className="text-2xl font-bold text-zinc-900">{t.pageTitle}</h1>
-        <HelpHint routeKey="settings" />
-      </div>
-      <p className="mb-6 text-sm text-zinc-500">{t.pageSubtitle}</p>
-
+    <PageShell
+      title={t.pageTitle}
+      subtitle={t.pageSubtitle}
+      icon={Settings2}
+      helpRouteKey="settings"
+      banner={modulesBanner}
+    >
+      {/* Release card (ADMIN only) */}
       {role === "ADMIN" ? (
-        <div className="mb-6 rounded-lg border border-zinc-200 bg-white p-4 text-sm shadow-sm">
-          <div className="font-semibold text-zinc-900">{t.release.title}</div>
-          <p className="mt-1 text-zinc-500">{t.release.hint}</p>
-          {releaseError ? (
-            <p className="mt-2 text-red-600">{releaseError}</p>
-          ) : release ? (
-            <dl className="mt-3 grid gap-1 sm:grid-cols-2">
-              <div>
-                <dt className="text-zinc-500">{t.release.version}</dt>
-                <dd className="font-mono text-zinc-900">{dash(release.version)}</dd>
+        <ReleaseCard release={release} releaseError={releaseError} />
+      ) : null}
+
+      {/* Search + group chips */}
+      <div className="mb-6 space-y-3">
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" aria-hidden />
+          <input
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder={t.searchPlaceholder}
+            className="w-full rounded-lg border border-zinc-200 bg-white py-2 pl-10 pr-3 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-zinc-400 focus:outline-none focus:ring-1 focus:ring-zinc-400"
+          />
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <ChipButton
+            active={groupFilter === "all"}
+            onClick={() => setGroupFilter("all")}
+          >
+            {t.filterAll}
+          </ChipButton>
+          {SETTINGS_GROUP_ORDER.map((g) => {
+            const count = visibleCards.filter((c) => c.group === g).length;
+            if (count === 0) return null;
+            return (
+              <ChipButton
+                key={g}
+                active={groupFilter === g}
+                onClick={() => setGroupFilter(g)}
+              >
+                {t.groups[g].title}
+              </ChipButton>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Cards grid */}
+      {filtered.length === 0 && isSearching ? (
+        <EmptyState
+          icon={Search}
+          title={t.noResultsTitle}
+          description={t.noResultsDesc}
+        />
+      ) : (
+        SETTINGS_GROUP_ORDER.map((group) => {
+          const cards = cardsByGroup.get(group) ?? [];
+          const isIntegrations = group === "integrations";
+
+          if (cards.length === 0 && !(isIntegrations && modulesStatus === "loading" && !isSearching)) {
+            return null;
+          }
+
+          return (
+            <section key={group} className="mb-8">
+              <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                {t.groups[group].title}
               </div>
-              <div>
-                <dt className="text-zinc-500">{t.release.gitSha}</dt>
-                <dd className="font-mono text-zinc-900">{dash(release.gitSha)}</dd>
-              </div>
-              <div>
-                <dt className="text-zinc-500">{t.release.builtAt}</dt>
-                <dd className="font-mono text-zinc-900">{dash(release.builtAt)}</dd>
-              </div>
-              <div>
-                <dt className="text-zinc-500">{t.release.imageTag}</dt>
-                <dd className="font-mono text-zinc-900">{dash(release.imageTag)}</dd>
-              </div>
-            </dl>
-          ) : (
-            <p className="mt-2 text-zinc-400">{strings.common.loading}</p>
-          )}
-          {release ? (
-            <p className="mt-3 border-t border-zinc-100 pt-3 text-zinc-600">
-              {release.update.message}
-              {release.update.mode === "agent_available" ? (
-                <>
-                  {" "}
-                  <Link href="/settings/health" className="font-medium text-zinc-900 underline hover:text-zinc-700">
-                    Стан системи →
-                  </Link>
-                </>
+              {!isSearching ? (
+                <p className="mb-4 text-sm text-zinc-500">{t.groups[group].desc}</p>
               ) : null}
-            </p>
-          ) : null}
-        </div>
-      ) : null}
+              {isIntegrations && modulesStatus === "loading" && !isSearching ? (
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  <SettingCardSkeleton />
+                  <SettingCardSkeleton />
+                  <SettingCardSkeleton />
+                </div>
+              ) : (
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  {cards.map((c) => (
+                    <SettingCard
+                      key={c.href}
+                      href={c.href}
+                      title={c.title}
+                      description={c.desc}
+                      icon={c.icon}
+                      iconClassName={GROUP_ICON_BG[c.group]}
+                      accent={c.accent}
+                    />
+                  ))}
+                </div>
+              )}
+            </section>
+          );
+        })
+      )}
 
-      {modulesStatus === "error" ? (
-        <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-          {strings.modules.apiErrorBanner}
-        </div>
-      ) : null}
-
-      {groupOrder.map((group) => {
-        const cards = cardsByGroup.get(group) ?? [];
-        const title = t.groups[group].title;
-        const desc = t.groups[group].desc;
-        const isIntegrations = group === "integrations";
-        if (cards.length === 0 && !(isIntegrations && modulesStatus === "loading")) return null;
-        return (
-          <section key={group} className="mt-8">
-            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">{title}</div>
-            <p className="mb-4 text-sm text-zinc-500">{desc}</p>
-            {isIntegrations && modulesStatus === "loading" ? (
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                <SettingCardSkeleton />
-                <SettingCardSkeleton />
-                <SettingCardSkeleton />
-              </div>
-            ) : (
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {cards.map((c) => (
-                  <SettingCard
-                    key={c.href}
-                    href={c.href}
-                    title={c.title}
-                    description={c.desc}
-                    accent={c.accent}
-                  />
-                ))}
-              </div>
-            )}
-          </section>
-        );
-      })}
-
-      {modulesStatus === "ready" && (cardsByGroup.get("integrations")?.length ?? 0) === 0 ? (
+      {modulesStatus === "ready" && visibleCards.filter((c) => c.group === "integrations").length === 0 ? (
         <div className="mt-6 rounded-lg border border-dashed border-zinc-300 bg-white p-6 text-sm text-zinc-500">
           {strings.modules.unavailableNotEffective}
         </div>
       ) : null}
+    </PageShell>
+  );
+}
+
+function ChipButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+        active
+          ? "border-zinc-900 bg-zinc-900 text-white"
+          : "border-zinc-200 bg-white text-zinc-600 hover:border-zinc-300 hover:bg-zinc-50"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function ReleaseCard({
+  release,
+  releaseError,
+}: {
+  release: SystemReleaseResponse | null;
+  releaseError: string | null;
+}) {
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const t = strings.settings.release;
+
+  return (
+    <div className="mb-6 rounded-lg border border-zinc-200 bg-white p-4 text-sm shadow-sm">
+      <div className="flex items-center gap-3">
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-zinc-100 text-zinc-500">
+          <Server className="h-4 w-4" aria-hidden />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="font-semibold text-zinc-900">{t.title}</div>
+          <p className="mt-0.5 text-xs text-zinc-500">{t.hint}</p>
+        </div>
+      </div>
+
+      {releaseError ? (
+        <p className="mt-3 text-red-600">{releaseError}</p>
+      ) : release ? (
+        <>
+          <div className="mt-3 flex flex-wrap items-baseline gap-x-4 gap-y-1 text-zinc-700">
+            <span>
+              <span className="text-zinc-500">{t.version}:</span>{" "}
+              <span className="font-mono font-medium">{dash(release.version)}</span>
+            </span>
+            <span>
+              <span className="text-zinc-500">{t.builtAt}:</span>{" "}
+              <span className="font-mono">{dash(release.builtAt)}</span>
+            </span>
+          </div>
+
+          {(release.gitSha || release.imageTag) ? (
+            <div className="mt-2">
+              <button
+                type="button"
+                onClick={() => setDetailsOpen((v) => !v)}
+                className="text-xs font-medium text-zinc-500 hover:text-zinc-700"
+              >
+                {detailsOpen ? t.hideDetails : t.showDetails}
+              </button>
+              {detailsOpen ? (
+                <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-zinc-600">
+                  <span>
+                    <span className="text-zinc-400">{t.gitSha}:</span>{" "}
+                    <span className="font-mono">{dash(release.gitSha)}</span>
+                  </span>
+                  <span>
+                    <span className="text-zinc-400">{t.imageTag}:</span>{" "}
+                    <span className="font-mono">{dash(release.imageTag)}</span>
+                  </span>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
+          <div className="mt-3 border-t border-zinc-100 pt-3 text-zinc-600">
+            {release.update.message}
+            {release.update.mode === "agent_available" ? (
+              <>
+                {" "}
+                <Link
+                  href="/settings/health"
+                  className="font-medium text-zinc-900 hover:text-zinc-700"
+                >
+                  {t.systemHealth} →
+                </Link>
+              </>
+            ) : null}
+          </div>
+        </>
+      ) : (
+        <p className="mt-3 text-zinc-400">{strings.common.loading}</p>
+      )}
     </div>
   );
 }

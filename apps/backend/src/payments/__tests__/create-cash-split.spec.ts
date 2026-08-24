@@ -198,6 +198,56 @@ describe("PaymentsService.createCash dedup 409", () => {
     assert.equal(findFirst.calls.length, 1);
   });
 
+  it("allows the same amount on a different order of the same client", async () => {
+    const paymentCreate = mockFn(async () => ({ id: "p-new" }));
+    const findFirst = mockFn(async (args: { where?: { OR?: Array<{ orderId?: string }> } }) => {
+      const or = args.where?.OR ?? [];
+      const looksAtO2 = or.some((f) => f.orderId === "o2");
+      if (looksAtO2) return null;
+      return {
+        id: "existing",
+        orderId: "o1",
+        amount: 40,
+        currency: "USD",
+        paidAt,
+        status: PaymentStatus.COMPLETED,
+        sourceType: PaymentSourceType.CASH,
+        order: { orderNumber: "ORD-1" },
+        createdBy: { fullName: "Manager" },
+      };
+    });
+    const prisma = {
+      order: {
+        findUnique: mockFn(async (args: { where: { id: string } }) => ({
+          id: args.where.id,
+          ownerId: "m1",
+          currency: "USD",
+          clientId: "c1",
+          contactId: null,
+        })),
+        update: mockFn(async () => ({})),
+      },
+      payment: { findFirst, create: paymentCreate, findMany: mockFn(async () => []) },
+    };
+    const settings = { getExchangeRates: async () => ({ UAH_TO_USD: 0.024 }) };
+    const audit = mockAudit();
+    const svc = new PaymentsService(prisma as any, settings as any, {} as any, audit as any);
+    (svc as any).recalcOrder = mockFn(async () => {});
+
+    await svc.createCash(
+      {
+        orderId: "o2",
+        amount: 40,
+        currency: "USD",
+        paidAt: paidAt.toISOString(),
+      },
+      manager(),
+    );
+    assert.equal(paymentCreate.calls.length, 1);
+    const orFilter = findFirst.calls[0]?.[0]?.where?.OR as Array<{ orderId?: string }>;
+    assert.deepEqual(orFilter, [{ orderId: "o2", amount: 40 }]);
+  });
+
   it("creates payment when confirmDuplicate is true", async () => {
     const paymentCreate = mockFn(async () => ({ id: "p-new" }));
     const prisma = {

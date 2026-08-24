@@ -169,12 +169,18 @@ const STORE_CONFIG_KEY = "store_config";
 const ORG_CHART_STRUCTURE_KEY = "org_chart_structure";
 const ORDER_LINE_DISCOUNTS_KEY = "order_line_discounts";
 
+export const ORDER_PROMO_SETTING_IDS = ["BUY_100_GET_30", "QTY_25_MINUS_2"] as const;
+export type OrderPromoSettingId = (typeof ORDER_PROMO_SETTING_IDS)[number];
+
 export type OrderLineDiscountsConfig = {
   percents: number[];
+  /** Enabled manager-selectable line promos. */
+  promos: OrderPromoSettingId[];
 };
 
 const DEFAULT_ORDER_LINE_DISCOUNTS: OrderLineDiscountsConfig = {
   percents: [5, 10, 15, 20, 25, 30],
+  promos: [...ORDER_PROMO_SETTING_IDS],
 };
 
 export function normalizeOrderLineDiscountPercents(raw: unknown): number[] {
@@ -184,6 +190,19 @@ export function normalizeOrderLineDiscountPercents(raw: unknown): number[] {
     .filter((n) => Number.isFinite(n) && n >= 1 && n <= 100);
   const unique = [...new Set(nums)].sort((a, b) => a - b);
   return unique.length > 0 ? unique : [...DEFAULT_ORDER_LINE_DISCOUNTS.percents];
+}
+
+export function normalizeOrderLinePromos(raw: unknown): OrderPromoSettingId[] {
+  if (raw === undefined) return [...DEFAULT_ORDER_LINE_DISCOUNTS.promos];
+  if (!Array.isArray(raw)) return [...DEFAULT_ORDER_LINE_DISCOUNTS.promos];
+  const allowed = new Set<string>(ORDER_PROMO_SETTING_IDS);
+  const unique: OrderPromoSettingId[] = [];
+  for (const v of raw) {
+    if (typeof v !== "string" || !allowed.has(v)) continue;
+    const id = v as OrderPromoSettingId;
+    if (!unique.includes(id)) unique.push(id);
+  }
+  return unique;
 }
 
 const DEFAULT_STORE_CONFIG: StoreConfig = {
@@ -454,20 +473,32 @@ export class SettingsService {
       where: { id: ORDER_LINE_DISCOUNTS_KEY },
     });
     if (!row?.value || typeof row.value !== "object") {
-      return { percents: [...DEFAULT_ORDER_LINE_DISCOUNTS.percents] };
+      return {
+        percents: [...DEFAULT_ORDER_LINE_DISCOUNTS.percents],
+        promos: [...DEFAULT_ORDER_LINE_DISCOUNTS.promos],
+      };
     }
     const v = row.value as Record<string, unknown>;
-    return { percents: normalizeOrderLineDiscountPercents(v.percents) };
+    return {
+      percents: normalizeOrderLineDiscountPercents(v.percents),
+      promos: normalizeOrderLinePromos(v.promos),
+    };
   }
 
   async setOrderLineDiscounts(
     body: Partial<OrderLineDiscountsConfig>,
   ): Promise<OrderLineDiscountsConfig> {
-    const percents = normalizeOrderLineDiscountPercents(body.percents);
+    const current = await this.getOrderLineDiscounts();
+    const percents =
+      body.percents !== undefined
+        ? normalizeOrderLineDiscountPercents(body.percents)
+        : current.percents;
     if (percents.length === 0) {
       throw new BadRequestException("At least one discount percent must be enabled");
     }
-    const next: OrderLineDiscountsConfig = { percents };
+    const promos =
+      body.promos !== undefined ? normalizeOrderLinePromos(body.promos) : current.promos;
+    const next: OrderLineDiscountsConfig = { percents, promos };
     await this.prisma.systemSetting.upsert({
       where: { id: ORDER_LINE_DISCOUNTS_KEY },
       create: { id: ORDER_LINE_DISCOUNTS_KEY, value: next },

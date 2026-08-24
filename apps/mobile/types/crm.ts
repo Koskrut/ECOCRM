@@ -207,6 +207,7 @@ export type OrderItem = {
   qty: number;
   price: number;
   discountPercent: number;
+  promoType?: string | null;
   lineTotal: number;
   product?: { sku?: string | null; name?: string | null } | null;
 };
@@ -299,6 +300,7 @@ export type DraftOrderLine = {
   qty: number;
   price: number;
   discountPercent: number;
+  promoType?: string | null;
 };
 
 export type Order = {

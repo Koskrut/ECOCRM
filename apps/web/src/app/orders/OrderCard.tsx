@@ -2,6 +2,7 @@
 
 import { AlertTriangle, CheckCircle2, Globe, MailPlus } from "lucide-react";
 import { DocumentsRequestedBadge } from "@/components/orders/DocumentsRequestedBadge";
+import { OrderPromoBadge } from "@/components/orders/OrderPromoBadge";
 import { StatusBadge } from "@/components/StatusBadge";
 import { formatOrderAmount } from "@/lib/formatOrderAmount";
 import { formatRelativeTime } from "@/lib/formatRelativeTime";
@@ -30,6 +31,7 @@ export type OrderCardOrder = {
   warehouseId?: string | null;
   warehouse?: { id: string; name: string } | null;
   documentsRequested?: boolean | null;
+  hasPromo?: boolean | null;
 };
 
 export function OrderCard({
@@ -84,6 +86,7 @@ export function OrderCard({
               </span>
             )}
             <DocumentsRequestedBadge documentsRequested={order.documentsRequested} />
+            <OrderPromoBadge hasPromo={order.hasPromo} />
           </div>
           <div className="mt-0.5 text-xs text-zinc-500">{formatRelativeTime(order.createdAt)}</div>
         </div>

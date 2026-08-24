@@ -23,6 +23,15 @@ import {
 } from "./one-c-payments-matcher.service";
 
 export const TARGET_ENTITY_PAYMENTS_1C = "PAYMENTS_1C";
+const DEBT_TOLERANCE = 1;
+
+type PaymentAllocation = {
+  orderId: string;
+  amount: number;
+  amountOv: number | null;
+  note: string;
+  importKey: string;
+};
 
 type StagingSummary = {
   phase: string;
@@ -71,6 +80,69 @@ export class OneCPaymentsImportService {
     private readonly matcher: OneCPaymentsMatcherService,
     private readonly payments: PaymentsService,
   ) {}
+
+  private buildAllocations(params: {
+    row: OneCPaymentExcelRow;
+    match: OneCMatchResult | undefined;
+    overrideOrderId: string | null;
+  }): PaymentAllocation[] {
+    const { row, match, overrideOrderId } = params;
+    const noteParts = [row.purpose];
+    if (row.isNovaPay) noteParts.unshift("[NovaPay]");
+    noteParts.push(`(1C doc #${row.documentNumber})`);
+    const baseNote = noteParts.filter(Boolean).join(" ").slice(0, 2000);
+
+    if (overrideOrderId) {
+      return [
+        {
+          orderId: overrideOrderId,
+          amount: row.amountLv,
+          amountOv: row.amountOv,
+          note: baseNote,
+          importKey: row.importKey,
+        },
+      ];
+    }
+    if (match?.order?.orderId) {
+      return [
+        {
+          orderId: match.order.orderId,
+          amount: row.amountLv,
+          amountOv: row.amountOv,
+          note: baseNote,
+          importKey: row.importKey,
+        },
+      ];
+    }
+
+    const orders = [...(match?.contactOrders ?? [])].sort((a, b) => a.debtAmount - b.debtAmount);
+    if (!orders.length) return [];
+
+    let remaining = row.amountLv;
+    const allocations: PaymentAllocation[] = [];
+    let idx = 1;
+    for (const o of orders) {
+      if (remaining <= DEBT_TOLERANCE) break;
+      const amount = Math.min(remaining, o.debtAmount);
+      if (amount <= 0) continue;
+      const ratio = row.amountLv > 0 ? amount / row.amountLv : 0;
+      allocations.push({
+        orderId: o.orderId,
+        amount: Number(amount.toFixed(2)),
+        amountOv:
+          row.amountOv != null && Number.isFinite(row.amountOv)
+            ? Number((row.amountOv * ratio).toFixed(2))
+            : null,
+        note: `${baseNote} [split ${idx}]`,
+        importKey: `${row.importKey}#${idx}`,
+      });
+      remaining -= amount;
+      idx += 1;
+    }
+    const allocated = allocations.reduce((sum, a) => sum + a.amount, 0);
+    if (Math.abs(allocated - row.amountLv) > DEBT_TOLERANCE) return [];
+    return allocations;
+  }
 
   async upload(params: {
     actor: AuthUser;
@@ -238,15 +310,20 @@ export class OneCPaymentsImportService {
         continue;
       }
 
-      let orderId = overrideOrderId ?? match?.order?.orderId ?? null;
-      if (!orderId) {
+      const allocations = this.buildAllocations({ row, match, overrideOrderId });
+      if (!allocations.length) {
         skipped += 1;
         continue;
       }
 
       // Re-check dedup
-      const existing = await this.prisma.payment.findUnique({
-        where: { oneCImportKey: row.importKey },
+      const existing = await this.prisma.payment.findFirst({
+        where: {
+          OR: [
+            { oneCImportKey: row.importKey },
+            { oneCImportKey: { startsWith: `${row.importKey}#` } },
+          ],
+        },
         select: { id: true },
       });
       if (existing) {
@@ -254,52 +331,49 @@ export class OneCPaymentsImportService {
         continue;
       }
 
-      const order = await this.prisma.order.findUnique({
-        where: { id: orderId },
-        select: { id: true, contactId: true, clientId: true, companyId: true, currency: true },
-      });
-      if (!order) {
-        errors.push({ importKey: row.importKey, message: `Order ${orderId} not found` });
-        continue;
-      }
-
-      const noteParts = [row.purpose];
-      if (row.isNovaPay) noteParts.unshift("[NovaPay]");
-      noteParts.push(`(1C doc #${row.documentNumber})`);
-      const note = noteParts.filter(Boolean).join(" ").slice(0, 2000);
-
-      try {
-        const payment = await this.prisma.payment.create({
-          data: {
-            orderId: order.id,
-            contactId: order.contactId ?? order.clientId ?? null,
-            companyId: order.companyId ?? null,
-            sourceType: PaymentSourceType.ONE_C,
-            amount: new Prisma.Decimal(row.amountLv),
-            currency: row.currency || "UAH",
-            amountUsd:
-              row.amountOv != null && Number.isFinite(row.amountOv)
-                ? new Prisma.Decimal(row.amountOv)
-                : null,
-            paidAt: row.paidAt,
-            status: PaymentStatus.COMPLETED,
-            createdByUserId: actor.id,
-            note,
-            oneCImportKey: row.importKey,
-          },
+      for (const allocation of allocations) {
+        const order = await this.prisma.order.findUnique({
+          where: { id: allocation.orderId },
+          select: { id: true, contactId: true, clientId: true, companyId: true, currency: true },
         });
-        paymentIds.push(payment.id);
-        touchedOrderIds.add(order.id);
-        created += 1;
-      } catch (e) {
-        if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
-          skipped += 1;
+        if (!order) {
+          errors.push({ importKey: row.importKey, message: `Order ${allocation.orderId} not found` });
           continue;
         }
-        errors.push({
-          importKey: row.importKey,
-          message: e instanceof Error ? e.message : String(e),
-        });
+
+        try {
+          const payment = await this.prisma.payment.create({
+            data: {
+              orderId: order.id,
+              contactId: order.contactId ?? order.clientId ?? null,
+              companyId: order.companyId ?? null,
+              sourceType: PaymentSourceType.ONE_C,
+              amount: new Prisma.Decimal(allocation.amount),
+              currency: row.currency || "UAH",
+              amountUsd:
+                allocation.amountOv != null && Number.isFinite(allocation.amountOv)
+                  ? new Prisma.Decimal(allocation.amountOv)
+                  : null,
+              paidAt: row.paidAt,
+              status: PaymentStatus.COMPLETED,
+              createdByUserId: actor.id,
+              note: allocation.note,
+              oneCImportKey: allocation.importKey,
+            },
+          });
+          paymentIds.push(payment.id);
+          touchedOrderIds.add(order.id);
+          created += 1;
+        } catch (e) {
+          if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
+            skipped += 1;
+            continue;
+          }
+          errors.push({
+            importKey: row.importKey,
+            message: e instanceof Error ? e.message : String(e),
+          });
+        }
       }
     }
 
@@ -478,7 +552,7 @@ export class OneCPaymentsImportService {
       counts[r.status] = (counts[r.status] ?? 0) + 1;
       if (
         r.status !== "ALREADY_IMPORTED" &&
-        (r.overrideOrderId || r.order?.orderId) &&
+        (r.overrideOrderId || r.order?.orderId || r.contactOrders.length > 1) &&
         (r.status === "MATCHED" ||
           r.status === "CONTACT_MISMATCH" ||
           r.overrideOrderId)

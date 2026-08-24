@@ -974,7 +974,7 @@ function AddCashPaymentModal({
   const idempotencyKeyRef = useRef<string | null>(null);
   const lastSubmitAtRef = useRef(0);
 
-  const submit = async () => {
+  const submit = async (confirmDuplicate = false) => {
     if (submitting) return;
     const now = Date.now();
     if (now - lastSubmitAtRef.current < 500) return;
@@ -1004,11 +1004,59 @@ function AddCashPaymentModal({
           currency: paymentCurrency,
           paidAt: new Date(paidAt).toISOString(),
           note: note.trim() || undefined,
+          ...(confirmDuplicate ? { confirmDuplicate: true } : {}),
         }),
       });
       if (!r.ok) {
-        const t = await r.text();
-        throw new Error(t || `HTTP ${r.status}`);
+        type CashDupExisting = {
+          orderNumber?: string | null;
+          amount?: number;
+          currency?: string;
+        };
+        type CashPayErrorNested = {
+          code?: string;
+          message?: string;
+          existing?: CashDupExisting;
+        };
+        type CashPayErrorBody = {
+          message?: string | CashPayErrorNested;
+          code?: string;
+        };
+        let body: CashPayErrorBody | null = null;
+        try {
+          body = (await r.json()) as CashPayErrorBody;
+        } catch {
+          body = null;
+        }
+        const nested: CashPayErrorNested | CashPayErrorBody | null =
+          body && typeof body.message === "object" && body.message !== null ? body.message : body;
+        const dupCode =
+          nested && "code" in nested && typeof nested.code === "string" ? nested.code : body?.code;
+        const existing: CashDupExisting | undefined =
+          nested && "existing" in nested
+            ? (nested.existing as CashDupExisting | undefined)
+            : undefined;
+        if (r.status === 409 && dupCode === "CASH_PAYMENT_DUPLICATE" && !confirmDuplicate) {
+          const exLabel = existing
+            ? strings.payments.cashDuplicateExisting(
+                existing.orderNumber ?? "—",
+                `${existing.amount?.toFixed(2) ?? "?"} ${existing.currency ?? ""}`,
+              )
+            : "";
+          if (window.confirm(`${strings.payments.cashDuplicateConfirm}\n${exLabel}`)) {
+            setSubmitting(false);
+            lastSubmitAtRef.current = 0;
+            await submit(true);
+            return;
+          }
+          setError(strings.payments.cashDuplicateConfirm);
+          return;
+        }
+        const nestedMsg =
+          nested && "message" in nested && typeof nested.message === "string" ? nested.message : null;
+        const msg =
+          (typeof body?.message === "string" && body.message) || nestedMsg || `HTTP ${r.status}`;
+        throw new Error(msg);
       }
       idempotencyKeyRef.current = null;
       onSaved();

@@ -59,10 +59,20 @@ export class OneCPaymentsMatcherService {
   async matchRows(rows: OneCPaymentExcelRow[]): Promise<OneCMatchResult[]> {
     const importKeys = rows.map((r) => r.importKey);
     const existing = await this.prisma.payment.findMany({
-      where: { oneCImportKey: { in: importKeys } },
+      where: {
+        OR: [
+          { oneCImportKey: { in: importKeys } },
+          ...importKeys.map((k) => ({ oneCImportKey: { startsWith: `${k}#` } })),
+        ],
+      },
       select: { oneCImportKey: true, orderId: true },
     });
-    const existingKeys = new Set(existing.map((p) => p.oneCImportKey).filter(Boolean) as string[]);
+    const existingKeys = new Set(
+      existing
+        .map((p) => p.oneCImportKey)
+        .filter(Boolean)
+        .map((k) => (k!.includes("#") ? k!.slice(0, k!.indexOf("#")) : k!)),
+    );
 
     const enterpriseCodes = [
       ...new Set(rows.map((r) => r.enterpriseCode).filter(Boolean)),
@@ -146,8 +156,12 @@ export class OneCPaymentsMatcherService {
     }
 
     const results: OneCMatchResult[] = [];
+    // Track which orders have already been assigned to avoid double-matching
+    const usedOrderIds = new Set<string>();
     for (const row of rows) {
-      results.push(await this.matchOne(row, existingKeys, contactByNormCode, contactOrdersMap));
+      const result = await this.matchOne(row, existingKeys, contactByNormCode, contactOrdersMap, usedOrderIds);
+      if (result.order) usedOrderIds.add(result.order.orderId);
+      results.push(result);
     }
     return results;
   }
@@ -166,6 +180,7 @@ export class OneCPaymentsMatcherService {
       }
     >,
     contactOrdersMap: Map<string, OneCMatchedOrder[]>,
+    usedOrderIds: Set<string>,
   ): Promise<OneCMatchResult> {
     const warnings: string[] = [];
     const contact = row.enterpriseCode ? contactByNormCode.get(row.enterpriseCode) ?? null : null;
@@ -241,28 +256,44 @@ export class OneCPaymentsMatcherService {
         }
       }
 
-      // Auto-match: if contact has exactly one order with debt and no ref match, suggest it
-      if (!order && contactOrders.length === 1) {
-        order = contactOrders[0]!;
-        matchSource = null;
-        warnings.push("Єдине замовлення клієнта з боргом — обрано автоматично");
+      if (!order) {
+        const available = contactOrders.filter((o) => !usedOrderIds.has(o.orderId));
+
+        // Try exact amount match among available orders
+        const amountMatch = available.find(
+          (o) => Math.abs(o.debtAmount - row.amountLv) <= DEBT_TOLERANCE,
+        );
+        if (amountMatch) {
+          order = amountMatch;
+          matchSource = null;
+          warnings.push("Автоматично підібрано за сумою боргу");
+        } else if (available.length === 1) {
+          order = available[0]!;
+          matchSource = null;
+          warnings.push("Єдине доступне замовлення клієнта з боргом");
+        }
       }
     }
 
     if (!order) {
+      const totalDebt = contactOrders.reduce((sum, o) => sum + o.debtAmount, 0);
+      const canAutoDistribute = contactOrders.length > 1 && totalDebt + DEBT_TOLERANCE >= row.amountLv;
       return {
         rowIndex: row.rowIndex,
         importKey: row.importKey,
-        status: "UNMATCHED",
+        status: canAutoDistribute ? "MATCHED" : "UNMATCHED",
         matchSource: null,
         matchedRef: null,
         order: null,
         candidateOrders: contactOrders,
         contactOrders,
         contactByCode,
-        warnings: contactOrders.length === 0
-          ? [...warnings, "У клієнта немає замовлень з боргом"]
-          : warnings,
+        warnings:
+          contactOrders.length === 0
+            ? [...warnings, "У клієнта немає замовлень з боргом"]
+            : canAutoDistribute
+              ? [...warnings, "Буде автоматичний розподіл платежу по кількох замовленнях клієнта"]
+              : warnings,
         amountDebtDelta: null,
       };
     }

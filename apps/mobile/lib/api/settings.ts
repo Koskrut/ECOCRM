@@ -3,6 +3,7 @@ import type { BaseCurrency } from "@/lib/order-currency";
 
 export type OrderDiscountsConfig = {
   percents: number[];
+  promos?: string[];
 };
 
 export type CurrencyConfig = {

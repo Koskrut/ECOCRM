@@ -283,11 +283,15 @@ export class OrdersController {
     const qty = dto.qty ?? (raw.qty as number);
     const price = dto.price ?? (raw.price as number);
     const discountPercentRaw = dto.discountPercent ?? raw.discountPercent;
+    const promoTypeRaw = dto.promoType ?? raw.promoType;
     if (!productId) throw new BadRequestException("productId is required");
     if (qty == null || price == null) throw new BadRequestException("qty and price are required");
     const item: AddOrderItemDto = { productId, qty, price };
     if (discountPercentRaw !== undefined && discountPercentRaw !== null && discountPercentRaw !== "") {
       item.discountPercent = Number(discountPercentRaw);
+    }
+    if (promoTypeRaw !== undefined && promoTypeRaw !== null) {
+      item.promoType = String(promoTypeRaw);
     }
     return this.orders.addItem(
       id,
@@ -308,7 +312,13 @@ export class OrdersController {
     const qtyRaw = dto.qty ?? raw.qty;
     const priceRaw = dto.price ?? raw.price;
     const discountRaw = dto.discountPercent ?? raw.discountPercent;
-    const merged: { qty?: number; price?: number; discountPercent?: number } = {};
+    const promoRaw = dto.promoType ?? raw.promoType;
+    const merged: {
+      qty?: number;
+      price?: number;
+      discountPercent?: number;
+      promoType?: string | null;
+    } = {};
     if (qtyRaw !== undefined && qtyRaw !== null && qtyRaw !== "") {
       const q = Number(qtyRaw);
       if (Number.isFinite(q)) merged.qty = q;
@@ -320,6 +330,9 @@ export class OrdersController {
     if (discountRaw !== undefined && discountRaw !== null && discountRaw !== "") {
       const d = Number(discountRaw);
       if (Number.isFinite(d)) merged.discountPercent = d;
+    }
+    if (promoRaw !== undefined) {
+      merged.promoType = promoRaw === null ? null : String(promoRaw);
     }
     return this.orders.updateItem(id, itemId, merged, req.user);
   }

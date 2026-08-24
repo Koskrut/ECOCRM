@@ -10,6 +10,7 @@ import { SectionTitle } from "@/components/ui/SectionTitle";
 import type { DeliveryMethod } from "@/components/order/DeliveryMethodSection";
 import { useTheme } from "@/lib/design/theme-context";
 import { formatBaseMoney } from "@/lib/order-currency";
+import { computeLineTotal, parsePromoType, roundMoney } from "@/lib/order-line-total";
 import { t } from "@/lib/i18n";
 import type { Contact, ContactShippingProfile, DraftOrderLine } from "@/types/crm";
 
@@ -26,7 +27,9 @@ type Props = {
 };
 
 function lineAmount(line: DraftOrderLine): number {
-  return line.qty * line.price * (1 - line.discountPercent / 100);
+  return roundMoney(
+    computeLineTotal(line.qty, line.price, line.discountPercent, parsePromoType(line.promoType)),
+  );
 }
 
 export function OrderReviewStep({

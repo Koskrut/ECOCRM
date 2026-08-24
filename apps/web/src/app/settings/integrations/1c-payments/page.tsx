@@ -12,22 +12,6 @@ import {
 import { formatDate } from "@/lib/crmDatetime";
 import { formatOrderAmount } from "@/lib/formatOrderAmount";
 
-type OrderSearchItem = {
-  id: string;
-  orderNumber: string;
-  debtAmount?: number;
-  currency?: string;
-};
-
-function contactOrdersToItems(orders: OneCPreviewRow["contactOrders"]): OrderSearchItem[] {
-  return orders.map((o) => ({
-    id: o.orderId,
-    orderNumber: o.orderNumber,
-    debtAmount: o.debtAmount,
-    currency: o.currency,
-  }));
-}
-
 const STATUS_LABEL: Record<OneCMatchStatus, string> = {
   MATCHED: "Знайдено",
   AMBIGUOUS: "Кілька варіантів",
@@ -56,8 +40,7 @@ export default function OneCPaymentsImportPage() {
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [overrides, setOverrides] = useState<Record<string, string>>({});
   const [commitResult, setCommitResult] = useState<OneCCommitResponse | null>(null);
-  const [orderSearch, setOrderSearch] = useState<Record<string, string>>({});
-  const [orderOptions, setOrderOptions] = useState<Record<string, OrderSearchItem[]>>({});
+  
 
   useEffect(() => {
     apiHttp
@@ -96,21 +79,6 @@ export default function OneCPaymentsImportPage() {
     } finally {
       setBusy(false);
     }
-  };
-
-  const filterContactOrders = (importKey: string, q: string, contactOrders: OrderSearchItem[]) => {
-    setOrderSearch((prev) => ({ ...prev, [importKey]: q }));
-    if (!q.trim()) {
-      setOrderOptions((prev) => ({ ...prev, [importKey]: contactOrders }));
-      return;
-    }
-    const lower = q.toLowerCase();
-    const filtered = contactOrders.filter(
-      (o) =>
-        o.orderNumber.toLowerCase().includes(lower) ||
-        o.id.toLowerCase().includes(lower),
-    );
-    setOrderOptions((prev) => ({ ...prev, [importKey]: filtered }));
   };
 
   const createContact = async (r: OneCPreviewRow) => {
@@ -164,7 +132,7 @@ export default function OneCPaymentsImportPage() {
   const readyCount = useMemo(() => {
     return rows.filter((r) => {
       if (r.status === "ALREADY_IMPORTED") return false;
-      return Boolean(overrides[r.importKey] || r.order?.orderId);
+      return Boolean(overrides[r.importKey] || r.order?.orderId || r.contactOrders.length > 1);
     }).length;
   }, [rows, overrides]);
 
@@ -278,11 +246,6 @@ export default function OneCPaymentsImportPage() {
                 </thead>
                 <tbody>
                   {rows.map((r) => {
-                    const needsPick =
-                      r.status === "UNMATCHED" ||
-                      r.status === "AMBIGUOUS" ||
-                      r.status === "CONTACT_MISMATCH" ||
-                      !r.order;
                     const selectedId = overrides[r.importKey] || r.order?.orderId || "";
                     return (
                       <tr key={r.importKey} className="border-t border-zinc-100 align-top">
@@ -369,69 +332,27 @@ export default function OneCPaymentsImportPage() {
                               Створити контакт «{r.enterpriseName}»
                             </button>
                           )}
-                          {r.status !== "ALREADY_IMPORTED" && r.status !== "CONTACT_NOT_FOUND" && canWrite && (needsPick || orderSearch[r.importKey] !== undefined) && (
+                          {r.status !== "ALREADY_IMPORTED" && r.status !== "CONTACT_NOT_FOUND" && canWrite && r.contactOrders.length > 0 && (
                             <div className="space-y-1">
-                              {r.contactOrders.length > 5 && (
-                                <input
-                                  type="text"
-                                  placeholder="Фільтр замовлень клієнта…"
-                                  value={orderSearch[r.importKey] ?? ""}
-                                  onChange={(e) => filterContactOrders(r.importKey, e.target.value, contactOrdersToItems(r.contactOrders))}
-                                  className="w-full rounded border border-zinc-200 px-2 py-1 text-xs"
-                                />
-                              )}
-                              {(r.contactOrders.length > 0 || r.candidateOrders.length > 0) && (
-                                <select
-                                  className="w-full rounded border border-zinc-200 px-2 py-1 text-xs"
-                                  value={selectedId}
-                                  onChange={(e) => void setOverride(r.importKey, e.target.value)}
-                                >
-                                  <option value="">Оберіть замовлення клієнта…</option>
-                                  {(orderSearch[r.importKey] !== undefined
-                                    ? (orderOptions[r.importKey] ?? []).map((o) => (
-                                        <option key={o.id} value={o.id}>
-                                          #{o.orderNumber}
-                                          {o.debtAmount != null ? ` · борг ${o.debtAmount} ${o.currency ?? ""}` : ""}
-                                        </option>
-                                      ))
-                                    : r.contactOrders.map((c) => (
-                                        <option key={c.orderId} value={c.orderId}>
-                                          #{c.orderNumber} · борг {c.debtAmount} {c.currency}
-                                        </option>
-                                      ))
-                                  )}
-                                  {r.candidateOrders.map((c) => (
-                                    <option key={c.orderId} value={c.orderId}>
-                                      #{c.orderNumber} · борг {c.debtAmount} {c.currency}
-                                    </option>
-                                  ))}
-                                </select>
-                              )}
-                              {r.contactOrders.length === 0 && r.candidateOrders.length === 0 && (
-                                <p className="text-[10px] text-zinc-500">У клієнта немає замовлень з боргом</p>
-                              )}
+                              <select
+                                className="w-full rounded border border-zinc-200 px-2 py-1 text-xs"
+                                value={selectedId}
+                                onChange={(e) => void setOverride(r.importKey, e.target.value)}
+                              >
+                                <option value="">Оберіть замовлення…</option>
+                                {r.contactOrders.map((c) => (
+                                  <option key={c.orderId} value={c.orderId}>
+                                    #{c.orderNumber} · борг {formatOrderAmount(c.debtAmount, c.currency)}
+                                  </option>
+                                ))}
+                              </select>
                               {selectedId && overrides[r.importKey] && (
                                 <p className="text-[10px] text-emerald-700">Обрано вручну</p>
                               )}
                             </div>
                           )}
-                          {r.status === "MATCHED" && canWrite && orderSearch[r.importKey] === undefined && (
-                            <button
-                              type="button"
-                              className="mt-1 text-[11px] text-zinc-500 underline"
-                              onClick={() => {
-                                setOrderSearch((p) => ({
-                                  ...p,
-                                  [r.importKey]: "",
-                                }));
-                                setOrderOptions((p) => ({
-                                  ...p,
-                                  [r.importKey]: contactOrdersToItems(r.contactOrders),
-                                }));
-                              }}
-                            >
-                              Змінити замовлення
-                            </button>
+                          {r.status !== "ALREADY_IMPORTED" && r.status !== "CONTACT_NOT_FOUND" && r.contactOrders.length === 0 && !r.order && (
+                            <p className="text-[10px] text-zinc-500">У клієнта немає замовлень з боргом</p>
                           )}
                         </td>
                       </tr>

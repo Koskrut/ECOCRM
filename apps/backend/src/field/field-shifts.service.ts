@@ -586,27 +586,25 @@ export class FieldShiftsService {
       );
     }
     const acceptedTotal = created + duplicate;
-    if (acceptedTotal > 0) {
+    if (acceptedTotal > 0 && !acceptDuplicateOnShift) {
       const duplicateRate = duplicate / acceptedTotal;
       if (duplicateRate > 0.3) {
         this.logger.warn(
-          `appendSamples duplicate_rate_alarm shiftId=${shiftId} ownerId=${actor.id} duplicateRate=${duplicateRate.toFixed(3)} duplicate=${duplicate} created=${created} window=10m threshold=0.30`,
+          `appendSamples duplicate_rate_alarm shiftId=${shiftId} ownerId=${actor.id} duplicateRate=${duplicateRate.toFixed(3)} duplicate=${duplicate} created=${created} threshold=0.30`,
         );
       }
     }
 
     const ghostDuplicate = duplicate > 0 && created === 0 && !acceptDuplicateOnShift;
-    if (rejected > 0 || created > 0 || duplicate > 0 || reanchorCount > 0) {
-      const sampleIds = sortedItems
-        .map((s) => normalizeSampleId(s.sampleId))
-        .filter((v): v is string => !!v);
-      const head = sampleIds.slice(0, 5).join(",");
-      const tail = sampleIds.length > 10 ? sampleIds.slice(-5).join(",") : "";
-      const sampleSummary = tail ? `head=${head} tail=${tail}` : `head=${head}`;
-      this.logger.log(
-        `appendSamples batchId=${ingestMeta?.batchId ?? "none"} reason=${ingestMeta?.reason ?? "unknown"} shiftId=${shiftId} ownerId=${actor.id} created=${created} duplicate=${duplicate} rejected=${rejected} ghostDuplicate=${ghostDuplicate} rejectReasons=${JSON.stringify(rejectReasons)} reanchor=${reanchorCount} count=${sortedItems.length} ${sampleSummary}`,
-      );
-    }
+    const logSampleIds = sortedItems
+      .map((s) => normalizeSampleId(s.sampleId))
+      .filter((v): v is string => !!v);
+    const head = logSampleIds.slice(0, 5).join(",");
+    const tail = logSampleIds.length > 10 ? logSampleIds.slice(-5).join(",") : "";
+    const sampleSummary = tail ? `head=${head} tail=${tail}` : `head=${head}`;
+    this.logger.log(
+      `appendSamples batchId=${ingestMeta?.batchId ?? "none"} reason=${ingestMeta?.reason ?? "unknown"} shiftId=${shiftId} ownerId=${actor.id} created=${created} duplicate=${duplicate} rejected=${rejected} ghostDuplicate=${ghostDuplicate} rejectReasons=${JSON.stringify(rejectReasons)} reanchor=${reanchorCount} count=${sortedItems.length} ${sampleSummary}`,
+    );
 
     return { created, duplicate, rejected, rejectReasons, ghostDuplicate };
   }

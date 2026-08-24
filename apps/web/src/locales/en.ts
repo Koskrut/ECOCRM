@@ -227,6 +227,10 @@ export const en = {
         desc: "Technical settings for administrators and implementation teams.",
       },
     },
+    searchPlaceholder: "Search settings…",
+    filterAll: "All",
+    noResultsTitle: "No results",
+    noResultsDesc: "Try a different query or change the group filter",
     release: {
       title: "Release",
       hint: "Read-only deployment metadata from the API. Updates are done on the server by the operator, not from this UI.",
@@ -235,6 +239,9 @@ export const en = {
       builtAt: "Built at",
       imageTag: "Image tag",
       loadError: "Could not load release info.",
+      showDetails: "Show details",
+      hideDetails: "Hide details",
+      systemHealth: "System health",
     },
     cards: {
       access: {
@@ -255,7 +262,7 @@ export const en = {
       },
       orderDiscounts: {
         title: "Order line discounts",
-        desc: "Available discount percentages for individual order line items",
+        desc: "Available discount percentages and promotions for order line items",
       },
       googleMaps: {
         title: "Google Maps",
@@ -268,6 +275,10 @@ export const en = {
       employees: {
         title: "Employees",
         desc: "Manage employees and their roles",
+      },
+      notifications: {
+        title: "Notifications",
+        desc: "In-app, browser push and Telegram for CRM events",
       },
       dayPlan: {
         title: "Day plan",
@@ -393,8 +404,13 @@ export const en = {
     },
     orderDiscounts: {
       title: "Order line discounts",
-      desc: "Choose which discount percentages are available when editing order line items.",
+      desc: "Choose which discount percentages and promotions are available when editing order line items.",
       hint: "Enable the values you need (5–30%). At least one must stay active.",
+      promosTitle: "Line promotions",
+      promosHint:
+        "The manager picks a promo on the order line. Price is recalculated automatically.",
+      promoBuy100Get30: "Buy 100 get 30 free (price × 100/130)",
+      promoQty25Minus2: "From 25 pcs — $2 off per unit",
       save: "Save",
       saving: "Saving…",
       loadError: "Failed to load discount settings.",
@@ -1190,7 +1206,7 @@ export const en = {
     usdPreview: "USD equivalent at current rate",
     cashSplitHint: "Distribute payment across client orders (FIFO by due date)",
     cashDuplicateConfirm:
-      "A cash payment with the same amount was recorded recently for this client. Add anyway?",
+      "A cash payment with the same amount was recorded recently for this order. Add anyway?",
     cashDuplicateExisting: (orderNumber: string, amount: string) =>
       `Existing: order ${orderNumber}, ${amount}`,
     unallocating: "Cancelling allocation…",
@@ -2288,6 +2304,12 @@ export const en = {
       qtyPlaceholder: "Qty",
       pricePlaceholder: "Price",
       lineDiscountAria: "Line discount",
+      linePromoAria: "Line promotion",
+      promoNone: "No promo",
+      promoBuy100Get30: "100+30",
+      promoQty25Minus2: "25pcs −$2",
+      promoNeedQty: "qty too low",
+      promoEffectiveUnit: "unit price",
       deleteItem: "Delete",
       escCancel: "ESC — cancel",
       selectCompany: "Select company…",

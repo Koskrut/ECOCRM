@@ -1,12 +1,13 @@
 {
   "name": "web",
-  "version": "0.2.164",
+  "version": "0.2.165",
   "private": true,
   "scripts": {
     "dev": "next dev -H 0.0.0.0 -p 3000",
     "build": "next build --webpack",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test": "npx tsx --test src/lib/visits/__tests__/planned-map-geometry.spec.ts src/lib/visits/__tests__/incomplete-tour-copy.spec.ts src/lib/visits/__tests__/route-map-style.spec.ts src/lib/__tests__/planning-kit-parts.spec.ts src/lib/__tests__/order-line-total.spec.ts"
   },
   "dependencies": {
     "@crm/contracts": "file:../../packages/contracts",

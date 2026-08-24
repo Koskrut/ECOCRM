@@ -1992,6 +1992,8 @@ model OrderItem {
   qty                 Int
   price               Float
   discountPercent     Int     @default(0)
+  /// Selected line promo: BUY_100_GET_30 | QTY_25_MINUS_2 | null
+  promoType           String?
   lineTotal           Float
 
   // кеш для частичных отправок

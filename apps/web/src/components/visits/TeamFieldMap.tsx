@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import type { FieldShiftTeamItem } from "@/lib/api/resources/field-shifts";
 import type { RouteGeometryLayer } from "@/lib/api/resources/visits";
+import { shouldShowGpsFallbackBanner, collectTeamFitBoundsPoints } from "@/lib/visits/route-map-style";
 import { teamMarkerTitle } from "@/components/visits/TeamFieldList";
 import { RouteLayerControls, routeSourceLabel, type RouteLayerKey } from "@/components/visits/RouteLayerControls";
 import { VisitsRouteMap } from "@/components/visits/VisitsRouteMap";
@@ -82,11 +83,20 @@ export function TeamFieldMap({
   }, [shiftOnlyPath]);
 
   const factGpsSource = geometries.fact_gps?.source;
-  const showFallbackBanner =
-    layers.fact_gps &&
-    factGpsSource != null &&
-    factGpsSource !== "osrm" &&
-    (geometries.fact_gps?.path?.length ?? 0) > 1;
+  const showFallbackBanner = shouldShowGpsFallbackBanner(
+    factGpsSource,
+    geometries.fact_gps?.path?.length ?? 0,
+    layers.fact_gps,
+  );
+
+  const fitBoundsPoints = useMemo(() => {
+    const selected = overlayMarkers.find((m) => m.selected);
+    return collectTeamFitBoundsPoints({
+      trackPath: geometries.fact_gps?.path,
+      shiftOnlyPath,
+      selectedMarker: selected ? { lat: selected.lat, lng: selected.lng } : null,
+    });
+  }, [geometries.fact_gps, shiftOnlyPath, overlayMarkers]);
 
   return (
     <div className="relative flex h-full flex-col">
@@ -118,8 +128,14 @@ export function TeamFieldMap({
           geometries={geometries}
           overlayMarkers={overlayMarkers}
           extraPaths={extraPaths}
+          fitBoundsPoints={fitBoundsPoints}
           loadingLabel={routeLoading ? "Будуємо маршрут…" : "Завантаження карти…"}
         />
+        {routeLoading && !geometries.fact_gps ? (
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-white/60">
+            <span className="text-sm text-zinc-500">Будуємо маршрут…</span>
+          </div>
+        ) : null}
         {showFallbackBanner ? (
           <p className="pointer-events-none absolute bottom-2 left-2 right-2 rounded bg-white/90 px-2 py-1 text-center text-xs text-amber-800 shadow-sm">
             {t.routeGpsFallback}

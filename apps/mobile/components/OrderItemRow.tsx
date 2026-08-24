@@ -5,22 +5,40 @@ import { Text } from "@/components/Themed";
 import { IconButton } from "@/components/ui/IconButton";
 import { useTheme } from "@/lib/design/theme-context";
 import { orderCurrencySymbol } from "@/lib/order-currency";
+import {
+  computeLineTotal,
+  isPromoApplicable,
+  ORDER_PROMO_BUY_100_GET_30,
+  ORDER_PROMO_QTY_25_MINUS_2,
+  parsePromoType,
+  roundMoney,
+  type OrderPromoType,
+} from "@/lib/order-line-total";
 import { spacing } from "@/lib/design/tokens";
+import { t } from "@/lib/i18n";
 import type { DraftOrderLine } from "@/types/crm";
 
 type OrderItemRowProps = {
   item: DraftOrderLine;
   currency: string;
   index?: number;
-  onChange: (patch: Partial<Pick<DraftOrderLine, "qty" | "price" | "discountPercent">>) => void;
+  onChange: (
+    patch: Partial<Pick<DraftOrderLine, "qty" | "price" | "discountPercent" | "promoType">>,
+  ) => void;
   onRemove: () => void;
   discountPresets?: number[];
+  promoOptions?: OrderPromoType[];
 };
 
 function lineTotal(item: DraftOrderLine): number {
-  const gross = item.qty * item.price;
-  const discount = gross * (item.discountPercent / 100);
-  return Math.round((gross - discount) * 100) / 100;
+  return roundMoney(
+    computeLineTotal(
+      item.qty,
+      item.price,
+      item.discountPercent,
+      parsePromoType(item.promoType),
+    ),
+  );
 }
 
 function useNumericDraft(value: number, onCommit: (n: number) => void, min: number) {
@@ -50,12 +68,37 @@ function useNumericDraft(value: number, onCommit: (n: number) => void, min: numb
   };
 }
 
-export function OrderItemRow({ item, currency, index, onChange, onRemove, discountPresets }: OrderItemRowProps) {
+function promoLabel(promo: OrderPromoType): string {
+  if (promo === ORDER_PROMO_BUY_100_GET_30) return t("orderCreate.promoBuy100Get30");
+  return t("orderCreate.promoQty25Minus2");
+}
+
+export function OrderItemRow({
+  item,
+  currency,
+  index,
+  onChange,
+  onRemove,
+  discountPresets,
+  promoOptions,
+}: OrderItemRowProps) {
   const theme = useTheme();
   const showDiscounts = (discountPresets?.length ?? 0) > 0;
+  const showPromos = (promoOptions?.length ?? 0) > 0;
   const currencySym = orderCurrencySymbol(currency);
+  const activePromo = parsePromoType(item.promoType);
 
-  const qtyField = useNumericDraft(item.qty, (n) => onChange({ qty: n }), 1);
+  const qtyField = useNumericDraft(
+    item.qty,
+    (n) => {
+      const patch: Partial<Pick<DraftOrderLine, "qty" | "promoType" | "discountPercent">> = { qty: n };
+      if (activePromo && !isPromoApplicable(activePromo, n)) {
+        patch.promoType = null;
+      }
+      onChange(patch);
+    },
+    1,
+  );
   const priceField = useNumericDraft(item.price, (n) => onChange({ price: n }), 0);
 
   const inputStyle = [
@@ -66,6 +109,9 @@ export function OrderItemRow({ item, currency, index, onChange, onRemove, discou
       backgroundColor: theme.colors.surface,
     },
   ];
+
+  const total = lineTotal(item);
+  const gross = item.qty * item.price;
 
   return (
     <View style={[styles.card, { backgroundColor: theme.colors.surfaceMuted }]}>
@@ -95,7 +141,16 @@ export function OrderItemRow({ item, currency, index, onChange, onRemove, discou
               name="remove"
               size={18}
               onPress={() => {
-                if (item.qty > 1) onChange({ qty: item.qty - 1 });
+                if (item.qty > 1) {
+                  const nextQty = item.qty - 1;
+                  const patch: Partial<
+                    Pick<DraftOrderLine, "qty" | "promoType" | "discountPercent">
+                  > = { qty: nextQty };
+                  if (activePromo && !isPromoApplicable(activePromo, nextQty)) {
+                    patch.promoType = null;
+                  }
+                  onChange(patch);
+                }
               }}
               accessibilityLabel="Зменшити кількість"
               style={[
@@ -136,7 +191,40 @@ export function OrderItemRow({ item, currency, index, onChange, onRemove, discou
           />
         </View>
       </View>
-      {showDiscounts ? (
+      {showPromos ? (
+        <View style={styles.presetRow}>
+          {promoOptions!.map((promo) => {
+            const ok = isPromoApplicable(promo, item.qty);
+            const selected = activePromo === promo;
+            return (
+              <Pressable
+                key={promo}
+                disabled={!ok && !selected}
+                onPress={() =>
+                  onChange({
+                    promoType: selected ? null : promo,
+                    discountPercent: selected ? item.discountPercent : 0,
+                  })
+                }
+                style={[
+                  styles.presetChip,
+                  { borderColor: theme.colors.border },
+                  selected && {
+                    backgroundColor: theme.colors.orderMuted,
+                    borderColor: theme.colors.order,
+                  },
+                  !ok && !selected && { opacity: 0.4 },
+                ]}
+                accessibilityRole="button">
+                <Text style={[styles.presetText, { color: theme.colors.text }]}>
+                  {promoLabel(promo)}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      ) : null}
+      {showDiscounts && !activePromo ? (
         <View style={styles.presetRow}>
           {discountPresets!.map((pct) => (
             <Pressable
@@ -144,6 +232,7 @@ export function OrderItemRow({ item, currency, index, onChange, onRemove, discou
               onPress={() =>
                 onChange({
                   discountPercent: item.discountPercent === pct ? 0 : pct,
+                  promoType: null,
                 })
               }
               style={[
@@ -161,8 +250,20 @@ export function OrderItemRow({ item, currency, index, onChange, onRemove, discou
         </View>
       ) : null}
       <Text style={[styles.total, { color: theme.colors.text }]}>
-        Сума: {lineTotal(item).toFixed(2)} {currencySym}
+        Сума: {total.toFixed(2)} {currencySym}
+        {activePromo || item.discountPercent > 0 ? (
+          <Text style={{ color: theme.colors.textMuted }}>
+            {" "}
+            (було {gross.toFixed(2)})
+          </Text>
+        ) : null}
       </Text>
+      {activePromo ? (
+        <Text style={[styles.effective, { color: theme.colors.textMuted }]}>
+          {t("orderCreate.promoEffectiveUnit")}: {(total / Math.max(1, item.qty)).toFixed(2)}{" "}
+          {currencySym}
+        </Text>
+      ) : null}
     </View>
   );
 }
@@ -211,4 +312,5 @@ const styles = StyleSheet.create({
   },
   presetText: { fontSize: 12, fontWeight: "600" },
   total: { marginTop: 10, fontWeight: "600", fontSize: 14 },
+  effective: { marginTop: 4, fontSize: 12 },
 });

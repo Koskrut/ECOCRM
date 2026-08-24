@@ -4,7 +4,32 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.164**.)_
+_(планируемые изменения после **0.2.165**.)_
+
+## [0.2.165] — 2026-08-24
+
+### Summary
+
+Патч **0.2.165**: промо на рядках замовлення (`BUY_100_GET_30`, `QTY_25_MINUS_2`); settings hub + order discounts UI; доробки 1C payments; route map style; mobile GPS sample-id + order line totals.
+
+### Added
+
+- **OrderItem.promoType** + shared line-total utils (backend/web/mobile): акції «купи 100 отримай 30» / «від 25 шт −2 грн»; `OrderPromoBadge`; settings order-discounts page.
+- **Web settings hub** (`settings-hub-cards.ts`): картки налаштувань винесені з `settings/page`.
+- **Route map style** util + tests; team/visits map styling cleanup.
+- **Mobile**: `order-line-total.ts`, location sample-id tests; native uploader tweaks.
+
+### Changed
+
+- **1C payments** import/matcher + settings UI спрощення.
+- **Orders** service/controller/DTOs для promo + warehouse role; cash split confirm UX.
+- **Field shifts** ingest tweaks; payments service adjustments.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.165`**.
+- **Миграции:** `20260824120000_order_item_promo_type` — **`prisma migrate deploy`**.
+- **Mobile:** новий EAS бажаний (order promo UI + GPS sample-id / native uploader).
 
 ## [0.2.164] — 2026-08-21
 

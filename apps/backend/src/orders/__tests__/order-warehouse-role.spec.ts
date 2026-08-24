@@ -92,6 +92,10 @@ test("assertWarehouseOrderItemQtyUpdate blocks price and wrong stage", () => {
     /знижку/,
   );
   assert.throws(
+    () => assertWarehouseOrderItemQtyUpdate(actor, "CONFIRMED", { promoType: "BUY_100_GET_30" }),
+    /акцію/,
+  );
+  assert.throws(
     () => assertWarehouseOrderItemQtyUpdate(actor, "READY_TO_SHIP", { qty: 2 }),
     /Підтверджено/,
   );

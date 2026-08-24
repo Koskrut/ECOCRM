@@ -39,6 +39,7 @@ export type OrderListItem = {
     qty: number;
     price: number;
     discountPercent: number;
+    promoType?: string | null;
     lineTotal: number;
     product?: { sku?: string | null; name?: string | null } | null;
   }>;
@@ -102,12 +103,14 @@ export type AddOrderItemBody = {
   qty: number;
   price: number;
   discountPercent?: number;
+  promoType?: string | null;
 };
 
 export type UpdateOrderItemBody = {
   qty?: number;
   price?: number;
   discountPercent?: number;
+  promoType?: string | null;
 };
 
 function qs(params: Record<string, string | number | boolean | undefined>): string {

@@ -73,7 +73,7 @@ import {
 import { OrdersPipelineConfigService } from "./pipeline/orders-pipeline-config.service";
 import { WorkflowDomainEmitterService } from "../workflows/workflow-domain-emitter.service";
 import { OrderWarehouseNotifierService } from "../notifications/order-warehouse-notifier.service";
-import { computeLineTotal } from "./order-line-total.utils";
+import { computeLinePricing, parsePromoType, type OrderPromoType } from "./order-line-total.utils";
 import { syncMisPickOutboundForReplacementOrder } from "../order-returns/order-return-replacement.utils";
 import { PICKUP_AUTO_SHIP_REASON, PICKUP_AUTO_SHIP_WHERE } from "./pickup-auto-ship.util";
 import { ModuleIds } from "../modules/module-ids";
@@ -181,6 +181,35 @@ export class OrdersService {
       throw new BadRequestException(
         `Discount ${discountPercent}% is not allowed. Allowed: ${percents.join(", ")}%`,
       );
+    }
+  }
+
+  private async assertAllowedPromo(promoType: OrderPromoType | null): Promise<void> {
+    if (!promoType) return;
+    const { promos } = await this.settings.getOrderLineDiscounts();
+    if (!(promos as readonly string[]).includes(promoType)) {
+      throw new BadRequestException(`Promo ${promoType} is not enabled`);
+    }
+  }
+
+  private resolveItemPricing(input: {
+    qty: number;
+    price: number;
+    discountPercent: number;
+    promoType: OrderPromoType | null;
+    dropInapplicable?: boolean;
+  }) {
+    try {
+      return computeLinePricing(
+        input.qty,
+        input.price,
+        input.discountPercent,
+        input.promoType,
+        { dropInapplicable: input.dropInapplicable },
+      );
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Invalid promo";
+      throw new BadRequestException(msg);
     }
   }
 
@@ -773,6 +802,9 @@ export class OrdersService {
                 orderNumber: relatedOrderById.get(relatedId) ?? relatedId,
               })) ?? [],
           createdAt: o.createdAt,
+          hasPromo: o.items.some(
+            (item) => typeof item.promoType === "string" && item.promoType.length > 0,
+          ),
           items: o.items.map((item) => ({
             id: item.id,
             productId: item.productId ?? null,
@@ -1211,8 +1243,21 @@ export class OrdersService {
     const productId = dto.productId;
     const qty = Math.max(1, Math.trunc(dto.qty));
     const price = dto.price;
-    const discountPercent = Math.max(0, Math.trunc(dto.discountPercent ?? 0));
-    await this.assertAllowedDiscountPercent(discountPercent);
+    let promoType: OrderPromoType | null;
+    try {
+      promoType =
+        dto.promoType !== undefined
+          ? parsePromoType(dto.promoType)
+          : null;
+    } catch (e) {
+      throw new BadRequestException(e instanceof Error ? e.message : "Invalid promoType");
+    }
+    // Percent and promo are mutually exclusive; promo wins when both are present.
+    const discountPercent = promoType
+      ? 0
+      : Math.max(0, Math.trunc(dto.discountPercent ?? 0));
+    if (!promoType) await this.assertAllowedDiscountPercent(discountPercent);
+    await this.assertAllowedPromo(promoType);
 
     const existing = await db.orderItem.findUnique({
       where: { orderId_productId: { orderId, productId } },
@@ -1220,25 +1265,57 @@ export class OrdersService {
 
     if (existing) {
       const nextQty = existing.qty + qty;
-      const nextDiscount = dto.discountPercent != null ? discountPercent : existing.discountPercent;
+      let nextPromo: OrderPromoType | null;
+      try {
+        nextPromo =
+          dto.promoType !== undefined
+            ? promoType
+            : parsePromoType(existing.promoType);
+      } catch (e) {
+        throw new BadRequestException(e instanceof Error ? e.message : "Invalid promoType");
+      }
+      if (dto.discountPercent != null && dto.promoType === undefined) {
+        nextPromo = null;
+      }
+      const nextDiscount = nextPromo
+        ? 0
+        : dto.discountPercent != null
+          ? discountPercent
+          : existing.discountPercent;
+      if (!nextPromo) await this.assertAllowedDiscountPercent(nextDiscount);
+      await this.assertAllowedPromo(nextPromo);
+      const pricing = this.resolveItemPricing({
+        qty: nextQty,
+        price,
+        discountPercent: nextDiscount,
+        promoType: nextPromo,
+      });
       await db.orderItem.update({
         where: { id: existing.id },
         data: {
           qty: nextQty,
           price,
-          discountPercent: nextDiscount,
-          lineTotal: computeLineTotal(nextQty, price, nextDiscount),
+          discountPercent: pricing.discountPercent,
+          promoType: pricing.promoType,
+          lineTotal: pricing.lineTotal,
         },
       });
     } else {
+      const pricing = this.resolveItemPricing({
+        qty,
+        price,
+        discountPercent,
+        promoType,
+      });
       await db.orderItem.create({
         data: {
           orderId,
           productId,
           qty,
           price,
-          discountPercent,
-          lineTotal: computeLineTotal(qty, price, discountPercent),
+          discountPercent: pricing.discountPercent,
+          promoType: pricing.promoType,
+          lineTotal: pricing.lineTotal,
         },
       });
     }
@@ -1277,7 +1354,13 @@ export class OrdersService {
         qty,
         price,
         discountPercent: 0,
-        lineTotal: computeLineTotal(qty, price, 0),
+        promoType: null,
+        lineTotal: this.resolveItemPricing({
+          qty,
+          price,
+          discountPercent: 0,
+          promoType: null,
+        }).lineTotal,
       },
     });
 
@@ -1287,7 +1370,7 @@ export class OrdersService {
   async updateItem(
     orderId: string,
     itemId: string,
-    dto: { qty?: number; price?: number; discountPercent?: number },
+    dto: { qty?: number; price?: number; discountPercent?: number; promoType?: string | null },
     actor?: AuthUser,
   ) {
     const order = await this.prisma.order.findUnique({
@@ -1307,19 +1390,45 @@ export class OrdersService {
     const prevTotalAmount = order.totalAmount ?? 0;
     const nextQty = dto.qty != null ? Math.max(1, Math.trunc(dto.qty)) : item.qty;
     const nextPrice = dto.price != null ? dto.price : item.price;
-    const nextDiscount =
-      dto.discountPercent != null
+
+    let nextPromo: OrderPromoType | null;
+    try {
+      if (dto.promoType !== undefined) {
+        nextPromo = parsePromoType(dto.promoType);
+      } else {
+        nextPromo = parsePromoType(item.promoType);
+      }
+    } catch (e) {
+      throw new BadRequestException(e instanceof Error ? e.message : "Invalid promoType");
+    }
+    // Selecting a percent discount clears promo unless promo is also explicitly set.
+    if (dto.discountPercent != null && dto.promoType === undefined) {
+      nextPromo = null;
+    }
+    // Selecting a promo clears percent.
+    const nextDiscount = nextPromo
+      ? 0
+      : dto.discountPercent != null
         ? Math.max(0, Math.trunc(dto.discountPercent))
         : item.discountPercent;
-    await this.assertAllowedDiscountPercent(nextDiscount);
+    if (!nextPromo) await this.assertAllowedDiscountPercent(nextDiscount);
+    await this.assertAllowedPromo(nextPromo);
+
+    const pricing = this.resolveItemPricing({
+      qty: nextQty,
+      price: nextPrice,
+      discountPercent: nextDiscount,
+      promoType: nextPromo,
+    });
 
     await this.prisma.orderItem.update({
       where: { id: itemId },
       data: {
         qty: nextQty,
         price: nextPrice,
-        discountPercent: nextDiscount,
-        lineTotal: computeLineTotal(nextQty, nextPrice, nextDiscount),
+        discountPercent: pricing.discountPercent,
+        promoType: pricing.promoType,
+        lineTotal: pricing.lineTotal,
       },
     });
 
@@ -1459,6 +1568,7 @@ export class OrdersService {
       moveQty: number;
       price: number;
       discountPercent: number;
+      promoType: string | null;
       snapshot: string | null;
     };
 
@@ -1490,6 +1600,7 @@ export class OrdersService {
           moveQty,
           price: it.price,
           discountPercent: it.discountPercent ?? 0,
+          promoType: it.promoType ?? null,
           snapshot: it.productNameSnapshot,
         });
       }
@@ -1548,6 +1659,7 @@ export class OrdersService {
           moveQty,
           price: it.price,
           discountPercent: it.discountPercent ?? 0,
+          promoType: it.promoType ?? null,
           snapshot: it.productNameSnapshot,
         });
       }
@@ -1634,15 +1746,34 @@ export class OrdersService {
         if (existingChildLine) {
           const nq = existingChildLine.qty + p.moveQty;
           const disc = existingChildLine.discountPercent ?? p.discountPercent;
+          let promo: OrderPromoType | null = null;
+          try {
+            promo = parsePromoType(existingChildLine.promoType ?? p.promoType);
+          } catch {
+            promo = null;
+          }
+          const pricing = computeLinePricing(nq, existingChildLine.price, disc, promo, {
+            dropInapplicable: true,
+          });
           await tx.orderItem.update({
             where: { id: existingChildLine.id },
             data: {
               qty: nq,
-              discountPercent: disc,
-              lineTotal: computeLineTotal(nq, existingChildLine.price, disc),
+              discountPercent: pricing.discountPercent,
+              promoType: pricing.promoType,
+              lineTotal: pricing.lineTotal,
             },
           });
         } else {
+          let promo: OrderPromoType | null = null;
+          try {
+            promo = parsePromoType(p.promoType);
+          } catch {
+            promo = null;
+          }
+          const pricing = computeLinePricing(p.moveQty, p.price, p.discountPercent, promo, {
+            dropInapplicable: true,
+          });
           await tx.orderItem.create({
             data: {
               orderId: child.id,
@@ -1650,8 +1781,9 @@ export class OrdersService {
               productNameSnapshot: p.snapshot,
               qty: p.moveQty,
               price: p.price,
-              discountPercent: p.discountPercent,
-              lineTotal: computeLineTotal(p.moveQty, p.price, p.discountPercent),
+              discountPercent: pricing.discountPercent,
+              promoType: pricing.promoType,
+              lineTotal: pricing.lineTotal,
             },
           });
         }
@@ -1659,11 +1791,22 @@ export class OrdersService {
         if (p.keepQty <= 0) {
           await tx.orderItem.delete({ where: { id: p.itemId } });
         } else {
+          let promo: OrderPromoType | null = null;
+          try {
+            promo = parsePromoType(p.promoType);
+          } catch {
+            promo = null;
+          }
+          const pricing = computeLinePricing(p.keepQty, p.price, p.discountPercent, promo, {
+            dropInapplicable: true,
+          });
           await tx.orderItem.update({
             where: { id: p.itemId },
             data: {
               qty: p.keepQty,
-              lineTotal: computeLineTotal(p.keepQty, p.price, p.discountPercent),
+              discountPercent: pricing.discountPercent,
+              promoType: pricing.promoType,
+              lineTotal: pricing.lineTotal,
             },
           });
         }
@@ -2145,6 +2288,7 @@ export class OrdersService {
         qty: it.qty,
         price: it.price,
         discountPercent: it.discountPercent ?? 0,
+        promoType: it.promoType ?? null,
         lineTotal: it.lineTotal,
         product: it.product ?? null,
       })),

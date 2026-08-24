@@ -106,21 +106,6 @@ export function routePolylineOptions(
       ? { ...base, icons: directionArrowIcons(base.strokeColor ?? "#2563eb") }
       : base;
 
-  const gpsStitchGaps =
-    (layer === "fact_gps" || layer === "fact_visits_gps") &&
-    geom.source === "osrm" &&
-    (geom.quality?.hasUnfilledGaps === true ||
-      geom.quality?.degradedReason === "gps_stitch_gaps" ||
-      (geom.quality?.maxStitchGapKm != null && geom.quality.maxStitchGapKm > 1));
-
-  if (gpsStitchGaps) {
-    return {
-      ...withArrows,
-      strokeOpacity: 0.55,
-      icons: [...(withArrows.icons ?? []), ...DASHED_LINE_ICONS],
-    };
-  }
-
   if (geom.source === "fallback") {
     return {
       ...withArrows,

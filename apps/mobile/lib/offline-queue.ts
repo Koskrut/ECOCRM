@@ -148,7 +148,12 @@ async function runJob(job: OfflineJob, token: string): Promise<void> {
       const rejected = typeof body?.rejected === "number" ? body.rejected : 0;
       const reasons = body?.rejectReasons;
       if (body?.ghostDuplicate === true && created === 0 && (body.duplicate ?? 0) > 0) {
-        throw new Error("ghost duplicate");
+        const { appendErrorLog } = await import("@/lib/error-log");
+        void appendErrorLog(
+          `offline shiftSamplesBatch ghost duplicate dropped shiftId=${shiftId} duplicate=${body.duplicate}`,
+          "warn",
+        );
+        return;
       }
       if (created === 0 && reasons && (reasons.wrong_day ?? 0) >= Math.ceil(rejected * 0.5)) {
         const { setFlushBlockReason } = await import("@/lib/session-auth");

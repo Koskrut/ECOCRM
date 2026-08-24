@@ -696,17 +696,6 @@ export class PaymentsService {
       throw new BadRequestException("Currency must be USD, UAH, or EUR");
     }
 
-    if (!dto.confirmDuplicate) {
-      await this.assertNoRecentDuplicateCash({
-        amount,
-        currency,
-        paidAt,
-        orderId: dto.orderId,
-        clientId: order.clientId,
-        contactId: dto.contactId ?? order.contactId,
-      });
-    }
-
     const allocations = dto.allocations?.length
       ? dto.allocations.map((a) => ({ orderId: a.orderId, amount: Number(a.amount) }))
       : [{ orderId: dto.orderId, amount }];
@@ -747,6 +736,14 @@ export class PaymentsService {
       orderIds.add(a.orderId);
     }
 
+    if (!dto.confirmDuplicate) {
+      await this.assertNoRecentDuplicateCash({
+        currency,
+        paidAt,
+        allocations,
+      });
+    }
+
     const rates = await this.settings.getExchangeRates();
     const createdOrderIds: string[] = [];
 
@@ -784,31 +781,23 @@ export class PaymentsService {
   }
 
   private async assertNoRecentDuplicateCash(input: {
-    amount: number;
     currency: string;
     paidAt: Date;
-    orderId: string;
-    clientId: string | null;
-    contactId: string | null;
+    allocations: Array<{ orderId: string; amount: number }>;
   }): Promise<void> {
     const window = cashPaymentConfirmDedupWindow(input.paidAt);
-    const baseWhere: Prisma.PaymentWhereInput = {
-      amount: input.amount,
-      currency: input.currency,
-      status: PaymentStatus.COMPLETED,
-      bankTransactionId: null,
-      sourceType: PaymentSourceType.CASH,
-      paidAt: window,
-    };
-    const orFilters: Prisma.PaymentWhereInput[] = [{ orderId: input.orderId }];
-    if (input.clientId) {
-      orFilters.push({ order: { clientId: input.clientId } });
-    }
-    if (input.contactId) {
-      orFilters.push({ contactId: input.contactId });
-    }
     const duplicate = await this.prisma.payment.findFirst({
-      where: { AND: [baseWhere, { OR: orFilters }] },
+      where: {
+        currency: input.currency,
+        status: PaymentStatus.COMPLETED,
+        bankTransactionId: null,
+        sourceType: PaymentSourceType.CASH,
+        paidAt: window,
+        OR: input.allocations.map((a) => ({
+          orderId: a.orderId,
+          amount: a.amount,
+        })),
+      },
       include: {
         order: { select: { orderNumber: true } },
         createdBy: { select: { fullName: true } },
@@ -816,7 +805,7 @@ export class PaymentsService {
     });
     if (!duplicate) return;
     throw new ConflictException({
-      message: "A cash payment with the same amount was recorded recently for this client or order",
+      message: "A cash payment with the same amount was recorded recently for this order",
       code: "CASH_PAYMENT_DUPLICATE",
       existing: {
         id: duplicate.id,

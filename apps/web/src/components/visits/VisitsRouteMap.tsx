@@ -1,7 +1,7 @@
 "use client";
 
 import { GoogleMap, Marker, Polyline, useLoadScript } from "@react-google-maps/api";
-import { useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import type { RouteGeometryLayer, RouteGeometryResult } from "@/lib/api/resources/visits";
 import { routePolylineOptions, type RouteLayerKey } from "./RouteLayerControls";
 
@@ -35,6 +35,8 @@ export type VisitsRouteMapProps = {
   onMarkerDragEnd?: (index: number, e: google.maps.MapMouseEvent) => void;
   draggableMarkers?: boolean;
   loadingLabel?: string;
+  /** When provided, fitBounds uses these points instead of all layers/markers. Re-fits on change. */
+  fitBoundsPoints?: Array<{ lat: number; lng: number }>;
 };
 
 function layerPath(geom: RouteGeometryLayer | null | undefined): google.maps.LatLngLiteral[] {
@@ -61,7 +63,10 @@ export function VisitsRouteMap({
   onMarkerDragEnd,
   draggableMarkers,
   loadingLabel = "Завантаження карти…",
+  fitBoundsPoints,
 }: VisitsRouteMapProps) {
+  const mapRef = useRef<google.maps.Map | null>(null);
+
   const { isLoaded, loadError } = useLoadScript({
     id: "google-map-script-visits-route",
     googleMapsApiKey: mapsApiKey,
@@ -81,6 +86,20 @@ export function VisitsRouteMap({
     if (routeAnchors?.end) pts.push(routeAnchors.end);
     return pts;
   }, [geometries, layers, markers, overlayMarkers, extraPaths, routeAnchors]);
+
+  const effectiveBounds = fitBoundsPoints && fitBoundsPoints.length > 1 ? fitBoundsPoints : bounds;
+
+  const applyFitBounds = useCallback((pts: Array<{ lat: number; lng: number }>) => {
+    const map = mapRef.current;
+    if (!map || pts.length < 2) return;
+    const b = new google.maps.LatLngBounds();
+    for (const p of pts) b.extend(p);
+    map.fitBounds(b, 48);
+  }, []);
+
+  useEffect(() => {
+    applyFitBounds(effectiveBounds);
+  }, [effectiveBounds, applyFitBounds]);
 
   if (loadError) {
     return (
@@ -104,11 +123,8 @@ export function VisitsRouteMap({
       center={center}
       zoom={12}
       onLoad={(map) => {
-        if (bounds.length > 1) {
-          const b = new google.maps.LatLngBounds();
-          for (const p of bounds) b.extend(p);
-          map.fitBounds(b, 48);
-        }
+        mapRef.current = map;
+        applyFitBounds(effectiveBounds);
       }}
       options={{
         mapTypeControl: false,
