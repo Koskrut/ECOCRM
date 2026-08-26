@@ -42,6 +42,26 @@ function defaultLayers(mode: "default" | "history"): Record<RouteLayerKey, boole
   return { planned: true, fact_visits: false, fact_gps: true, fact_visits_gps: false };
 }
 
+/** Paid compensation layer on by default; hybrid never auto-selected. */
+function layersForCompensationKind(
+  kind: RouteGeometryBundle["compensationFactKind"] | null | undefined,
+  mode: "default" | "history",
+): Record<RouteLayerKey, boolean> {
+  if (mode === "history") {
+    if (kind === "fact_gps") {
+      return { planned: false, fact_visits: false, fact_gps: true, fact_visits_gps: false };
+    }
+    return { planned: false, fact_visits: true, fact_gps: false, fact_visits_gps: false };
+  }
+  if (kind === "fact_gps") {
+    return { planned: true, fact_visits: false, fact_gps: true, fact_visits_gps: false };
+  }
+  if (kind === "fact_visits") {
+    return { planned: true, fact_visits: true, fact_gps: false, fact_visits_gps: false };
+  }
+  return { planned: true, fact_visits: false, fact_gps: false, fact_visits_gps: false };
+}
+
 /** Hide corrupted GPS polylines (path haversine >> payable OSRM km). */
 function mapGeometryForDisplay(
   geom: RouteGeometryLayer | null | undefined,
@@ -92,12 +112,13 @@ export function DayRouteMapPanel({
         traffic: true,
       });
       setBundle(b);
+      setLayers(layersForCompensationKind(b.compensationFactKind, mode));
     } catch {
       setBundle(null);
     } finally {
       setLoading(false);
     }
-  }, [dateKey, ownerId]);
+  }, [dateKey, ownerId, mode]);
 
   useEffect(() => {
     void load();
@@ -108,13 +129,6 @@ export function DayRouteMapPanel({
     [bundle?.factVisitsGps?.path?.length],
   );
 
-  useEffect(() => {
-    if (!bundle) return;
-    if (bundle.factGps.source !== "osrm") {
-      setLayers((p) => ({ ...p, fact_gps: false }));
-    }
-  }, [bundle?.factGps.source]);
-
   const compareKpi = useMemo(() => {
     if (!bundle) return null;
     const plan = bundle.planned.distanceKm;
@@ -123,11 +137,9 @@ export function DayRouteMapPanel({
     const compensationKm =
       bundle.compensationFactKind === "fact_gps" && factGps != null
         ? factGps
-        : bundle.compensationFactKind === "fact_visits_gps"
-          ? bundle.factVisitsGps?.distanceKm ?? null
-          : bundle.compensationFactKind === "none"
-            ? null
-            : factVisits;
+        : bundle.compensationFactKind === "none"
+          ? null
+          : factVisits;
     const deviationPct =
       plan != null &&
       compensationKm != null &&
@@ -276,7 +288,6 @@ export function DayRouteMapPanel({
   const compensationLabel = useMemo(() => {
     if (!bundle?.compensationFactKind) return "";
     if (bundle.compensationFactKind === "fact_gps") return t.compensationGps;
-    if (bundle.compensationFactKind === "fact_visits_gps") return t.compensationHybrid;
     if (bundle.compensationFactKind === "none") return t.compensationReview;
     return t.compensationVisits;
   }, [bundle?.compensationFactKind, t]);

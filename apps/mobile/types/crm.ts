@@ -48,6 +48,11 @@ export type AuthUserBrief = {
   email: string;
   fullName: string;
   role: string;
+  /** Garage / usual route start from profile (Settings). */
+  routeStartLat?: number | null;
+  routeStartLng?: number | null;
+  routeEndLat?: number | null;
+  routeEndLng?: number | null;
 };
 
 export type LoginResponse = {
@@ -56,6 +61,8 @@ export type LoginResponse = {
 };
 
 export type FieldShiftStatus = "ACTIVE" | "ENDED";
+
+export type FieldShiftAnchorKind = "HOME" | "CURRENT";
 
 export type FieldShift = {
   id: string;
@@ -66,6 +73,12 @@ export type FieldShift = {
   endedAt: string | null;
   trackingEnabled: boolean;
   plannedDistanceKm: number | null;
+  originKind?: FieldShiftAnchorKind | null;
+  originLat?: number | null;
+  originLng?: number | null;
+  destinationKind?: FieldShiftAnchorKind | null;
+  destinationLat?: number | null;
+  destinationLng?: number | null;
 };
 
 export type LocationSampleInput = {

@@ -557,6 +557,18 @@ function VisitsPageContent() {
     try {
       const b = await routePlansApi.geometryBundle(dateParam, planOwnerOpts);
       setRouteGeometryBundle(b);
+      const paid =
+        b.compensationFactKind === "fact_gps"
+          ? "fact_gps"
+          : b.compensationFactKind === "fact_visits"
+            ? "fact_visits"
+            : null;
+      setRouteLayers({
+        planned: true,
+        fact_visits: paid === "fact_visits",
+        fact_gps: paid === "fact_gps",
+        fact_visits_gps: false,
+      });
     } catch {
       setRouteGeometryBundle(null);
     } finally {
@@ -648,12 +660,6 @@ function VisitsPageContent() {
         setMyUserId(null);
       });
   }, []);
-
-  useEffect(() => {
-    if (role === "ADMIN" || role === "LEAD") {
-      setRouteLayers((prev) => ({ ...prev, fact_gps: true }));
-    }
-  }, [role]);
 
   useEffect(() => {
     if (!showOwnerFilter) return;

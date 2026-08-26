@@ -409,8 +409,8 @@ export const uk = {
       hint: "Увімкніть потрібні значення (5–30%). Мінімум одне значення має залишатися активним.",
       promosTitle: "Акції на позицію",
       promosHint:
-        "Менеджер обирає акцію вручну в рядку замовлення. Ціна перераховується автоматично.",
-      promoBuy100Get30: "100 + 30 в подарунок (ціна × 100/130)",
+        "Менеджер обирає акцію вручну. «100+30» діє на всі позиції з однаковою ціною (можна набрати 130 шт кількома рядками).",
+      promoBuy100Get30: "100 + 30 в подарунок (сума шт за однаковою ціною × 100/130)",
       promoQty25Minus2: "Від 25 шт — мінус $2 за одиницю",
       save: "Зберегти",
       saving: "Збереження…",
@@ -1044,6 +1044,7 @@ export const uk = {
     subtitle:
       "Список платежів і неприв’язаних банківських операцій. Перемикач ФОП — вибір банківського рахунку. ФОПи налаштовуються в Налаштування → ФОП.",
     addPayment: "+ Додати платіж",
+    uploadOneCPayments: "Завантажити оплати",
     /** Прив’язані платежі (вже рознесені по замовленнях). */
     allocatedTab: "Рознесені",
     /** Банківські операції, які потрібно рознести по замовленнях. */
@@ -2424,10 +2425,10 @@ export const uk = {
     layerFactVisits: "Факт візити",
     layerFactVisitsGps: "Факт гібрид",
     stopN: (n: number) => `Зупинка ${n}`,
-    compensationGps: " · компенсація: GPS",
-    compensationHybrid: " · компенсація: гібрид",
-    compensationReview: " · компенсація: перевірка",
-    compensationVisits: " · компенсація: візити",
+    compensationGps: " · по треку",
+    compensationHybrid: " · гібрид (карта)",
+    compensationReview: " · на перевірці",
+    compensationVisits: " · по візитах, трек неповний",
     openLiveTeam: "Жива карта команди →",
     kpiPlan: "План",
     kpiFactGps: "GPS",
@@ -2456,10 +2457,11 @@ export const uk = {
     loopCollapseReview: " · loop collapse — перевірка",
   },
   visitsFuelPage: {
-    compensationGps: "за GPS-треком (OSRM)",
-    compensationHybrid: "гібрид: візити + GPS",
-    compensationReview: "потрібна перевірка",
-    compensationVisits: "за візитами",
+    compensationGps: "по треку",
+    compensationHybrid: "гібрид (карта)",
+    compensationReview: "на перевірці",
+    compensationVisits: "по візитах, трек неповний",
+    plannedExpected: "очікували {km} км",
     loopCollapseBadge: " · loop collapse",
     trackSnapKm: "Трек (snap)",
     trackRawKm: "raw",
@@ -2472,6 +2474,8 @@ export const uk = {
       gps_ended_early_partial_payout: "GPS обірвався рано — часткова виплата",
       gps_snap_loop_collapse: "Loop-тrip — перевірка менеджером",
       compensation_review_required: "Компенсація потребує перевірки",
+      visit_closed_off_address_unconfirmed:
+        "Закрито не на адресі, трек поїздку не підтверджує — затвердження вручну",
       gps_partial_coverage: "Часткове GPS-покриття",
       planned_km_implausibly_large: "План занадто великий",
       planned_km_vs_fact_outlier: "План vs факт — викид",
@@ -2487,6 +2491,7 @@ export const uk = {
       gps_track_ineligible: "Трек не eligible",
       gps_track_unavailable: "GPS-трек недоступний",
       report_stale: "Звіт застарів",
+      insufficient_completed_visits: "Недостатньо завершених візитів",
     },
   },
   visitsPage: {

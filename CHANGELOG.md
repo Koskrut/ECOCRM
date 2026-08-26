@@ -4,7 +4,31 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.165**.)_
+_(планируемые изменения после **0.2.166**.)_
+
+## [0.2.166] — 2026-08-26
+
+### Summary
+
+Патч **0.2.166**: якоря зміни поля (origin/destination HOME|CURRENT); visit↔track contradiction; fuel/route geometry; promo eligibility по групі однакової ціни.
+
+### Added
+
+- **FieldShift anchors**: `originKind/Lat/Lng`, `destinationKind/Lat/Lng` (`FieldShiftAnchorKind` HOME|CURRENT); util + API; migration `20260826120000_field_shift_origin_destination` з backfill.
+- **Visit track contradiction**: DONE off-address без наближення треку до піна (~1 km).
+- **Mobile** `shift-anchor-prompt.ts` + geo helpers; shift tracking context для origin/destination.
+
+### Changed
+
+- **Fuel compensation / eligibility** враховує якоря зміни; route geometry + routing util; DayRouteMapPanel / visits fuel UI.
+- **Orders**: BUY_100_GET_30 eligibility по сумі qty рядків з однаковою ціною (`pricesMatch` / `sumQtyForSamePrice` / `eligibilityQty`); warehouse role tweaks.
+- **Web**: warehouse work page, payments, OrderModal promo grouping.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.166`**.
+- **Миграции:** `20260826120000_field_shift_origin_destination` — **`prisma migrate deploy`** (backfill origin/destination).
+- **Mobile:** новий **EAS** бажаний (shift anchors + fuel/route UX).
 
 ## [0.2.165] — 2026-08-24
 

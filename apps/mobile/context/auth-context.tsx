@@ -30,6 +30,24 @@ import type { AuthUserBrief, LoginResponse } from "@/types/crm";
 
 const TOKEN_KEY = "crm_manager_jwt";
 
+function mapMeUser(me: AuthUserBrief & Record<string, unknown>): AuthUserBrief {
+  const num = (v: unknown): number | null => {
+    if (v == null) return null;
+    const n = typeof v === "number" ? v : Number(v);
+    return Number.isFinite(n) ? n : null;
+  };
+  return {
+    id: String(me.id),
+    email: String(me.email),
+    fullName: String(me.fullName),
+    role: String(me.role),
+    routeStartLat: num(me.routeStartLat),
+    routeStartLng: num(me.routeStartLng),
+    routeEndLat: num(me.routeEndLat),
+    routeEndLng: num(me.routeEndLng),
+  };
+}
+
 type AuthCtx = {
   ready: boolean;
   token: string | null;
@@ -87,12 +105,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               token: tok,
             });
             if (!cancelled) {
-              setUser({
-                id: String(me.user.id),
-                email: String(me.user.email),
-                fullName: String(me.user.fullName),
-                role: String(me.user.role),
-              });
+              setUser(mapMeUser(me.user));
             }
           } catch {
             if (!cancelled) {
@@ -180,6 +193,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setToken(data.token);
     setUser(data.user);
     void syncNativeTrackingSession();
+    void (async () => {
+      try {
+        const me = await apiFetch<{ user: AuthUserBrief & Record<string, unknown> }>("/auth/me", {
+          token: data.token,
+        });
+        setUser(mapMeUser(me.user));
+      } catch {
+        /* keep login user */
+      }
+    })();
     // Грибовская: after re-login, flush preserved GPS buffer (+ offline GPS jobs).
     void (async () => {
       try {

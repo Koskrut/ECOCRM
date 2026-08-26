@@ -24,7 +24,7 @@ function pickCompensationFactKind(
   },
   visitRouteDistanceKm: number | null = null,
   snappedTrackDistanceKm?: number | null,
-): "fact_gps" | "fact_visits" {
+): "fact_gps" | "fact_visits" | "none" {
   return selectCompensationFactKind({
     hasTrackingEnabledShift: factGps.quality.hasTrackingEnabledShift ?? false,
     filteredSampleCount: factGps.quality.sampleCount,
@@ -64,7 +64,21 @@ describe("fuel compensationFactKind selection (v2 eligibility)", () => {
     assert.ok(5 >= MIN_TRACK_COMPENSATION_SAMPLES);
   });
 
-  it("falls back to fact_visits when track shorter than 0.5 km", () => {
+  it("falls back to fact_visits when track shorter than 0.5 km and visits exist", () => {
+    const kind = pickCompensationFactKind(
+      {
+        quality: {
+          hasTrackingEnabledShift: true,
+          sampleCount: 20,
+          rawDistanceKm: 0.4,
+        },
+      },
+      12,
+    );
+    assert.equal(kind, "fact_visits");
+  });
+
+  it("no visits + short track → none", () => {
     const kind = pickCompensationFactKind({
       quality: {
         hasTrackingEnabledShift: true,
@@ -72,28 +86,34 @@ describe("fuel compensationFactKind selection (v2 eligibility)", () => {
         rawDistanceKm: 0.4,
       },
     });
-    assert.equal(kind, "fact_visits");
+    assert.equal(kind, "none");
   });
 
   it("falls back when only one filtered sample", () => {
-    const kind = pickCompensationFactKind({
-      quality: {
-        hasTrackingEnabledShift: true,
-        sampleCount: 1,
-        rawDistanceKm: 10,
+    const kind = pickCompensationFactKind(
+      {
+        quality: {
+          hasTrackingEnabledShift: true,
+          sampleCount: 1,
+          rawDistanceKm: 10,
+        },
       },
-    });
+      12,
+    );
     assert.equal(kind, "fact_visits");
   });
 
   it("falls back when no tracking-enabled shift", () => {
-    const kind = pickCompensationFactKind({
-      quality: {
-        hasTrackingEnabledShift: false,
-        sampleCount: 100,
-        rawDistanceKm: 50,
+    const kind = pickCompensationFactKind(
+      {
+        quality: {
+          hasTrackingEnabledShift: false,
+          sampleCount: 100,
+          rawDistanceKm: 50,
+        },
       },
-    });
+      12,
+    );
     assert.equal(kind, "fact_visits");
   });
 
@@ -138,14 +158,17 @@ describe("fuel dirty Lima track → fact_visits (not cosmic km)", () => {
     const rawKm = pathDistanceKm(sanitized.samples);
     // Single point → 0 km; not eligible for fact_gps
     assert.ok(rawKm < MIN_TRACK_COMPENSATION_KM);
-    const kind = pickCompensationFactKind({
-      quality: {
-        hasTrackingEnabledShift: true,
-        sampleCount: sanitized.filteredSampleCount,
-        rawDistanceKm: rawKm || null,
-        coverageRatio: 0.1,
+    const kind = pickCompensationFactKind(
+      {
+        quality: {
+          hasTrackingEnabledShift: true,
+          sampleCount: sanitized.filteredSampleCount,
+          rawDistanceKm: rawKm || null,
+          coverageRatio: 0.1,
+        },
       },
-    });
+      25,
+    );
     assert.equal(kind, "fact_visits");
   });
 
@@ -249,7 +272,7 @@ describe("amountEstimated persist when price+liters (metricsSource=none path)", 
 });
 
 describe("fuel snapshot fields (GPS contour)", () => {
-  it("loop collapse without hybrid → review (none)", () => {
+  it("loop collapse with visit line → fact_visits (not hybrid money)", () => {
     const sel = selectCompensationFactKind({
       hasTrackingEnabledShift: true,
       filteredSampleCount: 100,
@@ -257,26 +280,25 @@ describe("fuel snapshot fields (GPS contour)", () => {
       coverageRatio: 0.88,
       snappedTrackDistanceKm: 1.4,
       visitRouteDistanceKm: 261,
+      snapFailureReason: "gps_snap_loop_collapse",
+    });
+    assert.equal(sel.kind, "fact_visits");
+    assert.ok(sel.warnings.includes("gps_snap_loop_collapse"));
+  });
+
+  it("loop collapse without visits → none", () => {
+    const sel = selectCompensationFactKind({
+      hasTrackingEnabledShift: true,
+      filteredSampleCount: 100,
+      rawPolylineDistanceKm: 165,
+      coverageRatio: 0.88,
+      snappedTrackDistanceKm: 1.4,
+      visitRouteDistanceKm: null,
+      factVisitsGpsDistanceKm: 170.5,
       snapFailureReason: "gps_snap_loop_collapse",
     });
     assert.equal(sel.kind, "none");
     assert.equal(sel.ineligibleReason, "gps_snap_loop_collapse");
-  });
-
-  it("loop collapse with hybrid → fact_visits_gps payout", () => {
-    const sel = selectCompensationFactKind({
-      hasTrackingEnabledShift: true,
-      filteredSampleCount: 100,
-      rawPolylineDistanceKm: 165,
-      coverageRatio: 0.88,
-      snappedTrackDistanceKm: 1.4,
-      visitRouteDistanceKm: 261,
-      factVisitsGpsDistanceKm: 170.5,
-      snapFailureReason: "gps_snap_loop_collapse",
-    });
-    assert.equal(sel.kind, "fact_visits_gps");
-    assert.equal(sel.ineligibleReason, null);
-    assert.ok(sel.warnings.includes("gps_snap_loop_collapse"));
   });
 });
 

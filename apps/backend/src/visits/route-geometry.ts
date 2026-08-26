@@ -10,6 +10,14 @@ export type RouteAnchorConfig = {
   endLabel: string | null;
 };
 
+/** Day shift start/end for fact visit line (not profile garage loop). */
+export type ShiftDayAnchors = {
+  origin: LatLng | null;
+  destination: LatLng | null;
+  /** True when destination was set (ENDED shift). ACTIVE → false → no return-home arc. */
+  hasDestination: boolean;
+};
+
 /**
  * Builds origin / destination / intermediates for Google Routes and haversine.
  * When start and/or end are configured on the user profile, visits are waypoints only.
@@ -65,5 +73,53 @@ export function resolveRouteGeometry(
     destination,
     intermediates: points.length > 1 ? points.slice(1) : [],
     usesSettingsAnchors: true,
+  };
+}
+
+/**
+ * Fact visit line: shift origin → DONE visits → shift destination (if ENDED).
+ * Does not force return to profile garage while shift is ACTIVE.
+ * One visit + origin is already a routable line.
+ */
+export function resolveFactRouteGeometry(
+  visitPoints: LatLng[],
+  shift: ShiftDayAnchors,
+): {
+  origin: LatLng;
+  destination: LatLng;
+  intermediates: LatLng[];
+  ok: boolean;
+} | null {
+  if (!shift.origin) {
+    return null;
+  }
+  const origin = shift.origin;
+
+  if (shift.hasDestination && shift.destination) {
+    return {
+      origin,
+      destination: shift.destination,
+      intermediates: [...visitPoints],
+      ok: true,
+    };
+  }
+
+  // ACTIVE (or ENDED without dest): no forced return-home arc.
+  if (visitPoints.length === 0) {
+    return null;
+  }
+  if (visitPoints.length === 1) {
+    return {
+      origin,
+      destination: visitPoints[0]!,
+      intermediates: [],
+      ok: true,
+    };
+  }
+  return {
+    origin,
+    destination: visitPoints[visitPoints.length - 1]!,
+    intermediates: visitPoints.slice(0, -1),
+    ok: true,
   };
 }

@@ -30,6 +30,8 @@ import {
   ORDER_PROMO_QTY_25_MINUS_2,
   isPromoApplicable,
   parsePromoType,
+  pricesMatch,
+  promoEligibilityQty,
   type OrderPromoType,
 } from "@/lib/order-line-total";
 import type { FxVarianceSnapshot } from "@/lib/api/resources/orders";
@@ -588,7 +590,11 @@ function Stepper({
       return filterBlocked(filterCompletion(ORDER_STAGE_STEPS_ALL.filter((s) => s.key !== stage)));
     if (isWarehouse) {
       if (stage === "CONFIRMED") {
-        return filterBlocked(ORDER_STAGE_STEPS_ALL.filter((s) => s.key === "READY_TO_SHIP"));
+        return filterBlocked(
+          ORDER_STAGE_STEPS_ALL.filter(
+            (s) => s.key === "READY_TO_SHIP" || s.key === "AWAITING_STOCK",
+          ),
+        );
       }
       if (stage === "READY_TO_SHIP") {
         return filterBlocked(ORDER_STAGE_STEPS_ALL.filter((s) => s.key === "CONFIRMED"));
@@ -1595,32 +1601,71 @@ export function OrderModal({
       setSaving(true);
       setOrder((prev) => {
         if (!prev) return prev;
+        const target = prev.items.find((it) => it.id === itemId);
+        if (!target) return prev;
+
+        const qty = payload.qty ?? target.qty;
+        const price = payload.price ?? target.price;
+        let requestedPromo =
+          payload.promoType !== undefined
+            ? parsePromoType(payload.promoType)
+            : parsePromoType(target.promoType);
+        if (payload.discountPercent !== undefined && payload.promoType === undefined) {
+          requestedPromo = null;
+        }
+
+        const applyingBuy100 = requestedPromo === ORDER_PROMO_BUY_100_GET_30;
+        const clearingBuy100 =
+          parsePromoType(target.promoType) === ORDER_PROMO_BUY_100_GET_30 &&
+          requestedPromo !== ORDER_PROMO_BUY_100_GET_30 &&
+          payload.promoType !== undefined;
+
+        const draftItems = prev.items.map((it) => {
+          if (it.id !== itemId) return it;
+          return { ...it, qty, price };
+        });
+
         return {
           ...prev,
-          items: prev.items.map((it) => {
-            if (it.id !== itemId) return it;
-            const qty = payload.qty ?? it.qty;
-            const price = payload.price ?? it.price;
-            let promoType =
-              payload.promoType !== undefined
-                ? parsePromoType(payload.promoType)
-                : parsePromoType(it.promoType);
-            if (payload.discountPercent !== undefined && payload.promoType === undefined) {
-              promoType = null;
+          items: draftItems.map((it) => {
+            const isTarget = it.id === itemId;
+            const inSamePriceGroup = pricesMatch(it.price, price);
+
+            let promoType = parsePromoType(it.promoType);
+            if (applyingBuy100 && inSamePriceGroup) {
+              promoType = ORDER_PROMO_BUY_100_GET_30;
+            } else if (clearingBuy100 && pricesMatch(it.price, target.price)) {
+              promoType = isTarget ? requestedPromo : null;
+            } else if (isTarget) {
+              promoType = requestedPromo;
+              if (promoType && promoType !== ORDER_PROMO_BUY_100_GET_30) {
+                const elig = promoEligibilityQty(promoType, it, draftItems);
+                if (!isPromoApplicable(promoType, elig)) promoType = null;
+              }
+            } else if (promoType === ORDER_PROMO_BUY_100_GET_30 && inSamePriceGroup) {
+              const groupQty = promoEligibilityQty(ORDER_PROMO_BUY_100_GET_30, it, draftItems);
+              if (!isPromoApplicable(ORDER_PROMO_BUY_100_GET_30, groupQty)) promoType = null;
             }
-            if (promoType && !isPromoApplicable(promoType, qty)) {
-              promoType = null;
-            }
+
             const discountPercent = promoType
               ? 0
-              : payload.discountPercent !== undefined
+              : isTarget && payload.discountPercent !== undefined
                 ? payload.discountPercent
                 : (it.discountPercent ?? 0);
-            const pricing = computeLinePricing(qty, price, discountPercent, promoType);
+
+            const eligibilityQty =
+              promoType === ORDER_PROMO_BUY_100_GET_30
+                ? promoEligibilityQty(ORDER_PROMO_BUY_100_GET_30, it, draftItems)
+                : undefined;
+            const pricing = computeLinePricing(
+              it.qty,
+              it.price,
+              discountPercent,
+              promoType,
+              eligibilityQty,
+            );
             return {
               ...it,
-              qty,
-              price,
               discountPercent: pricing.discountPercent,
               promoType: pricing.promoType,
               lineTotal: pricing.lineTotal,
@@ -1646,9 +1691,12 @@ export function OrderModal({
           // Clear promo on server when qty no longer meets the threshold
           const current = order?.items.find((i) => i.id === itemId);
           const currentPromo = parsePromoType(current?.promoType);
-          if (currentPromo && !isPromoApplicable(currentPromo, Number(payload.qty))) {
-            body.promoType = "NONE";
+          if (currentPromo === ORDER_PROMO_QTY_25_MINUS_2) {
+            if (!isPromoApplicable(currentPromo, Number(payload.qty))) {
+              body.promoType = "NONE";
+            }
           }
+          // BUY_100_GET_30: leave promoType unset — server refreshes same-price group
         }
         const r = await fetch(`${apiBaseUrl}/orders/${orderId}/items/${itemId}`, {
           method: "PATCH",
@@ -3002,7 +3050,8 @@ export function OrderModal({
                                 >
                                   <option value="">{t.promoNone}</option>
                                   {promoOptions.map((p) => {
-                                    const ok = isPromoApplicable(p, it.qty);
+                                    const elig = promoEligibilityQty(p, it, order.items);
+                                    const ok = isPromoApplicable(p, elig);
                                     const label =
                                       p === ORDER_PROMO_BUY_100_GET_30
                                         ? t.promoBuy100Get30
@@ -3010,7 +3059,15 @@ export function OrderModal({
                                     return (
                                       <option key={p} value={p} disabled={!ok}>
                                         {label}
-                                        {!ok ? ` (${t.promoNeedQty})` : ""}
+                                        {!ok
+                                          ? ` (${t.promoNeedQty}${
+                                              p === ORDER_PROMO_BUY_100_GET_30
+                                                ? `: ${elig}/130`
+                                                : ""
+                                            })`
+                                          : p === ORDER_PROMO_BUY_100_GET_30 && elig !== it.qty
+                                            ? ` (${elig} шт)`
+                                            : ""}
                                       </option>
                                     );
                                   })}

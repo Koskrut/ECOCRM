@@ -13,6 +13,7 @@ import { scheduleModalClose } from "@/lib/modal/scheduleModalClose";
 
 const WORKSPACE_STAGE = "CONFIRMED";
 const NEXT_STAGE = "READY_TO_SHIP";
+const AWAITING_STOCK_STAGE = "AWAITING_STOCK";
 const WAREHOUSE_FILTER_STORAGE_KEY = "warehouse.selectedIds";
 
 function clientLabel(order: FulfillmentQueueOrder): string {
@@ -81,8 +82,7 @@ export default function WarehouseWorkPage() {
   const [err, setErr] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [pickModalOrderId, setPickModalOrderId] = useState<string | null>(null);
-  const [advancing, setAdvancing] = useState(false);
-  const [splitting, setSplitting] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   const [foundQtyDrafts, setFoundQtyDrafts] = useState<Record<string, string>>({});
   const [missingByItemId, setMissingByItemId] = useState<Record<string, boolean>>({});
   const [userRole, setUserRole] = useState<string | null>(null);
@@ -170,7 +170,9 @@ export default function WarehouseWorkPage() {
   }, [pickOrder]);
 
   const pickShortage = useMemo(() => {
-    if (!pickOrder?.items?.length) return { hasShortage: false, canSplit: false };
+    if (!pickOrder?.items?.length) {
+      return { hasShortage: false, canSplit: false, allMissing: false };
+    }
     let hasShortage = false;
     let totalFound = 0;
     for (const it of pickOrder.items) {
@@ -180,7 +182,12 @@ export default function WarehouseWorkPage() {
       if (found < it.qty) hasShortage = true;
       totalFound += found;
     }
-    return { hasShortage, canSplit: hasShortage && totalFound > 0 };
+    const allMissing = hasShortage && totalFound === 0;
+    return {
+      hasShortage,
+      canSplit: hasShortage && totalFound > 0,
+      allMissing,
+    };
   }, [pickOrder, foundQtyDrafts, missingByItemId]);
 
   const toggleWarehouse = (id: string) => {
@@ -192,71 +199,72 @@ export default function WarehouseWorkPage() {
   };
 
   const closePickModal = () => {
-    if (advancing || splitting) return;
+    if (confirming) return;
     setPickModalOrderId(null);
     void loadQueue();
   };
 
   const requestClosePickModal = () => {
-    if (advancing || splitting) return;
+    if (confirming) return;
     scheduleModalClose(closePickModal);
   };
 
-  const advanceStage = async () => {
+  const confirmPick = async () => {
     if (!pickOrder) return;
-    setAdvancing(true);
+
+    setConfirming(true);
     setErr(null);
     setInfo(null);
     try {
+      if (pickShortage.allMissing) {
+        await ordersApi.patchStage(
+          pickOrder.id,
+          AWAITING_STOCK_STAGE,
+          "Немає на складі при збірці",
+        );
+        setPickModalOrderId(null);
+        await loadQueue();
+        setInfo("Замовлення переведено в «Очікує на склад»");
+        return;
+      }
+
+      if (pickShortage.canSplit) {
+        const picks = (pickOrder.items ?? []).map((it) => ({
+          itemId: it.id,
+          foundQty: missingByItemId[it.id]
+            ? 0
+            : parseFoundQty(foundQtyDrafts[it.id], it.qty),
+        }));
+        const result = await ordersApi.splitByStock(pickOrder.id, { picks });
+        await ordersApi.patchStage(pickOrder.id, NEXT_STAGE, "Warehouse workspace");
+        const childNo = result?.child?.orderNumber;
+        setPickModalOrderId(null);
+        await loadQueue();
+        setInfo(
+          childNo
+            ? `Збірку підтверджено. Недостача №${childNo} → Очікує на склад`
+            : "Збірку підтверджено",
+        );
+        return;
+      }
+
       await ordersApi.patchStage(pickOrder.id, NEXT_STAGE, "Warehouse workspace");
       setPickModalOrderId(null);
       await loadQueue();
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "Не вдалося оновити стадію");
+      setErr(e instanceof Error ? e.message : "Не вдалося підтвердити збірку");
     } finally {
-      setAdvancing(false);
+      setConfirming(false);
     }
   };
 
-  const splitMissing = async () => {
-    if (!pickOrder) return;
-    if (!pickShortage.canSplit) {
-      setErr(
-        pickShortage.hasShortage
-          ? "Усі позиції відсутні — зверніться до менеджера"
-          : "Немає відсутніх позицій для розділення",
-      );
-      return;
-    }
+  const confirmButtonLabel = pickShortage.allMissing
+    ? "Немає на складі"
+    : pickShortage.hasShortage
+      ? "Підтвердити збірку"
+      : "Готово до відправки";
 
-    const picks = (pickOrder.items ?? []).map((it) => ({
-      itemId: it.id,
-      foundQty: missingByItemId[it.id]
-        ? 0
-        : parseFoundQty(foundQtyDrafts[it.id], it.qty),
-    }));
-
-    setSplitting(true);
-    setErr(null);
-    setInfo(null);
-    try {
-      const result = await ordersApi.splitByStock(pickOrder.id, { picks });
-      const childNo = result?.child?.orderNumber;
-      setPickModalOrderId(null);
-      await loadQueue();
-      setInfo(
-        childNo
-          ? `Відсутнє виділено. Дочірнє №${childNo} → Очікує на склад`
-          : "Замовлення розділено",
-      );
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : "Не вдалося розділити замовлення");
-    } finally {
-      setSplitting(false);
-    }
-  };
-
-  const busy = advancing || splitting;
+  const busy = confirming;
 
   return (
     <div className="mx-auto max-w-2xl">
@@ -463,7 +471,7 @@ export default function WarehouseWorkPage() {
 
               <h3 className="text-sm font-semibold text-zinc-800">Товари</h3>
               <p className="mt-1 text-xs text-zinc-500">
-                Вкажіть скільки знайшли (з замовленого) або відмітьте «Немає», потім «Відділити відсутнє».
+                Вкажіть скільки знайшли (з замовленого) або відмітьте «Немає», потім підтвердіть збірку.
               </p>
               <ul className="mt-2 divide-y divide-zinc-100">
                 {(pickOrder.items ?? []).map((it) => {
@@ -558,31 +566,14 @@ export default function WarehouseWorkPage() {
               >
                 Відкрити картку
               </button>
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={() => void splitMissing()}
-                  disabled={busy || !pickShortage.canSplit}
-                  title={
-                    !pickShortage.hasShortage
-                      ? "Усі позиції знайдені повністю"
-                      : !pickShortage.canSplit
-                        ? "Усі позиції відсутні"
-                        : undefined
-                  }
-                  className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
-                >
-                  {splitting ? "Розділення…" : "Відділити відсутнє"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void advanceStage()}
-                  disabled={busy}
-                  className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
-                >
-                  {advancing ? "Оновлення…" : "Готово до відправки"}
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={() => void confirmPick()}
+                disabled={busy || (pickOrder.items?.length ?? 0) === 0}
+                className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
+              >
+                {busy ? "Збереження…" : confirmButtonLabel}
+              </button>
             </div>
           </div>
         </div>

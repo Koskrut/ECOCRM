@@ -9,6 +9,12 @@ export type FieldShiftSummary = {
   endedAt: string | null;
   trackingEnabled: boolean;
   plannedDistanceKm: number | null;
+  originKind?: "HOME" | "CURRENT" | null;
+  originLat?: number | null;
+  originLng?: number | null;
+  destinationKind?: "HOME" | "CURRENT" | null;
+  destinationLat?: number | null;
+  destinationLng?: number | null;
 };
 
 export type FieldShiftLastSample = {

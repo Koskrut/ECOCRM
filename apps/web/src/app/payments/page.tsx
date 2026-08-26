@@ -23,6 +23,8 @@ import { ordersApi, type FxVarianceQueueItem } from "@/lib/api/resources/orders"
 import { FxWriteOffModal } from "./FxWriteOffModal";
 import { InfiniteScrollSentinel } from "@/components/InfiniteScrollSentinel";
 import { HelpHint } from "@/components/help/HelpHint";
+import { useModules } from "@/lib/modules/useModules";
+import { ModuleIds } from "@/lib/modules/module-ids";
 
 const PAGE_SIZE = 50;
 
@@ -342,6 +344,8 @@ export default function PaymentsPage() {
 
 function PaymentsContent() {
   const { pushToast } = useToast();
+  const { effective: moduleEffective } = useModules();
+  const oneCPaymentsEnabled = moduleEffective(ModuleIds.OneCPayments);
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -1689,28 +1693,38 @@ function PaymentsContent() {
           </div>
           <p className="mt-1 text-sm text-zinc-500">{t.payments.subtitle}</p>
         </div>
-        {mode === "cash" && (
-          <button
-            type="button"
-            onClick={() => {
-              setShowAddCashPayment(true);
-              setAddCashPaidAt(new Date().toISOString().slice(0, 16));
-              setAddCashContactSearch("");
-              setAddCashContactId(null);
-              setAddCashContactName("");
-              setAddCashOrders([]);
-              setAddCashOrderId(null);
-              setAddCashOrderNumber("");
-              setAddCashAmount("");
-              setAddCashCurrency("UAH");
-              setAddCashNote("");
-              void fetchContactsForAddCash();
-            }}
-            className="rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-sm font-medium text-zinc-700 shadow-sm hover:bg-zinc-50"
-          >
-            {t.payments.addPayment}
-          </button>
-        )}
+        <div className="flex flex-wrap items-center gap-2">
+          {oneCPaymentsEnabled && (
+            <Link
+              href="/settings/integrations/1c-payments"
+              className="rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-sm font-medium text-zinc-700 shadow-sm hover:bg-zinc-50"
+            >
+              {t.payments.uploadOneCPayments}
+            </Link>
+          )}
+          {mode === "cash" && (
+            <button
+              type="button"
+              onClick={() => {
+                setShowAddCashPayment(true);
+                setAddCashPaidAt(new Date().toISOString().slice(0, 16));
+                setAddCashContactSearch("");
+                setAddCashContactId(null);
+                setAddCashContactName("");
+                setAddCashOrders([]);
+                setAddCashOrderId(null);
+                setAddCashOrderNumber("");
+                setAddCashAmount("");
+                setAddCashCurrency("UAH");
+                setAddCashNote("");
+                void fetchContactsForAddCash();
+              }}
+              className="rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-sm font-medium text-zinc-700 shadow-sm hover:bg-zinc-50"
+            >
+              {t.payments.addPayment}
+            </button>
+          )}
+        </div>
       </div>
 
       <section className="rounded-xl border border-zinc-200 bg-white shadow-sm">

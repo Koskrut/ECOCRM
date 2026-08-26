@@ -7,6 +7,7 @@ import {
   ORDER_PROMO_BUY_100_GET_30,
   ORDER_PROMO_QTY_25_MINUS_2,
   parsePromoType,
+  sumQtyForSamePrice,
 } from "../order-line-total.utils";
 
 test("computeLineTotal without discount equals gross", () => {
@@ -47,6 +48,35 @@ test("BUY_100_GET_30: 130 × 16 → lineTotal 1600, unit 1600/130", () => {
 
 test("BUY_100_GET_30 rejects qty below 130", () => {
   assert.throws(() => computeLinePricing(129, 16, 0, ORDER_PROMO_BUY_100_GET_30), /100\+30/);
+});
+
+test("BUY_100_GET_30 allows short line when eligibilityQty is group total", () => {
+  const pricing = computeLinePricing(40, 16, 0, ORDER_PROMO_BUY_100_GET_30, {
+    eligibilityQty: 130,
+  });
+  assert.equal(pricing.lineTotal, 40 * 16 * (100 / 130));
+  assert.equal(pricing.promoType, ORDER_PROMO_BUY_100_GET_30);
+});
+
+test("BUY_100_GET_30 group: 50+80 @ 16 = 1600 total", () => {
+  const a = computeLinePricing(50, 16, 0, ORDER_PROMO_BUY_100_GET_30, { eligibilityQty: 130 });
+  const b = computeLinePricing(80, 16, 0, ORDER_PROMO_BUY_100_GET_30, { eligibilityQty: 130 });
+  assert.equal(a.lineTotal + b.lineTotal, 1600);
+});
+
+test("sumQtyForSamePrice groups by rounded price", () => {
+  assert.equal(
+    sumQtyForSamePrice(
+      [
+        { qty: 40, price: 16 },
+        { qty: 50, price: 16.0 },
+        { qty: 40, price: 16.004 },
+        { qty: 10, price: 15 },
+      ],
+      16,
+    ),
+    130,
+  );
 });
 
 test("BUY_100_GET_30 drops when dropInapplicable and qty low", () => {

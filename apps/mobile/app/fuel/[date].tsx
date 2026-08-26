@@ -59,7 +59,7 @@ type FuelDayResponse = {
   factMetrics: RouteMetrics;
   factGpsMetrics?: RouteMetrics;
   factVisitsMetrics?: RouteMetrics;
-  compensationFactKind?: "fact_gps" | "fact_visits";
+  compensationFactKind?: "fact_gps" | "fact_visits" | "none";
   refuels?: FuelRefuelEntry[];
   refuelTotals?: FuelRefuelTotals;
 };
@@ -304,7 +304,9 @@ export default function FuelDayScreen() {
                 <Text style={[theme.typography.caption, { color: theme.colors.primaryText, marginTop: 2 }]}>
                   {data?.compensationFactKind === "fact_gps"
                     ? t("fuel.payoutSourceGps")
-                    : t("fuel.payoutSourceVisits")}
+                    : data?.compensationFactKind === "none"
+                      ? t("fuel.payoutSourceReview")
+                      : t("fuel.payoutSourceVisits")}
                   {r.metricsSource ? ` · ${r.metricsSource}` : ""}
                 </Text>
               </Card>
@@ -335,6 +337,11 @@ export default function FuelDayScreen() {
                 <Text style={[theme.typography.title, { marginTop: 4 }]}>
                   {r.plannedKm ?? "—"} {t("common.km")}
                 </Text>
+                {r.plannedKm != null ? (
+                  <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 2 }]}>
+                    {t("fuel.plannedExpected", { km: r.plannedKm })}
+                  </Text>
+                ) : null}
                 {(data?.warnings ?? []).some((w) => w.startsWith("planned_km_")) ? (
                   <Text style={[theme.typography.caption, { color: theme.colors.warningText, marginTop: 2 }]}>
                     {t("fuel.planSuspect")}

@@ -46,7 +46,14 @@ export class FieldController {
 
   @Post("shifts/start")
   async startShift(
-    @Body() body: { plannedDistanceKm?: number | null; trackingEnabled?: boolean },
+    @Body()
+    body: {
+      plannedDistanceKm?: number | null;
+      trackingEnabled?: boolean;
+      originKind?: string | null;
+      originLat?: number | null;
+      originLng?: number | null;
+    },
     @Req() req: Request & { user?: AuthUser },
   ) {
     const plannedDistanceKm =
@@ -55,13 +62,29 @@ export class FieldController {
       plannedDistanceKm:
         plannedDistanceKm != null && Number.isFinite(plannedDistanceKm) ? plannedDistanceKm : null,
       trackingEnabled: typeof body?.trackingEnabled === "boolean" ? body.trackingEnabled : undefined,
+      originKind: body?.originKind ?? null,
+      originLat: body?.originLat != null ? Number(body.originLat) : null,
+      originLng: body?.originLng != null ? Number(body.originLng) : null,
     });
     return { shift };
   }
 
   @Post("shifts/:id/end")
-  async endShift(@Param("id") id: string, @Req() req: Request & { user?: AuthUser }) {
-    const shift = await this.shifts.end(req.user, id);
+  async endShift(
+    @Param("id") id: string,
+    @Body()
+    body: {
+      destinationKind?: string | null;
+      destinationLat?: number | null;
+      destinationLng?: number | null;
+    },
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    const shift = await this.shifts.end(req.user, id, {
+      destinationKind: body?.destinationKind ?? null,
+      destinationLat: body?.destinationLat != null ? Number(body.destinationLat) : null,
+      destinationLng: body?.destinationLng != null ? Number(body.destinationLng) : null,
+    });
     return { shift };
   }
 

@@ -21,12 +21,15 @@ function warehouseUser(): AuthUser {
 }
 
 test("warehouseAllowedStageTargets returns picking transitions", () => {
-  assert.deepEqual(warehouseAllowedStageTargets("CONFIRMED"), ["READY_TO_SHIP"]);
+  assert.deepEqual(warehouseAllowedStageTargets("CONFIRMED"), [
+    "READY_TO_SHIP",
+    "AWAITING_STOCK",
+  ]);
   assert.deepEqual(warehouseAllowedStageTargets("READY_TO_SHIP"), ["CONFIRMED"]);
   assert.deepEqual(warehouseAllowedStageTargets("AWAITING_STOCK"), []);
 });
 
-test("assertWarehouseStageTransition allows CONFIRMED ↔ READY_TO_SHIP", () => {
+test("assertWarehouseStageTransition allows CONFIRMED ↔ READY_TO_SHIP and to AWAITING_STOCK", () => {
   const actor = warehouseUser();
   assert.doesNotThrow(() =>
     assertWarehouseStageTransition(actor, "CONFIRMED", "READY_TO_SHIP"),
@@ -34,16 +37,15 @@ test("assertWarehouseStageTransition allows CONFIRMED ↔ READY_TO_SHIP", () => 
   assert.doesNotThrow(() =>
     assertWarehouseStageTransition(actor, "READY_TO_SHIP", "CONFIRMED"),
   );
+  assert.doesNotThrow(() =>
+    assertWarehouseStageTransition(actor, "CONFIRMED", "AWAITING_STOCK"),
+  );
 });
 
 test("assertWarehouseStageTransition blocks other stage changes", () => {
   const actor = warehouseUser();
   assert.throws(
     () => assertWarehouseStageTransition(actor, "AWAITING_STOCK", "CONFIRMED"),
-    /Кладовщик не може/,
-  );
-  assert.throws(
-    () => assertWarehouseStageTransition(actor, "CONFIRMED", "AWAITING_STOCK"),
     /Кладовщик не може/,
   );
   assert.throws(

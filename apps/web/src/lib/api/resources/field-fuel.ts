@@ -61,7 +61,7 @@ export type FuelRouteAnchors = {
   usesSettingsAnchors: boolean;
 };
 
-export type CompensationFactKind = "fact_gps" | "fact_visits" | "fact_visits_gps" | "none";
+export type CompensationFactKind = "fact_gps" | "fact_visits" | "none";
 
 export type FuelRefuelEntry = {
   id: string;

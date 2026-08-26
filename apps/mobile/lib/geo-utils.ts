@@ -14,6 +14,50 @@ export function haversineDistanceM(aLat: number, aLng: number, bLat: number, bLn
 
 export const VISIT_GPS_MAX_ACCURACY_M = 150;
 
+/** Garage proximity for shift start/end defaults (~1 km). */
+export const SHIFT_HOME_NEAR_M = 1000;
+
+export type FieldShiftAnchorKind = "HOME" | "CURRENT";
+
+export type LatLng = { lat: number; lng: number };
+
+export function isNearHome(
+  point: LatLng | null | undefined,
+  garage: LatLng | null | undefined,
+  nearM: number = SHIFT_HOME_NEAR_M,
+): boolean {
+  if (!point || !garage) return false;
+  if (
+    !Number.isFinite(point.lat) ||
+    !Number.isFinite(point.lng) ||
+    !Number.isFinite(garage.lat) ||
+    !Number.isFinite(garage.lng)
+  ) {
+    return false;
+  }
+  return haversineDistanceM(point.lat, point.lng, garage.lat, garage.lng) <= nearM;
+}
+
+export function suggestOriginKind(
+  gps: LatLng | null | undefined,
+  garage: LatLng | null | undefined,
+): FieldShiftAnchorKind {
+  if (garage && isNearHome(gps, garage)) return "HOME";
+  if (gps) return "CURRENT";
+  if (garage) return "HOME";
+  return "CURRENT";
+}
+
+export function suggestDestinationKind(
+  lastGps: LatLng | null | undefined,
+  garage: LatLng | null | undefined,
+): FieldShiftAnchorKind {
+  if (garage && isNearHome(lastGps, garage)) return "HOME";
+  if (lastGps) return "CURRENT";
+  if (garage) return "HOME";
+  return "CURRENT";
+}
+
 export type VisitProximityStatus = "verified" | "nearby" | "outside" | "no_fix";
 
 export function visitProximityStatus(input: {

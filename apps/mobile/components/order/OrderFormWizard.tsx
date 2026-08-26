@@ -28,6 +28,7 @@ import { settingsApi } from "@/lib/api/settings";
 import { useTheme } from "@/lib/design/theme-context";
 import { t } from "@/lib/i18n";
 import { formatBaseMoney } from "@/lib/order-currency";
+import { ORDER_PROMO_BUY_100_GET_30, pricesMatch } from "@/lib/order-line-total";
 import { useBaseCurrency } from "@/lib/use-base-currency";
 import {
   createOrderFull,
@@ -447,8 +448,24 @@ export function OrderFormWizard({
                     currency={displayCurrency}
                     discountPresets={discountPresets}
                     promoOptions={promoOptions}
+                    allLines={lines}
                     onChange={(patch) =>
-                      setLines((prev) => prev.map((l) => (l.key === line.key ? { ...l, ...patch } : l)))
+                      setLines((prev) => {
+                        const applyingBuy100 = patch.promoType === ORDER_PROMO_BUY_100_GET_30;
+                        const clearingBuy100 =
+                          patch.promoType === null &&
+                          line.promoType === ORDER_PROMO_BUY_100_GET_30;
+                        return prev.map((l) => {
+                          if (l.key === line.key) return { ...l, ...patch };
+                          if (applyingBuy100 && pricesMatch(l.price, line.price)) {
+                            return { ...l, promoType: ORDER_PROMO_BUY_100_GET_30, discountPercent: 0 };
+                          }
+                          if (clearingBuy100 && pricesMatch(l.price, line.price)) {
+                            return { ...l, promoType: null };
+                          }
+                          return l;
+                        });
+                      })
                     }
                     onRemove={() => setLines((prev) => prev.filter((l) => l.key !== line.key))}
                   />

@@ -218,12 +218,6 @@ export function isTrackEligibleForCompensation(
   return { eligible: true, reason: null };
 }
 
-/** Soft reasons: track is usable for payout when visits cannot pay (Hrybovska-like). */
-const GPS_SOFT_INELIGIBLE = new Set([
-  "gps_low_coverage",
-  "gps_ended_before_last_visit",
-]);
-
 /** Best usable GPS km for compensation — OSRM snapped only (never raw haversine). */
 export function resolveUsableGpsKm(opts: {
   snappedTrackDistanceKm?: number | null;
@@ -252,19 +246,131 @@ function visitsKmUsable(visitRouteDistanceKm: number | null | undefined): boolea
 }
 
 export type CompensationFactSelection = {
-  kind: "fact_gps" | "fact_visits" | "fact_visits_gps" | "none";
+  kind: "fact_gps" | "fact_visits" | "none";
   /** Set when kind is fact_visits due to GPS ineligibility, or none for manual review. */
   ineligibleReason: string | null;
-  /** Soft GPS issues that still allow fact_gps payout. */
+  /** Soft GPS issues or supervisor review flags. */
   warnings: string[];
 };
 
+/** Soft reasons: track incomplete — fall back to visits when visit line exists. */
+const GPS_SOFT_INELIGIBLE = new Set([
+  "gps_low_coverage",
+  "gps_ended_before_last_visit",
+]);
+
 /**
- * Pick payout source. Soft GPS failures (low coverage / ended early) still pay
- * fact_gps when visits cannot (no/too-short visit route) — Hrybovska 31.07.
- * When visits can pay, keep falling back to fact_visits (Gumenyuk).
+ * Pick payout source (no hybrid money):
+ * 1) Whole track → fact_gps (snap)
+ * 2) Holey track + visit line → fact_visits
+ * 3) Visit/track contradiction → snap if any, else none (never auto visits)
  */
-/** Hybrid payout on loop-collapse days (Mykhailiv 29.07) — never auto fact_visits. */
+export function selectCompensationFactKind(
+  opts: TrackCompensationInput & {
+    /** DONE visit closed off-pin and track never approached pin (~1 km). */
+    visitTrackContradiction?: boolean;
+    /** @deprecated hybrid is display-only; ignored for payout. */
+    factVisitsGpsDistanceKm?: number | null;
+  },
+): CompensationFactSelection {
+  if (opts.visitTrackContradiction) {
+    const gpsKm = resolveUsableGpsKm(opts);
+    if (gpsKm != null) {
+      return {
+        kind: "fact_gps",
+        ineligibleReason: "visit_track_contradiction",
+        warnings: ["visit_closed_off_address_unconfirmed"],
+      };
+    }
+    return {
+      kind: "none",
+      ineligibleReason: "visit_track_contradiction",
+      warnings: ["visit_closed_off_address_unconfirmed"],
+    };
+  }
+
+  const visitsOk = visitsKmUsable(opts.visitRouteDistanceKm);
+
+  // Explicit loop-collapse snap: never pay hybrid; visits if available else review.
+  if (opts.snapFailureReason === "gps_snap_loop_collapse") {
+    if (visitsOk) {
+      return {
+        kind: "fact_visits",
+        ineligibleReason: "gps_snap_loop_collapse",
+        warnings: ["gps_snap_loop_collapse"],
+      };
+    }
+    return {
+      kind: "none",
+      ineligibleReason: "gps_snap_loop_collapse",
+      warnings: ["gps_snap_loop_collapse"],
+    };
+  }
+
+  const eligibility = isTrackEligibleForCompensation(opts);
+  if (eligibility.eligible) {
+    return { kind: "fact_gps", ineligibleReason: null, warnings: [] };
+  }
+
+  const reason = eligibility.reason;
+  const trackOk = trackKmUsable(opts);
+
+  // Loop collapse (explicit or snap≪raw) is a holey track — prefer visits when available.
+  const loopCollapse =
+    opts.snapFailureReason === "gps_snap_loop_collapse" ||
+    (reason === "gps_implausibly_short_vs_visits" &&
+      opts.rawPolylineDistanceKm != null &&
+      opts.rawPolylineDistanceKm >= LOOP_MIN_TRIP_KM &&
+      opts.snappedTrackDistanceKm != null &&
+      opts.snappedTrackDistanceKm < opts.rawPolylineDistanceKm * LOOP_SNAP_VS_SIMPLIFIED_RATIO);
+
+  if (visitsOk) {
+    const warnings: string[] = [];
+    if (reason) warnings.push(reason);
+    if (loopCollapse && !warnings.includes("gps_snap_loop_collapse")) {
+      warnings.push("gps_snap_loop_collapse");
+    }
+    return {
+      kind: "fact_visits",
+      ineligibleReason: reason ?? (loopCollapse ? "gps_snap_loop_collapse" : null),
+      warnings,
+    };
+  }
+
+  // No visit line: soft GPS failures may still pay snap (days with GPS only).
+  if (trackOk && reason != null && GPS_SOFT_INELIGIBLE.has(reason)) {
+    const warnings = [reason];
+    if (reason === "gps_low_coverage") {
+      warnings.push("gps_partial_coverage");
+    }
+    return { kind: "fact_gps", ineligibleReason: null, warnings };
+  }
+
+  // Loop collapse without a visit line → manual review (never hybrid money).
+  if (loopCollapse) {
+    return {
+      kind: "none",
+      ineligibleReason: "gps_snap_loop_collapse",
+      warnings: ["gps_snap_loop_collapse"],
+    };
+  }
+
+  if (trackOk) {
+    return {
+      kind: "fact_gps",
+      ineligibleReason: null,
+      warnings: reason ? [reason] : [],
+    };
+  }
+
+  return {
+    kind: "none",
+    ineligibleReason: reason ?? "compensation_unavailable",
+    warnings: reason ? [reason] : [],
+  };
+}
+
+/** @deprecated Hybrid is display-only; kept for map layer helpers/tests. */
 export function isHybridUsableForLoopCollapse(opts: {
   factVisitsGpsDistanceKm?: number | null;
   rawPolylineDistanceKm?: number | null;
@@ -290,90 +396,6 @@ export function isHybridUsableForLoopCollapse(opts: {
   }
 
   return hybridKm >= LOOP_MIN_TRIP_KM;
-}
-
-function loopCollapseCompensationSelection(
-  opts: TrackCompensationInput & { factVisitsGpsDistanceKm?: number | null },
-): CompensationFactSelection {
-  if (isHybridUsableForLoopCollapse(opts)) {
-    return {
-      kind: "fact_visits_gps",
-      ineligibleReason: null,
-      warnings: ["gps_snap_loop_collapse"],
-    };
-  }
-  return {
-    kind: "none",
-    ineligibleReason: "gps_snap_loop_collapse",
-    warnings: ["gps_snap_loop_collapse"],
-  };
-}
-
-export function selectCompensationFactKind(
-  opts: TrackCompensationInput & {
-    factVisitsGpsDistanceKm?: number | null;
-  },
-): CompensationFactSelection {
-  if (opts.snapFailureReason === "gps_snap_loop_collapse") {
-    return loopCollapseCompensationSelection(opts);
-  }
-
-  const eligibility = isTrackEligibleForCompensation(opts);
-  if (eligibility.eligible) {
-    return { kind: "fact_gps", ineligibleReason: null, warnings: [] };
-  }
-
-  const reason = eligibility.reason;
-
-  if (
-    reason === "gps_implausibly_short_vs_visits" &&
-    opts.rawPolylineDistanceKm != null &&
-    opts.rawPolylineDistanceKm >= LOOP_MIN_TRIP_KM &&
-    opts.snappedTrackDistanceKm != null &&
-    opts.snappedTrackDistanceKm < opts.rawPolylineDistanceKm * LOOP_SNAP_VS_SIMPLIFIED_RATIO
-  ) {
-    return loopCollapseCompensationSelection(opts);
-  }
-
-  const trackOk = trackKmUsable(opts);
-  const visitsOk = visitsKmUsable(opts.visitRouteDistanceKm);
-  const hybridKm = opts.factVisitsGpsDistanceKm;
-  const hybridOk =
-    hybridKm != null && Number.isFinite(hybridKm) && hybridKm >= MIN_TRACK_COMPENSATION_KM;
-
-  if (hybridOk && trackOk && reason != null && GPS_SOFT_INELIGIBLE.has(reason)) {
-    return { kind: "fact_visits_gps", ineligibleReason: null, warnings: [reason] };
-  }
-
-  if (trackOk && reason != null && GPS_SOFT_INELIGIBLE.has(reason) && !visitsOk) {
-    const warnings = [reason];
-    if (reason === "gps_low_coverage") {
-      warnings.push("gps_partial_coverage");
-    }
-    return { kind: "fact_gps", ineligibleReason: null, warnings };
-  }
-
-  if (
-    trackOk &&
-    visitsOk &&
-    reason != null &&
-    GPS_SOFT_INELIGIBLE.has(reason)
-  ) {
-    const gpsKm = resolveUsableGpsKm(opts) ?? 0;
-    if (gpsKm >= (opts.visitRouteDistanceKm ?? 0)) {
-      const warnings = [reason];
-      if (reason === "gps_low_coverage") {
-        warnings.push("gps_partial_coverage");
-      }
-      return { kind: "fact_gps", ineligibleReason: null, warnings };
-    }
-  }
-
-  return {
-    kind: "fact_visits",
-    ineligibleReason: reason,
-    warnings: [],
-  };
 }
 
 /** Planned km above this (or > 3× fact) is treated as garbage plan (Bondarenko). */

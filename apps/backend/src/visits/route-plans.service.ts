@@ -21,7 +21,7 @@ import {
   TRACK_SEGMENT_GAP_MIN,
   type TrackedGpsSample,
 } from "../routing/gps-track-snap.util";
-import { resolveRouteGeometry, type LatLng, type RouteAnchorConfig } from "./route-geometry";
+import { resolveRouteGeometry, resolveFactRouteGeometry, type LatLng, type RouteAnchorConfig, type ShiftDayAnchors } from "./route-geometry";
 import { pathFromWaypoints } from "./polyline.util";
 import {
   assessGpsTrackQuality,
@@ -41,6 +41,7 @@ import type {
   RouteGeometryWaypoint,
 } from "./route-geometry.types";
 import { effectiveVisitLatLng } from "./visit-coordinates";
+import { hasVisitTrackContradiction } from "./visit-track-contradiction";
 import {
   routePlanConfirmBlockMessage,
   routePlanConfirmBlockReason,
@@ -415,6 +416,7 @@ export class RoutePlansService {
     if (!dateStr) throw new BadRequestException("date is required");
     const ownerId = await this.resolveOwner(actor, opts?.ownerId);
     const { dayStart, dayEnd } = this.kyivVisitWindowFromStr(dateStr);
+    const date = this.parseDate(dateStr);
 
     // Fuel fact: Kyiv day by completedAt (startsAt fallback only when completedAt missing).
     const done = await this.prisma.visit.findMany({
@@ -441,11 +443,14 @@ export class RoutePlansService {
     const ordered = done
       .map((v) => ({ visit: v, coords: effectiveVisitLatLng(v) }))
       .filter((x): x is { visit: (typeof done)[0]; coords: { lat: number; lng: number } } => x.coords != null);
-    if (ordered.length < 2) return { distanceKm: null, durationMin: null, source: "none" };
 
-    const anchors = await this.getRouteAnchors(ownerId);
+    const shiftAnchors = await this.loadShiftDayAnchors(ownerId, date);
     const visitPoints = ordered.map((x) => x.coords);
-    const { origin, destination, intermediates } = resolveRouteGeometry(visitPoints, anchors);
+    const resolved = resolveFactRouteGeometry(visitPoints, shiftAnchors);
+    if (!resolved) {
+      return { distanceKm: null, durationMin: null, source: "none" };
+    }
+    const { origin, destination, intermediates } = resolved;
 
     try {
       const routed = await this.computeRouteMultiLeg({
@@ -1137,14 +1142,40 @@ export class RoutePlansService {
     ownerId: string;
     /** When true, skip OSRM (preview / drag) — haversine only. */
     fallbackOnly?: boolean;
+    /** Fact visits use shift day anchors; planned uses profile. */
+    shiftAnchors?: ShiftDayAnchors | null;
   }): Promise<RouteGeometryResult> {
-    const { kind, visitPoints, waypoints, ownerId, fallbackOnly } = opts;
-    if (visitPoints.length === 0) {
-      return this.emptyGeometry(kind, "no_points");
-    }
+    const { kind, visitPoints, waypoints, ownerId, fallbackOnly, shiftAnchors } = opts;
 
-    const anchors = await this.getRouteAnchors(ownerId);
-    const { origin, destination, intermediates } = resolveRouteGeometry(visitPoints, anchors);
+    let origin: LatLng;
+    let destination: LatLng;
+    let intermediates: LatLng[];
+
+    if (kind === "fact_visits") {
+      const resolved = resolveFactRouteGeometry(visitPoints, shiftAnchors ?? {
+        origin: null,
+        destination: null,
+        hasDestination: false,
+      });
+      if (!resolved) {
+        return this.emptyGeometry(
+          kind,
+          visitPoints.length === 0 ? "no_points" : "missing_shift_origin",
+        );
+      }
+      origin = resolved.origin;
+      destination = resolved.destination;
+      intermediates = resolved.intermediates;
+    } else {
+      if (visitPoints.length === 0) {
+        return this.emptyGeometry(kind, "no_points");
+      }
+      const anchors = await this.getRouteAnchors(ownerId);
+      const resolved = resolveRouteGeometry(visitPoints, anchors);
+      origin = resolved.origin;
+      destination = resolved.destination;
+      intermediates = resolved.intermediates;
+    }
 
     if (!fallbackOnly) {
       try {
@@ -1357,6 +1388,44 @@ export class RoutePlansService {
     return { points: rows.map((r) => r.coords), waypoints: rows.map((r) => r.wp) };
   }
 
+  private async loadFactVisitsForContradiction(
+    ownerId: string,
+    date: Date,
+  ): Promise<
+    Array<{
+      completeGpsVerification: string | null;
+      lat: number | null;
+      lng: number | null;
+    }>
+  > {
+    const { dayStart, dayEnd } = this.kyivVisitWindow(date);
+    const done = await this.prisma.visit.findMany({
+      where: {
+        ownerId,
+        status: "DONE",
+        OR: [
+          { completedAt: { gte: dayStart, lte: dayEnd } },
+          { completedAt: null, startsAt: { gte: dayStart, lte: dayEnd } },
+        ],
+      },
+      select: {
+        completeGpsVerification: true,
+        lat: true,
+        lng: true,
+        contact: { select: { lat: true, lng: true } },
+        company: { select: { lat: true, lng: true } },
+      },
+    });
+    return done.map((v) => {
+      const coords = effectiveVisitLatLng(v);
+      return {
+        completeGpsVerification: v.completeGpsVerification ?? null,
+        lat: coords?.lat ?? null,
+        lng: coords?.lng ?? null,
+      };
+    });
+  }
+
   private async loadFactVisitRows(ownerId: string, date: Date) {
     const { dayStart, dayEnd } = this.kyivVisitWindow(date);
     const done = await this.prisma.visit.findMany({
@@ -1541,6 +1610,37 @@ export class RoutePlansService {
     return open != null;
   }
 
+  /** Latest shift of the day — fact visit line origin/destination. */
+  private async loadShiftDayAnchors(ownerId: string, date: Date): Promise<ShiftDayAnchors> {
+    const shift = await this.prisma.fieldShift.findFirst({
+      where: { ownerId, date },
+      orderBy: { startedAt: "desc" },
+      select: {
+        status: true,
+        originLat: true,
+        originLng: true,
+        destinationLat: true,
+        destinationLng: true,
+        destinationKind: true,
+      },
+    });
+    if (!shift) {
+      return { origin: null, destination: null, hasDestination: false };
+    }
+    const origin =
+      shift.originLat != null && shift.originLng != null
+        ? { lat: shift.originLat, lng: shift.originLng }
+        : null;
+    const hasDestination =
+      shift.status === "ENDED" &&
+      shift.destinationLat != null &&
+      shift.destinationLng != null;
+    const destination = hasDestination
+      ? { lat: shift.destinationLat!, lng: shift.destinationLng! }
+      : null;
+    return { origin, destination, hasDestination };
+  }
+
   /** True when today's route plan still has stops not yet DONE. */
   private async loadPlanIncludesScheduled(ownerId: string, date: Date): Promise<boolean> {
     const plan = await this.prisma.routePlan.findUnique({
@@ -1704,9 +1804,22 @@ export class RoutePlansService {
     }
 
     if (kind === "fact_visits") {
-      const { points, waypoints } = await this.loadFactVisitPoints(ownerId, date);
-      if (points.length < 2) return this.emptyGeometry(kind, "insufficient_completed_visits");
-      return this.buildRoutedGeometry({ kind, visitPoints: points, waypoints, ownerId, fallbackOnly });
+      const [{ points, waypoints }, shiftAnchors] = await Promise.all([
+        this.loadFactVisitPoints(ownerId, date),
+        this.loadShiftDayAnchors(ownerId, date),
+      ]);
+      // 1 visit + shift origin is enough; do not require ≥2 visits.
+      if (points.length === 0 && !shiftAnchors.origin) {
+        return this.emptyGeometry(kind, "insufficient_completed_visits");
+      }
+      return this.buildRoutedGeometry({
+        kind,
+        visitPoints: points,
+        waypoints,
+        ownerId,
+        fallbackOnly,
+        shiftAnchors,
+      });
     }
 
     const [gps, lastDoneVisitCompletedAt] = await Promise.all([
@@ -1856,7 +1969,7 @@ export class RoutePlansService {
     const ownerId = await this.resolveOwner(actor, opts?.ownerId);
     const date = this.parseDate(dateStr);
 
-    const [planned, factVisits, factGps, factVisitsGps, shiftActive, anchors, planIncludesScheduled, gpsMeta] =
+    const [planned, factVisits, factGps, factVisitsGps, shiftActive, anchors, planIncludesScheduled, gpsMeta, doneForContradiction] =
       await Promise.all([
         this.getRouteGeometry(dateStr, "planned", actor, opts),
         this.getRouteGeometry(dateStr, "fact_visits", actor, opts),
@@ -1866,6 +1979,7 @@ export class RoutePlansService {
         this.getRouteAnchors(ownerId),
         this.loadPlanIncludesScheduled(ownerId, date),
         this.loadGpsTrack(ownerId, date),
+        this.loadFactVisitsForContradiction(ownerId, date),
       ]);
 
     const snapFailureReason = factGps.quality.snapFailureReason ?? null;
@@ -1875,8 +1989,13 @@ export class RoutePlansService {
       lastTracked ? { lat: lastTracked.lat, lng: lastTracked.lng } : null,
     );
 
+    const visitTrackContradiction = hasVisitTrackContradiction({
+      visits: doneForContradiction,
+      trackPoints: gpsMeta.trackedSamples.map((s) => ({ lat: s.lat, lng: s.lng })),
+    });
+
     const compensationFactKm =
-      factGps.distanceKm ?? factVisits.distanceKm ?? factVisitsGps.distanceKm;
+      factGps.distanceKm ?? factVisits.distanceKm;
     const plannedAssessment = assessPlannedKm({
       plannedKm: planned.distanceKm,
       factKm: compensationFactKm,
@@ -1893,7 +2012,7 @@ export class RoutePlansService {
       visitRouteDistanceKm: factVisits.distanceKm,
       snapFailureReason,
       plannedKmWarning: plannedAssessment.warning,
-      factVisitsGpsDistanceKm: factVisitsGps.distanceKm,
+      visitTrackContradiction,
     });
 
     const plannedOrderAssessment = assessPlannedOrderEfficiency({

@@ -408,8 +408,8 @@ export const en = {
       hint: "Enable the values you need (5–30%). At least one must stay active.",
       promosTitle: "Line promotions",
       promosHint:
-        "The manager picks a promo on the order line. Price is recalculated automatically.",
-      promoBuy100Get30: "Buy 100 get 30 free (price × 100/130)",
+        "Manager picks a promo manually. “100+30” applies to all lines with the same unit price (130 pcs can be split across lines).",
+      promoBuy100Get30: "Buy 100 get 30 free (same-price qty sum × 100/130)",
       promoQty25Minus2: "From 25 pcs — $2 off per unit",
       save: "Save",
       saving: "Saving…",
@@ -1041,6 +1041,7 @@ export const en = {
     subtitle:
       "Payment list and unmatched bank operations. FOP switch selects the bank account. Configure FOPs in Settings → FOP.",
     addPayment: "+ Add payment",
+    uploadOneCPayments: "Upload payments",
     /** Linked bank payments (already allocated to orders). */
     allocatedTab: "Allocated",
     /** Bank transactions that still need allocation to orders. */
@@ -2414,10 +2415,10 @@ export const en = {
     layerFactVisits: "Visits fact",
     layerFactVisitsGps: "Hybrid fact",
     stopN: (n: number) => `Stop ${n}`,
-    compensationGps: " · compensation: GPS",
-    compensationHybrid: " · compensation: hybrid",
-    compensationReview: " · compensation: review",
-    compensationVisits: " · compensation: visits",
+    compensationGps: " · by track",
+    compensationHybrid: " · hybrid (map)",
+    compensationReview: " · under review",
+    compensationVisits: " · by visits, incomplete track",
     openLiveTeam: "Live team map →",
     kpiPlan: "Plan",
     kpiFactGps: "GPS",
@@ -2446,10 +2447,11 @@ export const en = {
     loopCollapseReview: " · loop collapse — review",
   },
   visitsFuelPage: {
-    compensationGps: "GPS track (OSRM)",
-    compensationHybrid: "hybrid: visits + GPS",
-    compensationReview: "review required",
-    compensationVisits: "visit-based",
+    compensationGps: "by track",
+    compensationHybrid: "hybrid (map)",
+    compensationReview: "under review",
+    compensationVisits: "by visits, incomplete track",
+    plannedExpected: "expected {km} km",
     loopCollapseBadge: " · loop collapse",
     trackSnapKm: "Track (snap)",
     trackRawKm: "raw",
@@ -2462,6 +2464,8 @@ export const en = {
       gps_ended_early_partial_payout: "GPS ended early — partial payout",
       gps_snap_loop_collapse: "Loop trip — manager review",
       compensation_review_required: "Compensation needs review",
+      visit_closed_off_address_unconfirmed:
+        "Closed off address; track does not confirm the trip — manual approval",
       gps_partial_coverage: "Partial GPS coverage",
       planned_km_implausibly_large: "Planned km implausibly large",
       planned_km_vs_fact_outlier: "Plan vs fact outlier",
@@ -2477,6 +2481,7 @@ export const en = {
       gps_track_ineligible: "Track ineligible",
       gps_track_unavailable: "GPS track unavailable",
       report_stale: "Report stale",
+      insufficient_completed_visits: "Insufficient completed visits",
     },
   },
   visitsPage: {

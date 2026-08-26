@@ -36,6 +36,21 @@ export function parsePromoType(raw: unknown): OrderPromoType | null {
   throw new Error(`Unknown promoType: ${String(raw)}`);
 }
 
+/** Compare catalog unit prices in cents (same-price promo groups). */
+export function pricesMatch(a: number, b: number): boolean {
+  return Math.round(Number(a) * 100) === Math.round(Number(b) * 100);
+}
+
+/** Sum qty of lines whose unit price matches `price` (rounded to cents). */
+export function sumQtyForSamePrice(
+  items: Array<{ qty: number; price: number }>,
+  price: number,
+): number {
+  return items
+    .filter((it) => pricesMatch(it.price, price))
+    .reduce((s, it) => s + Math.max(0, Math.trunc(it.qty)), 0);
+}
+
 export function isPromoApplicable(promoType: OrderPromoType, qty: number): boolean {
   if (promoType === ORDER_PROMO_BUY_100_GET_30) return qty >= BUY_100_GET_30_MIN_QTY;
   if (promoType === ORDER_PROMO_QTY_25_MINUS_2) return qty >= QTY_25_MINUS_2_MIN_QTY;
@@ -66,20 +81,23 @@ export type LinePricingResult = {
  * Resolve line pricing. Promo and percent discount are mutually exclusive:
  * when a promo applies, percent is forced to 0.
  *
- * @param dropInapplicable when true (e.g. split), clear inapplicable promo instead of throwing
+ * @param options.dropInapplicable when true (e.g. split), clear inapplicable promo instead of throwing
+ * @param options.eligibilityQty qty used for promo threshold (e.g. same-price group for 100+30)
  */
 export function computeLinePricing(
   qty: number,
   price: number,
   discountPercent = 0,
   promoType: OrderPromoType | null = null,
-  options?: { dropInapplicable?: boolean },
+  options?: { dropInapplicable?: boolean; eligibilityQty?: number },
 ): LinePricingResult {
   const safeQty = Math.max(1, Math.trunc(qty));
   const pct = Math.max(0, Math.min(100, Math.trunc(discountPercent)));
+  const checkQty =
+    options?.eligibilityQty != null ? Math.max(0, Math.trunc(options.eligibilityQty)) : safeQty;
 
   if (promoType) {
-    if (!isPromoApplicable(promoType, safeQty)) {
+    if (!isPromoApplicable(promoType, checkQty)) {
       if (options?.dropInapplicable) {
         const lineTotal = computeLineTotal(safeQty, price, pct);
         return {

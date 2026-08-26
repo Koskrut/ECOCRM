@@ -27,8 +27,8 @@ export type FuelCalculationSnapshot = {
   factMetricsSource: string | null;
   factVisitsMetricsSource?: string | null;
   factGpsMetricsSource?: string | null;
-  /** fact_gps | fact_visits | fact_visits_gps | none — payout source for compensationKm. */
-  compensationFactKind?: "fact_gps" | "fact_visits" | "fact_visits_gps" | "none";
+  /** fact_gps | fact_visits | none — payout source for compensationKm. */
+  compensationFactKind?: "fact_gps" | "fact_visits" | "none";
   /** GPS track distance (km), regardless of payout source. */
   trackKm?: number | null;
   /** Raw filtered polyline before road snap (km). */

@@ -73,7 +73,14 @@ import {
 import { OrdersPipelineConfigService } from "./pipeline/orders-pipeline-config.service";
 import { WorkflowDomainEmitterService } from "../workflows/workflow-domain-emitter.service";
 import { OrderWarehouseNotifierService } from "../notifications/order-warehouse-notifier.service";
-import { computeLinePricing, parsePromoType, type OrderPromoType } from "./order-line-total.utils";
+import {
+  computeLinePricing,
+  ORDER_PROMO_BUY_100_GET_30,
+  parsePromoType,
+  pricesMatch,
+  sumQtyForSamePrice,
+  type OrderPromoType,
+} from "./order-line-total.utils";
 import { syncMisPickOutboundForReplacementOrder } from "../order-returns/order-return-replacement.utils";
 import { PICKUP_AUTO_SHIP_REASON, PICKUP_AUTO_SHIP_WHERE } from "./pickup-auto-ship.util";
 import { ModuleIds } from "../modules/module-ids";
@@ -198,6 +205,7 @@ export class OrdersService {
     discountPercent: number;
     promoType: OrderPromoType | null;
     dropInapplicable?: boolean;
+    eligibilityQty?: number;
   }) {
     try {
       return computeLinePricing(
@@ -205,11 +213,83 @@ export class OrdersService {
         input.price,
         input.discountPercent,
         input.promoType,
-        { dropInapplicable: input.dropInapplicable },
+        {
+          dropInapplicable: input.dropInapplicable,
+          eligibilityQty: input.eligibilityQty,
+        },
       );
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Invalid promo";
       throw new BadRequestException(msg);
+    }
+  }
+
+  /**
+   * BUY_100_GET_30 applies to all lines with the same unit price.
+   * Reprices every matching line (or clears promo if group qty drops below threshold).
+   */
+  private async syncBuy100Get30PriceGroup(
+    orderId: string,
+    price: number,
+    mode: "apply" | "refresh" | "clear",
+    db: Prisma.TransactionClient | PrismaService = this.prisma,
+  ): Promise<void> {
+    const items = await db.orderItem.findMany({ where: { orderId } });
+    const group = items.filter((it) => pricesMatch(it.price, price));
+    if (group.length === 0) return;
+
+    const groupQty = sumQtyForSamePrice(group, price);
+
+    if (mode === "clear" || (mode === "refresh" && groupQty < 130)) {
+      for (const it of group) {
+        if (it.promoType !== ORDER_PROMO_BUY_100_GET_30) continue;
+        const pricing = this.resolveItemPricing({
+          qty: it.qty,
+          price: it.price,
+          discountPercent: 0,
+          promoType: null,
+        });
+        await db.orderItem.update({
+          where: { id: it.id },
+          data: {
+            discountPercent: pricing.discountPercent,
+            promoType: null,
+            lineTotal: pricing.lineTotal,
+          },
+        });
+      }
+      return;
+    }
+
+    if (mode === "apply" && groupQty < 130) {
+      throw new BadRequestException(
+        `Акція «100+30» доступна від 130 шт сумарно за однаковою ціною (зараз ${groupQty})`,
+      );
+    }
+
+    if (mode === "apply" || (mode === "refresh" && groupQty >= 130)) {
+      const apply =
+        mode === "apply" ||
+        group.some((it) => it.promoType === ORDER_PROMO_BUY_100_GET_30);
+      if (!apply && mode === "refresh") return;
+
+      for (const it of group) {
+        const pricing = this.resolveItemPricing({
+          qty: it.qty,
+          price: it.price,
+          discountPercent: 0,
+          promoType: ORDER_PROMO_BUY_100_GET_30,
+          eligibilityQty: groupQty,
+        });
+        await db.orderItem.update({
+          where: { id: it.id },
+          data: {
+            discountPercent: 0,
+            promoType: pricing.promoType,
+            lineTotal: pricing.lineTotal,
+          },
+        });
+      }
     }
   }
 
@@ -1284,12 +1364,21 @@ export class OrdersService {
           : existing.discountPercent;
       if (!nextPromo) await this.assertAllowedDiscountPercent(nextDiscount);
       await this.assertAllowedPromo(nextPromo);
-      const pricing = this.resolveItemPricing({
-        qty: nextQty,
-        price,
-        discountPercent: nextDiscount,
-        promoType: nextPromo,
-      });
+
+      // For BUY_100_GET_30, eligibility is by same-price group qty (computed after write).
+      const pricing =
+        nextPromo === ORDER_PROMO_BUY_100_GET_30
+          ? {
+              discountPercent: 0,
+              promoType: nextPromo as OrderPromoType,
+              lineTotal: price * nextQty * (100 / 130),
+            }
+          : this.resolveItemPricing({
+              qty: nextQty,
+              price,
+              discountPercent: nextDiscount,
+              promoType: nextPromo,
+            });
       await db.orderItem.update({
         where: { id: existing.id },
         data: {
@@ -1301,12 +1390,19 @@ export class OrdersService {
         },
       });
     } else {
-      const pricing = this.resolveItemPricing({
-        qty,
-        price,
-        discountPercent,
-        promoType,
-      });
+      const pricing =
+        promoType === ORDER_PROMO_BUY_100_GET_30
+          ? {
+              discountPercent: 0,
+              promoType,
+              lineTotal: price * qty * (100 / 130),
+            }
+          : this.resolveItemPricing({
+              qty,
+              price,
+              discountPercent,
+              promoType,
+            });
       await db.orderItem.create({
         data: {
           orderId,
@@ -1318,6 +1414,13 @@ export class OrdersService {
           lineTotal: pricing.lineTotal,
         },
       });
+    }
+
+    if (promoType === ORDER_PROMO_BUY_100_GET_30) {
+      await this.syncBuy100Get30PriceGroup(orderId, price, "apply", db);
+    } else {
+      // Qty/price change may invalidate an existing same-price promo group.
+      await this.syncBuy100Get30PriceGroup(orderId, price, "refresh", db);
     }
 
     await this.materialReservations.syncActiveReservationsForOrder(orderId, tx);
@@ -1388,6 +1491,7 @@ export class OrdersService {
 
     const prevQty = item.qty;
     const prevTotalAmount = order.totalAmount ?? 0;
+    const prevPrice = item.price;
     const nextQty = dto.qty != null ? Math.max(1, Math.trunc(dto.qty)) : item.qty;
     const nextPrice = dto.price != null ? dto.price : item.price;
 
@@ -1414,23 +1518,75 @@ export class OrdersService {
     if (!nextPromo) await this.assertAllowedDiscountPercent(nextDiscount);
     await this.assertAllowedPromo(nextPromo);
 
-    const pricing = this.resolveItemPricing({
-      qty: nextQty,
-      price: nextPrice,
-      discountPercent: nextDiscount,
-      promoType: nextPromo,
-    });
+    let prevPromo: OrderPromoType | null = null;
+    try {
+      prevPromo = parsePromoType(item.promoType);
+    } catch {
+      prevPromo = null;
+    }
+    const clearingBuy100 =
+      prevPromo === ORDER_PROMO_BUY_100_GET_30 && nextPromo !== ORDER_PROMO_BUY_100_GET_30;
+    const applyingBuy100 = nextPromo === ORDER_PROMO_BUY_100_GET_30;
+
+    // Write the line first (qty/price), then sync same-price promo group.
+    const provisional =
+      applyingBuy100
+        ? {
+            discountPercent: 0,
+            promoType: ORDER_PROMO_BUY_100_GET_30 as OrderPromoType | null,
+            lineTotal: nextPrice * nextQty * (100 / 130),
+          }
+        : this.resolveItemPricing({
+            qty: nextQty,
+            price: nextPrice,
+            discountPercent: nextDiscount,
+            promoType: nextPromo === ORDER_PROMO_BUY_100_GET_30 ? null : nextPromo,
+            dropInapplicable: true,
+          });
 
     await this.prisma.orderItem.update({
       where: { id: itemId },
       data: {
         qty: nextQty,
         price: nextPrice,
-        discountPercent: pricing.discountPercent,
-        promoType: pricing.promoType,
-        lineTotal: pricing.lineTotal,
+        discountPercent: provisional.discountPercent,
+        promoType: applyingBuy100 ? ORDER_PROMO_BUY_100_GET_30 : provisional.promoType,
+        lineTotal: provisional.lineTotal,
       },
     });
+
+    if (applyingBuy100) {
+      await this.syncBuy100Get30PriceGroup(orderId, nextPrice, "apply");
+    } else if (clearingBuy100) {
+      // Clear promo from the whole same-price group (old price bucket).
+      await this.syncBuy100Get30PriceGroup(orderId, prevPrice, "clear");
+      if (!pricesMatch(prevPrice, nextPrice)) {
+        await this.syncBuy100Get30PriceGroup(orderId, nextPrice, "refresh");
+      }
+      // Re-apply non-group promo / percent on this line if requested.
+      if (nextPromo !== null || dto.discountPercent != null) {
+        const pricing = this.resolveItemPricing({
+          qty: nextQty,
+          price: nextPrice,
+          discountPercent: nextDiscount,
+          promoType: nextPromo,
+        });
+        await this.prisma.orderItem.update({
+          where: { id: itemId },
+          data: {
+            discountPercent: pricing.discountPercent,
+            promoType: pricing.promoType,
+            lineTotal: pricing.lineTotal,
+          },
+        });
+      }
+    } else {
+      // Qty/price edits: refresh any active BUY_100 group(s) affected.
+      await this.syncBuy100Get30PriceGroup(orderId, prevPrice, "refresh");
+      if (!pricesMatch(prevPrice, nextPrice)) {
+        await this.syncBuy100Get30PriceGroup(orderId, nextPrice, "refresh");
+      }
+    }
 
     await this.materialReservations.syncActiveReservationsForOrder(orderId);
     const updated = await this.recalcAndReturn(orderId);
@@ -1462,7 +1618,9 @@ export class OrdersService {
     });
     if (!item) throw new NotFoundException("Order item not found");
 
+    const removedPrice = item.price;
     await this.prisma.orderItem.delete({ where: { id: itemId } });
+    await this.syncBuy100Get30PriceGroup(orderId, removedPrice, "refresh");
     await this.materialReservations.syncActiveReservationsForOrder(orderId);
     return this.recalcAndReturn(orderId);
   }

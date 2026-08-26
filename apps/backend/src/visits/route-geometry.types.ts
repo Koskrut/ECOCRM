@@ -64,7 +64,7 @@ export type RouteGeometryBundle = {
   /** Hybrid: visit-order legs with GPS windows matched to roads where samples exist. */
   factVisitsGps: RouteGeometryResult;
   /** Which fact source fuel/compensation should prefer when both exist. */
-  compensationFactKind: "fact_gps" | "fact_visits" | "fact_visits_gps" | "none";
+  compensationFactKind: "fact_gps" | "fact_visits" | "none";
   /** Set when compensationFactKind is fact_visits due to GPS eligibility failure, or none for review. */
   compensationIneligibleReason: string | null;
   /** Soft GPS issues when still paying fact_gps (e.g. gps_low_coverage). */

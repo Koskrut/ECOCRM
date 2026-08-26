@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, Logger, NotFoundException, Optional } 
 import {
   ClientPlatform,
   FieldLocationSampleSource,
+  FieldShiftAnchorKind,
   FieldShiftStatus,
   FieldTrackingEventType,
   FieldTrackingHealthState,
@@ -29,6 +30,13 @@ import {
   sortGpsSamplesByTime,
 } from "./gps-sample-filter";
 import { SHIFT_ENDED_EVENT } from "./field.events";
+import {
+  type FieldShiftAnchorKindValue,
+  type LatLng,
+  parseAnchorKind,
+  parseClientLatLng,
+  suggestDestinationKind,
+} from "./field-shift-anchors.util";
 import {
   deriveDevicePresence,
   deriveGpsStatus,
@@ -103,10 +111,130 @@ export class FieldShiftsService {
     return new Date(`${dateStr}T00:00:00.000Z`);
   }
 
-  private async closeShift(shiftId: string, ownerId: string, endedAt = new Date()) {
+  private async loadOwnerGarage(ownerId: string): Promise<{
+    start: LatLng | null;
+    end: LatLng | null;
+  }> {
+    const u = await this.prisma.user.findUnique({
+      where: { id: ownerId },
+      select: {
+        routeStartLat: true,
+        routeStartLng: true,
+        routeEndLat: true,
+        routeEndLng: true,
+      },
+    });
+    const start =
+      u?.routeStartLat != null && u?.routeStartLng != null
+        ? { lat: u.routeStartLat, lng: u.routeStartLng }
+        : null;
+    const endExplicit =
+      u?.routeEndLat != null && u?.routeEndLng != null
+        ? { lat: u.routeEndLat, lng: u.routeEndLng }
+        : null;
+    return { start, end: endExplicit ?? start };
+  }
+
+  private async loadLastSampleLatLng(shiftId: string): Promise<LatLng | null> {
+    const last = await this.prisma.fieldLocationSample.findFirst({
+      where: { shiftId },
+      orderBy: { clientRecordedAt: "desc" },
+      select: { lat: true, lng: true },
+    });
+    if (!last) return null;
+    return { lat: last.lat, lng: last.lng };
+  }
+
+  private resolveOriginAnchors(opts: {
+    kind: FieldShiftAnchorKindValue;
+    clientGps: LatLng | null;
+    garageStart: LatLng | null;
+  }): { kind: FieldShiftAnchorKind; lat: number; lng: number } {
+    if (opts.kind === "HOME") {
+      if (!opts.garageStart) {
+        throw new BadRequestException("Home route start is not configured in profile");
+      }
+      return {
+        kind: FieldShiftAnchorKind.HOME,
+        lat: opts.garageStart.lat,
+        lng: opts.garageStart.lng,
+      };
+    }
+    if (!opts.clientGps) {
+      throw new BadRequestException("Geolocation is required when starting from current location");
+    }
+    return {
+      kind: FieldShiftAnchorKind.CURRENT,
+      lat: opts.clientGps.lat,
+      lng: opts.clientGps.lng,
+    };
+  }
+
+  private resolveDestinationAnchors(opts: {
+    kind: FieldShiftAnchorKindValue;
+    clientGps: LatLng | null;
+    garageEnd: LatLng | null;
+  }): { kind: FieldShiftAnchorKind; lat: number; lng: number } {
+    if (opts.kind === "HOME") {
+      if (!opts.garageEnd) {
+        throw new BadRequestException("Home route end is not configured in profile");
+      }
+      return {
+        kind: FieldShiftAnchorKind.HOME,
+        lat: opts.garageEnd.lat,
+        lng: opts.garageEnd.lng,
+      };
+    }
+    if (!opts.clientGps) {
+      throw new BadRequestException("Geolocation is required when ending at current location");
+    }
+    return {
+      kind: FieldShiftAnchorKind.CURRENT,
+      lat: opts.clientGps.lat,
+      lng: opts.clientGps.lng,
+    };
+  }
+
+  /** Infer destination for cron / forced close (no UI dialog). */
+  private async resolveStaleDestination(
+    shiftId: string,
+    ownerId: string,
+  ): Promise<{ kind: FieldShiftAnchorKind; lat: number; lng: number } | null> {
+    const garage = await this.loadOwnerGarage(ownerId);
+    const lastGps = await this.loadLastSampleLatLng(shiftId);
+    const kind = suggestDestinationKind(lastGps, garage.end);
+    try {
+      return this.resolveDestinationAnchors({
+        kind,
+        clientGps: lastGps,
+        garageEnd: garage.end,
+      });
+    } catch {
+      return null;
+    }
+  }
+
+  private async closeShift(
+    shiftId: string,
+    ownerId: string,
+    endedAt = new Date(),
+    destination?: { kind: FieldShiftAnchorKind; lat: number; lng: number } | null,
+  ) {
+    const dest =
+      destination !== undefined ? destination : await this.resolveStaleDestination(shiftId, ownerId);
     const updated = await this.prisma.fieldShift.update({
       where: { id: shiftId },
-      data: { status: FieldShiftStatus.ENDED, endedAt },
+      data: {
+        status: FieldShiftStatus.ENDED,
+        endedAt,
+        ...(dest
+          ? {
+              destinationKind: dest.kind,
+              destinationLat: dest.lat,
+              destinationLng: dest.lng,
+            }
+          : {}),
+      },
     });
     const dateStr = updated.date.toISOString().slice(0, 10);
     void this.eventEmitter.emitAsync(SHIFT_ENDED_EVENT, {
@@ -280,7 +408,13 @@ export class FieldShiftsService {
 
   async start(
     actor: AuthUser | undefined,
-    input: { plannedDistanceKm?: number | null; trackingEnabled?: boolean },
+    input: {
+      plannedDistanceKm?: number | null;
+      trackingEnabled?: boolean;
+      originKind?: string | null;
+      originLat?: number | null;
+      originLng?: number | null;
+    },
   ) {
     if (!actor) {
       throw new BadRequestException("User is required");
@@ -293,6 +427,7 @@ export class FieldShiftsService {
       orderBy: [{ startedAt: "desc" }],
     });
     if (existingToday) {
+      // Idempotent reuse — do not overwrite origin anchors.
       return this.prisma.fieldShift.update({
         where: { id: existingToday.id },
         data: {
@@ -313,6 +448,17 @@ export class FieldShiftsService {
       await this.closeShift(s.id, s.ownerId);
     }
 
+    const garage = await this.loadOwnerGarage(ownerId);
+    const clientGps = parseClientLatLng({ lat: input.originLat, lng: input.originLng });
+    const originKind =
+      parseAnchorKind(input.originKind) ??
+      (garage.start && !clientGps ? "HOME" : clientGps ? "CURRENT" : "HOME");
+    const origin = this.resolveOriginAnchors({
+      kind: originKind,
+      clientGps,
+      garageStart: garage.start,
+    });
+
     try {
       return await this.prisma.fieldShift.create({
         data: {
@@ -321,6 +467,9 @@ export class FieldShiftsService {
           status: FieldShiftStatus.ACTIVE,
           plannedDistanceKm: input.plannedDistanceKm ?? undefined,
           trackingEnabled: input.trackingEnabled ?? true,
+          originKind: origin.kind,
+          originLat: origin.lat,
+          originLng: origin.lng,
         },
       });
     } catch (e) {
@@ -336,7 +485,15 @@ export class FieldShiftsService {
     }
   }
 
-  async end(actor: AuthUser | undefined, shiftId: string) {
+  async end(
+    actor: AuthUser | undefined,
+    shiftId: string,
+    input?: {
+      destinationKind?: string | null;
+      destinationLat?: number | null;
+      destinationLng?: number | null;
+    },
+  ) {
     if (!actor) {
       throw new BadRequestException("User is required");
     }
@@ -349,7 +506,20 @@ export class FieldShiftsService {
     if (shift.status === FieldShiftStatus.ENDED) {
       return shift;
     }
-    return this.closeShift(shiftId, shift.ownerId);
+
+    const garage = await this.loadOwnerGarage(actor.id);
+    const lastGps = await this.loadLastSampleLatLng(shiftId);
+    const clientGps =
+      parseClientLatLng({ lat: input?.destinationLat, lng: input?.destinationLng }) ?? lastGps;
+    const destinationKind =
+      parseAnchorKind(input?.destinationKind) ?? suggestDestinationKind(clientGps, garage.end);
+    const destination = this.resolveDestinationAnchors({
+      kind: destinationKind,
+      clientGps,
+      garageEnd: garage.end,
+    });
+
+    return this.closeShift(shiftId, shift.ownerId, new Date(), destination);
   }
 
   async appendSamples(

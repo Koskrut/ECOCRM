@@ -8,7 +8,7 @@ export const WAREHOUSE_FULFILLMENT_QUEUE_STAGES: OrderStage[] = ["CONFIRMED"];
 
 /** Forward transitions allowed for WAREHOUSE role in workspace (from → to). */
 const WAREHOUSE_ALLOWED_TRANSITIONS: Partial<Record<OrderStage, OrderStage[]>> = {
-  CONFIRMED: ["READY_TO_SHIP"],
+  CONFIRMED: ["READY_TO_SHIP", "AWAITING_STOCK"],
   READY_TO_SHIP: ["CONFIRMED"],
 };
 

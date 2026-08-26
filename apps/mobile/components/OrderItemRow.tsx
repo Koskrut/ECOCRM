@@ -11,6 +11,7 @@ import {
   ORDER_PROMO_BUY_100_GET_30,
   ORDER_PROMO_QTY_25_MINUS_2,
   parsePromoType,
+  promoEligibilityQty,
   roundMoney,
   type OrderPromoType,
 } from "@/lib/order-line-total";
@@ -28,17 +29,17 @@ type OrderItemRowProps = {
   onRemove: () => void;
   discountPresets?: number[];
   promoOptions?: OrderPromoType[];
+  /** All draft lines — needed for BUY_100_GET_30 group eligibility by same price. */
+  allLines?: DraftOrderLine[];
 };
 
-function lineTotal(item: DraftOrderLine): number {
-  return roundMoney(
-    computeLineTotal(
-      item.qty,
-      item.price,
-      item.discountPercent,
-      parsePromoType(item.promoType),
-    ),
-  );
+function lineTotal(item: DraftOrderLine, allLines?: DraftOrderLine[]): number {
+  const promo = parsePromoType(item.promoType);
+  const elig =
+    promo && allLines
+      ? promoEligibilityQty(promo, item, allLines)
+      : item.qty;
+  return roundMoney(computeLineTotal(item.qty, item.price, item.discountPercent, promo, elig));
 }
 
 function useNumericDraft(value: number, onCommit: (n: number) => void, min: number) {
@@ -81,19 +82,29 @@ export function OrderItemRow({
   onRemove,
   discountPresets,
   promoOptions,
+  allLines,
 }: OrderItemRowProps) {
   const theme = useTheme();
   const showDiscounts = (discountPresets?.length ?? 0) > 0;
   const showPromos = (promoOptions?.length ?? 0) > 0;
   const currencySym = orderCurrencySymbol(currency);
   const activePromo = parsePromoType(item.promoType);
+  const linesForElig = allLines ?? [item];
 
   const qtyField = useNumericDraft(
     item.qty,
     (n) => {
       const patch: Partial<Pick<DraftOrderLine, "qty" | "promoType" | "discountPercent">> = { qty: n };
-      if (activePromo && !isPromoApplicable(activePromo, n)) {
-        patch.promoType = null;
+      if (activePromo) {
+        const draft = { ...item, qty: n };
+        const elig = promoEligibilityQty(
+          activePromo,
+          draft,
+          linesForElig.map((l) => (l.key === item.key ? draft : l)),
+        );
+        if (!isPromoApplicable(activePromo, elig)) {
+          patch.promoType = null;
+        }
       }
       onChange(patch);
     },
@@ -110,7 +121,7 @@ export function OrderItemRow({
     },
   ];
 
-  const total = lineTotal(item);
+  const total = lineTotal(item, linesForElig);
   const gross = item.qty * item.price;
 
   return (
@@ -146,8 +157,16 @@ export function OrderItemRow({
                   const patch: Partial<
                     Pick<DraftOrderLine, "qty" | "promoType" | "discountPercent">
                   > = { qty: nextQty };
-                  if (activePromo && !isPromoApplicable(activePromo, nextQty)) {
-                    patch.promoType = null;
+                  if (activePromo) {
+                    const draft = { ...item, qty: nextQty };
+                    const elig = promoEligibilityQty(
+                      activePromo,
+                      draft,
+                      linesForElig.map((l) => (l.key === item.key ? draft : l)),
+                    );
+                    if (!isPromoApplicable(activePromo, elig)) {
+                      patch.promoType = null;
+                    }
                   }
                   onChange(patch);
                 }
@@ -194,7 +213,8 @@ export function OrderItemRow({
       {showPromos ? (
         <View style={styles.presetRow}>
           {promoOptions!.map((promo) => {
-            const ok = isPromoApplicable(promo, item.qty);
+            const elig = promoEligibilityQty(promo, item, linesForElig);
+            const ok = isPromoApplicable(promo, elig);
             const selected = activePromo === promo;
             return (
               <Pressable
@@ -218,6 +238,7 @@ export function OrderItemRow({
                 accessibilityRole="button">
                 <Text style={[styles.presetText, { color: theme.colors.text }]}>
                   {promoLabel(promo)}
+                  {promo === ORDER_PROMO_BUY_100_GET_30 && !ok ? ` ${elig}/130` : ""}
                 </Text>
               </Pressable>
             );
@@ -269,7 +290,7 @@ export function OrderItemRow({
 }
 
 export function draftLinesTotal(items: DraftOrderLine[]): number {
-  return items.reduce((sum, item) => sum + lineTotal(item), 0);
+  return items.reduce((sum, item) => sum + lineTotal(item, items), 0);
 }
 
 const styles = StyleSheet.create({

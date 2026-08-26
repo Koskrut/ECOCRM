@@ -337,13 +337,11 @@ function DayDetailPanel({
                   {r?.litersEstimated != null ? `${r.litersEstimated} л (оцінка)` : "—"}
                 </div>
                 <div className="text-xs text-zinc-400">
-                                    {data.compensationFactKind === "fact_gps"
+                  {data.compensationFactKind === "fact_gps"
                     ? strings.visitsFuelPage.compensationGps
-                    : data.compensationFactKind === "fact_visits_gps"
-                      ? strings.visitsFuelPage.compensationHybrid
-                      : data.compensationFactKind === "none"
-                        ? strings.visitsFuelPage.compensationReview
-                        : strings.visitsFuelPage.compensationVisits}
+                    : data.compensationFactKind === "none"
+                      ? strings.visitsFuelPage.compensationReview
+                      : strings.visitsFuelPage.compensationVisits}
                   {data.snapFailureReason === "gps_snap_loop_collapse"
                     ? strings.visitsFuelPage.loopCollapseBadge
                     : ""}
@@ -361,11 +359,14 @@ function DayDetailPanel({
                   {r?.plannedKm != null ? `${r.plannedKm} км` : "—"}
                 </div>
                 <div className="text-xs text-zinc-400">
+                  {r?.plannedKm != null
+                    ? strings.visitsFuelPage.plannedExpected.replace("{km}", String(r.plannedKm))
+                    : "—"}
                   {(data.warnings ?? []).some((w) => w.startsWith("planned_km_"))
-                    ? "підозрілий план — не норма"
+                    ? " · підозрілий план"
                     : data.plannedMetrics.source !== "none"
-                      ? data.plannedMetrics.source
-                      : "—"}
+                      ? ` · ${data.plannedMetrics.source}`
+                      : ""}
                 </div>
               </div>
               <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-3">

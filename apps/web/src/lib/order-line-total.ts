@@ -23,10 +23,35 @@ export function parsePromoType(raw: unknown): OrderPromoType | null {
   return null;
 }
 
+export function pricesMatch(a: number, b: number): boolean {
+  return Math.round(Number(a) * 100) === Math.round(Number(b) * 100);
+}
+
+export function sumQtyForSamePrice(
+  items: Array<{ qty: number; price: number }>,
+  price: number,
+): number {
+  return items
+    .filter((it) => pricesMatch(it.price, price))
+    .reduce((s, it) => s + Math.max(0, Math.trunc(it.qty)), 0);
+}
+
 export function isPromoApplicable(promoType: OrderPromoType, qty: number): boolean {
   if (promoType === ORDER_PROMO_BUY_100_GET_30) return qty >= BUY_100_GET_30_MIN_QTY;
   if (promoType === ORDER_PROMO_QTY_25_MINUS_2) return qty >= QTY_25_MINUS_2_MIN_QTY;
   return false;
+}
+
+/** Eligibility qty: group (same price) for 100+30, line qty for −2$. */
+export function promoEligibilityQty(
+  promoType: OrderPromoType,
+  line: { qty: number; price: number },
+  items: Array<{ qty: number; price: number }>,
+): number {
+  if (promoType === ORDER_PROMO_BUY_100_GET_30) {
+    return sumQtyForSamePrice(items, line.price);
+  }
+  return line.qty;
 }
 
 export function computeLineTotal(qty: number, price: number, discountPercent = 0): number {
@@ -40,10 +65,12 @@ export function computeLinePricing(
   price: number,
   discountPercent = 0,
   promoType: OrderPromoType | null = null,
+  eligibilityQty?: number,
 ): { discountPercent: number; promoType: OrderPromoType | null; lineTotal: number; effectiveUnitPrice: number } {
   const safeQty = Math.max(1, Math.trunc(qty));
   const pct = Math.max(0, Math.min(100, Math.trunc(discountPercent)));
-  const promo = promoType && isPromoApplicable(promoType, safeQty) ? promoType : null;
+  const checkQty = eligibilityQty != null ? Math.max(0, Math.trunc(eligibilityQty)) : safeQty;
+  const promo = promoType && isPromoApplicable(promoType, checkQty) ? promoType : null;
 
   if (promo === ORDER_PROMO_BUY_100_GET_30) {
     const lineTotal = price * safeQty * BUY_100_GET_30_PAID_RATIO;

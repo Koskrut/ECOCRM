@@ -187,7 +187,7 @@ const WAREHOUSE_KANBAN_STAGES: OrderStage[] = [
 
 const WAREHOUSE_TRANSITIONS: Partial<Record<OrderStage, OrderStage[]>> = {
   AWAITING_STOCK: ["CONFIRMED"],
-  CONFIRMED: ["READY_TO_SHIP"],
+  CONFIRMED: ["READY_TO_SHIP", "AWAITING_STOCK"],
   READY_TO_SHIP: ["SHIPPED"],
 };
 

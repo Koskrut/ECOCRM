@@ -149,6 +149,12 @@ enum FieldShiftStatus {
   ENDED
 }
 
+/// Start/end of a field day: garage (profile) or current GPS point.
+enum FieldShiftAnchorKind {
+  HOME
+  CURRENT
+}
+
 enum FieldTrackingEventType {
   TRACKING_TASK_RESTARTED
 }
@@ -1274,6 +1280,14 @@ model FieldShift {
   endedAt             DateTime?
   trackingEnabled     Boolean          @default(true)
   plannedDistanceKm   Float?
+  /// Day start: garage (HOME) or field GPS (CURRENT). Required after start.
+  originKind          FieldShiftAnchorKind?
+  originLat           Float?
+  originLng           Float?
+  /// Day end: garage / stay here. Null while ACTIVE (no forced return-home arc).
+  destinationKind     FieldShiftAnchorKind?
+  destinationLat      Float?
+  destinationLng      Float?
   createdAt           DateTime         @default(now())
   updatedAt           DateTime         @updatedAt
 

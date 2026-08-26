@@ -17,6 +17,12 @@ test("BUY_100_GET_30 matches 1600/130 unit price", () => {
   assert.equal(p.effectiveUnitPrice, 1600 / 130);
 });
 
+test("BUY_100_GET_30 short lines with group eligibility", () => {
+  const a = computeLinePricing(50, 16, 0, ORDER_PROMO_BUY_100_GET_30, 130);
+  const b = computeLinePricing(80, 16, 0, ORDER_PROMO_BUY_100_GET_30, 130);
+  assert.equal(a.lineTotal + b.lineTotal, 1600);
+});
+
 test("QTY_25_MINUS_2 subtracts 2 per unit", () => {
   const p = computeLinePricing(25, 16, 0, ORDER_PROMO_QTY_25_MINUS_2);
   assert.equal(p.lineTotal, 350);

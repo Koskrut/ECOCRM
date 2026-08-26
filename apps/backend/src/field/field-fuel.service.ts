@@ -131,13 +131,13 @@ export class FieldFuelService {
     snapshot: FuelCalculationSnapshot,
     compensationKm: number | null,
     routeAnchors?: FuelCalculationSnapshot["routeAnchors"],
+    opts?: { hasShiftOrigin?: boolean },
   ): string[] {
     const warnings: string[] = [];
     const withCoords = snapshot.visits.filter((v) => v.hasCoordinates);
-    if (withCoords.length < 2) {
-      warnings.push(
-        "insufficient_completed_visits",
-      );
+    // 1 visit + shift origin is enough for a fact line.
+    if (withCoords.length < 2 && !opts?.hasShiftOrigin) {
+      warnings.push("insufficient_completed_visits");
     }
     if (routeAnchors && !routeAnchors.usesSettingsAnchors && withCoords.length >= 2) {
       warnings.push("route_anchors_not_configured");
@@ -155,7 +155,7 @@ export class FieldFuelService {
         warnings.push(`visit_gps_review:${v.id}`);
       }
     }
-    if (compensationKm == null && withCoords.length >= 2) {
+    if (compensationKm == null && withCoords.length >= 1) {
       warnings.push("metrics_unavailable");
     }
     return warnings;
@@ -228,15 +228,14 @@ export class FieldFuelService {
       snappedTrackDistanceKm,
       rawPolylineDistanceKm,
     });
-    const hybridKm = geometryBundle.factVisitsGps?.distanceKm ?? null;
     const compensationKm =
       compensationFactKind === "none"
         ? null
         : compensationFactKind === "fact_gps" && gpsCompensationKm != null
           ? gpsCompensationKm
-          : compensationFactKind === "fact_visits_gps" && hybridKm != null
-            ? hybridKm
-            : factVisitsMetrics.distanceKm;
+          : compensationFactKind === "fact_visits"
+            ? factVisitsMetrics.distanceKm
+            : null;
     const actualKm = compensationKm;
     const plannedKmRaw = plannedMetrics.distanceKm;
     const plannedAssessment = assessPlannedKm({
@@ -248,7 +247,7 @@ export class FieldFuelService {
     // Persist a stable source label even when visit metrics are "none" but we still
     // have compensation km from a soft GPS payout (or liters-only estimate).
     const metricsSource =
-      compensationFactKind === "fact_gps" || compensationFactKind === "fact_visits_gps"
+      compensationFactKind === "fact_gps"
         ? "track"
         : compensationFactKind === "none"
           ? "none"
@@ -288,7 +287,14 @@ export class FieldFuelService {
 
     const { litersEstimated, amountEstimated } = this.estimateFuel(compensationKm, profile);
 
-    const warnings = this.buildWarnings(snapshot, compensationKm, snapshot.routeAnchors);
+    const hasShiftOrigin =
+      dayShift?.originLat != null &&
+      dayShift?.originLng != null &&
+      Number.isFinite(dayShift.originLat) &&
+      Number.isFinite(dayShift.originLng);
+    const warnings = this.buildWarnings(snapshot, compensationKm, snapshot.routeAnchors, {
+      hasShiftOrigin,
+    });
     if (geometryBundle.factGps.quality.degradedReason === "gps_partial_coverage") {
       warnings.push("gps_partial_coverage");
     }
@@ -435,9 +441,9 @@ export class FieldFuelService {
         ? null
         : liveKind === "fact_gps" && liveGpsKm != null
           ? liveGpsKm
-          : liveKind === "fact_visits_gps"
-            ? geometryBundle.factVisitsGps?.distanceKm ?? null
-            : factVisitsMetrics.distanceKm;
+          : liveKind === "fact_visits"
+            ? factVisitsMetrics.distanceKm
+            : null;
     const storedKind = snapshot.compensationFactKind;
     const storedKm = report.compensationKm;
     const kmStale =

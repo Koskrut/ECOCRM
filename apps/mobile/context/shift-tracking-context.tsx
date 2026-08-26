@@ -63,6 +63,7 @@ import {
   canRunShiftOperation,
   shouldReuseActiveShift,
 } from "@/lib/shift-ops-gate";
+import { promptShiftDestination, promptShiftOrigin } from "@/lib/shift-anchor-prompt";
 import { markTrackingWarmup } from "@/lib/tracking-warmup";
 import {
   shouldSuppressNativeAcceptStaleAlert,
@@ -111,7 +112,7 @@ type ShiftTrackingCtx = {
 const ShiftTrackingContext = createContext<ShiftTrackingCtx | null>(null);
 
 export function ShiftTrackingProvider({ children }: { children: React.ReactNode }) {
-  const { token, ready } = useAuth();
+  const { token, ready, user } = useAuth();
   const [activeShift, setActiveShift] = useState<FieldShift | null>(null);
   const [loading, setLoading] = useState(false);
   const [trackingMode, setTrackingMode] = useState<TrackingMode>("none");
@@ -659,10 +660,19 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
         /* optional */
       }
 
+      const origin = await promptShiftOrigin(user);
+      if (!origin) return;
+
       const res = await apiFetch<{ shift: FieldShift }>("/field/shifts/start", {
         method: "POST",
         token,
-        body: JSON.stringify({ plannedDistanceKm, trackingEnabled }),
+        body: JSON.stringify({
+          plannedDistanceKm,
+          trackingEnabled,
+          originKind: origin.kind,
+          originLat: origin.lat,
+          originLng: origin.lng,
+        }),
       });
       setActiveShift(res.shift);
 
@@ -700,6 +710,7 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
     }
   }, [
     token,
+    user,
     activeShift,
     trackingEnabled,
     syncTrackingHealth,
@@ -790,13 +801,23 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
     if (!beginShiftOp()) return;
     try {
       const prev = activeShift;
+      const destination = prev ? await promptShiftDestination(user) : null;
+      if (prev && !destination) return;
+      const origin = await promptShiftOrigin(user);
+      if (!origin) return;
+
       await stopLocationTracking();
       await purgePendingSamples();
       clearFlushBlockReason();
-      if (prev) {
+      if (prev && destination) {
         await apiFetch(`/field/shifts/${prev.id}/end`, {
           method: "POST",
           token,
+          body: JSON.stringify({
+            destinationKind: destination.kind,
+            destinationLat: destination.lat,
+            destinationLng: destination.lng,
+          }),
         });
       }
       setActiveShift(null);
@@ -823,6 +844,9 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
         body: JSON.stringify({
           plannedDistanceKm,
           trackingEnabled: prev?.trackingEnabled ?? trackingEnabled,
+          originKind: origin.kind,
+          originLat: origin.lat,
+          originLng: origin.lng,
         }),
       });
       setActiveShift(res.shift);
@@ -853,7 +877,7 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
     } finally {
       endShiftOp();
     }
-  }, [activeShift, token, trackingEnabled, syncTrackingHealth, beginShiftOp, endShiftOp]);
+  }, [activeShift, token, user, trackingEnabled, syncTrackingHealth, beginShiftOp, endShiftOp]);
 
   /** End+start only after explicit confirm — never primary GPS recovery. */
   const restartShiftAfterGpsBlock = useCallback(async () => {
@@ -995,12 +1019,22 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
     if (!token || !activeShift) return;
     if (!beginShiftOp()) return;
     try {
+      const destination = await promptShiftDestination(user);
+      if (!destination) return;
       // Flush tail BEFORE ending: server rejects samples for ENDED shifts.
       await stopLocationTracking();
       if ((await getPendingCount()) > 0 && !shouldUseNativeTracking()) {
         await maybeFlushJsBuffer(activeShift.id);
       }
-      await apiFetch(`/field/shifts/${activeShift.id}/end`, { method: "POST", token });
+      await apiFetch(`/field/shifts/${activeShift.id}/end`, {
+        method: "POST",
+        token,
+        body: JSON.stringify({
+          destinationKind: destination.kind,
+          destinationLat: destination.lat,
+          destinationLng: destination.lng,
+        }),
+      });
       // Purge only after the shift is ended for real — a failed end keeps the buffer.
       await purgePendingSamples();
       clearFlushBlockReason();
@@ -1016,7 +1050,7 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
     } finally {
       endShiftOp();
     }
-  }, [token, activeShift, syncTrackingHealth, beginShiftOp, endShiftOp]);
+  }, [token, user, activeShift, syncTrackingHealth, beginShiftOp, endShiftOp]);
 
   const restartShift = restartShiftAfterGpsBlock;
 
