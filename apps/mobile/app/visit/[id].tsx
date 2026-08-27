@@ -36,6 +36,7 @@ import { visitDayKey } from "@/lib/visit-history";
 import {
   gpsVerificationLabel,
   visitOutcomeLabel,
+  visitStatusLabel,
   VISIT_OUTCOMES,
   type VisitOutcome,
 } from "@/lib/labels";
@@ -333,7 +334,7 @@ export default function VisitDetailScreen() {
 
         <SectionTitle title={t("visit.preparation")} />
         <Text style={[theme.typography.body, { color: theme.colors.textMuted, lineHeight: 22 }]}>
-          {t("visit.status")}: {visit.status}
+          {t("visit.status")}: {visitStatusLabel(visit.status)}
           {"\n"}
           {visit.addressText ?? t("visit.noAddress")}
         </Text>

@@ -58,6 +58,13 @@ export function callOutcomeLabel(o: CallOutcome): string {
   return label === key ? o : label;
 }
 
+export function visitStatusLabel(status: string | null | undefined): string {
+  if (!status) return "";
+  const key = `visitStatus.${status}` as const;
+  const label = t(key);
+  return label === key ? status : label;
+}
+
 export function leadStatusLabel(status: string | null | undefined): string {
   if (!status) return "";
   const key = `leadStatus.${status}` as const;

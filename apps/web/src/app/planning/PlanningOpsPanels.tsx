@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { strings } from "@/locales";
 import {
   planningApi,
@@ -536,6 +537,7 @@ function WeekFillBar({ used, limit }: { used: number; limit: number }) {
 export function PackingPanel({ onError }: { onError: (msg: string) => void }) {
   const t = strings.planning;
   const reportError = useStableErrorHandler(onError);
+  const highlightSku = (useSearchParams().get("sku") ?? "").trim().toLowerCase();
   const [lists, setLists] = useState<PackingList[]>([]);
   const [active, setActive] = useState<PackingList | null>(null);
   const [busy, setBusy] = useState(false);
@@ -783,8 +785,11 @@ export function PackingPanel({ onError }: { onError: (msg: string) => void }) {
             rows={filtered.map((line) => {
               const need = line.targetPack ?? 0;
               const blocked = need > 0 && line.maxFromParts <= 0;
+              const highlighted =
+                highlightSku.length > 0 &&
+                line.kitProduct.sku.toLowerCase() === highlightSku;
               return [
-                <span key={line.id}>
+                <span key={line.id} className={highlighted ? "rounded bg-cyan-50 px-1" : undefined}>
                   <span className={`block font-medium ${blocked ? "text-rose-700" : ""}`}>
                     {line.kitProduct.name}
                   </span>
@@ -886,6 +891,7 @@ function TrackingBadge({ status }: { status: FactoryLineTrackingStatus | undefin
 export function FactoryPanel({ onError }: { onError: (msg: string) => void }) {
   const t = strings.planning;
   const reportError = useStableErrorHandler(onError);
+  const highlightSku = (useSearchParams().get("sku") ?? "").trim().toLowerCase();
   const [recs, setRecs] = useState<FactoryRecommendation[]>([]);
   const [recQtys, setRecQtys] = useState<Record<string, string>>({});
   const [orders, setOrders] = useState<FactoryOrder[]>([]);
@@ -1050,7 +1056,16 @@ export function FactoryPanel({ onError }: { onError: (msg: string) => void }) {
             t.labels.actions,
           ]}
           rows={recs.map((r) => [
-            formatSkuNameLabel(r.sku, r.name),
+            <span
+              key={r.partProductId}
+              className={
+                highlightSku && r.sku.toLowerCase() === highlightSku
+                  ? "rounded bg-cyan-50 px-1 font-medium"
+                  : undefined
+              }
+            >
+              {formatSkuNameLabel(r.sku, r.name)}
+            </span>,
             String(r.grossRequirement),
             String(r.onHand),
             String(r.openPoQty),

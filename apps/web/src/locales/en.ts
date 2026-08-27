@@ -592,6 +592,7 @@ export const en = {
       "Friday packing (2000 kits/week), 3-month MRP, and factory part orders (~7000 parts/month).",
     tabs: {
       today: "Today",
+      kits: "Kits",
       pack: "Pack",
       make: "Make / order",
       data: "Data",
@@ -983,10 +984,40 @@ export const en = {
       ],
       tabsTitle: "What the tabs mean",
       tabsHint:
-        "MRP — summary and quota; Forecast — posted sales XLS; Production — launches by month (0 = this month); Critical — real shortages only; Settings — ~7000 quota, horizon, safety months.",
+        "Today — fires. Kits — leftovers board (80% of revenue). Pack — Friday list. Make — factory. Data — 1C snapshots, sales XLS, BOM.",
       tipTitle: "Tip",
       tipBody:
         "After changing the 1C snapshot, sales XLS, or quota, always re-run MRP. The full guide is in the Instructions center.",
+    },
+    kitBoard: {
+      title: "Kit leftovers",
+      hint: "Important kits first (80% of revenue). Pack or order parts without leaving this board.",
+      filter80: "80% of revenue",
+      filterAll: "All kits",
+      search: "Name or SKU",
+      weekRequest: "This week's pack request",
+      todayLine: (packable: number, blocked: number) =>
+        `Can assemble today: ${packable} kits · missing parts: ${blocked}`,
+      pileEnding: "Running out",
+      pileOk: "Healthy",
+      pileIdle: "Sitting idle",
+      count: (n: number) => `${n} kits`,
+      endingEmpty: "Important kits have enough stock.",
+      weeksUnit: "weeks",
+      weeksUnknown: "—",
+      finished: (n: number) => `${n} finished`,
+      fromParts: (n: number) => `+${n} from parts`,
+      waiting: (n: number) => `${n} orders waiting`,
+      inRequest: (n: number) => `Already in this week's list: ${n}`,
+      pack: (n: number) => `Pack ${n}`,
+      orderPart: (name: string, qty: number) =>
+        qty > 0 ? `Order “${name}” · ${qty}` : `Order “${name}”`,
+      sharedPart: (name: string, n: number) => `“${name}” blocks ${n} kits`,
+      packedToast: (sku: string, n: number) => `${sku}: ${n} in this week's list`,
+      factoryToast: (name: string, n: number) => `${name}: ${n} added to factory draft`,
+      dontPackMore: "don't pack more",
+      perKit: "per kit",
+      weekLocked: "This week's pack list is already approved.",
     },
     errors: {
       loadDashboard: "Failed to load planning dashboard",
@@ -1010,6 +1041,7 @@ export const en = {
       forecast: "Forecast action failed",
       packing: "Packing action failed",
       factory: "Factory action failed",
+      kitPortfolio: "Failed to load kit leftovers",
     },
     stages: {
       MECH: "Machining",

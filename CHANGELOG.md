@@ -4,7 +4,29 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.166**.)_
+_(планируемые изменения после **0.2.167**.)_
+
+## [0.2.167] — 2026-08-27
+
+### Summary
+
+Патч **0.2.167**: Kit Portfolio board у плануванні (ending/ok/idle + Pareto); packing list set kit qty; mobile labels статусів візитів.
+
+### Added
+
+- **Kit portfolio**: util/service/API `GET planning/kit-portfolio`, web `KitPortfolioPanel` (cover weeks, piles ending/ok/idle, ABC Pareto).
+- **Packing lists**: `PATCH packing-lists/:id/kit-qty` — add/set kit qtyApproved.
+- **Mobile**: `visitStatusLabel` + uk i18n для статусів візиту.
+
+### Changed
+
+- Planning ops panels / page wiring; MRP guide seed hint; packing-list service.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.167`**.
+- **Миграции:** новых нет.
+- **Mobile:** OTA/наступний EAS достатньо (лише labels).
 
 ## [0.2.166] — 2026-08-26
 

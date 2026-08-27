@@ -40,6 +40,7 @@ import { ProductionService } from "./production.service";
 import { SalesHistoryService } from "./sales-history.service";
 import { PlanningTodayService } from "./planning-today.service";
 import { WeeklyPlanningJob } from "./weekly-planning.job";
+import { KitPortfolioService } from "./kit-portfolio.service";
 import { RequireModule } from "../modules/gating/require-module.decorator";
 import { ModuleIds } from "../modules/module-ids";
 
@@ -63,6 +64,7 @@ export class ProductionPlanningController {
     private readonly planningRuns: PlanningRunService,
     private readonly today: PlanningTodayService,
     private readonly weeklyJob: WeeklyPlanningJob,
+    private readonly kitPortfolio: KitPortfolioService,
   ) {}
 
   @Get("today")
@@ -154,6 +156,11 @@ export class ProductionPlanningController {
   @Get("dashboard")
   getDashboard() {
     return this.calculations.getDashboardSummary();
+  }
+
+  @Get("kit-portfolio")
+  getKitPortfolio() {
+    return this.kitPortfolio.getBoard();
   }
 
   @Get("projection")
@@ -337,6 +344,17 @@ export class ProductionPlanningController {
   ) {
     if (!Array.isArray(body?.lines)) throw new BadRequestException("lines array is required");
     return this.packingLists.updateLines(id, body.lines);
+  }
+
+  @Patch("packing-lists/:id/kit-qty")
+  @Roles(UserRole.ADMIN, UserRole.LEAD)
+  setPackingKitQty(
+    @Param("id") id: string,
+    @Body() body: { kitProductId: string; qtyApproved: number },
+  ) {
+    if (!body?.kitProductId) throw new BadRequestException("kitProductId is required");
+    if (body.qtyApproved == null) throw new BadRequestException("qtyApproved is required");
+    return this.packingLists.addOrSetKitQty(id, body.kitProductId, body.qtyApproved);
   }
 
   @Post("packing-lists/:id/approve")

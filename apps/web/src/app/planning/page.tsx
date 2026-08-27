@@ -35,8 +35,9 @@ import {
   PlanningSettingsPanel,
 } from "./PlanningOpsPanels";
 import { TodayScreen } from "./PlanningScreens";
+import { KitPortfolioPanel } from "./KitPortfolioPanel";
 
-type PlanningScreen = "today" | "pack" | "make" | "data";
+type PlanningScreen = "today" | "kits" | "pack" | "make" | "data";
 type BomEditorLine = {
   id: string;
   componentProductId: string;
@@ -64,7 +65,7 @@ const LEGACY_TAB_MAP: Record<string, PlanningScreen> = {
   queues: "data",
 };
 
-const PLANNING_SCREENS: PlanningScreen[] = ["today", "pack", "make", "data"];
+const PLANNING_SCREENS: PlanningScreen[] = ["today", "kits", "pack", "make", "data"];
 
 function resolveScreen(tab: string | null): PlanningScreen {
   if (!tab) return "today";
@@ -702,6 +703,8 @@ function PlanningPageInner() {
         {activeScreen === "today" && (
           <TodayScreen onError={handleOpsError} onNavigate={setScreen} />
         )}
+
+        {activeScreen === "kits" && <KitPortfolioPanel onError={handleOpsError} />}
 
         {activeScreen === "pack" && <PackingPanel onError={handleOpsError} />}
 

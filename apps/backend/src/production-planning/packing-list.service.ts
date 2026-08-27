@@ -494,6 +494,69 @@ export class PackingListService {
     return { ...updated, lines: await this.enrichLines(updated.lines) };
   }
 
+  /** Add or raise a kit on the Friday draft from the kit board. */
+  async addOrSetKitQty(id: string, kitProductId: string, qtyApproved: number) {
+    const list = await this.get(id);
+    if (list.status !== PackingListStatus.DRAFT) {
+      throw new BadRequestException("Only DRAFT packing lists can be edited");
+    }
+    const kit = await this.prisma.product.findFirst({
+      where: { id: kitProductId, kind: ProductKind.KIT, isActive: true },
+      select: { id: true, sku: true },
+    });
+    if (!kit) throw new BadRequestException("kitProductId is invalid");
+
+    const qty = Math.max(0, Math.round(qtyApproved));
+    const capacity = await this.calculations.getKitCapacity(kitProductId);
+    const maxFromParts = capacity.maxBuildNow;
+    if (qty > maxFromParts) {
+      throw new BadRequestException(
+        `Qty for ${kit.sku} exceeds parts capacity (${maxFromParts})`,
+      );
+    }
+
+    const existing = list.lines.find((l) => l.kitProductId === kitProductId);
+    const otherUsed = list.lines
+      .filter((l) => l.kitProductId !== kitProductId)
+      .reduce((s, l) => s + l.qtyApproved, 0);
+    if (otherUsed + qty > list.capacityLimit) {
+      throw new BadRequestException(`Capacity exceeded: ${otherUsed + qty} > ${list.capacityLimit}`);
+    }
+
+    if (existing) {
+      await this.prisma.packingListLine.update({
+        where: { id: existing.id },
+        data: { qtyApproved: qty, maxFromParts },
+      });
+    } else {
+      const [demand, stock] = await Promise.all([
+        this.calculations.getDemandByProduct(),
+        this.calculations.getAvailability(kitProductId),
+      ]);
+      const hardNeed = demand.get(kitProductId)?.hard ?? 0;
+      await this.prisma.packingListLine.create({
+        data: {
+          packingListId: id,
+          kitProductId,
+          qtySuggested: qty,
+          qtyApproved: qty,
+          maxFromParts,
+          priority: hardNeed > stock.available ? 0 : 1,
+          hardNeed,
+          forecastNeed: 0,
+          stockKits: stock.available,
+        },
+      });
+    }
+
+    const capacityUsed = otherUsed + qty;
+    await this.prisma.packingList.update({
+      where: { id },
+      data: { capacityUsed },
+    });
+    return this.get(id);
+  }
+
   async approve(id: string, approvedById: string) {
     const list = await this.get(id);
     if (list.status !== PackingListStatus.DRAFT) {

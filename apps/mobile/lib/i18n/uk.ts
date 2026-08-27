@@ -688,6 +688,15 @@ export const uk = {
     "return-to-work": "Повернути в роботу",
     "risk-or-dormant": "Ризик / сплячі",
   },
+  visitStatus: {
+    PLANNED_UNASSIGNED: "Без виконавця",
+    SCHEDULED: "Запланований",
+    IN_PROGRESS: "В процесі",
+    DONE: "Завершено",
+    COMPLETED: "Завершено",
+    CANCELED: "Скасовано",
+    CANCELLED: "Скасовано",
+  },
   leadStatus: {
     NEW: "Новий",
     IN_PROGRESS: "В роботі",

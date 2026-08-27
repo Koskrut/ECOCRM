@@ -498,6 +498,70 @@ export type StockProjection = {
   }>;
 };
 
+export type KitPortfolioKit = {
+  productId: string;
+  sku: string;
+  name: string;
+  revenue: number;
+  sharePct: number;
+  cumulativePct: number;
+  inPareto80: boolean;
+  pile: "ending" | "ok" | "idle";
+  stockFinished: number;
+  maxBuildNow: number;
+  weeksOfCover: number | null;
+  coverTone: "critical" | "warn" | "ok";
+  avgMonthlySold: number;
+  hardNeed: number;
+  waitingOrders: number;
+  suggestedPackQty: number;
+  alreadyInRequest: number;
+  suggestedFactoryQty: number;
+  bottleneckComponentId: string | null;
+  bottleneckSku: string | null;
+  bottleneckName: string | null;
+  monthlyHistory: Array<{ yearMonth: string; qty: number }>;
+  components: Array<{
+    componentProductId: string;
+    sku: string;
+    name: string;
+    qtyPerKit: number;
+    available: number;
+    isBottleneck: boolean;
+  }>;
+};
+
+export type KitPortfolioView = {
+  freshness: SnapshotFreshness;
+  salesFreshness: SalesFreshness;
+  currency: string;
+  lookbackMonths: number;
+  warnWeeks: number;
+  criticalWeeks: number;
+  week: {
+    packingListId: string | null;
+    packingStatus: "DRAFT" | "APPROVED" | "DONE" | null;
+    used: number;
+    limit: number;
+    factoryDraftId: string | null;
+  };
+  summary: {
+    packableToday: number;
+    blocked: number;
+    ending: number;
+    pareto80Count: number;
+  };
+  kits: KitPortfolioKit[];
+  sharedBottlenecks: Array<{
+    componentId: string;
+    sku: string;
+    name: string;
+    kitIds: string[];
+    kitCount: number;
+    suggestedQty: number;
+  }>;
+};
+
 async function downloadBlob(path: string, filename: string) {
   const res = await fetch(`/api${path}`, { credentials: "include" });
   if (!res.ok) {
@@ -536,6 +600,10 @@ export const planningApi = {
   },
   getDashboard: async (): Promise<PlanningDashboard> => {
     const res = await apiHttp.get<PlanningDashboard>("/planning/dashboard");
+    return res.data;
+  },
+  getKitPortfolio: async (): Promise<KitPortfolioView> => {
+    const res = await apiHttp.get<KitPortfolioView>("/planning/kit-portfolio");
     return res.data;
   },
   getProjection: async (weeks = [2, 4, 8, 12]): Promise<StockProjection> => {
@@ -766,6 +834,17 @@ export const planningApi = {
     lines: Array<{ kitProductId: string; qtyApproved: number }>,
   ): Promise<PackingList> => {
     const res = await apiHttp.patch(`/planning/packing-lists/${id}/lines`, { lines });
+    return res.data;
+  },
+  setPackingKitQty: async (
+    id: string,
+    kitProductId: string,
+    qtyApproved: number,
+  ): Promise<PackingList> => {
+    const res = await apiHttp.patch(`/planning/packing-lists/${id}/kit-qty`, {
+      kitProductId,
+      qtyApproved,
+    });
     return res.data;
   },
   approvePackingList: async (id: string): Promise<PackingList> => {
