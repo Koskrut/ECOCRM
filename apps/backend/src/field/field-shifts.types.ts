@@ -52,6 +52,8 @@ export type FieldShiftTeamItem = {
     endedAt: string | null;
     trackingEnabled: boolean;
     plannedDistanceKm: number | null;
+    mobilityMode?: "CAR" | "WALK_TRANSIT";
+    mobilityNote?: string | null;
   };
   owner: { id: string; fullName: string; email: string };
   lastSample: FieldShiftLastSample | null;

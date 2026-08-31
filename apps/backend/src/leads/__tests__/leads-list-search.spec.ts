@@ -127,3 +127,20 @@ test("leads.list: explicit status filter overrides active-only default", async (
   const activePart = andParts.find((p) => Array.isArray(p.status?.in));
   assert.equal(activePart, undefined, "status=in should not be applied when status filter set");
 });
+
+test("leads.list: status=all skips active-only default", async () => {
+  const { service, findManyCalls } = createService();
+  await service.list({ status: "all" } as ListLeadsQueryDto);
+  const args = findManyCalls[0];
+  assert.equal(args.where.status, undefined);
+  const andParts: any[] = args.where.AND ?? [];
+  const activePart = andParts.find((p) => Array.isArray(p.status?.in));
+  assert.equal(activePart, undefined, "status=all must not restrict to NEW/IN_PROGRESS");
+});
+
+test("leads.list: ownerId=unassigned filters null owner", async () => {
+  const { service, findManyCalls } = createService();
+  await service.list({ ownerId: "unassigned" } as ListLeadsQueryDto);
+  const args = findManyCalls[0];
+  assert.equal(args.where.ownerId, null);
+});

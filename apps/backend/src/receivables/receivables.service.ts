@@ -35,6 +35,12 @@ import { financialOverdueWhere } from "../orders/order-status-sync.mapper";
 import { DateTime } from "luxon";
 import { CRM_TIME_ZONE } from "../crm-timezone";
 import {
+  formatDebtCommentTitle,
+  isPromiseBroken,
+  isPromiseForYmd,
+  parseDebtCommentTitle,
+} from "./debt-promise.util";
+import {
   buildBitrixLegacyDebtOrderWhere,
   buildOperationalDebtOrderWhere,
   buildOverdueDebtOrderWhere,
@@ -53,7 +59,12 @@ type ContactDebtRow = {
   ownerId: string | null;
   firstName: string;
   lastName: string;
+  phone: string | null;
   lastPaymentAt: Date | null;
+  overdueDays: number;
+  primaryOrderId: string | null;
+  primaryOverdue: boolean;
+  primaryDebt: number;
 };
 
 /** debtAmount / creditAmount on Order are stored in USD (see recalcOrder). */
@@ -68,6 +79,13 @@ function isOrderOverdueByDueDate(
   if (!(debtAmount > 0) || !paymentDueDate) return false;
   const startOfToday = DateTime.fromISO(todayYmdKyiv(), { zone: CRM_TIME_ZONE }).startOf("day");
   return paymentDueDate < startOfToday.toJSDate();
+}
+
+function overdueDaysByDueDate(paymentDueDate: Date | null | undefined): number {
+  if (!paymentDueDate) return 0;
+  const startOfToday = DateTime.fromISO(todayYmdKyiv(), { zone: CRM_TIME_ZONE }).startOf("day");
+  const due = DateTime.fromJSDate(paymentDueDate).setZone(CRM_TIME_ZONE).startOf("day");
+  return Math.max(0, Math.round(startOfToday.diff(due, "days").days));
 }
 
 @Injectable()
@@ -324,6 +342,7 @@ export class ReceivablesService {
             ownerId: true,
             firstName: true,
             lastName: true,
+            phone: true,
           },
         },
       },
@@ -356,6 +375,7 @@ export class ReceivablesService {
       const debtBase = debtUsd > 0 ? debtUsd : 0;
       const creditBase = creditUsd > 0 ? creditUsd : 0;
       const overdueBase = isOrderOverdueByDueDate(o.paymentDueDate, debtUsd) ? debtBase : 0;
+      const days = overdueBase > 0 ? overdueDaysByDueDate(o.paymentDueDate) : 0;
       const code = normalizeCounterpartyCode1C(client.externalCode ?? "");
       const prev = map.get(client.id);
       if (prev) {
@@ -363,6 +383,15 @@ export class ReceivablesService {
         prev.overdueBase += overdueBase;
         prev.creditBase += creditBase;
         prev.orderCount += 1;
+        prev.overdueDays = Math.max(prev.overdueDays, days);
+        const betterPrimary =
+          (overdueBase > 0 && !prev.primaryOverdue) ||
+          (overdueBase > 0 === prev.primaryOverdue && debtBase > prev.primaryDebt);
+        if (betterPrimary) {
+          prev.primaryOrderId = o.id;
+          prev.primaryOverdue = overdueBase > 0;
+          prev.primaryDebt = debtBase;
+        }
       } else {
         map.set(client.id, {
           contactId: client.id,
@@ -374,7 +403,12 @@ export class ReceivablesService {
           ownerId: client.ownerId,
           firstName: client.firstName,
           lastName: client.lastName,
+          phone: client.phone ?? null,
           lastPaymentAt: lastPaymentByClient.get(client.id) ?? null,
+          overdueDays: days,
+          primaryOrderId: o.id,
+          primaryOverdue: overdueBase > 0,
+          primaryDebt: debtBase,
         });
       }
     }
@@ -587,6 +621,9 @@ export class ReceivablesService {
           ordersWithDebtCount: 0,
           bitrixLegacyDebt: 0,
           bitrixLegacyOrdersCount: 0,
+          promisedTodayAmount: 0,
+          promisedTodayCount: 0,
+          collectedTodayAmount: 0,
         },
       };
     }
@@ -633,6 +670,39 @@ export class ReceivablesService {
       };
     }
 
+    const lastComments = await this.loadLastDebtComments([...contactDebt.keys()]);
+    const todayYmd = todayYmdKyiv();
+    let promisedTodayAmount = 0;
+    let promisedTodayCount = 0;
+    for (const row of contactDebt.values()) {
+      const last = lastComments.get(row.contactId);
+      const parsed = parseDebtCommentTitle(last?.title ?? null);
+      if (isPromiseForYmd(parsed.promiseDate, todayYmd)) {
+        promisedTodayCount += 1;
+        promisedTodayAmount += parsed.promiseAmount ?? row.debtBase;
+      }
+    }
+
+    const todayStart = DateTime.fromISO(todayYmd, { zone: CRM_TIME_ZONE }).startOf("day").toJSDate();
+    const todayEnd = DateTime.fromISO(todayYmd, { zone: CRM_TIME_ZONE }).endOf("day").toJSDate();
+    const todayPayWhere: Prisma.PaymentWhereInput = {
+      status: "COMPLETED",
+      paidAt: { gte: todayStart, lte: todayEnd },
+      order: scope.orderScope.managerId
+        ? { ownerId: scope.orderScope.managerId }
+        : scope.orderScope.allowedOwnerIds !== undefined
+          ? { ownerId: { in: scope.orderScope.allowedOwnerIds } }
+          : {},
+    };
+    const todayPays = await this.prisma.payment.findMany({
+      where: todayPayWhere,
+      select: { amountUsd: true, amount: true, currency: true },
+    });
+    let collectedTodayAmount = 0;
+    for (const p of todayPays) {
+      collectedTodayAmount += Number(p.amountUsd ?? (p.currency === "USD" ? safeNum(p.amount) : 0));
+    }
+
     return {
       currency,
       reconciliation,
@@ -643,6 +713,9 @@ export class ReceivablesService {
         ordersWithDebtCount,
         bitrixLegacyDebt: Math.round(bitrixLegacyDebt * 100) / 100,
         bitrixLegacyOrdersCount,
+        promisedTodayAmount: Math.round(promisedTodayAmount * 100) / 100,
+        promisedTodayCount,
+        collectedTodayAmount: Math.round(collectedTodayAmount * 100) / 100,
       },
     };
   }
@@ -671,6 +744,8 @@ export class ReceivablesService {
       ownerId?: string;
       overdue?: boolean;
       needsComment?: boolean;
+      promisedToday?: boolean;
+      promiseBroken?: boolean;
     },
   ) {
     const scope = await this.scopeService.resolveDashboardScope(actor, { managerId: query.ownerId });
@@ -692,6 +767,9 @@ export class ReceivablesService {
       orderCount: row.orderCount,
       ownerId: row.ownerId,
       lastPaymentAt: row.lastPaymentAt?.toISOString() ?? null,
+      phone: row.phone,
+      overdueDays: row.overdueDays,
+      primaryOrderId: row.primaryOrderId,
     }));
 
     if (query.overdue) {
@@ -716,6 +794,20 @@ export class ReceivablesService {
       items = items.filter((i) => {
         const last = lastCommentByContact.get(i.contactId);
         return !last || last.createdAt < staleBefore;
+      });
+    }
+
+    const todayYmd = todayYmdKyiv();
+    if (query.promisedToday) {
+      items = items.filter((i) => {
+        const parsed = parseDebtCommentTitle(lastCommentByContact.get(i.contactId)?.title ?? null);
+        return isPromiseForYmd(parsed.promiseDate, todayYmd);
+      });
+    }
+    if (query.promiseBroken) {
+      items = items.filter((i) => {
+        const parsed = parseDebtCommentTitle(lastCommentByContact.get(i.contactId)?.title ?? null);
+        return isPromiseBroken(parsed.promiseDate, todayYmd);
       });
     }
 
@@ -747,12 +839,15 @@ export class ReceivablesService {
       currency,
       items: pageItems.map((i) => {
         const last = lastCommentByContact.get(i.contactId) ?? null;
+        const parsed = parseDebtCommentTitle(last?.title ?? null);
         return {
           ...i,
           ownerName: i.ownerId ? (userMap.get(i.ownerId) ?? null) : null,
           lastCommentAt: last?.createdAt.toISOString() ?? null,
           lastCommentPreview: last ? truncatePreview(last.body) : null,
           lastCommentAuthorName: last ? (userMap.get(last.createdBy) ?? null) : null,
+          promiseDate: parsed.promiseDate,
+          promiseAmount: parsed.promiseAmount,
         };
       }),
       total,
@@ -763,14 +858,17 @@ export class ReceivablesService {
 
   private async loadLastDebtComments(contactIds: string[]) {
     const uniqueIds = [...new Set(contactIds.filter(Boolean))];
-    const map = new Map<string, { body: string; createdAt: Date; createdBy: string }>();
+    const map = new Map<
+      string,
+      { body: string; createdAt: Date; createdBy: string; title: string | null }
+    >();
     if (uniqueIds.length === 0) return map;
 
     const rows = await this.prisma.activity.findMany({
       where: {
         contactId: { in: uniqueIds },
         type: ActivityType.COMMENT,
-        title: RECEIVABLES_COMMENT_TITLE,
+        title: { startsWith: RECEIVABLES_COMMENT_TITLE },
       },
       orderBy: { createdAt: "desc" },
       select: {
@@ -778,6 +876,7 @@ export class ReceivablesService {
         body: true,
         createdAt: true,
         createdBy: true,
+        title: true,
       },
     });
 
@@ -787,14 +886,22 @@ export class ReceivablesService {
         body: row.body,
         createdAt: row.createdAt,
         createdBy: row.createdBy,
+        title: row.title,
       });
     }
     return map;
   }
 
-  async addDebtComment(actor: AuthUser, contactId: string, bodyRaw: string) {
+  async addDebtComment(
+    actor: AuthUser,
+    contactId: string,
+    bodyRaw: string,
+    promise?: { date?: string; amount?: number | null },
+  ) {
     const body = bodyRaw?.trim() ?? "";
-    if (!body) throw new BadRequestException("Comment body is required");
+    const title = formatDebtCommentTitle(promise?.date, promise?.amount ?? null);
+    const hasPromise = title !== RECEIVABLES_COMMENT_TITLE;
+    if (!body && !hasPromise) throw new BadRequestException("Comment body is required");
     if (body.length > 10_000) throw new BadRequestException("Comment is too long");
 
     const contact = await this.prisma.contact.findUnique({
@@ -807,14 +914,15 @@ export class ReceivablesService {
     const act = await this.prisma.activity.create({
       data: {
         type: ActivityType.COMMENT,
-        title: RECEIVABLES_COMMENT_TITLE,
-        body,
+        title,
+        body: body || "Обіцяна оплата",
         createdBy: actor.id,
         contactId: contact.id,
       },
       select: {
         id: true,
         body: true,
+        title: true,
         createdAt: true,
         createdBy: true,
       },
@@ -825,12 +933,15 @@ export class ReceivablesService {
       select: { fullName: true },
     });
 
+    const parsed = parseDebtCommentTitle(act.title);
     return {
       id: act.id,
       body: act.body,
       createdAt: act.createdAt.toISOString(),
       createdBy: act.createdBy,
       authorName: author?.fullName ?? null,
+      promiseDate: parsed.promiseDate,
+      promiseAmount: parsed.promiseAmount,
     };
   }
 
@@ -847,13 +958,14 @@ export class ReceivablesService {
       where: {
         contactId,
         type: ActivityType.COMMENT,
-        title: RECEIVABLES_COMMENT_TITLE,
+        title: { startsWith: RECEIVABLES_COMMENT_TITLE },
       },
       orderBy: { createdAt: "desc" },
       take,
       select: {
         id: true,
         body: true,
+        title: true,
         createdAt: true,
         createdBy: true,
       },
@@ -870,13 +982,18 @@ export class ReceivablesService {
     const authorMap = new Map(authors.map((a) => [a.id, a.fullName]));
 
     return {
-      items: rows.map((r) => ({
-        id: r.id,
-        body: r.body,
-        createdAt: r.createdAt.toISOString(),
-        createdBy: r.createdBy,
-        authorName: authorMap.get(r.createdBy) ?? null,
-      })),
+      items: rows.map((r) => {
+        const parsed = parseDebtCommentTitle(r.title);
+        return {
+          id: r.id,
+          body: r.body,
+          createdAt: r.createdAt.toISOString(),
+          createdBy: r.createdBy,
+          authorName: authorMap.get(r.createdBy) ?? null,
+          promiseDate: parsed.promiseDate,
+          promiseAmount: parsed.promiseAmount,
+        };
+      }),
     };
   }
 

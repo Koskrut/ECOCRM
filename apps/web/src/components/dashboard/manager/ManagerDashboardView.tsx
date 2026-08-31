@@ -167,8 +167,11 @@ export function ManagerDashboardView({ userName, userRole }: Props) {
         await tasksApi.complete(id);
         pushToast(strings.dashboard.manager.tasks.completedToast, "success");
         void loadCore();
-      } catch {
-        // ignore
+      } catch (e) {
+        pushToast(
+          e instanceof Error ? e.message : strings.tasks.errors.completeFailed,
+          "error",
+        );
       }
     },
     [loadCore, pushToast],

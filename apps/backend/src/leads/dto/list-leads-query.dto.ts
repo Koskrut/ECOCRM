@@ -17,9 +17,10 @@ export class ListLeadsQueryDto {
   @Type(() => Number)
   pageSize?: number;
 
+  /** LeadStatus or `all` (no active-only default). Empty/omit = NEW+IN_PROGRESS. */
   @IsOptional()
-  @IsEnum(LeadStatus)
-  status?: LeadStatus;
+  @IsIn([...Object.values(LeadStatus), "all"])
+  status?: LeadStatus | "all";
 
   @IsOptional()
   @IsEnum(LeadSource)

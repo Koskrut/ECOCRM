@@ -155,6 +155,12 @@ enum FieldShiftAnchorKind {
   CURRENT
 }
 
+/// How the manager moves between visits on this shift day.
+enum FieldShiftMobilityMode {
+  CAR
+  WALK_TRANSIT
+}
+
 enum FieldTrackingEventType {
   TRACKING_TASK_RESTARTED
 }
@@ -1288,6 +1294,10 @@ model FieldShift {
   destinationKind     FieldShiftAnchorKind?
   destinationLat      Float?
   destinationLng      Float?
+  /// CAR (default) vs walk / public transit — zeroes fuel compensation.
+  mobilityMode        FieldShiftMobilityMode @default(CAR)
+  /// Free-text reason (e.g. vehicle at service).
+  mobilityNote        String?
   createdAt           DateTime         @default(now())
   updatedAt           DateTime         @updatedAt
 

@@ -101,6 +101,9 @@ export type FuelDayResponse = {
   routeAnchors?: FuelRouteAnchors;
   refuels?: FuelRefuelEntry[];
   refuelTotals?: FuelRefuelTotals;
+  mobilityMode?: "CAR" | "WALK_TRANSIT";
+  mobilityNote?: string | null;
+  shiftId?: string | null;
 };
 
 export type FuelRangeDay = {

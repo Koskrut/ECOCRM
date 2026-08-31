@@ -114,6 +114,10 @@ export class TasksController {
       throw new BadRequestException("User is required");
     }
     const dueAt = body.dueAt !== undefined ? (body.dueAt != null ? String(body.dueAt) : null) : undefined;
+    const nullableId = (key: string): string | null | undefined => {
+      if (body[key] === undefined) return undefined;
+      return body[key] != null && String(body[key]) !== "" ? String(body[key]) : null;
+    };
     return this.tasks.update(
       id,
       {
@@ -121,10 +125,14 @@ export class TasksController {
         body: body.body !== undefined ? (body.body != null ? String(body.body) : null) : undefined,
         dueAt,
         status: body.status !== undefined ? (body.status as TaskStatus) : undefined,
-        assigneeId: body.assigneeId !== undefined ? (body.assigneeId != null ? String(body.assigneeId) : null) : undefined,
+        assigneeId: nullableId("assigneeId"),
         collaboratorIds: Array.isArray(body.collaboratorIds)
           ? (body.collaboratorIds as string[])
           : undefined,
+        contactId: nullableId("contactId"),
+        companyId: nullableId("companyId"),
+        leadId: nullableId("leadId"),
+        orderId: nullableId("orderId"),
       },
       req.user,
     );

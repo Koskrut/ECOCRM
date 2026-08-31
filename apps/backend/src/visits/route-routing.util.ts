@@ -163,6 +163,11 @@ export type TrackCompensationInput = {
   snapFailureReason?: string | null;
   /** Planned km warning from assessPlannedKm. */
   plannedKmWarning?: string | null;
+  /**
+   * Day mobility from FieldShift. WALK_TRANSIT zeroes fuel (no visit/GPS fallback).
+   * Omit / CAR → normal eligibility.
+   */
+  mobilityMode?: "CAR" | "WALK_TRANSIT" | null;
 };
 
 /** Whether a day's GPS track qualifies for payout (v2 policy). */
@@ -273,6 +278,14 @@ export function selectCompensationFactKind(
     factVisitsGpsDistanceKm?: number | null;
   },
 ): CompensationFactSelection {
+  if (opts.mobilityMode === "WALK_TRANSIT") {
+    return {
+      kind: "none",
+      ineligibleReason: "non_vehicle_day",
+      warnings: ["non_vehicle_day"],
+    };
+  }
+
   if (opts.visitTrackContradiction) {
     const gpsKm = resolveUsableGpsKm(opts);
     if (gpsKm != null) {

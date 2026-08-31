@@ -74,6 +74,13 @@ export const uk = {
     shiftOriginHint: "Дім — гараж з профілю. Звідси — поточна GPS-точка.",
     shiftOriginHome: "Дім",
     shiftOriginCurrent: "Звідси",
+    shiftMobilityTitle: "Як пересуваєтесь?",
+    shiftMobilityHint:
+      "Авто — звичайний день з компенсацією палива. Пішки / ОТ — якщо авто на СТО або без машини: паливо не нараховується.",
+    shiftMobilityCar: "Авто",
+    shiftMobilityWalkTransit: "Пішки або громадський транспорт",
+    shiftMobilityBadgeWalk: "Пішки / ОТ",
+    shiftMobilityBadgeCar: "Авто",
     shiftDestinationTitle: "Куди закінчуєте?",
     shiftDestinationHint: "Додому — гараж з профілю. Залишаюся тут — поточна точка.",
     shiftDestinationHome: "Додому",

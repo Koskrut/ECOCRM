@@ -320,7 +320,9 @@ export class FieldFuelService {
       warnings.push("fuel_price_missing_for_uah_estimate");
     }
     if (compensationFactKind === "none") {
-      if (snapFailureReason === "gps_snap_loop_collapse") {
+      if (geometryBundle.compensationIneligibleReason === "non_vehicle_day") {
+        warnings.push("non_vehicle_day");
+      } else if (snapFailureReason === "gps_snap_loop_collapse") {
         warnings.push("gps_snap_loop_collapse");
       } else {
         warnings.push("compensation_review_required");
@@ -403,6 +405,9 @@ export class FieldFuelService {
       routeAnchors: snapshot.routeAnchors,
       refuels: refuelData.items,
       refuelTotals: refuelData.totals,
+      mobilityMode: geometryBundle.mobilityMode ?? "CAR",
+      mobilityNote: geometryBundle.mobilityNote ?? null,
+      shiftId: geometryBundle.shiftId ?? dayShift?.id ?? null,
     };
   }
 
@@ -499,6 +504,9 @@ export class FieldFuelService {
       routeAnchors: routeAnchorsSnapshot,
       refuels: refuelData.items,
       refuelTotals: refuelData.totals,
+      mobilityMode: geometryBundle.mobilityMode ?? "CAR",
+      mobilityNote: geometryBundle.mobilityNote ?? null,
+      shiftId: geometryBundle.shiftId ?? null,
     };
   }
 

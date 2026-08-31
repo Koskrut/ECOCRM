@@ -109,7 +109,15 @@ export default function AnalyticsAttentionPage() {
         <SimpleTable
           rows={data?.crm.overdueTasks ?? []}
           columns={[
-            { key: "title", title: "Задача", render: (row) => row.title },
+            {
+              key: "title",
+              title: "Задача",
+              render: (row) => (
+                <a href={`/tasks?taskId=${row.id}`} className="font-medium text-zinc-900 underline hover:text-zinc-700">
+                  {row.title}
+                </a>
+              ),
+            },
             { key: "assigneeName", title: "Виконавець", render: (row) => row.assigneeName ?? "—" },
             { key: "dueAt", title: "Дедлайн", render: (row) => row.dueAt ?? "—" },
           ]}

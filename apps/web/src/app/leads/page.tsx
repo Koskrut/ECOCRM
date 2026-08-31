@@ -2,36 +2,43 @@
 
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Filter, Inbox, Search } from "lucide-react";
+import { Filter, Inbox, Search, X } from "lucide-react";
 import {
   leadsApi,
   type Lead,
   type LeadAttentionPreset,
-  type LeadsResponse,
-  type LeadStatus,
   type LeadSource,
-  type LeadChannel,
+  type LeadsResponse,
 } from "@/lib/api";
 import { apiHttp } from "@/lib/api/client";
 import { isTextSelected } from "@/lib/dom";
 import { StatusBadge } from "@/components/StatusBadge";
 import { LeadModal } from "./LeadModal";
 import { CreateLeadModal } from "./CreateLeadModal";
-import { LeadsFiltersPopover, DEFAULT_LEADS_FILTERS, isActiveFilterState, type LeadsFiltersState } from "./LeadsFiltersPopover";
+import { LeadsFiltersPopover, type LeadsFiltersState } from "./LeadsFiltersPopover";
 import { LeadCard } from "./LeadCard";
 import { formatDate } from "@/lib/crmDatetime";
 import { useListColumns } from "@/lib/lists/useListColumns";
 import { renderCellText } from "@/lib/lists/renderCell";
 import { HelpHint } from "@/components/help/HelpHint";
 import { withPreservedScroll } from "@/lib/modal/preserveScroll";
+import { EmptyState, ErrorPanel } from "@/components/feedback";
+import { leadStatusLabel } from "@/lib/status-labels";
+import { strings } from "@/locales";
+import { interpolate } from "@/lib/task-labels";
+import { leadScoreTone } from "./lead-score";
+import {
+  DEFAULT_LEADS_URL,
+  buildLeadsSearchParams,
+  isLeadsFilterActive,
+  parseLeadsUrl,
+  type LeadsUrlState,
+} from "./leads-url";
 
-const ATTENTION_LABELS: Record<LeadAttentionPreset, string> = {
-  "without-touch": "Ліди без дотику",
-  "never-contacted-new": "Нові без першого контакту",
-  "stale-in-progress": "Завислі в роботі",
-};
+const t = strings.leads;
+const PAGE_SIZE = 20;
 
-const ATTENTION_PRESETS = new Set<string>(Object.keys(ATTENTION_LABELS));
+const SOURCE_KEYS = Object.keys(t.sources) as LeadSource[];
 
 function leadPrimaryLabel(lead: Lead): string {
   const personName = [lead.lastName, lead.firstName, lead.middleName]
@@ -41,56 +48,14 @@ function leadPrimaryLabel(lead: Lead): string {
   return personName || lead.companyName || lead.fullName || lead.name || "—";
 }
 
-const STATUS_OPTIONS: { value: string; label: string }[] = [
-  { value: "", label: "Активні" },
-  { value: "NEW", label: "Нові" },
-  { value: "IN_PROGRESS", label: "В роботі" },
-  { value: "WON", label: "Успішні" },
-  { value: "NOT_TARGET", label: "Нецільові" },
-  { value: "LOST", label: "Програні" },
-  { value: "SPAM", label: "Спам" },
-];
-
-const SOURCE_OPTIONS: { value: string; label: string }[] = [
-  { value: "", label: "Усі джерела" },
-  { value: "META", label: "Meta" },
-  { value: "FACEBOOK", label: "Facebook" },
-  { value: "TELEGRAM", label: "Telegram" },
-  { value: "INSTAGRAM", label: "Instagram" },
-  { value: "WEBSITE", label: "Website" },
-  { value: "RINGOSTAT", label: "Ringostat" },
-  { value: "OTHER", label: "Інше" },
-];
-
-const CHANNEL_OPTIONS: { value: string; label: string }[] = [
-  { value: "", label: "Усі канали" },
-  { value: "FB_LEAD_ADS", label: "FB Lead Ads" },
-  { value: "IG_LEAD_ADS", label: "IG Lead Ads" },
-  { value: "FB_DM", label: "FB DM" },
-  { value: "IG_DM", label: "IG DM" },
-];
-
-const SOURCE_LABELS: Record<string, string> = Object.fromEntries(
-  SOURCE_OPTIONS.filter((o) => o.value).map((o) => [o.value, o.label]),
-);
-const CHANNEL_LABELS: Record<string, string> = Object.fromEntries(
-  CHANNEL_OPTIONS.filter((o) => o.value).map((o) => [o.value, o.label]),
-);
-
 function sourceLabel(source?: string | null): string {
   if (!source) return "—";
-  return SOURCE_LABELS[source] ?? source;
+  return (t.sources as Record<string, string>)[source] ?? source;
 }
 
 function channelLabel(channel?: string | null): string | null {
   if (!channel) return null;
-  return CHANNEL_LABELS[channel] ?? channel;
-}
-
-function scoreTone(score: number): string {
-  if (score >= 70) return "border-emerald-200 bg-emerald-50 text-emerald-700";
-  if (score >= 40) return "border-amber-200 bg-amber-50 text-amber-700";
-  return "border-zinc-200 bg-zinc-100 text-zinc-600";
+  return (t.channels as Record<string, string>)[channel] ?? channel;
 }
 
 function ScoreBadge({ score }: { score?: number | null }) {
@@ -99,7 +64,8 @@ function ScoreBadge({ score }: { score?: number | null }) {
   }
   return (
     <span
-      className={`inline-flex min-w-[2rem] items-center justify-center rounded-full border px-2 py-0.5 text-xs font-semibold tabular-nums ${scoreTone(score)}`}
+      title={t.scoreTooltip}
+      className={`inline-flex min-w-[2rem] items-center justify-center rounded-full border px-2 py-0.5 text-xs font-semibold tabular-nums ${leadScoreTone(score)}`}
     >
       {score}
     </span>
@@ -111,44 +77,44 @@ function LeadsPageContent() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
-  const leadId = searchParams.get("leadId");
+  const urlState = useMemo(() => parseLeadsUrl(searchParams), [searchParams]);
+
   const [createOpen, setCreateOpen] = useState(false);
   const [userRole, setUserRole] = useState<string | null>(null);
-
   const [items, setItems] = useState<Lead[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
-  const [page, setPage] = useState(() => {
-    const raw = Number(searchParams.get("page"));
-    return Number.isFinite(raw) && raw > 0 ? raw : 1;
-  });
-  const [pageSize] = useState(20);
   const [total, setTotal] = useState(0);
-
-  const [status, setStatus] = useState(() => searchParams.get("status") ?? "");
-  const [source, setSource] = useState(() => searchParams.get("source") ?? "");
-  const [channel, setChannel] = useState(() => searchParams.get("channel") ?? "");
-  const [ownerId, setOwnerId] = useState(() => searchParams.get("ownerId") ?? "");
-  const [dateFrom, setDateFrom] = useState(() => searchParams.get("dateFrom") ?? "");
-  const [dateTo, setDateTo] = useState(() => searchParams.get("dateTo") ?? "");
-  const [sortBy, setSortBy] = useState(
-    () => searchParams.get("sortBy") ?? DEFAULT_LEADS_FILTERS.sortBy,
-  );
-  const [sortOrder, setSortOrder] = useState(
-    () => searchParams.get("sortOrder") ?? DEFAULT_LEADS_FILTERS.sortOrder,
-  );
-  const [attention, setAttention] = useState(() => {
-    const raw = searchParams.get("attention");
-    return raw && ATTENTION_PRESETS.has(raw) ? (raw as LeadAttentionPreset) : "";
-  });
-  const [leadIdsFilter, setLeadIdsFilter] = useState(() => searchParams.get("ids") ?? "");
-  const [q, setQ] = useState(() => searchParams.get("q") ?? "");
-  const [qInput, setQInput] = useState(() => searchParams.get("q") ?? "");
+  const [qInput, setQInput] = useState(urlState.q);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [ownerOptions, setOwnerOptions] = useState<Array<{ id: string; fullName: string }>>([]);
 
-  const totalPages = useMemo(() => Math.max(1, Math.ceil(total / pageSize)), [pageSize, total]);
+  // Keep local search input in sync when URL changes (back/forward).
+  useEffect(() => {
+    setQInput(urlState.q);
+  }, [urlState.q]);
+
+  const replaceUrl = useCallback(
+    (next: LeadsUrlState) => {
+      const params = buildLeadsSearchParams(next);
+      const qs = params.toString();
+      const href = qs ? `${pathname}?${qs}` : pathname;
+      const current = searchParams.toString();
+      if (qs !== current) {
+        router.replace(href, { scroll: false });
+      }
+    },
+    [pathname, router, searchParams],
+  );
+
+  const patchUrl = useCallback(
+    (patch: Partial<LeadsUrlState>) => {
+      replaceUrl({ ...urlState, ...patch });
+    },
+    [replaceUrl, urlState],
+  );
+
+  const totalPages = useMemo(() => Math.max(1, Math.ceil(total / PAGE_SIZE)), [total]);
   const { extraColumns, customValues, loadValuesFor } = useListColumns("LEAD");
   const colCount = 8 + extraColumns.length;
 
@@ -157,63 +123,41 @@ function LeadsPageContent() {
     void loadValuesFor(items.map((l) => l.id));
   }, [items, loadValuesFor]);
 
-  useEffect(() => {
-    const params = new URLSearchParams();
-    if (leadId) params.set("leadId", leadId);
-    if (page > 1) params.set("page", String(page));
-    if (status) params.set("status", status);
-    if (source) params.set("source", source);
-    if (channel) params.set("channel", channel);
-    if (ownerId) params.set("ownerId", ownerId);
-    if (dateFrom) params.set("dateFrom", dateFrom);
-    if (dateTo) params.set("dateTo", dateTo);
-    if (sortBy && sortBy !== DEFAULT_LEADS_FILTERS.sortBy) params.set("sortBy", sortBy);
-    if (sortOrder && sortOrder !== DEFAULT_LEADS_FILTERS.sortOrder) params.set("sortOrder", sortOrder);
-    if (attention) params.set("attention", attention);
-    if (leadIdsFilter) params.set("ids", leadIdsFilter);
-    if (q) params.set("q", q);
-
-    const next = params.toString();
-    const current = searchParams.toString();
-    if (next !== current) {
-      router.replace(`${pathname}${next ? `?${next}` : ""}`, { scroll: false });
-    }
-  }, [attention, channel, dateFrom, dateTo, leadId, leadIdsFilter, ownerId, page, pathname, q, router, searchParams, sortBy, sortOrder, source, status]);
-
+  // Debounce search — only reset page when q actually changes.
   useEffect(() => {
     const timer = window.setTimeout(() => {
       const nextQ = qInput.trim();
-      setPage(1);
-      setQ((prev) => (prev === nextQ ? prev : nextQ));
+      if (nextQ === urlState.q) return;
+      patchUrl({ q: nextQ, page: 1 });
     }, 300);
     return () => window.clearTimeout(timer);
-  }, [qInput]);
+  }, [qInput, urlState.q, patchUrl]);
 
   const reload = useCallback(
-    async (opts?: { keepPage?: boolean; silent?: boolean }) => {
+    async (opts?: { silent?: boolean }) => {
       const run = async () => {
         try {
           if (!opts?.silent) setLoading(true);
           setError(null);
 
-          const effectivePage = opts?.keepPage ? page : 1;
-          if (!opts?.keepPage) setPage(1);
-
           const params: Parameters<typeof leadsApi.list>[0] = {
-            page: effectivePage,
-            pageSize,
+            page: urlState.page,
+            pageSize: PAGE_SIZE,
+            sortBy: urlState.sortBy,
+            sortOrder: urlState.sortOrder,
           };
-          if (sortBy) params.sortBy = sortBy as "createdAt" | "score";
-          if (sortOrder) params.sortOrder = sortOrder as "asc" | "desc";
-          if (attention) params.attention = attention as LeadAttentionPreset;
-          if (leadIdsFilter) params.ids = leadIdsFilter;
-          if (q.trim()) params.q = q.trim();
-          if (!attention && !leadIdsFilter && status) params.status = status as LeadStatus;
-          if (source) params.source = source as LeadSource;
-          if (channel) params.channel = channel as LeadChannel;
-          if (ownerId) params.ownerId = ownerId;
-          if (dateFrom) params.dateFrom = dateFrom;
-          if (dateTo) params.dateTo = dateTo;
+          if (urlState.attention) params.attention = urlState.attention;
+          if (urlState.ids) params.ids = urlState.ids;
+          if (urlState.q.trim()) params.q = urlState.q.trim();
+          if (!urlState.attention && !urlState.ids) {
+            if (urlState.status === "all") params.status = "all";
+            else if (urlState.status) params.status = urlState.status;
+          }
+          if (urlState.source) params.source = urlState.source;
+          if (urlState.channel) params.channel = urlState.channel;
+          if (urlState.ownerId) params.ownerId = urlState.ownerId;
+          if (urlState.dateFrom) params.dateFrom = urlState.dateFrom;
+          if (urlState.dateTo) params.dateTo = urlState.dateTo;
 
           const res: LeadsResponse = await leadsApi.list(params);
           setItems(res.items);
@@ -222,7 +166,7 @@ function LeadsPageContent() {
           const msg =
             (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
             (e instanceof Error ? e.message : "Не вдалося завантажити ліди");
-          setError(msg);
+          setError(typeof msg === "string" ? msg : "Не вдалося завантажити ліди");
           setItems([]);
         } finally {
           setLoading(false);
@@ -231,11 +175,11 @@ function LeadsPageContent() {
       if (opts?.silent) await withPreservedScroll(run);
       else await run();
     },
-    [attention, channel, dateFrom, dateTo, leadIdsFilter, ownerId, page, pageSize, q, sortBy, sortOrder, source, status],
+    [urlState],
   );
 
   useEffect(() => {
-    void reload({ keepPage: true });
+    void reload();
   }, [reload]);
 
   useEffect(() => {
@@ -258,103 +202,183 @@ function LeadsPageContent() {
       .catch(() => setOwnerOptions([]));
   }, []);
 
-  const openLead = (id: string) => {
-    const params = new URLSearchParams(searchParams.toString());
-    params.set("leadId", id);
-    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
-  };
-
-  const closeModal = () => {
-    const params = new URLSearchParams(searchParams.toString());
-    params.delete("leadId");
-    const newUrl = params.toString() ? `${pathname}?${params.toString()}` : pathname;
-    router.replace(newUrl, { scroll: false });
+  const openLead = (id: string) => patchUrl({ leadId: id });
+  const closeModal = () => patchUrl({ leadId: "" });
+  const openContact = (contactId: string) => {
+    router.push(`/contacts?contactId=${encodeURIComponent(contactId)}`);
   };
 
   const onSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    setPage(1);
-    setQ(qInput.trim());
+    const nextQ = qInput.trim();
+    if (nextQ === urlState.q) return;
+    patchUrl({ q: nextQ, page: 1 });
   };
 
   const applyPopoverFilters = (next: LeadsFiltersState) => {
-    setStatus(next.status);
-    setSource(next.source);
-    setChannel(next.channel);
-    setOwnerId(next.ownerId);
-    setDateFrom(next.dateFrom);
-    setDateTo(next.dateTo);
-    setSortBy(next.sortBy);
-    setSortOrder(next.sortOrder);
-    setAttention("");
-    setLeadIdsFilter("");
-    setPage(1);
+    // Preserve attention/ids — user clears them via chips or full reset.
+    patchUrl({
+      ...next,
+      page: 1,
+    });
   };
 
   const resetAllFilters = () => {
-    setStatus("");
-    setSource("");
-    setChannel("");
-    setOwnerId("");
-    setDateFrom("");
-    setDateTo("");
-    setSortBy(DEFAULT_LEADS_FILTERS.sortBy);
-    setSortOrder(DEFAULT_LEADS_FILTERS.sortOrder);
-    setAttention("");
-    setLeadIdsFilter("");
     setQInput("");
-    setQ("");
-    setPage(1);
+    replaceUrl({ ...DEFAULT_LEADS_URL, leadId: urlState.leadId });
   };
 
   const filtersState: LeadsFiltersState = {
-    status,
-    source,
-    channel,
-    ownerId,
-    dateFrom,
-    dateTo,
-    sortBy,
-    sortOrder,
+    status: urlState.status,
+    source: urlState.source,
+    channel: urlState.channel,
+    ownerId: urlState.ownerId,
+    dateFrom: urlState.dateFrom,
+    dateTo: urlState.dateTo,
+    sortBy: urlState.sortBy,
+    sortOrder: urlState.sortOrder,
   };
 
-  const filtersActive = isActiveFilterState(filtersState) || Boolean(attention) || Boolean(leadIdsFilter);
-  const attentionLabel = attention ? ATTENTION_LABELS[attention as LeadAttentionPreset] : null;
+  const filtersActive = isLeadsFilterActive(urlState);
+  const attentionLabel = urlState.attention
+    ? t.attention[urlState.attention as LeadAttentionPreset]
+    : null;
+
+  const statusOptions = useMemo(
+    () => [
+      { value: "", label: t.statusFilter.active },
+      { value: "all", label: t.statusFilter.all },
+      { value: "NEW", label: leadStatusLabel("NEW") },
+      { value: "IN_PROGRESS", label: leadStatusLabel("IN_PROGRESS") },
+      { value: "WON", label: leadStatusLabel("WON") },
+      { value: "NOT_TARGET", label: leadStatusLabel("NOT_TARGET") },
+      { value: "LOST", label: leadStatusLabel("LOST") },
+      { value: "SPAM", label: leadStatusLabel("SPAM") },
+    ],
+    [],
+  );
+
+  const sourceOptions = useMemo(
+    () => [
+      { value: "", label: t.filterLabels.allSources },
+      ...SOURCE_KEYS.map((value) => ({ value, label: t.sources[value] })),
+    ],
+    [],
+  );
+
+  const channelOptions = useMemo(
+    () => [
+      { value: "", label: t.channels.all },
+      { value: "FB_LEAD_ADS", label: t.channels.FB_LEAD_ADS },
+      { value: "IG_LEAD_ADS", label: t.channels.IG_LEAD_ADS },
+      { value: "FB_DM", label: t.channels.FB_DM },
+      { value: "IG_DM", label: t.channels.IG_DM },
+    ],
+    [],
+  );
+
+  const ownerName = (id: string) => {
+    if (id === "unassigned") return t.owners.unassigned;
+    return ownerOptions.find((o) => o.id === id)?.fullName ?? id;
+  };
+
+  const chips: Array<{ key: string; label: string; onClear: () => void }> = [];
+  if (urlState.attention) {
+    chips.push({
+      key: "attention",
+      label: t.attention[urlState.attention],
+      onClear: () => patchUrl({ attention: "", page: 1 }),
+    });
+  }
+  if (urlState.ids) {
+    chips.push({
+      key: "ids",
+      label: t.fromPlan,
+      onClear: () => patchUrl({ ids: "", page: 1 }),
+    });
+  }
+  if (urlState.status) {
+    chips.push({
+      key: "status",
+      label:
+        urlState.status === "all"
+          ? t.statusFilter.all
+          : leadStatusLabel(urlState.status),
+      onClear: () => patchUrl({ status: "", page: 1 }),
+    });
+  }
+  if (urlState.source) {
+    chips.push({
+      key: "source",
+      label: t.sources[urlState.source],
+      onClear: () => patchUrl({ source: "", page: 1 }),
+    });
+  }
+  if (urlState.channel) {
+    chips.push({
+      key: "channel",
+      label: channelLabel(urlState.channel) ?? urlState.channel,
+      onClear: () => patchUrl({ channel: "", page: 1 }),
+    });
+  }
+  if (urlState.ownerId) {
+    chips.push({
+      key: "owner",
+      label: ownerName(urlState.ownerId),
+      onClear: () => patchUrl({ ownerId: "", page: 1 }),
+    });
+  }
+  if (urlState.dateFrom || urlState.dateTo) {
+    chips.push({
+      key: "dates",
+      label: `${urlState.dateFrom || "…"} → ${urlState.dateTo || "…"}`,
+      onClear: () => patchUrl({ dateFrom: "", dateTo: "", page: 1 }),
+    });
+  }
+  if (urlState.q) {
+    chips.push({
+      key: "q",
+      label: `«${urlState.q}»`,
+      onClear: () => {
+        setQInput("");
+        patchUrl({ q: "", page: 1 });
+      },
+    });
+  }
+
+  const attentionPresets: LeadAttentionPreset[] = [
+    "without-touch",
+    "never-contacted-new",
+    "stale-in-progress",
+  ];
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold">Ліди</h1>
-          <p className="text-sm text-zinc-500">Вхідні звернення та потенційні клієнти</p>
+          <h1 className="text-2xl font-bold">{t.pageTitle}</h1>
+          <p className="text-sm text-zinc-500">{t.pageSubtitle}</p>
         </div>
         <div className="flex items-center gap-2">
           <HelpHint routeKey="leads" />
-          <button
-          type="button"
-          onClick={() => setCreateOpen(true)}
-          className="btn-primary"
-        >
-          + Лід
-        </button>
+          <button type="button" onClick={() => setCreateOpen(true)} className="btn-primary">
+            {t.addLead}
+          </button>
         </div>
       </div>
 
       <div className="mb-4">
         <div className="relative">
-          <form
-            onSubmit={onSearchSubmit}
-            className="flex items-center gap-2 rounded-xl p-2"
-          >
+          <form onSubmit={onSearchSubmit} className="flex items-center gap-2 rounded-xl p-2">
             <div className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2">
               <Search className="h-4 w-4 shrink-0 text-zinc-500" aria-hidden />
               <input
                 value={qInput}
                 onChange={(e) => setQInput(e.target.value)}
-                placeholder="Пошук за ім'ям, телефоном, email, компанією, містом…"
+                placeholder={t.searchPlaceholder}
                 className="min-w-0 flex-1 bg-transparent text-sm outline-none"
                 type="search"
-                aria-label="Пошук лідів"
+                aria-label={t.searchAriaLabel}
               />
               <button
                 type="button"
@@ -362,7 +386,7 @@ function LeadsPageContent() {
                 className={`relative flex shrink-0 items-center justify-center rounded p-1 hover:bg-zinc-200/50 ${
                   filtersActive ? "text-accent-600" : "text-zinc-500 hover:text-zinc-700"
                 }`}
-                aria-label="Відкрити фільтри"
+                aria-label={t.filtersTitle}
               >
                 <Filter className="h-4 w-4" />
                 {filtersActive ? (
@@ -375,50 +399,97 @@ function LeadsPageContent() {
           <LeadsFiltersPopover
             open={filtersOpen}
             value={filtersState}
-            statusOptions={STATUS_OPTIONS}
-            sourceOptions={SOURCE_OPTIONS}
-            channelOptions={CHANNEL_OPTIONS}
+            statusOptions={statusOptions}
+            sourceOptions={sourceOptions}
+            channelOptions={channelOptions}
             ownerOptions={ownerOptions}
             onClose={() => setFiltersOpen(false)}
             onApply={applyPopoverFilters}
             onReset={resetAllFilters}
           />
         </div>
+
+        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+          {attentionPresets.map((preset) => {
+            const active = urlState.attention === preset;
+            return (
+              <button
+                key={preset}
+                type="button"
+                onClick={() =>
+                  patchUrl({
+                    attention: active ? "" : preset,
+                    ids: "",
+                    status: "",
+                    page: 1,
+                  })
+                }
+                className={`rounded-full border px-2.5 py-1 text-xs font-medium transition ${
+                  active
+                    ? "border-amber-300 bg-amber-50 text-amber-900"
+                    : "border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50"
+                }`}
+              >
+                {t.attention[preset]}
+              </button>
+            );
+          })}
+        </div>
+
+        {chips.length > 0 ? (
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            {chips.map((chip) => (
+              <button
+                key={chip.key}
+                type="button"
+                onClick={chip.onClear}
+                className="inline-flex items-center gap-1 rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5 text-xs text-zinc-700 hover:bg-zinc-100"
+              >
+                {chip.label}
+                <X className="h-3 w-3" aria-hidden />
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={resetAllFilters}
+              className="text-xs font-medium text-zinc-500 underline-offset-2 hover:underline"
+            >
+              {t.resetFilters}
+            </button>
+          </div>
+        ) : null}
+
         <div className="mt-2 text-sm text-zinc-500">
-          Усього: {total} · Сторінка {page} з {totalPages}
+          {interpolate(t.totalLine, {
+            total,
+            page: urlState.page,
+            totalPages,
+          })}
           {attentionLabel ? (
             <span className="ml-2 inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800">
               {attentionLabel}
             </span>
           ) : null}
-          {leadIdsFilter ? (
-            <span className="ml-2 inline-flex items-center rounded-full bg-sky-50 px-2 py-0.5 text-xs font-medium text-sky-800">
-              Обрані з плану
-            </span>
-          ) : null}
         </div>
       </div>
 
-      {error && (
-        <div className="rounded-xl border border-red-200 bg-red-50 p-4 shadow-sm text-sm text-red-700">
-          {error}
-        </div>
-      )}
+      {error ? (
+        <ErrorPanel message={error} onRetry={() => void reload()} />
+      ) : null}
 
       <>
-        {/* Desktop + tablet: table */}
         <div className="hidden sm:block overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm">
           <table className="w-full text-left text-sm">
             <thead className="bg-zinc-100/80 text-xs font-medium uppercase text-zinc-500">
               <tr>
-                <th className="px-4 py-3">Ім&apos;я / телефон</th>
-                <th className="px-4 py-3">Місто</th>
-                <th className="px-4 py-3">Джерело</th>
-                <th className="px-4 py-3">Бал</th>
-                <th className="px-4 py-3">Статус</th>
-                <th className="px-4 py-3">Відповідальний</th>
-                <th className="px-4 py-3">Дата</th>
-                <th className="px-4 py-3 text-right">Дзвінки</th>
+                <th className="px-4 py-3">{t.columns.namePhone}</th>
+                <th className="px-4 py-3">{t.columns.city}</th>
+                <th className="px-4 py-3">{t.columns.source}</th>
+                <th className="px-4 py-3">{t.columns.score}</th>
+                <th className="px-4 py-3">{t.columns.status}</th>
+                <th className="px-4 py-3">{t.columns.owner}</th>
+                <th className="px-4 py-3">{t.columns.date}</th>
+                <th className="px-4 py-3 text-right">{t.columns.calls}</th>
                 {extraColumns.map((col) => (
                   <th key={col.fieldId} className="px-4 py-3">
                     {col.label}
@@ -440,34 +511,32 @@ function LeadsPageContent() {
               ) : items.length === 0 ? (
                 <tr>
                   <td colSpan={colCount} className="px-6 py-16">
-                    <div className="flex flex-col items-center justify-center gap-3 text-center">
-                      <div className="flex h-12 w-12 items-center justify-center rounded-full bg-zinc-100 text-zinc-400">
-                        <Inbox className="h-6 w-6" />
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium text-zinc-700">
-                          {filtersActive || q.trim() ? "Нічого не знайдено" : "Лідів поки немає"}
-                        </p>
-                        <p className="mt-0.5 text-xs text-zinc-500">
-                          {filtersActive || q.trim()
-                            ? "Спробуйте змінити фільтри або пошуковий запит"
-                            : "Створіть перший лід, щоб почати роботу"}
-                        </p>
-                      </div>
-                      {filtersActive || q.trim() ? (
-                        <button
-                          type="button"
-                          onClick={resetAllFilters}
-                          className="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
-                        >
-                          Скинути фільтри
-                        </button>
-                      ) : (
-                        <button type="button" onClick={() => setCreateOpen(true)} className="btn-primary">
-                          + Лід
-                        </button>
-                      )}
-                    </div>
+                    <EmptyState
+                      icon={Inbox}
+                      title={filtersActive || urlState.q.trim() ? t.emptyFilteredTitle : t.emptyTitle}
+                      description={
+                        filtersActive || urlState.q.trim() ? t.emptyFilteredHint : t.emptyHint
+                      }
+                      action={
+                        filtersActive || urlState.q.trim() ? (
+                          <button
+                            type="button"
+                            onClick={resetAllFilters}
+                            className="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
+                          >
+                            {t.resetFilters}
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setCreateOpen(true)}
+                            className="btn-primary"
+                          >
+                            {t.addLead}
+                          </button>
+                        )
+                      }
+                    />
                   </td>
                 </tr>
               ) : (
@@ -481,12 +550,8 @@ function LeadsPageContent() {
                     }}
                   >
                     <td className="px-4 py-4">
-                      <div className="font-medium text-zinc-900">
-                        {leadPrimaryLabel(l)}
-                      </div>
-                      <div className="text-xs text-zinc-500">
-                        {l.phone || "—"}
-                      </div>
+                      <div className="font-medium text-zinc-900">{leadPrimaryLabel(l)}</div>
+                      <div className="text-xs text-zinc-500">{l.phone || "—"}</div>
                     </td>
                     <td className="px-4 py-4 text-zinc-600">{l.city || "—"}</td>
                     <td className="px-4 py-4">
@@ -503,22 +568,18 @@ function LeadsPageContent() {
                     <td className="px-4 py-4">
                       <StatusBadge variant="lead" status={l.status} />
                     </td>
-                    <td className="px-4 py-4 text-zinc-500">
-                      {l.owner?.fullName ?? "—"}
-                    </td>
-                    <td className="px-4 py-4 text-zinc-500">
-                      {formatDate(l.createdAt)}
-                    </td>
+                    <td className="px-4 py-4 text-zinc-500">{l.owner?.fullName ?? "—"}</td>
+                    <td className="px-4 py-4 text-zinc-500">{formatDate(l.createdAt)}</td>
                     <td className="px-4 py-4 text-right">
                       <div className="flex justify-end gap-1">
                         {l.hasCallToday && (
                           <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
-                            Сьогодні
+                            {t.callToday}
                           </span>
                         )}
                         {l.hasMissedCall && (
                           <span className="rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-700">
-                            Пропущено
+                            {t.callMissed}
                           </span>
                         )}
                       </div>
@@ -536,30 +597,33 @@ function LeadsPageContent() {
 
           <div className="flex flex-wrap items-center justify-between gap-3 border-t border-zinc-200 bg-zinc-50 px-4 py-4">
             <span className="text-xs text-zinc-500">
-              Сторінка {page} з {totalPages} • Всього {total}
+              {interpolate(t.pageLine, {
+                page: urlState.page,
+                totalPages,
+                total,
+              })}
             </span>
             <div className="flex gap-2">
               <button
                 type="button"
-                disabled={page <= 1 || loading}
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={urlState.page <= 1 || loading}
+                onClick={() => patchUrl({ page: Math.max(1, urlState.page - 1) })}
                 className="rounded border border-zinc-300 px-3 py-1 text-xs hover:bg-white disabled:opacity-50"
               >
-                Назад
+                {t.previous}
               </button>
               <button
                 type="button"
-                disabled={page >= totalPages || loading}
-                onClick={() => setPage((p) => p + 1)}
+                disabled={urlState.page >= totalPages || loading}
+                onClick={() => patchUrl({ page: urlState.page + 1 })}
                 className="rounded border border-zinc-300 px-3 py-1 text-xs hover:bg-white disabled:opacity-50"
               >
-                Вперед
+                {t.next}
               </button>
             </div>
           </div>
         </div>
 
-        {/* Mobile: card list */}
         <div className="sm:hidden space-y-4">
           {loading ? (
             <div className="space-y-3">
@@ -573,61 +637,60 @@ function LeadsPageContent() {
               ))}
             </div>
           ) : items.length === 0 ? (
-            <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-zinc-200 bg-white p-8 text-center">
-              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-zinc-100 text-zinc-400">
-                <Inbox className="h-6 w-6" />
-              </div>
-              <div>
-                <p className="text-sm font-medium text-zinc-700">
-                  {filtersActive || q.trim() ? "Нічого не знайдено" : "Лідів поки немає"}
-                </p>
-                <p className="mt-0.5 text-xs text-zinc-500">
-                  {filtersActive || q.trim()
-                    ? "Спробуйте змінити фільтри або пошук"
-                    : "Створіть перший лід, щоб почати"}
-                </p>
-              </div>
-              {filtersActive || q.trim() ? (
-                <button
-                  type="button"
-                  onClick={resetAllFilters}
-                  className="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
-                >
-                  Скинути фільтри
-                </button>
-              ) : (
-                <button type="button" onClick={() => setCreateOpen(true)} className="btn-primary">
-                  + Лід
-                </button>
-              )}
-            </div>
+            <EmptyState
+              icon={Inbox}
+              title={filtersActive || urlState.q.trim() ? t.emptyFilteredTitle : t.emptyTitle}
+              description={
+                filtersActive || urlState.q.trim() ? t.emptyFilteredHint : t.emptyHint
+              }
+              action={
+                filtersActive || urlState.q.trim() ? (
+                  <button
+                    type="button"
+                    onClick={resetAllFilters}
+                    className="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
+                  >
+                    {t.resetFilters}
+                  </button>
+                ) : (
+                  <button type="button" onClick={() => setCreateOpen(true)} className="btn-primary">
+                    {t.addLead}
+                  </button>
+                )
+              }
+            />
           ) : (
             <>
               <div className="space-y-3">
                 {items.map((l) => (
-                  <LeadCard key={l.id} lead={l} onOpen={openLead} />
+                  <LeadCard
+                    key={l.id}
+                    lead={l}
+                    onOpen={openLead}
+                    onOpenContact={openContact}
+                  />
                 ))}
               </div>
               <div className="flex flex-wrap items-center justify-between gap-2 border-t border-zinc-200 bg-transparent px-2 py-4">
                 <span className="text-xs text-zinc-500">
-                  Сторінка {page}/{totalPages}
+                  {interpolate(t.pageShort, { page: urlState.page, totalPages })}
                 </span>
                 <div className="flex gap-2">
                   <button
                     type="button"
-                    disabled={page <= 1 || loading}
-                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    disabled={urlState.page <= 1 || loading}
+                    onClick={() => patchUrl({ page: Math.max(1, urlState.page - 1) })}
                     className="rounded border border-zinc-300 px-3 py-1 text-xs hover:bg-white disabled:opacity-50"
                   >
-                    Назад
+                    {t.previous}
                   </button>
                   <button
                     type="button"
-                    disabled={page >= totalPages || loading}
-                    onClick={() => setPage((p) => p + 1)}
+                    disabled={urlState.page >= totalPages || loading}
+                    onClick={() => patchUrl({ page: urlState.page + 1 })}
                     className="rounded border border-zinc-300 px-3 py-1 text-xs hover:bg-white disabled:opacity-50"
                   >
-                    Вперед
+                    {t.next}
                   </button>
                 </div>
               </div>
@@ -640,34 +703,37 @@ function LeadsPageContent() {
         type="button"
         onClick={() => setCreateOpen(true)}
         className="fixed bottom-20 right-4 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-accent-500 text-white shadow-lg transition-opacity hover:bg-accent-600 sm:hidden"
-        aria-label="Новий лід"
+        aria-label={t.newLead}
       >
         <span className="text-2xl leading-none">+</span>
       </button>
 
-      {leadId && (
+      {urlState.leadId ? (
         <LeadModal
           apiBaseUrl="/api"
-          leadId={leadId}
+          leadId={urlState.leadId}
           onClose={closeModal}
-          onUpdated={() => void reload({ keepPage: true, silent: true })}
+          onUpdated={() => void reload({ silent: true })}
           userRole={userRole}
         />
-      )}
+      ) : null}
 
-      {createOpen && (
+      {createOpen ? (
         <CreateLeadModal
           onClose={() => setCreateOpen(false)}
-          onCreated={() => void reload({ keepPage: true, silent: true })}
+          onCreated={(lead) => {
+            void reload({ silent: true });
+            patchUrl({ leadId: lead.id, page: 1 });
+          }}
         />
-      )}
+      ) : null}
     </div>
   );
 }
 
 export default function LeadsPage() {
   return (
-    <Suspense fallback={<div className="p-6 text-sm text-gray-600">Loading…</div>}>
+    <Suspense fallback={<div className="p-6 text-sm text-zinc-600">{t.loading}</div>}>
       <LeadsPageContent />
     </Suspense>
   );

@@ -106,32 +106,53 @@ function StockSplit({ finished, buildable }: { finished: number; buildable: numb
   );
 }
 
-export function KitPortfolioPanel({ onError }: { onError: (msg: string) => void }) {
+export function KitPortfolioPanel({
+  onError,
+  view: externalView,
+  busy: externalBusy,
+  onReload,
+}: {
+  onError: (msg: string) => void;
+  view?: KitPortfolioView | null;
+  busy?: boolean;
+  onReload?: () => Promise<void>;
+}) {
   const t = strings.planning;
   const kb = t.kitBoard;
   const reportError = useStableErrorHandler(onError);
-  const [view, setView] = useState<KitPortfolioView | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [internalView, setInternalView] = useState<KitPortfolioView | null>(null);
+  const [internalBusy, setInternalBusy] = useState(false);
+  const view = externalView !== undefined ? externalView : internalView;
+  const busy = externalBusy ?? internalBusy;
   const [toast, setToast] = useState<string | null>(null);
   const [only80, setOnly80] = useState(true);
   const [query, setQuery] = useState("");
   const [openId, setOpenId] = useState<string | null>(null);
   const [acting, setActing] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    setBusy(true);
+  const loadInternal = useCallback(async () => {
+    setInternalBusy(true);
     try {
-      setView(await planningApi.getKitPortfolio());
+      setInternalView(await planningApi.getKitPortfolio());
     } catch (e) {
       reportError(e instanceof Error ? e.message : t.errors.kitPortfolio);
     } finally {
-      setBusy(false);
+      setInternalBusy(false);
     }
   }, [reportError, t.errors.kitPortfolio]);
 
+  const load = useCallback(async () => {
+    if (onReload) {
+      await onReload();
+      return;
+    }
+    await loadInternal();
+  }, [onReload, loadInternal]);
+
   useEffect(() => {
-    void load();
-  }, [load]);
+    if (externalView !== undefined) return;
+    void loadInternal();
+  }, [externalView, loadInternal]);
 
   const visible = useMemo(() => {
     const rows = (view?.kits ?? []).filter((k) => matchesQuery(k, query));
@@ -168,8 +189,13 @@ export function KitPortfolioPanel({ onError }: { onError: (msg: string) => void 
       let listId = view?.week.packingListId ?? null;
       let status = view?.week.packingStatus ?? null;
       if (status === "APPROVED") {
-        reportError(kb.weekLocked);
-        return;
+        if (!listId) {
+          reportError(t.errors.packing);
+          return;
+        }
+        const reopened = await planningApi.reopenPackingList(listId);
+        listId = reopened.id;
+        status = reopened.status;
       }
       if (!listId) {
         const proposed = await planningApi.proposePackingList();
@@ -220,6 +246,8 @@ export function KitPortfolioPanel({ onError }: { onError: (msg: string) => void 
   }
   if (!view) return <p className="text-sm text-zinc-500">{t.states.noData}</p>;
 
+  const showToolbar = externalView === undefined;
+
   return (
     <div className="space-y-4">
       <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
@@ -228,45 +256,79 @@ export function KitPortfolioPanel({ onError }: { onError: (msg: string) => void 
             <h2 className="text-sm font-semibold text-zinc-900">{kb.title}</h2>
             <p className="mt-1 text-sm text-zinc-600">{kb.hint}</p>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setOnly80(true)}
-              className={
-                only80
-                  ? "rounded-full bg-zinc-900 px-3 py-1.5 text-sm text-white"
-                  : "rounded-full border border-zinc-200 px-3 py-1.5 text-sm text-zinc-700"
-              }
-            >
-              {kb.filter80}
-            </button>
-            <button
-              type="button"
-              onClick={() => setOnly80(false)}
-              className={
-                !only80
-                  ? "rounded-full bg-zinc-900 px-3 py-1.5 text-sm text-white"
-                  : "rounded-full border border-zinc-200 px-3 py-1.5 text-sm text-zinc-700"
-              }
-            >
-              {kb.filterAll}
-            </button>
-            <input
-              type="search"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder={kb.search}
-              className="w-48 rounded-lg border border-zinc-200 px-3 py-1.5 text-sm"
-            />
-            <button
-              type="button"
-              disabled={busy}
-              className="rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-sm disabled:opacity-50"
-              onClick={() => void load()}
-            >
-              {t.actions.refresh}
-            </button>
-          </div>
+          {showToolbar ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setOnly80(true)}
+                className={
+                  only80
+                    ? "rounded-full bg-zinc-900 px-3 py-1.5 text-sm text-white"
+                    : "rounded-full border border-zinc-200 px-3 py-1.5 text-sm text-zinc-700"
+                }
+              >
+                {kb.filter80}
+              </button>
+              <button
+                type="button"
+                onClick={() => setOnly80(false)}
+                className={
+                  !only80
+                    ? "rounded-full bg-zinc-900 px-3 py-1.5 text-sm text-white"
+                    : "rounded-full border border-zinc-200 px-3 py-1.5 text-sm text-zinc-700"
+                }
+              >
+                {kb.filterAll}
+              </button>
+              <input
+                type="search"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder={kb.search}
+                className="w-48 rounded-lg border border-zinc-200 px-3 py-1.5 text-sm"
+              />
+              <button
+                type="button"
+                disabled={busy}
+                className="rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-sm disabled:opacity-50"
+                onClick={() => void load()}
+              >
+                {t.actions.refresh}
+              </button>
+            </div>
+          ) : (
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setOnly80(true)}
+                className={
+                  only80
+                    ? "rounded-full bg-zinc-900 px-3 py-1.5 text-sm text-white"
+                    : "rounded-full border border-zinc-200 px-3 py-1.5 text-sm text-zinc-700"
+                }
+              >
+                {kb.filter80}
+              </button>
+              <button
+                type="button"
+                onClick={() => setOnly80(false)}
+                className={
+                  !only80
+                    ? "rounded-full bg-zinc-900 px-3 py-1.5 text-sm text-white"
+                    : "rounded-full border border-zinc-200 px-3 py-1.5 text-sm text-zinc-700"
+                }
+              >
+                {kb.filterAll}
+              </button>
+              <input
+                type="search"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder={kb.search}
+                className="w-48 rounded-lg border border-zinc-200 px-3 py-1.5 text-sm"
+              />
+            </div>
+          )}
         </div>
         <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
           <div>

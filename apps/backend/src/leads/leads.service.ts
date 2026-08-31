@@ -178,6 +178,8 @@ export class LeadsService {
       andParts.push({ id: { in: idList } });
     } else if (q.attention && isLeadAttentionPreset(q.attention)) {
       andParts.push(buildLeadAttentionWhere(q.attention, q.attentionPeriod ?? "month"));
+    } else if (q.status === "all") {
+      // No status restriction — include terminal leads.
     } else if (q.status) {
       where.status = q.status as LeadStatus;
     } else {
@@ -185,7 +187,11 @@ export class LeadsService {
     }
     if (q.source) where.source = q.source as LeadSource;
     if (q.channel) where.channel = q.channel as LeadChannel;
-    if (q.ownerId) where.ownerId = q.ownerId;
+    if (q.ownerId === "unassigned") {
+      where.ownerId = null;
+    } else if (q.ownerId) {
+      where.ownerId = q.ownerId;
+    }
     if (q.dateFrom || q.dateTo) {
       where.createdAt = {};
       if (q.dateFrom) (where.createdAt as Prisma.DateTimeFilter).gte = new Date(q.dateFrom);
@@ -275,12 +281,28 @@ export class LeadsService {
     const phoneCanonical =
       dto.phone != null ? (normalizePhoneToE164(dto.phone) ?? (dto.phone.trim() || null)) : null;
     const phoneNormalized = dto.phone != null ? getPhoneNormalizedDigits(dto.phone) ?? null : null;
+
+    const firstName = dto.firstName?.trim() || null;
+    const lastName = dto.lastName?.trim() || null;
+    const middleName = dto.middleName?.trim() || null;
+    const fullNameFromParts = [lastName, firstName, middleName].filter(Boolean).join(" ").trim();
+    const fullName =
+      dto.fullName?.trim() ||
+      fullNameFromParts ||
+      dto.name?.trim() ||
+      null;
+    const name = dto.name?.trim() || fullName || firstName || null;
+
     const data: Prisma.LeadCreateInput = {
       company: { connect: { id: companyId } },
       owner: ownerId ? { connect: { id: ownerId } } : undefined,
       status: LeadStatusEnum.NEW,
       source: dto.source ?? "OTHER",
-      name: dto.name ?? null,
+      name,
+      firstName: firstName || (name && !lastName ? name : null),
+      lastName,
+      middleName,
+      fullName,
       phone: phoneCanonical,
       phoneNormalized,
       email: dto.email ?? null,
@@ -558,16 +580,24 @@ export class LeadsService {
   // ===== STATUS =====
 
   private ensureStatusTransition(
-    from: LeadStatus,
+    _from: LeadStatus,
     to: LeadStatus,
-    lead: { phone?: string | null; name?: string | null },
+    lead: {
+      phone?: string | null;
+      name?: string | null;
+      fullName?: string | null;
+      firstName?: string | null;
+    },
   ) {
     if (to === LeadStatusEnum.WON) {
       if (!lead.phone) {
-        throw new BadRequestException("Телефон обязателен для успешного завершения лида");
+        throw new BadRequestException("Телефон обовʼязковий для успішного завершення ліда");
       }
-      if (!lead.name) {
-        throw new BadRequestException("Имя обязательно для успешного завершения лида");
+      const hasName = Boolean(
+        lead.name?.trim() || lead.fullName?.trim() || lead.firstName?.trim(),
+      );
+      if (!hasName) {
+        throw new BadRequestException("Імʼя обовʼязкове для успішного завершення ліда");
       }
     }
   }
@@ -629,13 +659,30 @@ export class LeadsService {
     const lead = await this.prisma.lead.findUnique({ where: { id }, select: { ownerId: true } });
     if (!lead) throw new NotFoundException("Lead not found");
     if (actor) await this.assertLeadAccess(lead, actor);
+    const message = dto.message.trim();
     await this.prisma.leadEvent.create({
       data: {
         leadId: id,
         type: LeadEventType.NOTE,
-        message: dto.message,
+        message,
         payload: { createdBy: actor?.id ?? null } as Prisma.InputJsonValue,
       },
+    });
+    // Also create a timeline Activity so the note appears in ContactTimeline / FeedTabs.
+    if (actor?.id) {
+      await this.prisma.activity.create({
+        data: {
+          type: "COMMENT",
+          body: message,
+          title: "Нотатка",
+          createdBy: actor.id,
+          leadId: id,
+        },
+      });
+    }
+    await this.prisma.lead.update({
+      where: { id },
+      data: { lastActivityAt: new Date() },
     });
     return { ok: true };
   }

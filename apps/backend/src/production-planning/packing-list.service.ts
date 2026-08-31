@@ -627,6 +627,54 @@ export class PackingListService {
     return { ...updated, lines: await this.enrichLines(updated.lines) };
   }
 
+  async deleteList(id: string) {
+    const list = await this.get(id);
+    if (list.status === PackingListStatus.DONE) {
+      throw new BadRequestException("Completed packing lists cannot be deleted");
+    }
+    await this.prisma.packingList.delete({ where: { id } });
+    return { deleted: true, id };
+  }
+
+  async deleteLine(id: string, lineId: string) {
+    const list = await this.get(id);
+    if (list.status !== PackingListStatus.DRAFT) {
+      throw new BadRequestException("Only DRAFT packing lists can remove lines");
+    }
+    const line = list.lines.find((l) => l.id === lineId);
+    if (!line) throw new NotFoundException("Packing list line not found");
+    await this.prisma.packingListLine.delete({ where: { id: lineId } });
+    const remaining = list.lines.filter((l) => l.id !== lineId);
+    const capacityUsed = remaining.reduce((s, l) => s + l.qtyApproved, 0);
+    await this.prisma.packingList.update({
+      where: { id },
+      data: { capacityUsed },
+    });
+    return this.get(id);
+  }
+
+  async reopen(id: string) {
+    const list = await this.get(id);
+    if (list.status !== PackingListStatus.APPROVED) {
+      throw new BadRequestException("Only APPROVED packing lists can be reopened");
+    }
+    const reopened = await this.prisma.packingList.update({
+      where: { id },
+      data: {
+        status: PackingListStatus.DRAFT,
+        approvedAt: null,
+        approvedById: null,
+      },
+      include: {
+        lines: {
+          include: { kitProduct: { select: { id: true, sku: true, name: true, kind: true } } },
+          orderBy: [{ priority: "asc" }, { qtyApproved: "desc" }],
+        },
+      },
+    });
+    return { ...reopened, lines: await this.enrichLines(reopened.lines) };
+  }
+
   private async buildPartPackLines(input: {
     settings: Awaited<ReturnType<PlanningSettingsService["getSettings"]>>;
     forecastCycle: Map<string, number>;

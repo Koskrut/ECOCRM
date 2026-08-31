@@ -26,18 +26,16 @@ import {
 import { productsApi, type ProductCatalogItem } from "@/lib/api/resources/products";
 import { formatDate, formatDateTime } from "@/lib/crmDatetime";
 import {
-  FactoryPanel,
   ForecastPanel,
-  PackingPanel,
   PlanningFreshnessBanners,
   MrpConfigPanel,
   PlanningHowToPanel,
   PlanningSettingsPanel,
 } from "./PlanningOpsPanels";
-import { TodayScreen } from "./PlanningScreens";
-import { KitPortfolioPanel } from "./KitPortfolioPanel";
+import { OverviewPanel } from "./OverviewPanel";
+import { RequestsPanel } from "./RequestsPanel";
 
-type PlanningScreen = "today" | "kits" | "pack" | "make" | "data";
+type PlanningScreen = "overview" | "requests" | "data";
 type BomEditorLine = {
   id: string;
   componentProductId: string;
@@ -48,14 +46,18 @@ type BomEditorLine = {
 
 /** Legacy ?tab= keys → new IA (soft redirect). */
 const LEGACY_TAB_MAP: Record<string, PlanningScreen> = {
-  dashboard: "today",
-  mrp: "today",
-  mrpCritical: "today",
-  mrpPack: "pack",
-  packing: "pack",
-  mrpProduction: "make",
-  mrpSemi: "make",
-  factory: "make",
+  today: "overview",
+  kits: "overview",
+  dashboard: "overview",
+  mrp: "overview",
+  mrpCritical: "overview",
+  pack: "requests",
+  make: "requests",
+  mrpPack: "requests",
+  mrpProduction: "requests",
+  mrpSemi: "requests",
+  factory: "requests",
+  packing: "requests",
   inventory: "data",
   snapshots: "data",
   bom: "data",
@@ -65,13 +67,13 @@ const LEGACY_TAB_MAP: Record<string, PlanningScreen> = {
   queues: "data",
 };
 
-const PLANNING_SCREENS: PlanningScreen[] = ["today", "kits", "pack", "make", "data"];
+const PLANNING_SCREENS: PlanningScreen[] = ["overview", "requests", "data"];
 
 function resolveScreen(tab: string | null): PlanningScreen {
-  if (!tab) return "today";
+  if (!tab) return "overview";
   if (tab in LEGACY_TAB_MAP) return LEGACY_TAB_MAP[tab]!;
   if (PLANNING_SCREENS.includes(tab as PlanningScreen)) return tab as PlanningScreen;
-  return "today";
+  return "overview";
 }
 
 function createEmptyBomLine(id: string, sortOrder = 0): BomEditorLine {
@@ -119,16 +121,28 @@ function PlanningPageInner() {
     (screen: PlanningScreen) => {
       const params = new URLSearchParams(searchParams.toString());
       params.set("tab", screen);
-      if (screen !== "pack" && screen !== "make") params.delete("sku");
+      if (screen !== "requests") {
+        params.delete("sku");
+        params.delete("kind");
+      }
       router.replace(`/planning?${params.toString()}`, { scroll: false });
     },
     [router, searchParams],
   );
 
   useEffect(() => {
-    if (tabParam && tabParam in LEGACY_TAB_MAP && LEGACY_TAB_MAP[tabParam] !== tabParam) {
+    if (!tabParam) return;
+    const legacyTarget = LEGACY_TAB_MAP[tabParam];
+    if (legacyTarget && legacyTarget !== tabParam) {
       const params = new URLSearchParams(searchParams.toString());
-      params.set("tab", LEGACY_TAB_MAP[tabParam]!);
+      params.set("tab", legacyTarget);
+      if (legacyTarget === "requests") {
+        const kind =
+          tabParam === "make" || tabParam === "factory" || tabParam === "mrpProduction" || tabParam === "mrpSemi"
+            ? "factory"
+            : "pack";
+        params.set("kind", kind);
+      }
       router.replace(`/planning?${params.toString()}`, { scroll: false });
     }
   }, [tabParam, router, searchParams]);
@@ -625,20 +639,12 @@ function PlanningPageInner() {
           >
             {t.actions.refresh}
           </button>
-          <button
-            type="button"
-            onClick={() => void handleRunWeekly()}
-            disabled={runningWeekly || !canManagePlanning}
-            className="rounded-lg bg-cyan-600 px-4 py-2 text-sm font-medium text-white hover:bg-cyan-700 disabled:opacity-50"
-          >
-            {runningWeekly ? strings.common.loading : t.actions.runWeeklyPlan}
-          </button>
         </div>
       </div>
 
       <PlanningHowToPanel open={howToOpen} />
 
-      {activeScreen !== "today" ? (
+      {activeScreen !== "overview" ? (
         <PlanningFreshnessBanners
           snapshot={freshness}
           sales={salesFreshness}
@@ -700,18 +706,44 @@ function PlanningPageInner() {
       )}
 
       <>
-        {activeScreen === "today" && (
-          <TodayScreen onError={handleOpsError} onNavigate={setScreen} />
-        )}
+        {activeScreen === "overview" && <OverviewPanel onError={handleOpsError} />}
 
-        {activeScreen === "kits" && <KitPortfolioPanel onError={handleOpsError} />}
-
-        {activeScreen === "pack" && <PackingPanel onError={handleOpsError} />}
-
-        {activeScreen === "make" && <FactoryPanel onError={handleOpsError} />}
+        {activeScreen === "requests" && <RequestsPanel onError={handleOpsError} />}
 
         {activeScreen === "data" && (
           <div className="space-y-3">
+            <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
+              <h2 className="text-sm font-semibold text-zinc-900">{t.dataSections.jobs}</h2>
+              <p className="mt-1 text-sm text-zinc-600">{t.messages.dataJobsHint}</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => void handleRunWeekly()}
+                  disabled={runningWeekly || !canManagePlanning}
+                  className="rounded-lg bg-cyan-600 px-4 py-2 text-sm font-medium text-white hover:bg-cyan-700 disabled:opacity-50"
+                >
+                  {runningWeekly ? strings.common.loading : t.actions.runWeeklyPlan}
+                </button>
+                <button
+                  type="button"
+                  disabled={!canManagePlanning}
+                  className="rounded-lg border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+                  onClick={() => {
+                    void (async () => {
+                      try {
+                        await planningApi.runMrp("FULL");
+                        setInfo(t.messages.mrpRecalculated);
+                        await handleRefresh();
+                      } catch (e: unknown) {
+                        setError(e instanceof Error ? e.message : t.errors.runMrp);
+                      }
+                    })();
+                  }}
+                >
+                  {t.actions.recalculateMrp}
+                </button>
+              </div>
+            </div>
             {(
               [
                 ["snapshots", t.dataSections.snapshots],

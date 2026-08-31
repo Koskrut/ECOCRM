@@ -172,7 +172,7 @@ function ReviewActionsPanel({
     setBusy(true);
     setError(null);
     try {
-      await fetch("/api/tasks", {
+      const res = await fetch("/api/tasks", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -184,7 +184,13 @@ function ReviewActionsPanel({
           companyId: attempt.companyId ?? null,
         }),
       });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => null)) as { message?: string } | null;
+        throw new Error(data?.message || `HTTP ${res.status}`);
+      }
       setMode("idle");
+      setTaskTitle("");
+      setTaskDueAt("");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Не вдалося створити задачу");
     } finally {

@@ -1,13 +1,13 @@
 {
   "name": "web",
-  "version": "0.2.167",
+  "version": "0.2.168",
   "private": true,
   "scripts": {
     "dev": "next dev -H 0.0.0.0 -p 3000",
     "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint",
-    "test": "npx tsx --test src/lib/visits/__tests__/planned-map-geometry.spec.ts src/lib/visits/__tests__/incomplete-tour-copy.spec.ts src/lib/visits/__tests__/route-map-style.spec.ts src/lib/__tests__/planning-kit-parts.spec.ts src/lib/__tests__/order-line-total.spec.ts"
+    "test": "npx tsx --test src/lib/visits/__tests__/planned-map-geometry.spec.ts src/lib/visits/__tests__/incomplete-tour-copy.spec.ts src/lib/visits/__tests__/route-map-style.spec.ts src/lib/__tests__/planning-kit-parts.spec.ts src/lib/__tests__/order-line-total.spec.ts src/lib/__tests__/crmDatetime-task-due.spec.ts src/app/receivables/__tests__/receivables-url.spec.ts src/app/receivables/__tests__/debt-promise.spec.ts src/app/tasks/__tests__/tasks-url.spec.ts src/app/leads/__tests__/leads-url.spec.ts"
   },
   "dependencies": {
     "@crm/contracts": "file:../../packages/contracts",

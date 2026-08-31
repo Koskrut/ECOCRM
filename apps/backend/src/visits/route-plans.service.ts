@@ -1610,6 +1610,30 @@ export class RoutePlansService {
     return open != null;
   }
 
+  /** Latest shift of the day — mobility for fuel eligibility. */
+  private async loadShiftMobility(
+    ownerId: string,
+    date: Date,
+  ): Promise<{
+    shiftId: string | null;
+    mobilityMode: "CAR" | "WALK_TRANSIT";
+    mobilityNote: string | null;
+  }> {
+    const shift = await this.prisma.fieldShift.findFirst({
+      where: { ownerId, date },
+      orderBy: { startedAt: "desc" },
+      select: { id: true, mobilityMode: true, mobilityNote: true },
+    });
+    if (!shift) {
+      return { shiftId: null, mobilityMode: "CAR", mobilityNote: null };
+    }
+    return {
+      shiftId: shift.id,
+      mobilityMode: shift.mobilityMode === "WALK_TRANSIT" ? "WALK_TRANSIT" : "CAR",
+      mobilityNote: shift.mobilityNote ?? null,
+    };
+  }
+
   /** Latest shift of the day — fact visit line origin/destination. */
   private async loadShiftDayAnchors(ownerId: string, date: Date): Promise<ShiftDayAnchors> {
     const shift = await this.prisma.fieldShift.findFirst({
@@ -1969,7 +1993,7 @@ export class RoutePlansService {
     const ownerId = await this.resolveOwner(actor, opts?.ownerId);
     const date = this.parseDate(dateStr);
 
-    const [planned, factVisits, factGps, factVisitsGps, shiftActive, anchors, planIncludesScheduled, gpsMeta, doneForContradiction] =
+    const [planned, factVisits, factGps, factVisitsGps, shiftActive, anchors, planIncludesScheduled, gpsMeta, doneForContradiction, shiftMobility] =
       await Promise.all([
         this.getRouteGeometry(dateStr, "planned", actor, opts),
         this.getRouteGeometry(dateStr, "fact_visits", actor, opts),
@@ -1980,6 +2004,7 @@ export class RoutePlansService {
         this.loadPlanIncludesScheduled(ownerId, date),
         this.loadGpsTrack(ownerId, date),
         this.loadFactVisitsForContradiction(ownerId, date),
+        this.loadShiftMobility(ownerId, date),
       ]);
 
     const snapFailureReason = factGps.quality.snapFailureReason ?? null;
@@ -2013,6 +2038,7 @@ export class RoutePlansService {
       snapFailureReason,
       plannedKmWarning: plannedAssessment.warning,
       visitTrackContradiction,
+      mobilityMode: shiftMobility.mobilityMode,
     });
 
     const plannedOrderAssessment = assessPlannedOrderEfficiency({
@@ -2057,6 +2083,9 @@ export class RoutePlansService {
       lastSampleNearHome,
       plannedKmWarning: plannedAssessment.warning,
       plannedOrderInefficient: plannedOrderAssessment.inefficient,
+      mobilityMode: shiftMobility.mobilityMode,
+      mobilityNote: shiftMobility.mobilityNote,
+      shiftId: shiftMobility.shiftId,
     };
   }
 

@@ -69,3 +69,29 @@ export function kyivTodayIsoBoundsUtcIsoStrings(now = DateTime.now()): { from: s
   const day = now.setZone(CRM_TIME_ZONE);
   return { from: day.startOf("day").toJSDate().toISOString(), to: day.endOf("day").toJSDate().toISOString() };
 }
+
+/** `datetime-local` value (yyyy-MM-ddTHH:mm) in Kyiv for an ISO instant. */
+export function isoToDatetimeLocalKyiv(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const dt = DateTime.fromISO(iso, { setZone: true }).setZone(CRM_TIME_ZONE);
+  if (!dt.isValid) return "";
+  return dt.toFormat("yyyy-MM-dd'T'HH:mm");
+}
+
+/** Parse `datetime-local` as Kyiv wall time → UTC ISO string. */
+export function datetimeLocalKyivToIso(local: string | null | undefined): string | null {
+  if (!local?.trim()) return null;
+  const dt = DateTime.fromFormat(local.trim(), "yyyy-MM-dd'T'HH:mm", { zone: CRM_TIME_ZONE });
+  if (!dt.isValid) return null;
+  return dt.toUTC().toISO();
+}
+
+export type TaskDuePreset = "today" | "tomorrow" | "plus7";
+
+/** End-of-day (18:00 Kyiv) preset for quick reschedule. */
+export function kyivDuePresetIso(preset: TaskDuePreset, now = DateTime.now()): string {
+  let day = now.setZone(CRM_TIME_ZONE);
+  if (preset === "tomorrow") day = day.plus({ days: 1 });
+  if (preset === "plus7") day = day.plus({ days: 7 });
+  return day.set({ hour: 18, minute: 0, second: 0, millisecond: 0 }).toUTC().toISO()!;
+}

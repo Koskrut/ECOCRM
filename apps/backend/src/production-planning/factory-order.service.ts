@@ -464,6 +464,19 @@ export class FactoryOrderService {
     return this.get(id);
   }
 
+  async deleteOrder(id: string) {
+    const order = await this.getRaw(id);
+    if (order.status !== FactoryOrderStatus.DRAFT) {
+      throw new BadRequestException("Only DRAFT factory orders can be deleted");
+    }
+    const hasReceipts = order.lines.some((l) => l.qtyReceived > 0);
+    if (hasReceipts) {
+      throw new BadRequestException("Cannot delete a factory order with receipts");
+    }
+    await this.prisma.factoryOrder.delete({ where: { id } });
+    return { deleted: true, id };
+  }
+
   async updateLine(
     id: string,
     lineId: string,

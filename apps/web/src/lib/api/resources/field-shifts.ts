@@ -15,6 +15,8 @@ export type FieldShiftSummary = {
   destinationKind?: "HOME" | "CURRENT" | null;
   destinationLat?: number | null;
   destinationLng?: number | null;
+  mobilityMode?: "CAR" | "WALK_TRANSIT" | null;
+  mobilityNote?: string | null;
 };
 
 export type FieldShiftLastSample = {
@@ -137,6 +139,17 @@ export const fieldShiftsApi = {
   ): Promise<FieldTrackGeometry> => {
     const res = await apiHttp.get<FieldTrackGeometry>(
       `/field/shifts/${shiftId}/track-geometry`,
+    );
+    return res.data;
+  },
+
+  patchMobility: async (
+    shiftId: string,
+    body: { mobilityMode: "CAR" | "WALK_TRANSIT"; mobilityNote?: string | null },
+  ): Promise<{ shift: FieldShiftSummary }> => {
+    const res = await apiHttp.patch<{ shift: FieldShiftSummary }>(
+      `/field/shifts/${shiftId}/mobility`,
+      body,
     );
     return res.data;
   },

@@ -63,7 +63,7 @@ import {
   canRunShiftOperation,
   shouldReuseActiveShift,
 } from "@/lib/shift-ops-gate";
-import { promptShiftDestination, promptShiftOrigin } from "@/lib/shift-anchor-prompt";
+import { promptShiftDestination, promptShiftMobility, promptShiftOrigin } from "@/lib/shift-anchor-prompt";
 import { markTrackingWarmup } from "@/lib/tracking-warmup";
 import {
   shouldSuppressNativeAcceptStaleAlert,
@@ -663,6 +663,9 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
       const origin = await promptShiftOrigin(user);
       if (!origin) return;
 
+      const mobility = await promptShiftMobility();
+      if (!mobility) return;
+
       const res = await apiFetch<{ shift: FieldShift }>("/field/shifts/start", {
         method: "POST",
         token,
@@ -672,6 +675,7 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
           originKind: origin.kind,
           originLat: origin.lat,
           originLng: origin.lng,
+          mobilityMode: mobility.mode,
         }),
       });
       setActiveShift(res.shift);
@@ -805,6 +809,8 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
       if (prev && !destination) return;
       const origin = await promptShiftOrigin(user);
       if (!origin) return;
+      const mobility = await promptShiftMobility();
+      if (!mobility) return;
 
       await stopLocationTracking();
       await purgePendingSamples();
@@ -847,6 +853,7 @@ export function ShiftTrackingProvider({ children }: { children: React.ReactNode 
           originKind: origin.kind,
           originLat: origin.lat,
           originLng: origin.lng,
+          mobilityMode: mobility.mode,
         }),
       });
       setActiveShift(res.shift);

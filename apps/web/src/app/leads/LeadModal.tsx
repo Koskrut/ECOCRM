@@ -3,8 +3,8 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { EntityModalShell } from "@/components/modals/EntityModalShell";
-import { scheduleModalClose } from "@/lib/modal/scheduleModalClose";
 import { LeadStepper, leadStatusToUiStage, type LeadStepperStepDef } from "./LeadStepper";
+import { LeadOutcomeDialog, type LeadConvertPreset } from "./LeadOutcomeDialog";
 import { HelpRelated } from "@/components/help/HelpRelated";
 import { FeedTabsScaffold } from "@/components/modals/FeedTabsScaffold";
 import { EntityTasksList } from "@/components/EntityTasksList";
@@ -23,6 +23,8 @@ import { EntityChangeHistoryPanel } from "@/components/EntityChangeHistoryPanel"
 import { UKRAINE_REGIONS } from "@/lib/ukraineRegions";
 import { formatDateTime } from "@/lib/crmDatetime";
 import { strings } from "@/locales";
+import { useConfirm } from "@/components/feedback";
+import { leadScoreTone } from "./lead-score";
 import {
   addressHasHouseNumber,
   autocompleteAddress,
@@ -39,15 +41,6 @@ type Props = {
   onUpdated: () => void;
   /** Role from parent (e.g. from /auth/me on page). When set, used for admin actions and internal fetch is skipped. */
   userRole?: string | null;
-};
-
-type ActivityItem = {
-  id: string;
-  type: string;
-  title: string | null;
-  body: string;
-  occurredAt: string | null;
-  createdAt: string;
 };
 
 type ContactSuggestion = {
@@ -125,18 +118,20 @@ const LEAD_FIELD_CLASS =
   "w-full rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-sm text-zinc-900 placeholder:text-zinc-400 shadow-sm transition-colors focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:cursor-not-allowed disabled:bg-zinc-50 disabled:opacity-60";
 
 const LEAD_SOURCE_OPTIONS: Option[] = [
-  { id: "META", label: "Meta Lead Ads" },
-  { id: "FACEBOOK", label: "Facebook" },
-  { id: "TELEGRAM", label: "Telegram" },
-  { id: "INSTAGRAM", label: "Instagram" },
-  { id: "WEBSITE", label: "Website" },
-  { id: "RINGOSTAT", label: "Ringostat" },
-  { id: "OTHER", label: "Other" },
+  { id: "META", label: strings.leads.sources.META },
+  { id: "FACEBOOK", label: strings.leads.sources.FACEBOOK },
+  { id: "TELEGRAM", label: strings.leads.sources.TELEGRAM },
+  { id: "INSTAGRAM", label: strings.leads.sources.INSTAGRAM },
+  { id: "WEBSITE", label: strings.leads.sources.WEBSITE },
+  { id: "RINGOSTAT", label: strings.leads.sources.RINGOSTAT },
+  { id: "KYIVSTAR", label: strings.leads.sources.KYIVSTAR },
+  { id: "OTHER", label: strings.leads.sources.OTHER },
 ];
 
 type GoogleMapsPublicConfig = { mapsApiKey: string | null };
 
 export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: userRoleProp }: Props) {
+  const { confirm } = useConfirm();
   const [lead, setLead] = useState<Lead | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -144,8 +139,9 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
   const [showConvertWizard, setShowConvertWizard] = useState(false);
   const [showCompleteOutcomeDialog, setShowCompleteOutcomeDialog] = useState(false);
   /** Preset when opening from outcome dialog: company+contact+deal | contact+deal | contact only */
-  const [convertPreset, setConvertPreset] = useState<"company_contact_deal" | "contact_deal" | "contact" | null>(null);
-  const [leadTab, setLeadTab] = useState<"main" | "products" | "activity" | "source" | "change-history">("main");
+  const [convertPreset, setConvertPreset] = useState<LeadConvertPreset | null>(null);
+  const [leadTab, setLeadTab] = useState<"main" | "products" | "source" | "change-history">("main");
+  const [timelineRefreshKey, setTimelineRefreshKey] = useState(0);
 
   const [noteMessage, setNoteMessage] = useState("");
   const [addingNote, setAddingNote] = useState(false);
@@ -180,10 +176,6 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
   const leadAddressAbortRef = useRef<AbortController | null>(null);
   const leadAddressAnchorRef = useRef<HTMLDivElement>(null);
   const lastGeocodedLeadAddressRef = useRef<string>("");
-
-  const [timeline, setTimeline] = useState<ActivityItem[]>([]);
-  const [timelineLoading, setTimelineLoading] = useState(false);
-  const [timelineError, setTimelineError] = useState<string | null>(null);
 
   // Convert
   const [suggestions, setSuggestions] = useState<ContactSuggestion[]>([]);
@@ -458,25 +450,6 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
     setEditItems((prev) => prev.filter((_, i) => i !== index));
   };
 
-  const loadTimeline = useCallback(async () => {
-    if (!lead) return;
-    setTimelineLoading(true);
-    setTimelineError(null);
-    try {
-      const r = await apiHttp.get<{ items: ActivityItem[] }>(
-        `/orders/${lead.contactId ?? ""}/activities`,
-      );
-      setTimeline(Array.isArray(r.data?.items) ? r.data.items : []);
-    } catch (e) {
-      setTimeline([]);
-      setTimelineError(
-        e instanceof Error ? e.message : "Не вдалося завантажити активність ліда",
-      );
-    } finally {
-      setTimelineLoading(false);
-    }
-  }, [lead]);
-
   const loadSuggestions = useCallback(async (companyId?: string | null) => {
     setSuggestionsLoading(true);
     setSuggestions([]);
@@ -613,41 +586,6 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
   useEffect(() => {
     void loadLead();
   }, [loadLead]);
-
-  useEffect(() => {
-    if (lead) void loadTimeline();
-  }, [lead, loadTimeline]);
-
-  const saveGeneral = async () => {
-    // Kept for backward compatibility if needed elsewhere, but mostly replaced by patchLead
-    if (!lead) return;
-    setSaving(true);
-    setErr(null);
-    try {
-      await apiHttp.patch<Lead>(`/leads/${lead.id}`, {
-        firstName: editFirstName.trim() || null,
-        lastName: editLastName.trim() || null,
-        middleName: editMiddleName.trim() || null,
-        phone:
-          normalizePhone(editPhone) ??
-          (editPhone.replace(/\D/g, "").length === 0 ? null : editPhone.trim() || null),
-        email: editEmail.trim() || null,
-        companyName: editCompanyName.trim() || null,
-        message: editMessage.trim() || null,
-        source: editSource,
-        sourceMeta: lead.sourceMeta ?? null,
-      });
-      await loadLead();
-      onUpdated();
-    } catch (e) {
-      const msg =
-        (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-        (e instanceof Error ? e.message : "Не вдалося зберегти");
-      setErr(msg);
-    } finally {
-      setSaving(false);
-    }
-  };
 
   const patchLead = useCallback(
     async (payload: Record<string, any>) => {
@@ -923,8 +861,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
       }
       await loadLead();
       onUpdated();
-      // Keep the wizard open on success without an order so the confirmation is visible.
-      if (dealId) setShowConvertWizard(false);
+      // Keep wizard open so success CTA (order / contact link) stays visible.
     } catch (e) {
       const msg =
         (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
@@ -983,7 +920,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
     setShowCompleteOutcomeDialog(true);
   };
 
-  const openConvertWizard = (preset?: "company_contact_deal" | "contact_deal" | "contact") => {
+  const openConvertWizard = (preset?: LeadConvertPreset) => {
     setShowCompleteOutcomeDialog(false);
     // Reorder: WON lead already linked to a contact — only create an extra order.
     const isReorder = lead?.status === "WON" && Boolean(lead?.contactId);
@@ -1007,24 +944,25 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
       setSelectedContactId(lead?.contactId ?? null);
     } else if (preset === "company_contact_deal") {
       setCompanyMode("link");
-      setCreateContact(false);
+      setCreateContact(true);
       setCreateDeal(true);
       setNewCompanyName(lead?.companyName ?? "");
       setSelectedContactId(null);
     } else if (preset === "contact_deal") {
       setCompanyMode("link");
-      setCreateContact(false);
+      setCreateContact(true);
       setCreateDeal(true);
       setNewCompanyName("");
       setSelectedContactId(null);
     } else if (preset === "contact") {
       setCompanyMode("link");
-      setCreateContact(false);
+      setCreateContact(true);
       setCreateDeal(false);
       setNewCompanyName("");
       setSelectedContactId(null);
     } else {
       setCompanyMode("link");
+      setCreateContact(true);
       setNewCompanyName("");
       setSelectedContactId(null);
     }
@@ -1057,6 +995,49 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
     }
   };
 
+  const markAsLost = async (reason: string) => {
+    if (!lead) return;
+    setShowCompleteOutcomeDialog(false);
+    setStatusUpdating(true);
+    setErr(null);
+    try {
+      await apiHttp.patch<Lead>(`/leads/${lead.id}/status`, {
+        status: "LOST",
+        reason,
+      });
+      await loadLead();
+      onUpdated();
+    } catch (e) {
+      const msg =
+        (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
+        (e instanceof Error ? e.message : "Не вдалося оновити статус");
+      setErr(msg);
+    } finally {
+      setStatusUpdating(false);
+    }
+  };
+
+  const markAsSpam = async () => {
+    if (!lead) return;
+    setShowCompleteOutcomeDialog(false);
+    setStatusUpdating(true);
+    setErr(null);
+    try {
+      await apiHttp.patch<Lead>(`/leads/${lead.id}/status`, {
+        status: "SPAM",
+      });
+      await loadLead();
+      onUpdated();
+    } catch (e) {
+      const msg =
+        (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
+        (e instanceof Error ? e.message : "Не вдалося оновити статус");
+      setErr(msg);
+    } finally {
+      setStatusUpdating(false);
+    }
+  };
+
   const addNote = async () => {
     if (!lead || !noteMessage.trim()) return;
     setAddingNote(true);
@@ -1064,6 +1045,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
     try {
       await leadsApi.addNote(lead.id, { message: noteMessage.trim() });
       setNoteMessage("");
+      setTimelineRefreshKey((k) => k + 1);
       await loadLead();
       onUpdated();
     } catch (e) {
@@ -1212,15 +1194,6 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
   ) : leadTab === "change-history" ? (
     <EntitySection title="Історія змін">
       <EntityChangeHistoryPanel entityType="Lead" entityId={lead.id} />
-    </EntitySection>
-  ) : leadTab === "activity" ? (
-    <EntitySection title="Активність">
-      <div className="space-y-3">
-        <EntityCallRecordingsPanel leadId={lead.id} contactId={lead.contactId} />
-        <div className="h-[420px]">
-          <ContactTimeline apiBaseUrl={apiBaseUrl} contactId={lead.id} entityType="lead" showActivityButtons={true} />
-        </div>
-      </div>
     </EntitySection>
   ) : leadTab === "products" ? (
     <EntitySection title="Товари">
@@ -1648,15 +1621,12 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
           </div>
           {lead.score != null ? (
             <div className="flex flex-wrap items-center gap-2 sm:col-span-2">
-              <span className="text-xs text-zinc-500">Оцінка:</span>
+              <span className="text-xs text-zinc-500" title={strings.leads.scoreTooltip}>
+                Оцінка:
+              </span>
               <span
-                className={`inline-flex min-w-[2rem] items-center justify-center rounded-full border px-2 py-0.5 text-xs font-semibold tabular-nums ${
-                  lead.score >= 70
-                    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                    : lead.score >= 40
-                      ? "border-amber-200 bg-amber-50 text-amber-700"
-                      : "border-zinc-200 bg-zinc-100 text-zinc-600"
-                }`}
+                title={strings.leads.scoreTooltip}
+                className={`inline-flex min-w-[2rem] items-center justify-center rounded-full border px-2 py-0.5 text-xs font-semibold tabular-nums ${leadScoreTone(lead.score)}`}
               >
                 {lead.score}
               </span>
@@ -1757,6 +1727,8 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
                           setCompanyMode("create");
                           setSelectedCompanyId(null);
                           setCompanyOptions([]);
+                          setSelectedContactId(null);
+                          setCreateContact(true);
                         }}
                       />
                       Створити нову
@@ -1868,7 +1840,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
                       value={selectedContactId}
                       options={contactSearchOptions}
                       placeholder="Пошук за імʼям, телефоном, email…"
-                      disabled={converting || (createContact && convertPreset !== "company_contact_deal")}
+                      disabled={converting || createContact}
                       isLoading={loadingContactSearch}
                       onSearchQueryChange={onContactSearchQueryChange}
                       onChange={(id) => {
@@ -1883,25 +1855,23 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
                   </div>
                 </div>
 
-                {convertPreset !== "company_contact_deal" && (
-                  <div className="mt-3 flex items-center gap-2">
-                    <input
-                      id="createContact"
-                      type="checkbox"
-                      checked={createContact}
-                      onChange={(e) => {
-                        setCreateContact(e.target.checked);
-                        if (e.target.checked) {
-                          setSelectedContactId(null);
-                          setContactSearchHits([]);
-                        }
-                      }}
-                    />
-                    <label htmlFor="createContact" className="text-xs text-zinc-700">
-                      Створити новий контакт замість привʼязки
-                    </label>
-                  </div>
-                )}
+                <div className="mt-3 flex items-center gap-2">
+                  <input
+                    id="createContact"
+                    type="checkbox"
+                    checked={createContact}
+                    onChange={(e) => {
+                      setCreateContact(e.target.checked);
+                      if (e.target.checked) {
+                        setSelectedContactId(null);
+                        setContactSearchHits([]);
+                      }
+                    }}
+                  />
+                  <label htmlFor="createContact" className="text-xs text-zinc-700">
+                    Створити новий контакт замість привʼязки
+                  </label>
+                </div>
 
                 {createContact && !selectedContactId && (
                   <div className="mt-3 grid gap-2 md:grid-cols-2">
@@ -2105,7 +2075,13 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
         <div className="space-y-3">
           <EntityCallRecordingsPanel leadId={lead.id} contactId={lead.contactId} />
           <div className="h-[420px]">
-            <ContactTimeline apiBaseUrl={apiBaseUrl} contactId={lead.id} entityType="lead" showActivityButtons={true} />
+            <ContactTimeline
+              key={timelineRefreshKey}
+              apiBaseUrl={apiBaseUrl}
+              contactId={lead.id}
+              entityType="lead"
+              showActivityButtons={true}
+            />
           </div>
         </div>
       }
@@ -2149,13 +2125,6 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
             className={`inline-flex items-center rounded px-2 py-1 text-sm font-medium ${leadTab === "products" ? "bg-accent-gradient text-white" : "text-zinc-600 hover:bg-zinc-100"}`}
           >
             Товари
-          </button>
-          <button
-            type="button"
-            onClick={() => setLeadTab("activity")}
-            className={`inline-flex items-center rounded px-2 py-1 text-sm font-medium ${leadTab === "activity" ? "bg-accent-gradient text-white" : "text-zinc-600 hover:bg-zinc-100"}`}
-          >
-            Активність
           </button>
           <button
             type="button"
@@ -2247,7 +2216,14 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
                       disabled={deleting}
                       onClick={async () => {
                         setLeadHeaderMenuOpen(false);
-                        if (!lead || !confirm("Видалити лід? Цю дію неможливо скасувати.")) return;
+                        if (!lead) return;
+                        const ok = await confirm({
+                          title: "Видалити лід?",
+                          message: "Цю дію неможливо скасувати.",
+                          confirmText: "Видалити",
+                          destructive: true,
+                        });
+                        if (!ok) return;
                         setDeleting(true);
                         setErr(null);
                         try {
@@ -2284,70 +2260,14 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
   return (
     <>
       {showCompleteOutcomeDialog && (
-        <div
-          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 px-4"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="complete-outcome-title"
-          onMouseDown={(e) => e.stopPropagation()}
-          onClick={(e) => {
-            e.stopPropagation();
-            scheduleModalClose(() => setShowCompleteOutcomeDialog(false));
-          }}
-        >
-          <div
-            className="w-full max-w-md rounded-xl bg-white p-5 shadow-xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h2 id="complete-outcome-title" className="text-base font-semibold text-zinc-900">
-              Оберіть результат завершення ліда
-            </h2>
-            <div className="mt-4 space-y-3">
-              <button
-                type="button"
-                onClick={() => openConvertWizard("company_contact_deal")}
-                className="flex w-full items-center justify-between rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-left text-sm font-medium text-emerald-800 hover:bg-emerald-100"
-              >
-                <span>Компанія + контакт + замовлення</span>
-                <span className="text-emerald-600">→</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => openConvertWizard("contact_deal")}
-                className="flex w-full items-center justify-between rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-left text-sm font-medium text-emerald-800 hover:bg-emerald-100"
-              >
-                <span>Контакт + замовлення</span>
-                <span className="text-emerald-600">→</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => openConvertWizard("contact")}
-                className="flex w-full items-center justify-between rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-left text-sm font-medium text-emerald-800 hover:bg-emerald-100"
-              >
-                <span>Лише контакт</span>
-                <span className="text-emerald-600">→</span>
-              </button>
-              <button
-                type="button"
-                onClick={markAsPoorQuality}
-                disabled={statusUpdating}
-                className="flex w-full items-center justify-between rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-left text-sm font-medium text-red-800 hover:bg-red-100 disabled:opacity-60"
-              >
-                <span>Нецільовий лід</span>
-                <span className="text-red-600">→</span>
-              </button>
-            </div>
-            <div className="mt-4 flex justify-end">
-              <button
-                type="button"
-                onClick={() => setShowCompleteOutcomeDialog(false)}
-                className="rounded-md border border-zinc-200 px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-50"
-              >
-                Скасувати
-              </button>
-            </div>
-          </div>
-        </div>
+        <LeadOutcomeDialog
+          statusUpdating={statusUpdating}
+          onConvert={(preset) => openConvertWizard(preset)}
+          onMarkNotTarget={() => void markAsPoorQuality()}
+          onMarkLost={(reason) => void markAsLost(reason)}
+          onMarkSpam={() => void markAsSpam()}
+          onClose={() => setShowCompleteOutcomeDialog(false)}
+        />
       )}
 
       <EntityModalShell

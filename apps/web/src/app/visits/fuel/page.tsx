@@ -11,6 +11,7 @@ import {
   type FuelVisitBreakdownRow,
   type UserFieldProfile,
 } from "@/lib/api/resources/field-fuel";
+import { fieldShiftsApi } from "@/lib/api/resources/field-shifts";
 import { CRM_TIME_ZONE, todayYmdInKyiv } from "@/lib/crmDatetime";
 import { fuelStatusLabel } from "@/lib/status-labels";
 import { strings } from "@/locales";
@@ -169,6 +170,9 @@ function DayDetailPanel({
   const [reviewing, setReviewing] = useState(false);
   const [note, setNote] = useState("");
   const [refuelModalOpen, setRefuelModalOpen] = useState(false);
+  const [mobilityMode, setMobilityMode] = useState<"CAR" | "WALK_TRANSIT">("CAR");
+  const [mobilityNote, setMobilityNote] = useState("");
+  const [savingMobility, setSavingMobility] = useState(false);
   const canReview = reviewerRole === "ADMIN" || reviewerRole === "LEAD";
 
   const load = useCallback(async () => {
@@ -178,6 +182,8 @@ function DayDetailPanel({
       const r = await fieldFuelApi.getDay(date, ownerId);
       setData(r);
       setNote(r.report.managerNote ?? "");
+      setMobilityMode(r.mobilityMode === "WALK_TRANSIT" ? "WALK_TRANSIT" : "CAR");
+      setMobilityNote(r.mobilityNote ?? "");
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Помилка");
     } finally {
@@ -194,11 +200,38 @@ function DayDetailPanel({
     try {
       const r = await fieldFuelApi.recalculate(date, ownerId);
       setData(r);
+      setMobilityMode(r.mobilityMode === "WALK_TRANSIT" ? "WALK_TRANSIT" : "CAR");
+      setMobilityNote(r.mobilityNote ?? "");
       onRefreshMonth();
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Помилка");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const saveMobility = async () => {
+    if (!data?.shiftId) {
+      setErr(strings.visitsFuelPage.mobilityNoShift);
+      return;
+    }
+    if (data.report.compensationStatus === "PAID") {
+      setErr(strings.visitsFuelPage.mobilityPaidLocked);
+      return;
+    }
+    setSavingMobility(true);
+    setErr(null);
+    try {
+      await fieldShiftsApi.patchMobility(data.shiftId, {
+        mobilityMode,
+        mobilityNote: mobilityNote.trim() || null,
+      });
+      await load();
+      onRefreshMonth();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Помилка");
+    } finally {
+      setSavingMobility(false);
     }
   };
 
@@ -230,8 +263,14 @@ function DayDetailPanel({
   };
 
   const r = data?.report;
+  const isWalkTransit = (data?.mobilityMode ?? mobilityMode) === "WALK_TRANSIT";
   const canManageRefuels =
-    !ownerId && r?.compensationStatus != null && r.compensationStatus !== "PAID";
+    !ownerId &&
+    r?.compensationStatus != null &&
+    r.compensationStatus !== "PAID" &&
+    !isWalkTransit;
+  const canEditMobility =
+    canReview && ownerId && r?.compensationStatus !== "PAID";
   const warnings = (data?.warnings ?? [])
     .map(warningText)
     .filter((x): x is string => Boolean(x));
@@ -300,6 +339,60 @@ function DayDetailPanel({
 
       {data ? (
         <>
+          {isWalkTransit ? (
+            <p className="mb-3 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+              {strings.visitsFuelPage.mobilityBanner}
+              {data.mobilityNote?.trim() ? ` · ${data.mobilityNote.trim()}` : ""}
+            </p>
+          ) : null}
+
+          {canEditMobility ? (
+            <section className="mb-4 rounded-xl border border-zinc-200 bg-white p-4">
+              <h3 className="text-sm font-semibold text-zinc-900">
+                {strings.visitsFuelPage.mobilityTitle}
+              </h3>
+              {!data.shiftId ? (
+                <p className="mt-2 text-sm text-amber-800">
+                  {strings.visitsFuelPage.mobilityNoShift}
+                </p>
+              ) : (
+                <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
+                  <label className="flex flex-col gap-1 text-sm">
+                    <span className="text-xs font-medium text-zinc-500">Режим</span>
+                    <select
+                      value={mobilityMode}
+                      onChange={(e) =>
+                        setMobilityMode(e.target.value === "WALK_TRANSIT" ? "WALK_TRANSIT" : "CAR")
+                      }
+                      className="rounded-md border border-zinc-200 bg-white px-3 py-1.5">
+                      <option value="CAR">{strings.visitsFuelPage.mobilityCar}</option>
+                      <option value="WALK_TRANSIT">
+                        {strings.visitsFuelPage.mobilityWalkTransit}
+                      </option>
+                    </select>
+                  </label>
+                  <label className="flex min-w-[16rem] flex-1 flex-col gap-1 text-sm">
+                    <span className="text-xs font-medium text-zinc-500">Нотатка</span>
+                    <input
+                      type="text"
+                      value={mobilityNote}
+                      onChange={(e) => setMobilityNote(e.target.value)}
+                      placeholder={strings.visitsFuelPage.mobilityNotePlaceholder}
+                      className="rounded-md border border-zinc-200 px-3 py-1.5"
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => void saveMobility()}
+                    disabled={savingMobility || loading || !data.shiftId}
+                    className="rounded-md bg-zinc-800 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50">
+                    {strings.visitsFuelPage.mobilitySave}
+                  </button>
+                </div>
+              )}
+            </section>
+          ) : null}
+
           {data.routeAnchors?.usesSettingsAnchors ? (
             <p className="mb-3 rounded border border-emerald-100 bg-emerald-50/80 px-3 py-2 text-xs text-emerald-900">
               Маршрут:{" "}

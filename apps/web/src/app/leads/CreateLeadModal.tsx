@@ -5,10 +5,22 @@ import { apiHttp } from "@/lib/api/client";
 import { formatPhoneInputMask, normalizePhone } from "@/lib/formatPhone";
 import { scheduleModalClose } from "@/lib/modal/scheduleModalClose";
 import type { LeadSource, Lead } from "@/lib/api";
+import { strings } from "@/locales";
 
 type EditItem = { productId: string; productName?: string; qty: number; price: number };
 
 const API_BASE = "/api";
+const t = strings.leads;
+const SOURCE_OPTIONS: LeadSource[] = [
+  "META",
+  "FACEBOOK",
+  "TELEGRAM",
+  "INSTAGRAM",
+  "WEBSITE",
+  "RINGOSTAT",
+  "KYIVSTAR",
+  "OTHER",
+];
 
 type Props = {
   onClose: () => void;
@@ -16,7 +28,9 @@ type Props = {
 };
 
 export function CreateLeadModal({ onClose, onCreated }: Props) {
-  const [name, setName] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [middleName, setMiddleName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [companyName, setCompanyName] = useState("");
@@ -25,8 +39,15 @@ export function CreateLeadModal({ onClose, onCreated }: Props) {
 
   const [createItems, setCreateItems] = useState<EditItem[]>([]);
   const [productSearch, setProductSearch] = useState("");
-  const [productResults, setProductResults] = useState<Array<{ id: string; name: string; sku: string; basePrice: number }>>([]);
-  const [selectedProduct, setSelectedProduct] = useState<{ id: string; name: string; sku: string; basePrice: number } | null>(null);
+  const [productResults, setProductResults] = useState<
+    Array<{ id: string; name: string; sku: string; basePrice: number }>
+  >([]);
+  const [selectedProduct, setSelectedProduct] = useState<{
+    id: string;
+    name: string;
+    sku: string;
+    basePrice: number;
+  } | null>(null);
   const [newItemQty, setNewItemQty] = useState(1);
   const [newItemPrice, setNewItemPrice] = useState(0);
 
@@ -41,14 +62,16 @@ export function CreateLeadModal({ onClose, onCreated }: Props) {
       return;
     }
     let alive = true;
-    const t = setTimeout(async () => {
+    const timer = setTimeout(async () => {
       try {
         const r = await fetch(
           `${API_BASE}/products?search=${encodeURIComponent(productSearch)}&page=1&pageSize=10`,
           { cache: "no-store" },
         );
         if (!r.ok) throw new Error("Не вдалося виконати запит");
-        const data = (await r.json()) as { items?: Array<{ id: string; name: string; sku: string; basePrice: number }> };
+        const data = (await r.json()) as {
+          items?: Array<{ id: string; name: string; sku: string; basePrice: number }>;
+        };
         if (alive) setProductResults(data.items ?? []);
       } catch {
         if (alive) setProductResults([]);
@@ -56,7 +79,7 @@ export function CreateLeadModal({ onClose, onCreated }: Props) {
     }, 300);
     return () => {
       alive = false;
-      clearTimeout(t);
+      clearTimeout(timer);
     };
   }, [productSearch]);
 
@@ -64,7 +87,12 @@ export function CreateLeadModal({ onClose, onCreated }: Props) {
     if (!selectedProduct || newItemQty < 1 || newItemPrice < 0) return;
     setCreateItems((prev) => [
       ...prev,
-      { productId: selectedProduct.id, productName: selectedProduct.name, qty: newItemQty, price: newItemPrice },
+      {
+        productId: selectedProduct.id,
+        productName: selectedProduct.name,
+        qty: newItemQty,
+        price: newItemPrice,
+      },
     ]);
     setSelectedProduct(null);
     setProductSearch("");
@@ -89,22 +117,34 @@ export function CreateLeadModal({ onClose, onCreated }: Props) {
   const submit = async () => {
     setErr(null);
     if (!phone.replace(/\D/g, "").length && !email.trim()) {
-      setErr("Потрібно вказати телефон або email");
+      setErr(t.create.phoneOrEmail);
       return;
     }
 
     setSaving(true);
     try {
+      const fn = firstName.trim();
+      const ln = lastName.trim();
+      const mn = middleName.trim();
+      const fullName = [ln, fn, mn].filter(Boolean).join(" ").trim();
       const payload: Record<string, unknown> = {
         source,
-        name: name.trim() || undefined,
+        firstName: fn || undefined,
+        lastName: ln || undefined,
+        middleName: mn || undefined,
+        fullName: fullName || undefined,
+        name: fullName || fn || undefined,
         phone: (normalizePhone(phone) ?? phone.trim()) || undefined,
         email: email.trim() || undefined,
         companyName: companyName.trim() || undefined,
         message: message.trim() || undefined,
       };
       if (createItems.length > 0) {
-        payload.items = createItems.map((it) => ({ productId: it.productId, qty: it.qty, price: it.price }));
+        payload.items = createItems.map((it) => ({
+          productId: it.productId,
+          qty: it.qty,
+          price: it.price,
+        }));
       }
 
       const res = await apiHttp.post<Lead>("/leads", payload);
@@ -113,8 +153,8 @@ export function CreateLeadModal({ onClose, onCreated }: Props) {
     } catch (e) {
       const msg =
         (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-        (e instanceof Error ? e.message : "Не вдалося створити лід");
-      setErr(msg);
+        (e instanceof Error ? e.message : t.create.failed);
+      setErr(typeof msg === "string" ? msg : t.create.failed);
     } finally {
       setSaving(false);
     }
@@ -140,7 +180,7 @@ export function CreateLeadModal({ onClose, onCreated }: Props) {
         role="presentation"
       >
         <div className="flex items-center justify-between border-b border-zinc-200 px-5 py-4">
-          <div className="text-base font-semibold text-zinc-900">Новий лід</div>
+          <div className="text-base font-semibold text-zinc-900">{t.newLead}</div>
           <button
             type="button"
             onClick={requestClose}
@@ -151,24 +191,44 @@ export function CreateLeadModal({ onClose, onCreated }: Props) {
         </div>
 
         <div className="max-h-[70vh] overflow-auto px-5 py-4 text-sm">
-          {err && (
+          {err ? (
             <div className="mb-3 rounded-md border border-red-200 bg-red-50 p-2 text-xs text-red-700">
               {err}
             </div>
-          )}
+          ) : null}
 
           <div className="grid gap-3 md:grid-cols-2">
             <div>
-              <label className="block text-xs font-medium text-zinc-600">Імʼя</label>
+              <label className="block text-xs font-medium text-zinc-600">{t.create.firstName}</label>
               <input
                 className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
+                value={firstName}
+                onChange={(e) => setFirstName(e.target.value)}
+                disabled={saving}
+                autoComplete="given-name"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-zinc-600">{t.create.lastName}</label>
+              <input
+                className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
+                value={lastName}
+                onChange={(e) => setLastName(e.target.value)}
+                disabled={saving}
+                autoComplete="family-name"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-zinc-600">{t.create.middleName}</label>
+              <input
+                className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
+                value={middleName}
+                onChange={(e) => setMiddleName(e.target.value)}
                 disabled={saving}
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-zinc-600">Телефон</label>
+              <label className="block text-xs font-medium text-zinc-600">{t.create.phone}</label>
               <input
                 type="tel"
                 inputMode="tel"
@@ -181,7 +241,7 @@ export function CreateLeadModal({ onClose, onCreated }: Props) {
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-zinc-600">Електронна пошта</label>
+              <label className="block text-xs font-medium text-zinc-600">{t.create.email}</label>
               <input
                 className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
                 value={email}
@@ -191,37 +251,33 @@ export function CreateLeadModal({ onClose, onCreated }: Props) {
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-zinc-600">
-                Компанія клієнта
-              </label>
+              <label className="block text-xs font-medium text-zinc-600">{t.create.company}</label>
               <input
                 className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
                 value={companyName}
                 onChange={(e) => setCompanyName(e.target.value)}
                 disabled={saving}
-                placeholder="Назва з форми або дзвінка"
+                placeholder={t.create.companyPlaceholder}
                 autoComplete="off"
               />
             </div>
           </div>
 
-          <label className="mt-3 block text-xs font-medium text-zinc-600">Джерело</label>
+          <label className="mt-3 block text-xs font-medium text-zinc-600">{t.create.source}</label>
           <select
             className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
             value={source}
             onChange={(e) => setSource(e.target.value as LeadSource)}
             disabled={saving}
           >
-            <option value="FACEBOOK">Facebook</option>
-            <option value="TELEGRAM">Telegram</option>
-            <option value="INSTAGRAM">Instagram</option>
-<option value="WEBSITE">Сайт</option>
-              <option value="OTHER">Інше</option>
+            {SOURCE_OPTIONS.map((s) => (
+              <option key={s} value={s}>
+                {t.sources[s]}
+              </option>
+            ))}
           </select>
 
-          <label className="mt-3 block text-xs font-medium text-zinc-600">
-            Повідомлення / коментар
-          </label>
+          <label className="mt-3 block text-xs font-medium text-zinc-600">{t.create.message}</label>
           <textarea
             rows={3}
             className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
@@ -231,9 +287,9 @@ export function CreateLeadModal({ onClose, onCreated }: Props) {
           />
 
           <div className="mt-4">
-            <div className="text-xs font-medium text-zinc-600 mb-2">Товари (необовʼязково)</div>
+            <div className="mb-2 text-xs font-medium text-zinc-600">{t.create.products}</div>
             {createItems.length > 0 ? (
-              <div className="rounded border border-zinc-200 overflow-hidden mb-2">
+              <div className="mb-2 overflow-hidden rounded border border-zinc-200">
                 <table className="w-full text-sm">
                   <tbody className="divide-y divide-zinc-100">
                     {createItems.map((it, idx) => (
@@ -241,14 +297,14 @@ export function CreateLeadModal({ onClose, onCreated }: Props) {
                         <td className="px-2 py-1.5">{it.productName ?? it.productId}</td>
                         <td className="px-2 py-1.5 text-right">{it.qty}</td>
                         <td className="px-2 py-1.5 text-right">{it.price.toFixed(2)}</td>
-                        <td className="px-2 py-1.5 w-14">
+                        <td className="w-14 px-2 py-1.5">
                           <button
                             type="button"
                             onClick={() => removeItem(idx)}
-                            className="text-zinc-500 hover:text-red-600 text-xs"
+                            className="text-xs text-zinc-500 hover:text-red-600"
                             disabled={saving}
                           >
-                            Видалити
+                            ×
                           </button>
                         </td>
                       </tr>
@@ -261,19 +317,19 @@ export function CreateLeadModal({ onClose, onCreated }: Props) {
               <div className="min-w-[160px]">
                 <input
                   type="text"
-                  placeholder="Пошук товару…"
+                  placeholder="…"
                   className="w-full rounded-md border border-zinc-200 px-2 py-1.5 text-sm"
                   value={productSearch}
                   onChange={(e) => setProductSearch(e.target.value)}
                   disabled={saving}
                 />
                 {productResults.length > 0 ? (
-                  <ul className="mt-1 max-h-28 overflow-auto rounded border border-zinc-200 bg-white shadow text-sm">
+                  <ul className="mt-1 max-h-28 overflow-auto rounded border border-zinc-200 bg-white text-sm shadow">
                     {productResults.map((p) => (
                       <li key={p.id}>
                         <button
                           type="button"
-                          className="w-full px-2 py-1 text-left hover:bg-zinc-50 flex justify-between"
+                          className="flex w-full justify-between px-2 py-1 text-left hover:bg-zinc-50"
                           onClick={() => {
                             setSelectedProduct(p);
                             setProductSearch(p.name);
@@ -282,7 +338,7 @@ export function CreateLeadModal({ onClose, onCreated }: Props) {
                           }}
                         >
                           <span>{p.name}</span>
-                          <span className="text-zinc-500 text-xs">{p.sku}</span>
+                          <span className="text-xs text-zinc-500">{p.sku}</span>
                         </button>
                       </li>
                     ))}
@@ -290,7 +346,7 @@ export function CreateLeadModal({ onClose, onCreated }: Props) {
                 ) : null}
               </div>
               <div className="w-14">
-                <label className="block text-[10px] text-zinc-500">К-сть</label>
+                <label className="block text-[10px] text-zinc-500">Qty</label>
                 <input
                   type="number"
                   min={1}
@@ -301,7 +357,7 @@ export function CreateLeadModal({ onClose, onCreated }: Props) {
                 />
               </div>
               <div className="w-20">
-                <label className="block text-[10px] text-zinc-500">Ціна</label>
+                <label className="block text-[10px] text-zinc-500">₴</label>
                 <input
                   type="number"
                   min={0}
@@ -318,7 +374,7 @@ export function CreateLeadModal({ onClose, onCreated }: Props) {
                 disabled={!selectedProduct || saving}
                 className="rounded-md border border-zinc-300 px-2 py-1.5 text-sm text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
               >
-                Додати
+                +
               </button>
             </div>
           </div>
@@ -331,7 +387,7 @@ export function CreateLeadModal({ onClose, onCreated }: Props) {
             className="rounded-md border border-zinc-200 px-3 py-2 text-sm text-zinc-700 hover:bg-white"
             disabled={saving}
           >
-            Скасувати
+            {t.create.cancel}
           </button>
           <button
             type="button"
@@ -339,7 +395,7 @@ export function CreateLeadModal({ onClose, onCreated }: Props) {
             className="btn-primary"
             disabled={saving}
           >
-            {saving ? "Створення…" : "Створити"}
+            {saving ? t.create.submitting : t.create.submit}
           </button>
         </div>
       </div>
@@ -348,4 +404,3 @@ export function CreateLeadModal({ onClose, onCreated }: Props) {
 }
 
 export default CreateLeadModal;
-

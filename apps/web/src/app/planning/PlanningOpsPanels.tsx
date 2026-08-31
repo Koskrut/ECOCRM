@@ -681,16 +681,64 @@ export function PackingPanel({ onError }: { onError: (msg: string) => void }) {
           </>
         ) : null}
         {active?.status === "APPROVED" ? (
+          <>
+            <button
+              type="button"
+              disabled={busy}
+              className="rounded-lg border border-zinc-200 bg-white px-4 py-2 text-sm"
+              onClick={() => {
+                void (async () => {
+                  setBusy(true);
+                  try {
+                    applyActive(await planningApi.markPackingDone(active.id));
+                    await reloadLists();
+                  } catch (e) {
+                    reportError(e instanceof Error ? e.message : t.errors.packing);
+                  } finally {
+                    setBusy(false);
+                  }
+                })();
+              }}
+            >
+              {t.actions.markPackingDone}
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900 disabled:opacity-50"
+              onClick={() => {
+                if (!window.confirm(t.confirm.reopenPacking)) return;
+                void (async () => {
+                  setBusy(true);
+                  try {
+                    applyActive(await planningApi.reopenPackingList(active.id));
+                    await reloadLists();
+                  } catch (e) {
+                    reportError(e instanceof Error ? e.message : t.errors.packing);
+                  } finally {
+                    setBusy(false);
+                  }
+                })();
+              }}
+            >
+              {t.actions.reopenPacking}
+            </button>
+          </>
+        ) : null}
+        {active && active.status !== "DONE" ? (
           <button
             type="button"
             disabled={busy}
-            className="rounded-lg border border-zinc-200 bg-white px-4 py-2 text-sm"
+            className="rounded-lg border border-rose-200 bg-white px-4 py-2 text-sm text-rose-700 disabled:opacity-50"
             onClick={() => {
+              if (!window.confirm(t.confirm.deletePacking)) return;
               void (async () => {
                 setBusy(true);
                 try {
-                  applyActive(await planningApi.markPackingDone(active.id));
-                  await reloadLists();
+                  await planningApi.deletePackingList(active.id);
+                  setActive(null);
+                  const next = await reloadLists();
+                  if (next[0]) applyActive(await planningApi.getPackingList(next[0].id));
                 } catch (e) {
                   reportError(e instanceof Error ? e.message : t.errors.packing);
                 } finally {
@@ -699,7 +747,7 @@ export function PackingPanel({ onError }: { onError: (msg: string) => void }) {
               })();
             }}
           >
-            {t.actions.markPackingDone}
+            {t.actions.deletePacking}
           </button>
         ) : null}
         {active ? (
@@ -781,6 +829,7 @@ export function PackingPanel({ onError }: { onError: (msg: string) => void }) {
               t.labels.canAssemble,
               t.labels.weekRequest,
               t.labels.whyInRequest,
+              ...(active.status === "DRAFT" ? [t.labels.actions] : []),
             ]}
             rows={filtered.map((line) => {
               const need = line.targetPack ?? 0;
@@ -788,7 +837,7 @@ export function PackingPanel({ onError }: { onError: (msg: string) => void }) {
               const highlighted =
                 highlightSku.length > 0 &&
                 line.kitProduct.sku.toLowerCase() === highlightSku;
-              return [
+              const baseRow = [
                 <span key={line.id} className={highlighted ? "rounded bg-cyan-50 px-1" : undefined}>
                   <span className={`block font-medium ${blocked ? "text-rose-700" : ""}`}>
                     {line.kitProduct.name}
@@ -817,6 +866,33 @@ export function PackingPanel({ onError }: { onError: (msg: string) => void }) {
                 ),
                 line.priority === 0 ? t.labels.ordersPriority : t.labels.stockPriority,
               ];
+              if (active.status === "DRAFT") {
+                baseRow.push(
+                  <button
+                    key={`${line.id}-del`}
+                    type="button"
+                    className="text-xs text-rose-700 underline disabled:opacity-50"
+                    disabled={busy}
+                    onClick={() => {
+                      if (!window.confirm(t.confirm.deletePackingLine)) return;
+                      void (async () => {
+                        setBusy(true);
+                        try {
+                          applyActive(await planningApi.deletePackingLine(active.id, line.id));
+                          await reloadLists();
+                        } catch (e) {
+                          reportError(e instanceof Error ? e.message : t.errors.packing);
+                        } finally {
+                          setBusy(false);
+                        }
+                      })();
+                    }}
+                  >
+                    {t.actions.removeLine}
+                  </button>,
+                );
+              }
+              return baseRow;
             })}
             noDataLabel={t.states.noData}
           />
@@ -934,7 +1010,9 @@ export function FactoryPanel({ onError }: { onError: (msg: string) => void }) {
   }, []);
 
   const reloadOrders = useCallback(async () => {
-    setOrders(await planningApi.listFactoryOrders(30));
+    const next = await planningApi.listFactoryOrders(30);
+    setOrders(next);
+    return next;
   }, []);
 
   const reloadTracking = useCallback(async () => {
@@ -1284,6 +1362,22 @@ export function FactoryPanel({ onError }: { onError: (msg: string) => void }) {
                   }
                 >
                   {t.actions.cancelFactoryDraft}
+                </button>
+                <button
+                  type="button"
+                  disabled={busy}
+                  className="rounded-lg border border-rose-300 bg-rose-50 px-3 py-1 text-sm text-rose-800 disabled:opacity-50"
+                  onClick={() => {
+                    if (!window.confirm(t.confirm.deleteFactory)) return;
+                    void runBusy(async () => {
+                      await planningApi.deleteFactoryOrder(active.id);
+                      setActive(null);
+                      const next = await reloadOrders();
+                      if (next[0]) applyActive(await planningApi.getFactoryOrder(next[0].id));
+                    });
+                  }}
+                >
+                  {t.actions.deleteFactoryOrder}
                 </button>
               </>
             ) : null}

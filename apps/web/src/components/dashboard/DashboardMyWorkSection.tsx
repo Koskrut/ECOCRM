@@ -6,7 +6,7 @@ import { ListTodo } from "lucide-react";
 import { DayPlanWidget } from "@/components/day-plan/DayPlanWidget";
 import { DailyAgendaWidget } from "@/components/daily-agenda/DailyAgendaWidget";
 import { MorningPlanModal } from "@/components/daily-agenda/MorningPlanModal";
-import { PageLoading } from "@/components/feedback";
+import { PageLoading, useToast } from "@/components/feedback";
 import type { DashboardV2Response } from "@/lib/api/resources/dashboard";
 import { strings } from "@/locales";
 import { DateTime } from "luxon";
@@ -45,16 +45,20 @@ export function DashboardMyWorkSection({
   onTaskCompleted,
   tasksLoading,
 }: Props) {
+  const { pushToast } = useToast();
   const completeTask = useCallback(
     async (id: string) => {
       try {
         await tasksApi.complete(id);
         onTaskCompleted();
-      } catch {
-        // ignore
+      } catch (e) {
+        pushToast(
+          e instanceof Error ? e.message : strings.tasks.errors.completeFailed,
+          "error",
+        );
       }
     },
-    [onTaskCompleted],
+    [onTaskCompleted, pushToast],
   );
 
   return (
@@ -115,7 +119,12 @@ export function DashboardMyWorkSection({
                 className="flex items-center justify-between gap-2 rounded-md border border-zinc-100 bg-zinc-50/50 px-3 py-2"
               >
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium text-zinc-900">{task.title}</p>
+                  <Link
+                    href={`/tasks?taskId=${task.id}`}
+                    className="truncate text-sm font-medium text-zinc-900 hover:underline"
+                  >
+                    {task.title}
+                  </Link>
                   <p className="text-xs text-zinc-500">
                     {strings.tasks.dueLabel} {formatTaskDue(task.dueAt)}
                   </p>

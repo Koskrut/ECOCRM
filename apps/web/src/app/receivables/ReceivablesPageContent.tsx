@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
@@ -12,9 +11,18 @@ import {
 import { apiHttp } from "@/lib/api/client";
 import { PageShell } from "@/components/PageShell";
 import { useToast } from "@/components/feedback";
-import { formatDate } from "@/lib/crmDatetime";
+import { KyivstarDialButton } from "@/components/kyivstar/KyivstarDialButton";
+import { CRM_TIME_ZONE, formatDate, kyivStartOfDayFromYmd, ymdDaysAgoInKyiv } from "@/lib/crmDatetime";
 import { formatOrderAmount } from "@/lib/formatOrderAmount";
 import { strings } from "@/locales";
+import { DateTime } from "luxon";
+import {
+  buildReceivablesSearchParams,
+  parseReceivablesFilters,
+  type ReceivablesTab,
+  type ReceivablesWorkView,
+} from "./receivables-url";
+import { pickTodayCollectQueue } from "./debt-promise";
 import {
   receivablesApi,
   type ReceivablesReconcileStatus,
@@ -29,8 +37,10 @@ import { DebtCommentDialog } from "./DebtCommentDialog";
 import { useEntityModalStack, type EntityModalFrame } from "@/lib/modal/useEntityModalStack";
 import { EntityModalStackLayers } from "@/components/modals/EntityModalStackLayers";
 
-type Tab = "work" | "reconcile";
-type WorkView = "clients" | "orders";
+type AgingChip = "" | "0-7" | "8-30" | "30+";
+
+type Tab = ReceivablesTab;
+type WorkView = ReceivablesWorkView;
 
 type MeResponse = { user?: { role?: string; id?: string } };
 type ManagerOption = { id: string; fullName: string };
@@ -63,6 +73,29 @@ const RECONCILE_STATUS_CLASS: Record<ReceivablesReconcileStatus, string> = {
 function formatMoney(amount: number, currency: string) {
   const sym = currency === "EUR" ? "€" : "$";
   return `${amount.toFixed(2)} ${sym}`;
+}
+
+function matchesAging(days: number | undefined, chip: AgingChip): boolean {
+  if (!chip) return true;
+  const d = Math.max(Number(days) || 0, 0);
+  if (chip === "0-7") return d <= 7;
+  if (chip === "8-30") return d >= 8 && d <= 30;
+  return d > 30;
+}
+
+async function copyPendingPayLink(orderId: string): Promise<boolean> {
+  const r = await fetch(`/api/orders/${orderId}/payment-requests`, {
+    cache: "no-store",
+    credentials: "include",
+  });
+  if (!r.ok) return false;
+  const data = (await r.json()) as Array<{ effectiveStatus?: string; publicToken?: string }>;
+  const pending = (Array.isArray(data) ? data : []).find(
+    (row) => row.effectiveStatus === "PENDING" && row.publicToken,
+  );
+  if (!pending?.publicToken) return false;
+  await navigator.clipboard.writeText(`${window.location.origin}/pay/${pending.publicToken}`);
+  return true;
 }
 
 function KpiCard({
@@ -98,15 +131,7 @@ export function ReceivablesPageContent() {
   const { pushToast } = useToast();
   const t = strings.receivables;
 
-  const tab: Tab = searchParams.get("tab") === "reconcile" ? "reconcile" : "work";
-  const workView: WorkView = searchParams.get("view") === "orders" ? "orders" : "clients";
-  const overdue = searchParams.get("overdue") === "true";
-  const needsComment = searchParams.get("needsComment") === "true";
-  const deltasOnly = searchParams.get("deltasOnly") === "true";
-  const reconcileStatus = searchParams.get("status") ?? "";
-  const snapshotId = searchParams.get("snapshotId") ?? "";
-  const ownerId = searchParams.get("ownerId") ?? "";
-  const q = searchParams.get("q") ?? "";
+  const [initialFilters] = useState(() => parseReceivablesFilters(searchParams));
   const contactId = searchParams.get("contactId") ?? "";
   const orderId = searchParams.get("orderId") ?? "";
   const root = useMemo<EntityModalFrame | null>(() => {
@@ -116,12 +141,26 @@ export function ReceivablesPageContent() {
   }, [contactId, orderId]);
   const stack = useEntityModalStack(root);
 
+  const [tab, setTab] = useState<Tab>(initialFilters.tab);
+  const [workView, setWorkView] = useState<WorkView>(initialFilters.workView);
+  const [overdue, setOverdue] = useState(initialFilters.overdue);
+  const [needsComment, setNeedsComment] = useState(initialFilters.needsComment);
+  const [promisedToday, setPromisedToday] = useState(initialFilters.promisedToday);
+  const [promiseBroken, setPromiseBroken] = useState(initialFilters.promiseBroken);
+  const [aging, setAging] = useState<AgingChip>("");
+  const [deltasOnly, setDeltasOnly] = useState(initialFilters.deltasOnly);
+  const [reconcileStatus, setReconcileStatus] = useState(initialFilters.reconcileStatus);
+  const [snapshotId, setSnapshotId] = useState(initialFilters.snapshotId);
+  const [ownerId, setOwnerId] = useState(initialFilters.ownerId);
+  const [q, setQ] = useState(initialFilters.q);
+  const [qInput, setQInput] = useState(initialFilters.q);
+  const [clientId, setClientId] = useState(initialFilters.clientId);
+  const [clientFilterName, setClientFilterName] = useState("");
+
   const [role, setRole] = useState<string | null>(null);
   const [meId, setMeId] = useState<string | null>(null);
   const [managers, setManagers] = useState<ManagerOption[]>([]);
-  const [searchInput, setSearchInput] = useState(q);
   const [snapshots, setSnapshots] = useState<ReceivablesSnapshot[]>([]);
-  const [activeSnapshotId, setActiveSnapshotId] = useState(snapshotId);
   const [workSummary, setWorkSummary] = useState<Awaited<
     ReturnType<typeof receivablesApi.workSummary>
   >["data"] | null>(null);
@@ -134,7 +173,7 @@ export function ReceivablesPageContent() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
-  const [uploadDate, setUploadDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [uploadDate, setUploadDate] = useState(() => ymdDaysAgoInKyiv(0));
   const [uploadNote, setUploadNote] = useState("");
   const [uploadCurrency, setUploadCurrency] = useState("USD");
   const [uploading, setUploading] = useState(false);
@@ -147,30 +186,73 @@ export function ReceivablesPageContent() {
     Map<string, ContactReceivablesResponse>
   >(new Map());
   const [clientDetailsLoading, setClientDetailsLoading] = useState<Set<string>>(new Set());
-  const defaultPeriodFrom = useMemo(() => {
-    const d = new Date();
-    d.setDate(d.getDate() - 30);
-    return d.toISOString().slice(0, 10);
-  }, []);
-  const [periodPaidFrom, setPeriodPaidFrom] = useState(defaultPeriodFrom);
-  const [periodPaidTo, setPeriodPaidTo] = useState(() => new Date().toISOString().slice(0, 10));
+  const [periodPaidFrom, setPeriodPaidFrom] = useState(() => ymdDaysAgoInKyiv(30));
+  const [periodPaidTo, setPeriodPaidTo] = useState(() => ymdDaysAgoInKyiv(0));
   const [periodPayments, setPeriodPayments] = useState<PeriodPaymentRow[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const canUpload = role === "ADMIN" || role === "LEAD";
   const currency = workSummary?.currency ?? reconcileSummary?.currency ?? "USD";
+  const selectedSnapshot = snapshots.find((s) => s.id === snapshotId) ?? snapshots[0] ?? null;
 
-  const patchParams = useCallback(
-    (patch: Record<string, string | null>) => {
-      const params = new URLSearchParams(searchParams.toString());
-      for (const [key, value] of Object.entries(patch)) {
-        if (value === null || value === "") params.delete(key);
-        else params.set(key, value);
-      }
-      router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+  const urlState = useMemo(
+    () => ({
+      tab,
+      workView,
+      overdue,
+      needsComment,
+      promisedToday,
+      promiseBroken,
+      deltasOnly,
+      reconcileStatus,
+      snapshotId,
+      ownerId,
+      q,
+      clientId,
+      contactId,
+      orderId,
+    }),
+    [
+      tab,
+      workView,
+      overdue,
+      needsComment,
+      promisedToday,
+      promiseBroken,
+      deltasOnly,
+      reconcileStatus,
+      snapshotId,
+      ownerId,
+      q,
+      clientId,
+      contactId,
+      orderId,
+    ],
+  );
+
+  const replaceUrl = useCallback(
+    (next: typeof urlState) => {
+      const params = buildReceivablesSearchParams(next);
+      const query = params.toString();
+      const target = query ? `${pathname}?${query}` : pathname;
+      const current = searchParams.toString();
+      if (query === current) return;
+      router.replace(target, { scroll: false });
     },
     [pathname, router, searchParams],
   );
+
+  useEffect(() => {
+    replaceUrl(urlState);
+  }, [replaceUrl, urlState]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const nextQ = qInput.trim();
+      setQ((prev) => (prev === nextQ ? prev : nextQ));
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [qInput]);
 
   useEffect(() => {
     apiHttp
@@ -212,15 +294,9 @@ export function ReceivablesPageContent() {
     const res = await receivablesApi.listSnapshots(30);
     const items = res.data.items ?? [];
     setSnapshots(items);
-    const currentId = snapshotId || activeSnapshotId;
-    if (!currentId && items[0]) {
-      setActiveSnapshotId(items[0].id);
-      if (tab === "reconcile") {
-        patchParams({ snapshotId: items[0].id });
-      }
-    }
+    setSnapshotId((prev) => prev || items[0]?.id || "");
     return items;
-  }, [snapshotId, activeSnapshotId, patchParams, tab]);
+  }, []);
 
   const loadWork = useCallback(async () => {
     const [summaryRes, listRes] = await Promise.all([
@@ -229,45 +305,42 @@ export function ReceivablesPageContent() {
         ? receivablesApi.workOrders({
             ownerId: ownerId || undefined,
             q: q || undefined,
-            overdue,
-            contactId: contactId || undefined,
+            overdue: overdue || undefined,
+            clientId: clientId || undefined,
             page: 1,
             pageSize: 100,
           })
         : receivablesApi.workClients({
             ownerId: ownerId || undefined,
             q: q || undefined,
-            overdue,
-            needsComment,
+            overdue: overdue || undefined,
+            needsComment: needsComment || undefined,
+            promisedToday: promisedToday || undefined,
+            promiseBroken: promiseBroken || undefined,
             page: 1,
             pageSize: 100,
           }),
     ]);
-    setWorkSummary(summaryRes.data);
-    if (workView === "orders") {
-      setWorkOrders((listRes.data as { items: WorkOrderRow[] }).items ?? []);
-      setWorkClients([]);
-    } else {
-      setWorkClients((listRes.data as { items: WorkClientRow[] }).items ?? []);
-      setWorkOrders([]);
-    }
-  }, [ownerId, q, overdue, needsComment, workView, contactId]);
+    const items = listRes.data.items ?? [];
+    return {
+      summary: summaryRes.data,
+      orders: workView === "orders" ? (items as WorkOrderRow[]) : [],
+      clients: workView === "orders" ? [] : (items as WorkClientRow[]),
+    };
+  }, [ownerId, q, overdue, needsComment, promisedToday, promiseBroken, workView, clientId]);
 
   const loadPeriodPayments = useCallback(async () => {
-    try {
-      const res = await receivablesApi.periodPayments({
-        paidFrom: periodPaidFrom ? new Date(periodPaidFrom).toISOString() : undefined,
-        paidTo: periodPaidTo
-          ? new Date(`${periodPaidTo}T23:59:59.999Z`).toISOString()
-          : undefined,
-        ownerId: ownerId || undefined,
-        page: 1,
-        pageSize: 100,
-      });
-      setPeriodPayments(res.data.items ?? []);
-    } catch {
-      setPeriodPayments([]);
-    }
+    const res = await receivablesApi.periodPayments({
+      paidFrom: periodPaidFrom ? kyivStartOfDayFromYmd(periodPaidFrom).toISOString() : undefined,
+      paidTo: periodPaidTo
+        ? DateTime.fromISO(periodPaidTo, { zone: CRM_TIME_ZONE }).endOf("day").toUTC().toISO() ??
+          undefined
+        : undefined,
+      ownerId: ownerId || undefined,
+      page: 1,
+      pageSize: 100,
+    });
+    return res.data.items ?? [];
   }, [periodPaidFrom, periodPaidTo, ownerId]);
 
   const toggleClientExpand = useCallback(async (contactIdToToggle: string) => {
@@ -299,11 +372,9 @@ export function ReceivablesPageContent() {
   }, [clientDetails, pushToast, t.loadError]);
 
   const loadReconcile = useCallback(async () => {
-    const sid = snapshotId || activeSnapshotId;
+    const sid = snapshotId;
     if (!sid) {
-      setReconcileSummary(null);
-      setReconcileRows([]);
-      return;
+      return { summary: null, rows: [] as ReconciliationLine[] };
     }
     const [summaryRes, listRes] = await Promise.all([
       receivablesApi.reconciliationSummary(sid, ownerId || undefined),
@@ -311,30 +382,51 @@ export function ReceivablesPageContent() {
         snapshotId: sid,
         ownerId: ownerId || undefined,
         q: q || undefined,
-        deltasOnly,
+        deltasOnly: reconcileStatus ? false : deltasOnly,
         status: reconcileStatus || undefined,
         page: 1,
         pageSize: 200,
       }),
     ]);
-    setReconcileSummary(summaryRes.data);
-    setReconcileRows(listRes.data.items ?? []);
-  }, [snapshotId, activeSnapshotId, ownerId, q, deltasOnly, reconcileStatus]);
+    return { summary: summaryRes.data, rows: listRes.data.items ?? [] };
+  }, [snapshotId, ownerId, q, deltasOnly, reconcileStatus]);
 
-  const reload = useCallback(async () => {
-    setLoading(true);
+  const applyWorkResult = useCallback((data: Awaited<ReturnType<typeof loadWork>>) => {
+    setWorkSummary(data.summary);
+    setWorkOrders(data.orders);
+    setWorkClients(data.clients);
+  }, []);
+
+  const applyReconcileResult = useCallback((data: Awaited<ReturnType<typeof loadReconcile>>) => {
+    setReconcileSummary(data.summary);
+    setReconcileRows(data.rows);
+  }, []);
+
+  const reload = useCallback(async (opts?: { silent?: boolean }) => {
+    if (!opts?.silent) setLoading(true);
     try {
       await loadSnapshots();
       if (tab === "work") {
-        await loadWork();
-        await loadPeriodPayments();
-      } else await loadReconcile();
-    } catch (e) {
+        applyWorkResult(await loadWork());
+        try {
+          setPeriodPayments(await loadPeriodPayments());
+        } catch {
+          setPeriodPayments([]);
+        }
+      } else applyReconcileResult(await loadReconcile());
+    } catch {
       pushToast(t.loadError, "error");
     } finally {
       setLoading(false);
     }
-  }, [loadSnapshots, loadWork, loadPeriodPayments, loadReconcile, tab, pushToast, t.loadError]);
+  }, [loadSnapshots, loadWork, loadPeriodPayments, loadReconcile, applyWorkResult, applyReconcileResult, tab, pushToast, t.loadError]);
+
+  const replaceModalRoot = useCallback(
+    (nextContactId: string, nextOrderId: string) => {
+      replaceUrl({ ...urlState, contactId: nextContactId, orderId: nextOrderId });
+    },
+    [replaceUrl, urlState],
+  );
 
   const openContact = (id: string) => {
     if (root) {
@@ -342,7 +434,7 @@ export function ReceivablesPageContent() {
       return;
     }
     stack.closeAll();
-    patchParams({ contactId: id, orderId: null });
+    replaceModalRoot(id, "");
   };
 
   const openOrder = (id: string) => {
@@ -351,44 +443,147 @@ export function ReceivablesPageContent() {
       return;
     }
     stack.closeAll();
-    patchParams({ orderId: id, contactId: null });
+    replaceModalRoot("", id);
   };
 
   const closeFrom = (index: number) => {
     if (index <= 0) {
       stack.closeAll();
-      if (root?.type === "order") patchParams({ orderId: null });
-      else patchParams({ contactId: null });
+      replaceModalRoot("", "");
       return;
     }
     stack.closeFrom(index);
   };
 
   const replaceRoot = (frame: EntityModalFrame) => {
-    if (frame.type === "contact") patchParams({ contactId: frame.id });
-    else if (frame.type === "order") patchParams({ orderId: frame.id });
+    // Nested contact→order→company stays in the overlay stack.
+    // Only a new contact becoming a real id should replace the URL root.
+    if (frame.type === "contact") replaceModalRoot(frame.id, "");
   };
 
-  useEffect(() => {
-    setSearchInput(q);
-  }, [q]);
+  const handleCopyPay = async (row: WorkClientRow) => {
+    if (!row.primaryOrderId) {
+      pushToast(t.payLinkMissing, "info");
+      return;
+    }
+    try {
+      const copied = await copyPendingPayLink(row.primaryOrderId);
+      if (copied) {
+        pushToast(t.payLinkCopied, "success");
+        return;
+      }
+    } catch {
+      // Fall through to the order modal.
+    }
+    pushToast(t.payLinkMissing, "info");
+    openOrder(row.primaryOrderId);
+  };
+
+  const visibleClients = useMemo(
+    () => workClients.filter((row) => matchesAging(row.overdueDays, aging)),
+    [workClients, aging],
+  );
+  const todayQueue = useMemo(() => pickTodayCollectQueue(visibleClients), [visibleClients]);
+  const queueCoverPct =
+    todayQueue.overdueTotal > 0
+      ? Math.round((todayQueue.overdueCovered / todayQueue.overdueTotal) * 100)
+      : 0;
 
   useEffect(() => {
-    void reload();
-  }, [reload]);
+    let cancelled = false;
+    (async () => {
+      try {
+        await loadSnapshots();
+      } catch {
+        if (!cancelled) pushToast(t.loadError, "error");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [loadSnapshots, pushToast, t.loadError]);
 
   useEffect(() => {
-    if (snapshotId) setActiveSnapshotId(snapshotId);
-  }, [snapshotId]);
+    if (tab !== "work") return;
+    let cancelled = false;
+    setLoading(true);
+    (async () => {
+      try {
+        const data = await loadWork();
+        if (cancelled) return;
+        applyWorkResult(data);
+      } catch {
+        if (!cancelled) pushToast(t.loadError, "error");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [tab, loadWork, applyWorkResult, pushToast, t.loadError]);
+
+  useEffect(() => {
+    if (tab !== "work") return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const items = await loadPeriodPayments();
+        if (!cancelled) setPeriodPayments(items);
+      } catch {
+        if (!cancelled) setPeriodPayments([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [tab, loadPeriodPayments]);
+
+  useEffect(() => {
+    if (tab !== "reconcile") return;
+    let cancelled = false;
+    setLoading(true);
+    (async () => {
+      try {
+        const data = await loadReconcile();
+        if (cancelled) return;
+        applyReconcileResult(data);
+      } catch {
+        if (!cancelled) pushToast(t.loadError, "error");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [tab, loadReconcile, applyReconcileResult, pushToast, t.loadError]);
+
+  useEffect(() => {
+    if (tab === "reconcile" && !snapshotId && snapshots[0]) {
+      setSnapshotId(snapshots[0].id);
+    }
+  }, [tab, snapshotId, snapshots]);
+
+  useEffect(() => {
+    if (!clientId || clientFilterName) return;
+    const fromOrders = workOrders.find((row) => row.clientId === clientId);
+    if (fromOrders?.clientName) {
+      setClientFilterName(fromOrders.clientName);
+      return;
+    }
+    const fromClients = workClients.find((row) => row.contactId === clientId);
+    if (fromClients?.clientName) setClientFilterName(fromClients.clientName);
+  }, [clientId, clientFilterName, workOrders, workClients]);
 
   const handleRefreshReconcile = async () => {
-    const sid = snapshotId || activeSnapshotId;
+    const sid = snapshotId;
     if (!sid) return;
     setRefreshing(true);
     try {
       await receivablesApi.refreshReconciliation(sid);
-      await loadReconcile();
-      await loadWork();
+      applyReconcileResult(await loadReconcile());
+      applyWorkResult(await loadWork());
       pushToast(t.refreshSuccess, "success");
     } catch {
       pushToast(t.refreshError, "error");
@@ -409,8 +604,9 @@ export function ReceivablesPageContent() {
       pushToast(t.uploadSuccess, "success");
       setUploadOpen(false);
       setUploadNote("");
-      patchParams({ tab: "reconcile", snapshotId: res.data.id });
-      await reload();
+      setTab("reconcile");
+      setSnapshotId(res.data.id);
+      await reload({ silent: true });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : t.uploadError;
       pushToast(msg || t.uploadError, "error");
@@ -437,7 +633,10 @@ export function ReceivablesPageContent() {
         {canUpload ? (
           <button
             type="button"
-            onClick={() => patchParams({ tab: "reconcile", snapshotId: rec.snapshotId })}
+            onClick={() => {
+              setTab("reconcile");
+              setSnapshotId(rec.snapshotId);
+            }}
             className="font-medium underline underline-offset-2"
           >
             {t.openReconcile}
@@ -445,9 +644,12 @@ export function ReceivablesPageContent() {
         ) : null}
       </div>
     );
-  }, [workSummary, canUpload, patchParams, t]);
+  }, [workSummary, canUpload, t]);
 
-  const selectedSnapshot = snapshots.find((s) => s.id === (snapshotId || activeSnapshotId));
+  const workHasRows = workView === "orders" ? workOrders.length > 0 : workClients.length > 0;
+  const reconcileHasRows = reconcileRows.length > 0;
+  const showWorkSpinner = loading && !workHasRows;
+  const showReconcileSpinner = loading && snapshots.length === 0;
 
   return (
     <>
@@ -486,7 +688,7 @@ export function ReceivablesPageContent() {
           <div className="flex rounded-lg border border-zinc-200 bg-white p-0.5">
             <button
               type="button"
-              onClick={() => patchParams({ tab: "work" })}
+              onClick={() => setTab("work")}
               className={`rounded-md px-3 py-1.5 text-sm font-medium ${
                 tab === "work" ? "bg-zinc-900 text-white" : "text-zinc-600 hover:bg-zinc-100"
               }`}
@@ -495,12 +697,10 @@ export function ReceivablesPageContent() {
             </button>
             <button
               type="button"
-              onClick={() =>
-                patchParams({
-                  tab: "reconcile",
-                  snapshotId: selectedSnapshot?.id ?? snapshots[0]?.id ?? null,
-                })
-              }
+              onClick={() => {
+                setTab("reconcile");
+                if (!snapshotId && snapshots[0]) setSnapshotId(snapshots[0].id);
+              }}
               className={`rounded-md px-3 py-1.5 text-sm font-medium ${
                 tab === "reconcile" ? "bg-zinc-900 text-white" : "text-zinc-600 hover:bg-zinc-100"
               }`}
@@ -512,7 +712,7 @@ export function ReceivablesPageContent() {
           {(role === "ADMIN" || role === "LEAD") && managers.length > 0 ? (
             <select
               value={ownerId}
-              onChange={(e) => patchParams({ ownerId: e.target.value || null })}
+              onChange={(e) => setOwnerId(e.target.value)}
               className="rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-sm"
             >
               <option value="">{t.allManagers}</option>
@@ -526,19 +726,22 @@ export function ReceivablesPageContent() {
 
           <input
             type="search"
-            value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
+            value={qInput}
+            onChange={(e) => setQInput(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter") patchParams({ q: searchInput.trim() || null });
+              if (e.key === "Enter") setQ(qInput.trim());
             }}
             placeholder={t.searchPlaceholder}
             className="min-w-[12rem] flex-1 rounded-lg border border-zinc-200 px-3 py-1.5 text-sm sm:max-w-xs"
           />
+          {loading && (workHasRows || reconcileHasRows) ? (
+            <span className="text-xs text-zinc-400">{t.updating}</span>
+          ) : null}
         </div>
 
         {tab === "work" ? (
           <div className="space-y-4">
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <KpiCard
                 title={t.kpiDebtOperational}
                 value={formatMoney(workSummary?.kpi.debtTotal ?? 0, currency)}
@@ -562,13 +765,88 @@ export function ReceivablesPageContent() {
                 value={formatMoney(workSummary?.kpi.bitrixLegacyDebt ?? 0, currency)}
                 subtitle={t.kpiBitrixLegacyHint}
               />
+              <KpiCard
+                title={t.kpiPromisedToday}
+                value={formatMoney(workSummary?.kpi.promisedTodayAmount ?? 0, currency)}
+                subtitle={String(workSummary?.kpi.promisedTodayCount ?? 0)}
+              />
+              <KpiCard
+                title={t.kpiCollectedToday}
+                value={formatMoney(workSummary?.kpi.collectedTodayAmount ?? 0, currency)}
+                variant="ok"
+              />
             </div>
+
+            {workView === "clients" ? (
+              <div className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm">
+                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                  <h2 className="text-sm font-semibold text-zinc-900">{t.todayQueueTitle}</h2>
+                  {todayQueue.items.length > 0 && todayQueue.overdueTotal > 0 ? (
+                    <p className="text-xs text-zinc-500">
+                      {t.todayQueuePareto(todayQueue.items.length, queueCoverPct)}
+                    </p>
+                  ) : null}
+                </div>
+                {todayQueue.items.length === 0 ? (
+                  <p className="mt-2 text-sm text-zinc-500">{t.todayQueueEmpty}</p>
+                ) : (
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                    {todayQueue.items.map((row) => (
+                      <div
+                        key={row.contactId}
+                        className="flex flex-col gap-2 rounded-lg border border-zinc-200 bg-zinc-50 p-3"
+                      >
+                        <button
+                          type="button"
+                          className="text-left text-sm font-medium text-zinc-900 underline-offset-2 hover:underline"
+                          onClick={() => openContact(row.contactId)}
+                        >
+                          {row.clientName}
+                        </button>
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-zinc-600">
+                          <span className="font-semibold tabular-nums text-red-700">
+                            {formatMoney(row.overdueAmount || row.debtAmount, currency)}
+                          </span>
+                          {row.overdueDays ? (
+                            <span>{t.overdueDaysShort(row.overdueDays)}</span>
+                          ) : null}
+                          {row.promiseDate ? (
+                            <span className="rounded-full bg-amber-50 px-1.5 py-0.5 text-amber-800 ring-1 ring-amber-200">
+                              {t.promiseDate}: {row.promiseDate}
+                            </span>
+                          ) : null}
+                        </div>
+                        {row.lastCommentPreview ? (
+                          <p className="line-clamp-2 text-xs text-zinc-500">{row.lastCommentPreview}</p>
+                        ) : (
+                          <p className="text-xs text-amber-700">{t.commentNone}</p>
+                        )}
+                        <ClientRowActions
+                          row={row}
+                          onComment={(next) =>
+                            setCommentTarget({
+                              contactId: next.contactId,
+                              clientName: next.clientName,
+                            })
+                          }
+                          onCopyPay={(next) => void handleCopyPay(next)}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : null}
 
             <div className="flex flex-wrap items-center gap-2">
               <div className="flex rounded-lg border border-zinc-200 bg-white p-0.5">
                 <button
                   type="button"
-                  onClick={() => patchParams({ view: "clients" })}
+                  onClick={() => {
+                    setWorkView("clients");
+                    setClientId("");
+                    setClientFilterName("");
+                  }}
                   className={`rounded-md px-3 py-1.5 text-sm font-medium ${
                     workView === "clients"
                       ? "bg-zinc-800 text-white"
@@ -579,7 +857,7 @@ export function ReceivablesPageContent() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => patchParams({ view: "orders" })}
+                  onClick={() => setWorkView("orders")}
                   className={`rounded-md px-3 py-1.5 text-sm font-medium ${
                     workView === "orders"
                       ? "bg-zinc-800 text-white"
@@ -593,30 +871,84 @@ export function ReceivablesPageContent() {
                 <input
                   type="checkbox"
                   checked={overdue}
-                  onChange={(e) => patchParams({ overdue: e.target.checked ? "true" : null })}
+                  onChange={(e) => setOverdue(e.target.checked)}
                 />
                 {t.overdueOnly}
               </label>
               {workView === "clients" ? (
-                <label className="flex items-center gap-2 text-sm text-zinc-600">
-                  <input
-                    type="checkbox"
-                    checked={needsComment}
-                    onChange={(e) =>
-                      patchParams({ needsComment: e.target.checked ? "true" : null })
-                    }
-                  />
-                  {t.needsCommentOnly}
-                </label>
+                <>
+                  <label className="flex items-center gap-2 text-sm text-zinc-600">
+                    <input
+                      type="checkbox"
+                      checked={needsComment}
+                      onChange={(e) => setNeedsComment(e.target.checked)}
+                    />
+                    {t.needsCommentOnly}
+                  </label>
+                  <label className="flex items-center gap-2 text-sm text-zinc-600">
+                    <input
+                      type="checkbox"
+                      checked={promisedToday}
+                      onChange={(e) => setPromisedToday(e.target.checked)}
+                    />
+                    {t.promisedTodayOnly}
+                  </label>
+                  <label className="flex items-center gap-2 text-sm text-zinc-600">
+                    <input
+                      type="checkbox"
+                      checked={promiseBroken}
+                      onChange={(e) => setPromiseBroken(e.target.checked)}
+                    />
+                    {t.promiseBrokenOnly}
+                  </label>
+                  <div className="flex rounded-lg border border-zinc-200 bg-white p-0.5">
+                    {(
+                      [
+                        ["", t.agingAll],
+                        ["0-7", t.aging0to7],
+                        ["8-30", t.aging8to30],
+                        ["30+", t.aging30plus],
+                      ] as const
+                    ).map(([value, label]) => (
+                      <button
+                        key={value || "all"}
+                        type="button"
+                        onClick={() => setAging(value)}
+                        className={`rounded-md px-2.5 py-1 text-xs font-medium ${
+                          aging === value
+                            ? "bg-zinc-800 text-white"
+                            : "text-zinc-600 hover:bg-zinc-100"
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              ) : null}
+              {workView === "orders" && clientId ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setClientId("");
+                    setClientFilterName("");
+                  }}
+                  className="inline-flex items-center gap-1.5 rounded-full bg-zinc-100 px-2.5 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-200"
+                  title={t.clearClientFilter}
+                >
+                  {t.filterByClient}
+                  {clientFilterName ? `: ${clientFilterName}` : ""}
+                  <span aria-hidden="true">×</span>
+                </button>
               ) : null}
             </div>
 
-            {loading ? (
+            {showWorkSpinner ? (
               <div className="text-sm text-zinc-500">{strings.common.loading}</div>
             ) : workView === "clients" ? (
               <>
                 <WorkClientsTable
-                  rows={workClients}
+                  rows={visibleClients}
                   currency={currency}
                   expandedClients={expandedClients}
                   clientDetails={clientDetails}
@@ -627,6 +959,7 @@ export function ReceivablesPageContent() {
                   onComment={(row) =>
                     setCommentTarget({ contactId: row.contactId, clientName: row.clientName })
                   }
+                  onCopyPay={(row) => void handleCopyPay(row)}
                 />
                 <div className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm">
                   <div className="flex flex-wrap items-end gap-3">
@@ -654,7 +987,11 @@ export function ReceivablesPageContent() {
                     </div>
                     <button
                       type="button"
-                      onClick={() => void loadPeriodPayments()}
+                      onClick={() => {
+                        void loadPeriodPayments()
+                          .then((items) => setPeriodPayments(items))
+                          .catch(() => setPeriodPayments([]));
+                      }}
                       className="rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
                     >
                       {t.periodPaymentsApply}
@@ -693,8 +1030,8 @@ export function ReceivablesPageContent() {
           <div className="space-y-4">
             <div className="flex flex-wrap items-center gap-2">
               <select
-                value={snapshotId || activeSnapshotId}
-                onChange={(e) => patchParams({ snapshotId: e.target.value })}
+                value={snapshotId}
+                onChange={(e) => setSnapshotId(e.target.value)}
                 className="rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-sm"
               >
                 {snapshots.length === 0 ? (
@@ -711,41 +1048,21 @@ export function ReceivablesPageContent() {
               <label className="flex items-center gap-2 text-sm text-zinc-600">
                 <input
                   type="checkbox"
-                  checked={deltasOnly}
-                  onChange={(e) => patchParams({ deltasOnly: e.target.checked ? "true" : null })}
+                  checked={deltasOnly && !reconcileStatus}
+                  onChange={(e) => {
+                    setDeltasOnly(e.target.checked);
+                    if (e.target.checked) setReconcileStatus("");
+                  }}
                 />
                 {t.deltasOnly}
               </label>
-              <div className="flex flex-wrap gap-1">
-                {(
-                  [
-                    { value: "", label: t.allStatuses },
-                    { value: "ONLY_1C", label: RECONCILE_STATUS_LABELS.ONLY_1C },
-                    { value: "ONLY_CRM", label: RECONCILE_STATUS_LABELS.ONLY_CRM },
-                  ] as const
-                ).map((opt) => (
-                  <button
-                    key={opt.value || "all"}
-                    type="button"
-                    onClick={() =>
-                      patchParams({
-                        status: opt.value || null,
-                        deltasOnly: opt.value ? null : deltasOnly ? "true" : null,
-                      })
-                    }
-                    className={`rounded-full px-2.5 py-1 text-xs font-medium ${
-                      reconcileStatus === opt.value
-                        ? "bg-zinc-900 text-white"
-                        : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
-                    }`}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
               <select
                 value={reconcileStatus}
-                onChange={(e) => patchParams({ status: e.target.value || null })}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  setReconcileStatus(next);
+                  if (next) setDeltasOnly(false);
+                }}
                 className="rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-sm"
               >
                 <option value="">{t.allStatuses}</option>
@@ -780,7 +1097,7 @@ export function ReceivablesPageContent() {
               />
             </div>
 
-            {loading ? (
+            {showReconcileSpinner ? (
               <div className="text-sm text-zinc-500">{strings.common.loading}</div>
             ) : snapshots.length === 0 ? (
               <div className="rounded-xl border border-dashed border-zinc-300 bg-zinc-50 p-8 text-center text-sm text-zinc-600">
@@ -791,15 +1108,9 @@ export function ReceivablesPageContent() {
                 rows={reconcileRows}
                 currency={currency}
                 onOpenContact={openContact}
-                onOpenOrders={(id) => {
-                  stack.closeAll();
-                  patchParams({
-                    tab: "work",
-                    view: "orders",
-                    contactId: id,
-                    snapshotId: null,
-                    orderId: null,
-                  });
+                onSearchCode={(code) => {
+                  setQInput(code);
+                  setQ(code);
                 }}
               />
             )}
@@ -882,7 +1193,7 @@ export function ReceivablesPageContent() {
           onCloseFrom={closeFrom}
           onReplace={stack.replace}
           onReplaceRoot={replaceRoot}
-          onUpdate={() => void reload()}
+          onUpdate={() => void reload({ silent: true })}
         />
       ) : null}
 
@@ -893,7 +1204,9 @@ export function ReceivablesPageContent() {
           onClose={() => setCommentTarget(null)}
           onSaved={() => {
             pushToast(t.commentSuccess, "success");
-            void loadWork();
+            void loadWork()
+              .then(applyWorkResult)
+              .catch(() => pushToast(t.loadError, "error"));
           }}
         />
       ) : null}
@@ -910,6 +1223,39 @@ function isCommentStale(lastCommentAt: string | null): boolean {
   return Date.now() - ts > COMMENT_STALE_MS;
 }
 
+function ClientRowActions({
+  row,
+  onComment,
+  onCopyPay,
+}: {
+  row: WorkClientRow;
+  onComment: (row: WorkClientRow) => void;
+  onCopyPay: (row: WorkClientRow) => void;
+}) {
+  const t = strings.receivables;
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      {row.phone ? <KyivstarDialButton phone={row.phone} size="sm" label="" /> : null}
+      {row.primaryOrderId ? (
+        <button
+          type="button"
+          onClick={() => onCopyPay(row)}
+          className="rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
+        >
+          {t.copyPayLink}
+        </button>
+      ) : null}
+      <button
+        type="button"
+        onClick={() => onComment(row)}
+        className="rounded-md border border-zinc-200 bg-white px-2.5 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
+      >
+        {t.commentAdd}
+      </button>
+    </div>
+  );
+}
+
 function WorkClientsTable({
   rows,
   currency,
@@ -920,6 +1266,7 @@ function WorkClientsTable({
   onOpenContact,
   onOpenOrder,
   onComment,
+  onCopyPay,
 }: {
   rows: WorkClientRow[];
   currency: string;
@@ -930,6 +1277,7 @@ function WorkClientsTable({
   onOpenContact: (id: string) => void;
   onOpenOrder: (id: string) => void;
   onComment: (row: WorkClientRow) => void;
+  onCopyPay: (row: WorkClientRow) => void;
 }) {
   const t = strings.receivables;
   if (rows.length === 0) {
@@ -1014,9 +1362,15 @@ function WorkClientsTable({
                             </span>
                           ) : null}
                         </div>
-                        {row.lastCommentPreview ? (
+                          {row.lastCommentPreview ? (
                           <div className="mt-0.5 truncate text-xs text-zinc-500">
                             {row.lastCommentPreview}
+                          </div>
+                        ) : null}
+                        {row.promiseDate ? (
+                          <div className="mt-0.5 text-xs text-amber-800">
+                            {t.promiseDate}: {row.promiseDate}
+                            {row.promiseAmount != null ? ` · ${row.promiseAmount.toFixed(2)}` : ""}
                           </div>
                         ) : null}
                       </div>
@@ -1025,13 +1379,7 @@ function WorkClientsTable({
                     )}
                   </td>
                   <td className="px-4 py-3">
-                    <button
-                      type="button"
-                      onClick={() => onComment(row)}
-                      className="rounded-md border border-zinc-200 bg-white px-2.5 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
-                    >
-                      {t.commentAdd}
-                    </button>
+                    <ClientRowActions row={row} onComment={onComment} onCopyPay={onCopyPay} />
                   </td>
                 </tr>
                 {expanded ? (
@@ -1164,12 +1512,12 @@ function ReconcileTable({
   rows,
   currency,
   onOpenContact,
-  onOpenOrders,
+  onSearchCode,
 }: {
   rows: ReconciliationLine[];
   currency: string;
   onOpenContact: (id: string) => void;
-  onOpenOrders: (contactId: string) => void;
+  onSearchCode: (code: string) => void;
 }) {
   const t = strings.receivables;
   if (rows.length === 0) {
@@ -1217,35 +1565,31 @@ function ReconcileTable({
               <td className="px-4 py-3">
                 <div className="flex flex-wrap gap-2">
                   {row.contactId ? (
-                    <>
-                      <button
-                        type="button"
-                        onClick={() => onOpenContact(row.contactId!)}
-                        className="text-xs font-medium text-zinc-700 underline"
-                      >
-                        {t.actionContact}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => onOpenOrders(row.contactId!)}
-                        className="text-xs font-medium text-zinc-700 underline"
-                      >
-                        {t.actionOrders}
-                      </button>
-                    </>
+                    <button
+                      type="button"
+                      onClick={() => onOpenContact(row.contactId!)}
+                      className="text-xs font-medium text-zinc-700 underline"
+                    >
+                      {t.actionContact}
+                    </button>
                   ) : null}
                   {row.status === "ONLY_1C" ? (
-                    <Link
-                      href={`/contacts?q=${encodeURIComponent(`/${row.counterpartyCode1C}`)}`}
+                    <button
+                      type="button"
+                      onClick={() => onSearchCode(row.counterpartyCode1C)}
                       className="text-xs font-medium text-blue-600 underline"
                     >
-                      {t.actionLinkCode}
-                    </Link>
+                      {t.searchByCode}
+                    </button>
                   ) : null}
-                  {row.status === "DELTA_1C_MORE" ? (
-                    <Link href="/payments" className="text-xs font-medium text-blue-600 underline">
+                  {row.status === "DELTA_1C_MORE" && row.contactId ? (
+                    <button
+                      type="button"
+                      onClick={() => onOpenContact(row.contactId!)}
+                      className="text-xs font-medium text-blue-600 underline"
+                    >
                       {t.actionPayments}
-                    </Link>
+                    </button>
                   ) : null}
                 </div>
               </td>

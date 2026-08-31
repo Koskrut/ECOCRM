@@ -1,13 +1,16 @@
-import { BadRequestException, Injectable, Logger, NotFoundException, Optional } from "@nestjs/common";
+import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException, Optional } from "@nestjs/common";
 import {
   ClientPlatform,
   FieldLocationSampleSource,
   FieldShiftAnchorKind,
+  FieldShiftMobilityMode,
   FieldShiftStatus,
   FieldTrackingEventType,
   FieldTrackingHealthState,
   FieldTrackingRestartReason,
+  FuelCompensationStatus,
   Prisma,
+  UserRole,
 } from "@prisma/client";
 import { EventEmitter2 } from "@nestjs/event-emitter";
 import type { AuthUser } from "../auth/auth.types";
@@ -35,6 +38,7 @@ import {
   type LatLng,
   parseAnchorKind,
   parseClientLatLng,
+  parseMobilityMode,
   suggestDestinationKind,
 } from "./field-shift-anchors.util";
 import {
@@ -414,6 +418,8 @@ export class FieldShiftsService {
       originKind?: string | null;
       originLat?: number | null;
       originLng?: number | null;
+      mobilityMode?: string | null;
+      mobilityNote?: string | null;
     },
   ) {
     if (!actor) {
@@ -427,7 +433,7 @@ export class FieldShiftsService {
       orderBy: [{ startedAt: "desc" }],
     });
     if (existingToday) {
-      // Idempotent reuse — do not overwrite origin anchors.
+      // Idempotent reuse — do not overwrite origin anchors or mobility.
       return this.prisma.fieldShift.update({
         where: { id: existingToday.id },
         data: {
@@ -459,6 +465,12 @@ export class FieldShiftsService {
       garageStart: garage.start,
     });
 
+    const mobilityMode = parseMobilityMode(input.mobilityMode) ?? FieldShiftMobilityMode.CAR;
+    const mobilityNote =
+      typeof input.mobilityNote === "string" && input.mobilityNote.trim()
+        ? input.mobilityNote.trim().slice(0, 500)
+        : null;
+
     try {
       return await this.prisma.fieldShift.create({
         data: {
@@ -470,6 +482,8 @@ export class FieldShiftsService {
           originKind: origin.kind,
           originLat: origin.lat,
           originLng: origin.lng,
+          mobilityMode,
+          mobilityNote,
         },
       });
     } catch (e) {
@@ -483,6 +497,64 @@ export class FieldShiftsService {
       }
       throw e;
     }
+  }
+
+  /**
+   * Supervisor override: set day mobility (CAR vs WALK_TRANSIT).
+   * Blocks when fuel report for that day is already PAID.
+   */
+  async patchMobility(
+    actor: AuthUser | undefined,
+    shiftId: string,
+    input: { mobilityMode?: string | null; mobilityNote?: string | null },
+  ) {
+    if (!actor) {
+      throw new BadRequestException("User is required");
+    }
+    if (actor.role !== UserRole.ADMIN && actor.role !== UserRole.LEAD) {
+      throw new ForbiddenException("Only a lead or admin can change mobility mode");
+    }
+
+    const shift = await this.prisma.fieldShift.findUnique({ where: { id: shiftId } });
+    if (!shift) {
+      throw new NotFoundException("Shift not found");
+    }
+    await assertCanAccessOwner(this.prisma, actor, shift.ownerId);
+
+    const mode = parseMobilityMode(input.mobilityMode);
+    if (!mode) {
+      throw new BadRequestException("mobilityMode must be CAR or WALK_TRANSIT");
+    }
+
+    const paid = await this.prisma.fuelDayReport.findFirst({
+      where: {
+        ownerId: shift.ownerId,
+        date: shift.date,
+        compensationStatus: FuelCompensationStatus.PAID,
+      },
+      select: { id: true },
+    });
+    if (paid) {
+      throw new BadRequestException("Cannot change mobility after fuel report is paid");
+    }
+
+    const mobilityNote =
+      input.mobilityNote === undefined
+        ? undefined
+        : input.mobilityNote == null || !String(input.mobilityNote).trim()
+          ? null
+          : String(input.mobilityNote).trim().slice(0, 500);
+
+    const updated = await this.prisma.fieldShift.update({
+      where: { id: shift.id },
+      data: {
+        mobilityMode: mode,
+        ...(mobilityNote !== undefined ? { mobilityNote } : {}),
+      },
+    });
+
+    const dateStr = instantToKyivYmd(shift.date);
+    return { shift: updated, dateStr, ownerId: shift.ownerId };
   }
 
   async end(
@@ -1084,6 +1156,8 @@ export class FieldShiftsService {
           endedAt: shift.endedAt?.toISOString() ?? null,
           trackingEnabled: shift.trackingEnabled,
           plannedDistanceKm: shift.plannedDistanceKm,
+          mobilityMode: shift.mobilityMode === "WALK_TRANSIT" ? "WALK_TRANSIT" : "CAR",
+          mobilityNote: shift.mobilityNote ?? null,
         },
         owner: shift.owner,
         lastSample: last

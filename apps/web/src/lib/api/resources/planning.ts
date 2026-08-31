@@ -531,6 +531,14 @@ export type KitPortfolioKit = {
   }>;
 };
 
+export type StockoutRow = {
+  productId: string;
+  sku: string;
+  name: string;
+  kind: "KIT" | "PART";
+  inPareto80: boolean;
+};
+
 export type KitPortfolioView = {
   freshness: SnapshotFreshness;
   salesFreshness: SalesFreshness;
@@ -551,6 +559,13 @@ export type KitPortfolioView = {
     ending: number;
     pareto80Count: number;
   };
+  stockouts: {
+    zeroCount: number;
+    paretoZeroCount: number;
+    zeroKits: StockoutRow[];
+    zeroParts: StockoutRow[];
+  };
+  draftRequests: { packing: number; factory: number };
   kits: KitPortfolioKit[];
   sharedBottlenecks: Array<{
     componentId: string;
@@ -862,6 +877,18 @@ export const planningApi = {
   exportPackingList: async (id: string) => {
     await downloadBlob(`/planning/packing-lists/${id}/export.xlsx`, `packing-list-${id.slice(0, 8)}.xlsx`);
   },
+  deletePackingList: async (id: string): Promise<{ deleted: boolean; id: string }> => {
+    const res = await apiHttp.delete(`/planning/packing-lists/${id}`);
+    return res.data;
+  },
+  deletePackingLine: async (id: string, lineId: string): Promise<PackingList> => {
+    const res = await apiHttp.delete(`/planning/packing-lists/${id}/lines/${lineId}`);
+    return res.data;
+  },
+  reopenPackingList: async (id: string): Promise<PackingList> => {
+    const res = await apiHttp.post(`/planning/packing-lists/${id}/reopen`);
+    return res.data;
+  },
   getFactoryRecommendations: async (): Promise<{
     freshness: SnapshotFreshness;
     dueAt: string;
@@ -903,6 +930,10 @@ export const planningApi = {
   },
   deleteFactoryLine: async (id: string, lineId: string): Promise<FactoryOrder> => {
     const res = await apiHttp.delete<FactoryOrder>(`/planning/factory/orders/${id}/lines/${lineId}`);
+    return res.data;
+  },
+  deleteFactoryOrder: async (id: string): Promise<{ deleted: boolean; id: string }> => {
+    const res = await apiHttp.delete(`/planning/factory/orders/${id}`);
     return res.data;
   },
   updateFactoryLine: async (

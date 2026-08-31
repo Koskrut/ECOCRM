@@ -101,6 +101,25 @@ export async function promptShiftOrigin(user: {
   return { kind: "CURRENT", lat: gps.lat, lng: gps.lng };
 }
 
+/** One-shot mobility chooser: car vs walk/transit. */
+export async function promptShiftMobility(): Promise<{
+  mode: "CAR" | "WALK_TRANSIT";
+} | null> {
+  return new Promise((resolve) => {
+    Alert.alert(t("today.shiftMobilityTitle"), t("today.shiftMobilityHint"), [
+      { text: t("common.cancel"), style: "cancel", onPress: () => resolve(null) },
+      {
+        text: t("today.shiftMobilityCar"),
+        onPress: () => resolve({ mode: "CAR" }),
+      },
+      {
+        text: t("today.shiftMobilityWalkTransit"),
+        onPress: () => resolve({ mode: "WALK_TRANSIT" }),
+      },
+    ]);
+  });
+}
+
 /** One-shot end chooser: Home vs Stay here. */
 export async function promptShiftDestination(user: {
   routeStartLat?: number | null;

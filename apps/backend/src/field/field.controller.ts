@@ -53,6 +53,8 @@ export class FieldController {
       originKind?: string | null;
       originLat?: number | null;
       originLng?: number | null;
+      mobilityMode?: string | null;
+      mobilityNote?: string | null;
     },
     @Req() req: Request & { user?: AuthUser },
   ) {
@@ -65,8 +67,29 @@ export class FieldController {
       originKind: body?.originKind ?? null,
       originLat: body?.originLat != null ? Number(body.originLat) : null,
       originLng: body?.originLng != null ? Number(body.originLng) : null,
+      mobilityMode: body?.mobilityMode ?? null,
+      mobilityNote: body?.mobilityNote ?? null,
     });
     return { shift };
+  }
+
+  @Patch("shifts/:id/mobility")
+  async patchShiftMobility(
+    @Param("id") id: string,
+    @Body()
+    body: {
+      mobilityMode?: string | null;
+      mobilityNote?: string | null;
+    },
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    const result = await this.shifts.patchMobility(req.user, id, {
+      mobilityMode: body?.mobilityMode ?? null,
+      mobilityNote: body?.mobilityNote,
+    });
+    // Recalc fuel so compensationKm / kind reflect the new mode.
+    await this.fuel.recalculateForOwner(result.ownerId, result.dateStr);
+    return { shift: result.shift };
   }
 
   @Post("shifts/:id/end")

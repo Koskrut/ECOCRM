@@ -219,6 +219,13 @@ export function TeamFieldList({ items, selectedOwnerId, onSelect }: TeamFieldLis
                   <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">
                     {t.onShift}
                   </span>
+                  {item.shift.mobilityMode === "WALK_TRANSIT" ? (
+                    <span
+                      className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-900"
+                      title={item.shift.mobilityNote ?? undefined}>
+                      {t.mobilityWalkTransit}
+                    </span>
+                  ) : null}
                   <div className="flex flex-wrap justify-end gap-1">
                     <span
                       className={`rounded-full px-2 py-0.5 text-xs font-medium ${appStatusClass(item.device, item.gpsStatus)}`}

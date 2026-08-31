@@ -115,6 +115,8 @@ export class ReceivablesController {
     @Query("ownerId") ownerId?: string,
     @Query("overdue") overdue?: string,
     @Query("needsComment") needsComment?: string,
+    @Query("promisedToday") promisedToday?: string,
+    @Query("promiseBroken") promiseBroken?: string,
     @Req() req?: Request & { user?: AuthUser },
   ) {
     return this.service.listWorkClients(this.requireUser(req!), {
@@ -124,6 +126,8 @@ export class ReceivablesController {
       ownerId,
       overdue: overdue === "true" || overdue === "1",
       needsComment: needsComment === "true" || needsComment === "1",
+      promisedToday: promisedToday === "true" || promisedToday === "1",
+      promiseBroken: promiseBroken === "true" || promiseBroken === "1",
     });
   }
 
@@ -165,11 +169,14 @@ export class ReceivablesController {
   @Roles(UserRole.ADMIN, UserRole.LEAD, UserRole.MANAGER)
   addDebtComment(
     @Param("contactId") contactId: string,
-    @Body() body: { body?: string },
+    @Body() body: { body?: string; promiseDate?: string; promiseAmount?: number },
     @Req() req: Request & { user?: AuthUser },
   ) {
     if (!contactId?.trim()) throw new BadRequestException("contactId is required");
-    return this.service.addDebtComment(this.requireUser(req), contactId.trim(), body?.body ?? "");
+    return this.service.addDebtComment(this.requireUser(req), contactId.trim(), body?.body ?? "", {
+      date: body?.promiseDate,
+      amount: body?.promiseAmount,
+    });
   }
 
   @Get("work/orders")

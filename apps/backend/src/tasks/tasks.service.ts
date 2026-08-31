@@ -415,6 +415,22 @@ export class TasksService {
     this.assertTaskAccess(task, actor);
     const prevSnapshot = taskRecordFromRow(task as unknown as TaskRowLike);
 
+    const entityPatch = {
+      contactId: body.contactId !== undefined ? body.contactId : undefined,
+      companyId: body.companyId !== undefined ? body.companyId : undefined,
+      leadId: body.leadId !== undefined ? body.leadId : undefined,
+      orderId: body.orderId !== undefined ? body.orderId : undefined,
+    };
+    const hasEntityPatch = Object.values(entityPatch).some((v) => v !== undefined);
+    if (hasEntityPatch) {
+      await this.assertEntityAccess(actor, {
+        contactId: entityPatch.contactId !== undefined ? entityPatch.contactId : task.contactId,
+        companyId: entityPatch.companyId !== undefined ? entityPatch.companyId : task.companyId,
+        leadId: entityPatch.leadId !== undefined ? entityPatch.leadId : task.leadId,
+        orderId: entityPatch.orderId !== undefined ? entityPatch.orderId : task.orderId,
+      });
+    }
+
     const dueAt =
       body.dueAt !== undefined
         ? (typeof body.dueAt === "string" && body.dueAt ? new Date(body.dueAt) : null)
@@ -439,6 +455,10 @@ export class TasksService {
         ...(dueAt !== undefined && { dueAt }),
         ...(body.status !== undefined && { status: body.status }),
         ...(assigneeId !== undefined && { assigneeId }),
+        ...(entityPatch.contactId !== undefined && { contactId: entityPatch.contactId }),
+        ...(entityPatch.companyId !== undefined && { companyId: entityPatch.companyId }),
+        ...(entityPatch.leadId !== undefined && { leadId: entityPatch.leadId }),
+        ...(entityPatch.orderId !== undefined && { orderId: entityPatch.orderId }),
         ...(body.status === "DONE" && { completedAt: new Date() }),
         ...(body.status !== "DONE" && body.status !== undefined && { completedAt: null }),
       },

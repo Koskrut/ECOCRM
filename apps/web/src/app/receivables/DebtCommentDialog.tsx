@@ -21,6 +21,8 @@ export function DebtCommentDialog({
 }) {
   const t = strings.receivables;
   const [text, setText] = useState("");
+  const [promiseDate, setPromiseDate] = useState("");
+  const [promiseAmount, setPromiseAmount] = useState("");
   const [comments, setComments] = useState<DebtComment[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -44,12 +46,18 @@ export function DebtCommentDialog({
   }, [load]);
 
   const save = async () => {
-    if (!text.trim() || saving) return;
+    if ((!text.trim() && !promiseDate) || saving) return;
     setSaving(true);
     setError(null);
     try {
-      await receivablesApi.addDebtComment(contactId, text.trim());
+      const amount = promiseAmount.trim() ? Number(promiseAmount.replace(",", ".")) : undefined;
+      await receivablesApi.addDebtComment(contactId, text.trim(), {
+        promiseDate: promiseDate || undefined,
+        promiseAmount: amount != null && Number.isFinite(amount) ? amount : undefined,
+      });
       setText("");
+      setPromiseDate("");
+      setPromiseAmount("");
       await load();
       onSaved();
     } catch {
@@ -85,6 +93,28 @@ export function DebtCommentDialog({
               autoFocus
             />
           </label>
+          <div className="grid grid-cols-2 gap-2">
+            <label className="block text-sm">
+              <span className="text-xs text-zinc-500">{t.promiseDate}</span>
+              <input
+                type="date"
+                value={promiseDate}
+                onChange={(e) => setPromiseDate(e.target.value)}
+                className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+              />
+            </label>
+            <label className="block text-sm">
+              <span className="text-xs text-zinc-500">{t.promiseAmount}</span>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={promiseAmount}
+                onChange={(e) => setPromiseAmount(e.target.value)}
+                className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+              />
+            </label>
+          </div>
 
           {error ? (
             <div className="rounded-md border border-red-100 bg-red-50 px-3 py-2 text-sm text-red-700">
@@ -114,6 +144,12 @@ export function DebtCommentDialog({
                       <span>{formatDateTime(c.createdAt)}</span>
                     </div>
                     <p className="mt-1 whitespace-pre-wrap text-zinc-800">{c.body}</p>
+                    {c.promiseDate ? (
+                      <div className="mt-1 text-xs text-amber-800">
+                        {t.promiseDate}: {c.promiseDate}
+                        {c.promiseAmount != null ? ` · ${c.promiseAmount.toFixed(2)}` : ""}
+                      </div>
+                    ) : null}
                   </li>
                 ))}
               </ul>
@@ -131,7 +167,7 @@ export function DebtCommentDialog({
           </button>
           <button
             type="button"
-            disabled={!text.trim() || saving}
+            disabled={(!text.trim() && !promiseDate) || saving}
             onClick={() => void save()}
             className="rounded-lg bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
           >
@@ -155,6 +191,7 @@ export function DebtCommentSection({
 }) {
   const t = strings.receivables;
   const [text, setText] = useState("");
+  const [promiseDate, setPromiseDate] = useState("");
   const [comments, setComments] = useState(initialComments);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -164,13 +201,16 @@ export function DebtCommentSection({
   }, [initialComments]);
 
   const save = async () => {
-    if (!text.trim() || saving) return;
+    if ((!text.trim() && !promiseDate) || saving) return;
     setSaving(true);
     setError(null);
     try {
-      const res = await receivablesApi.addDebtComment(contactId, text.trim());
+      const res = await receivablesApi.addDebtComment(contactId, text.trim(), {
+        promiseDate: promiseDate || undefined,
+      });
       setComments((prev) => [res.data, ...prev]);
       setText("");
+      setPromiseDate("");
       onChanged?.();
     } catch {
       setError(t.commentError);
@@ -195,11 +235,20 @@ export function DebtCommentSection({
         placeholder={t.commentPlaceholder}
         className="w-full resize-y rounded-lg border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
       />
+      <label className="mt-2 block text-xs text-zinc-500">
+        {t.promiseDate}
+        <input
+          type="date"
+          value={promiseDate}
+          onChange={(e) => setPromiseDate(e.target.value)}
+          className="mt-1 w-full rounded-lg border border-zinc-200 px-2 py-1.5 text-sm"
+        />
+      </label>
       <div className="mt-2 flex items-center justify-between gap-2">
         {error ? <span className="text-xs text-red-600">{error}</span> : <span />}
         <button
           type="button"
-          disabled={!text.trim() || saving}
+          disabled={(!text.trim() && !promiseDate) || saving}
           onClick={() => void save()}
           className="rounded-md bg-zinc-900 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
         >
@@ -217,6 +266,12 @@ export function DebtCommentSection({
                 <span>{formatDateTime(c.createdAt)}</span>
               </div>
               <p className="mt-1 whitespace-pre-wrap text-zinc-800">{c.body}</p>
+              {c.promiseDate ? (
+                <div className="mt-1 text-xs text-amber-800">
+                  {t.promiseDate}: {c.promiseDate}
+                  {c.promiseAmount != null ? ` · ${c.promiseAmount.toFixed(2)}` : ""}
+                </div>
+              ) : null}
             </li>
           ))}
         </ul>

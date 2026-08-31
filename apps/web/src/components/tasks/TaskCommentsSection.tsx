@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { tasksApi, type TaskComment } from "@/lib/api/resources/tasks";
 import { formatDateTime } from "@/lib/crmDatetime";
 import { strings } from "@/locales";
+import { ErrorPanel } from "@/components/feedback";
 
 const t = strings.tasks;
 
@@ -16,17 +17,20 @@ type Props = {
 export function TaskCommentsSection({ taskId, initialCount = 0, onChanged }: Props) {
   const [comments, setComments] = useState<TaskComment[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [reply, setReply] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       const res = await tasksApi.listComments(taskId);
       setComments(res.items);
-    } catch {
+    } catch (e) {
       setComments([]);
+      setLoadError(e instanceof Error ? e.message : t.comments.loadFailed);
     } finally {
       setLoading(false);
     }
@@ -61,13 +65,17 @@ export function TaskCommentsSection({ taskId, initialCount = 0, onChanged }: Pro
       <div className="mt-2 max-h-48 space-y-2 overflow-y-auto">
         {loading ? (
           <p className="text-xs text-zinc-400">{t.loading}</p>
+        ) : loadError ? (
+          <ErrorPanel variant="inline" message={loadError} onRetry={() => void load()} />
         ) : comments.length === 0 ? (
           <p className="text-xs text-zinc-400">{t.comments.empty}</p>
         ) : (
           comments.map((comment) => (
             <div key={comment.id} className="rounded-lg bg-zinc-50 px-3 py-2">
               <div className="flex items-center justify-between gap-2">
-                <span className="text-xs font-medium text-zinc-700">{comment.author?.fullName ?? "—"}</span>
+                <span className="text-xs font-medium text-zinc-700">
+                  {comment.author?.fullName ?? "—"}
+                </span>
                 <span className="text-[11px] text-zinc-400">{formatDateTime(comment.createdAt)}</span>
               </div>
               <p className="mt-1 whitespace-pre-wrap text-sm text-zinc-700">{comment.body}</p>

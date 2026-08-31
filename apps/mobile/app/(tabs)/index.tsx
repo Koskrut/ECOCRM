@@ -345,6 +345,8 @@ export default function TodayScreen() {
           activeShift={!!activeShift}
           isTracking={isTracking}
           trackingMode={trackingMode}
+          mobilityMode={activeShift?.mobilityMode ?? null}
+          mobilityNote={activeShift?.mobilityNote ?? null}
           trackingHealthy={trackingHealthy}
           acceptStale={acceptStale}
           unhealthyReason={unhealthyReason}

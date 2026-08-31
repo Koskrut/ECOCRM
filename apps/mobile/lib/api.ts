@@ -1,3 +1,4 @@
+import { apiErrorMessage } from "./api-error-message";
 import { getApiBaseUrl } from "./config";
 
 export class ApiError extends Error {
@@ -44,14 +45,7 @@ export async function apiFetch<T>(
   }
 
   if (!res.ok) {
-    let message = `${res.status}`;
-    if (body && typeof body === "object" && body !== null && "message" in body) {
-      const m = (body as { message: unknown }).message;
-      message = typeof m === "string" ? m : Array.isArray(m) ? m.join(", ") : JSON.stringify(body);
-    } else if (typeof body === "string") {
-      message = body;
-    }
-    throw new ApiError(res.status, message);
+    throw new ApiError(res.status, apiErrorMessage(res.status, body));
   }
 
   return body as T;
@@ -86,15 +80,10 @@ export async function apiUploadForm<T>(
   }
 
   if (!res.ok) {
-    let message = `${res.status}`;
-    if (res.status === 413) {
-      message = "Фото занадто велике. Спробуйте інше зображення або зробіть фото ближче.";
-    } else if (body && typeof body === "object" && body !== null && "message" in body) {
-      const m = (body as { message: unknown }).message;
-      message = typeof m === "string" ? m : Array.isArray(m) ? m.join(", ") : JSON.stringify(body);
-    } else if (typeof body === "string" && !body.includes("<html")) {
-      message = body;
-    }
+    const message =
+      res.status === 413
+        ? "Фото занадто велике. Спробуйте інше зображення або зробіть фото ближче."
+        : apiErrorMessage(res.status, body);
     throw new ApiError(res.status, message);
   }
 

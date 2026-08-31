@@ -79,24 +79,16 @@ function TaskGroup({
       </div>
       <ul className="mt-2 space-y-2">
         {tasks.map((task) => {
-          const href = task.leadId
-            ? `/leads?leadId=${task.leadId}`
-            : task.contactId
-              ? `/contacts?contactId=${task.contactId}`
-              : null;
+          const href = `/tasks?taskId=${task.id}`;
           return (
             <li
               key={task.id}
               className={`flex items-center justify-between gap-2 rounded-lg border px-3 py-2 ${meta.row}`}
             >
               <div className="min-w-0 flex-1">
-                {href ? (
-                  <Link href={href} className="truncate text-sm font-medium text-zinc-900 hover:underline">
-                    {task.title}
-                  </Link>
-                ) : (
-                  <p className="truncate text-sm font-medium text-zinc-900">{task.title}</p>
-                )}
+                <Link href={href} className="truncate text-sm font-medium text-zinc-900 hover:underline">
+                  {task.title}
+                </Link>
                 <p className="text-xs text-zinc-500">
                   {strings.tasks.dueLabel} {formatDue(task.dueAt)}
                 </p>

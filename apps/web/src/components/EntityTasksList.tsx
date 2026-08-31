@@ -3,12 +3,17 @@
 import { useCallback, useEffect, useState } from "react";
 import { tasksApi, ACTIVE_TASK_STATUSES, type Task } from "@/lib/api/resources/tasks";
 import { formatDateTime } from "@/lib/crmDatetime";
-import { apiHttp } from "@/lib/api/client";
-import { authApi } from "@/lib/api/resources/auth";
 import { strings } from "@/locales";
-import { interpolate, taskStatusLabel } from "@/lib/task-labels";
+import { interpolate } from "@/lib/task-labels";
+import { taskUrgencyBadgeClass } from "@/lib/task-urgency";
+import { TaskCreateModal } from "@/components/tasks/TaskCreateModal";
+import { TaskDetailModal } from "@/components/tasks/TaskDetailModal";
+import { TaskStatusBadge } from "@/components/tasks/TaskStatusBadge";
+import type { TaskEntityType } from "@/components/tasks/TaskEntityLinker";
+import { useConfirm } from "@/components/feedback";
 
 const t = strings.tasks;
+const PAGE_SIZE = 20;
 
 type Props = {
   contactId?: string | null;
@@ -17,11 +22,8 @@ type Props = {
   orderId?: string | null;
   /** Called after list loads or changes (active/open task count). */
   onCountChange?: (total: number) => void;
+  linkLabel?: string;
 };
-
-function formatDueAt(dueAt: string | null | undefined): string {
-  return formatDateTime(dueAt);
-}
 
 export function EntityTasksList({
   contactId,
@@ -29,55 +31,28 @@ export function EntityTasksList({
   leadId,
   orderId,
   onCountChange,
+  linkLabel,
 }: Props) {
+  const { confirm } = useConfirm();
   const [items, setItems] = useState<Task[]>([]);
   const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
-
   const [showClosed, setShowClosed] = useState(false);
-  const [newTitle, setNewTitle] = useState("");
-  const [newDueAt, setNewDueAt] = useState("");
-  const [newBody, setNewBody] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [users, setUsers] = useState<{ id: string; fullName: string }[]>([]);
-  const [myUserId, setMyUserId] = useState<string | null>(null);
-  const [newAssigneeId, setNewAssigneeId] = useState<string>("");
+  const [showCreate, setShowCreate] = useState(false);
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const selectedTask = items.find((row) => row.id === selectedTaskId) ?? null;
 
-  useEffect(() => {
-    void (async () => {
-      try {
-        const [usersRes, meRes] = await Promise.all([
-          apiHttp.get<{ items: { id: string; fullName: string }[] }>("/users", { params: { scope: "assignees" } } as never),
-          authApi.me(),
-        ]);
-        setUsers(usersRes.data?.items ?? []);
-        setMyUserId(meRes.user?.id ?? null);
-        setNewAssigneeId(meRes.user?.id ?? "");
-      } catch {
-        setUsers([]);
-      }
-    })();
-  }, []);
-
-  const query = useCallback(() => {
-    const q: Parameters<typeof tasksApi.list>[0] = { pageSize: 50 };
-    if (contactId) q.contactId = contactId;
-    if (companyId) q.companyId = companyId;
-    if (leadId) q.leadId = leadId;
-    if (orderId) q.orderId = orderId;
-    if (!showClosed) q.status = ACTIVE_TASK_STATUSES;
-    return q;
-  }, [contactId, companyId, leadId, orderId, showClosed]);
-
-  const activeCountQuery = useCallback(() => {
-    const q: Parameters<typeof tasksApi.list>[0] = { pageSize: 1, status: ACTIVE_TASK_STATUSES };
-    if (contactId) q.contactId = contactId;
-    if (companyId) q.companyId = companyId;
-    if (leadId) q.leadId = leadId;
-    if (orderId) q.orderId = orderId;
-    return q;
-  }, [contactId, companyId, leadId, orderId]);
+  const lockedType: TaskEntityType | undefined = contactId
+    ? "contact"
+    : companyId
+      ? "company"
+      : leadId
+        ? "lead"
+        : orderId
+          ? "order"
+          : undefined;
 
   const hasEntity = !!(contactId || companyId || leadId || orderId);
 
@@ -92,9 +67,28 @@ export function EntityTasksList({
     setLoading(true);
     setErr(null);
     try {
+      const listQuery: Parameters<typeof tasksApi.list>[0] = {
+        page,
+        pageSize: PAGE_SIZE,
+      };
+      if (contactId) listQuery.contactId = contactId;
+      if (companyId) listQuery.companyId = companyId;
+      if (leadId) listQuery.leadId = leadId;
+      if (orderId) listQuery.orderId = orderId;
+      if (!showClosed) listQuery.status = ACTIVE_TASK_STATUSES;
+
+      const activeQuery: Parameters<typeof tasksApi.list>[0] = {
+        pageSize: 1,
+        status: ACTIVE_TASK_STATUSES,
+      };
+      if (contactId) activeQuery.contactId = contactId;
+      if (companyId) activeQuery.companyId = companyId;
+      if (leadId) activeQuery.leadId = leadId;
+      if (orderId) activeQuery.orderId = orderId;
+
       const [res, activeRes] = await Promise.all([
-        tasksApi.list(query()),
-        tasksApi.list(activeCountQuery()),
+        tasksApi.list(listQuery),
+        tasksApi.list(activeQuery),
       ]);
       setItems(res.items);
       setTotal(res.total);
@@ -107,41 +101,15 @@ export function EntityTasksList({
     } finally {
       setLoading(false);
     }
-  }, [hasEntity, query, activeCountQuery, onCountChange]);
+  }, [hasEntity, contactId, companyId, leadId, orderId, showClosed, page, onCountChange]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
-  const addTask = useCallback(async () => {
-    if (!newTitle.trim() || !hasEntity) return;
-    setSaving(true);
-    setErr(null);
-    try {
-      await tasksApi.create({
-        title: newTitle.trim(),
-        body: newBody.trim() || undefined,
-        dueAt: newDueAt.trim() || undefined,
-        assigneeId: newAssigneeId || undefined,
-        contactId: contactId ?? undefined,
-        companyId: companyId ?? undefined,
-        leadId: leadId ?? undefined,
-        orderId: orderId ?? undefined,
-      });
-      setNewTitle("");
-      setNewDueAt("");
-      setNewBody("");
-      if (myUserId) setNewAssigneeId(myUserId);
-      await load();
-    } catch (e) {
-      setErr(
-        (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-          (e instanceof Error ? e.message : t.errors.addFailed),
-      );
-    } finally {
-      setSaving(false);
-    }
-  }, [newTitle, newBody, newDueAt, newAssigneeId, hasEntity, contactId, companyId, leadId, orderId, load, myUserId]);
+  useEffect(() => {
+    setPage(1);
+  }, [showClosed, contactId, companyId, leadId, orderId]);
 
   const complete = useCallback(
     async (id: string) => {
@@ -157,6 +125,13 @@ export function EntityTasksList({
 
   const cancel = useCallback(
     async (id: string) => {
+      const ok = await confirm({
+        title: t.actions.confirmCancelTitle,
+        message: t.actions.confirmCancelMessage,
+        confirmText: t.actions.cancelTask,
+        destructive: true,
+      });
+      if (!ok) return;
       try {
         await tasksApi.cancel(id);
         await load();
@@ -164,7 +139,7 @@ export function EntityTasksList({
         setErr(e instanceof Error ? e.message : t.errors.cancelFailed);
       }
     },
-    [load],
+    [load, confirm],
   );
 
   if (!hasEntity) {
@@ -175,50 +150,28 @@ export function EntityTasksList({
     );
   }
 
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
   return (
     <div className="flex flex-col gap-4">
-      <div className="rounded-md border border-zinc-200 bg-zinc-50/30 p-3">
-        <p className="mb-2 text-sm font-medium text-zinc-700">{t.actions.add}</p>
-        <div className="flex flex-col gap-2">
-          <input
-            type="text"
-            value={newTitle}
-            onChange={(e) => setNewTitle(e.target.value)}
-            placeholder={t.fields.titlePlaceholder}
-            className="rounded border border-zinc-200 px-2 py-1.5 text-sm"
-          />
-          <input
-            type="datetime-local"
-            value={newDueAt}
-            onChange={(e) => setNewDueAt(e.target.value)}
-            className="rounded border border-zinc-200 px-2 py-1.5 text-sm"
-          />
-          <select
-            value={newAssigneeId}
-            onChange={(e) => setNewAssigneeId(e.target.value)}
-            className="rounded border border-zinc-200 px-2 py-1.5 text-sm"
-          >
-            {users.length === 0 && <option value="">{t.noUsers}</option>}
-            {users.map((u) => (
-              <option key={u.id} value={u.id}>
-                {u.fullName}
-              </option>
-            ))}
-          </select>
-          <textarea
-            value={newBody}
-            onChange={(e) => setNewBody(e.target.value)}
-            placeholder={t.fields.noteOptional}
-            rows={2}
-            className="rounded border border-zinc-200 px-2 py-1.5 text-sm"
-          />
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-sm font-medium text-zinc-700">
+          {showClosed ? t.allTasks : t.activeTasks}
+        </p>
+        <div className="flex items-center gap-3">
           <button
             type="button"
-            onClick={() => void addTask()}
-            disabled={saving || !newTitle.trim()}
-            className="self-start rounded-md bg-accent-gradient px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+            onClick={() => setShowClosed((v) => !v)}
+            className="text-sm text-zinc-600 underline hover:text-zinc-900"
           >
-            {saving ? t.actions.adding : t.actions.add}
+            {showClosed ? t.hideClosed : t.showClosed}
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowCreate(true)}
+            className="rounded-md bg-accent-gradient px-3 py-1.5 text-sm font-medium text-white"
+          >
+            {t.actions.add}
           </button>
         </div>
       </div>
@@ -228,19 +181,6 @@ export function EntityTasksList({
           {err}
         </div>
       )}
-
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-sm font-medium text-zinc-700">
-          {showClosed ? t.allTasks : t.activeTasks}
-        </p>
-        <button
-          type="button"
-          onClick={() => setShowClosed((v) => !v)}
-          className="text-sm text-zinc-600 underline hover:text-zinc-900"
-        >
-          {showClosed ? t.hideClosed : t.showClosed}
-        </button>
-      </div>
 
       {loading ? (
         <p className="text-sm text-zinc-500">{t.loading}</p>
@@ -255,31 +195,25 @@ export function EntityTasksList({
               key={task.id}
               className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-zinc-200 bg-white p-3"
             >
-              <div className="min-w-0 flex-1">
-                <p className="font-medium text-zinc-900">{task.title}</p>
-                {task.body && (
-                  <p className="mt-0.5 text-sm text-zinc-600">{task.body}</p>
-                )}
+              <button
+                type="button"
+                onClick={() => setSelectedTaskId(task.id)}
+                className="min-w-0 flex-1 text-left"
+              >
+                <p className="font-medium text-zinc-900 hover:underline">{task.title}</p>
+                {task.body ? (
+                  <p className="mt-0.5 line-clamp-2 text-sm text-zinc-600">{task.body}</p>
+                ) : null}
                 <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
-                  <span
-                    className={`rounded px-1.5 py-0.5 ${
-                      task.status === "DONE"
-                        ? "bg-emerald-100 text-emerald-800"
-                        : task.status === "CANCELED"
-                          ? "bg-zinc-100 text-zinc-600"
-                          : "bg-blue-100 text-blue-800"
-                    }`}
-                  >
-                    {taskStatusLabel(task.status)}
-                  </span>
-                  <span>
-                    {t.dueLabel} {formatDueAt(task.dueAt ?? null)}
+                  <TaskStatusBadge status={task.status} />
+                  <span className={`rounded px-1.5 py-0.5 ${taskUrgencyBadgeClass(task)}`}>
+                    {t.dueLabel} {formatDateTime(task.dueAt ?? null)}
                   </span>
                   <span>
                     {t.assigneeLabel} {task.assignee?.fullName ?? "—"}
                   </span>
                 </div>
-              </div>
+              </button>
               {(task.status === "OPEN" || task.status === "IN_PROGRESS") && (
                 <div className="flex gap-1">
                   <button
@@ -302,11 +236,55 @@ export function EntityTasksList({
           ))}
         </ul>
       )}
-      {total > items.length && (
+
+      {totalPages > 1 ? (
+        <div className="flex items-center justify-between text-xs text-zinc-500">
+          <span>{interpolate(t.showingCount, { shown: items.length, total })}</span>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              disabled={page <= 1}
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              className="rounded border border-zinc-200 px-2 py-1 disabled:opacity-50"
+            >
+              {t.actions.previous}
+            </button>
+            <button
+              type="button"
+              disabled={page >= totalPages}
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              className="rounded border border-zinc-200 px-2 py-1 disabled:opacity-50"
+            >
+              {t.actions.next}
+            </button>
+          </div>
+        </div>
+      ) : total > items.length ? (
         <p className="text-xs text-zinc-500">
           {interpolate(t.showingCount, { shown: items.length, total })}
         </p>
-      )}
+      ) : null}
+
+      <TaskCreateModal
+        open={showCreate}
+        onClose={() => setShowCreate(false)}
+        onCreated={() => void load()}
+        preset={{
+          contactId,
+          companyId,
+          leadId,
+          orderId,
+          lockedType,
+          linkLabel,
+        }}
+      />
+
+      <TaskDetailModal
+        taskId={selectedTaskId}
+        initialTask={selectedTask}
+        onClose={() => setSelectedTaskId(null)}
+        onChanged={() => void load()}
+      />
     </div>
   );
 }

@@ -4,7 +4,32 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.167**.)_
+_(планируемые изменения после **0.2.168**.)_
+
+## [0.2.168] — 2026-08-31
+
+### Summary
+
+Патч **0.2.168**: mobility режиму зміни (CAR / WALK_TRANSIT → без палива); debt promises у receivables; великий UX tasks/leads; planning overview/requests + stockout; mobile shift mobility.
+
+### Added
+
+- **FieldShift.mobilityMode** (`CAR` | `WALK_TRANSIT`) + `mobilityNote`; API mobility; fuel compensation zeroed for walk/transit; migration `20260831120000_field_shift_mobility_mode`.
+- **Receivables debt promises**: promise date/amount in debt comments (`debt-promise.util`), URL filters, dialog UX.
+- **Tasks UI**: TaskCreate/Detail modals, entity linker, reschedule chips, status badge, tasks-url helpers.
+- **Planning**: OverviewPanel, RequestsPanel, stockout util; kit portfolio / packing tweaks.
+- **Leads**: outcome dialog, lead-score, URL state; create/modal/filters polish.
+- **Mobile**: shift mobility prompt, api-error-message helper.
+
+### Changed
+
+- Route plans/routing for mobility; fuel pages; dashboard task panels; locales en/uk.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.168`**.
+- **Миграции:** `20260831120000_field_shift_mobility_mode` — **`prisma migrate deploy`**.
+- **Mobile:** новий **EAS** бажаний (shift mobility UI).
 
 ## [0.2.167] — 2026-08-27
 

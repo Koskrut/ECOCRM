@@ -231,6 +231,35 @@ describe("isTrackEligibleForCompensation", () => {
 });
 
 describe("selectCompensationFactKind", () => {
+  it("WALK_TRANSIT → none / non_vehicle_day even with healthy GPS + visits", () => {
+    const sel = selectCompensationFactKind({
+      hasTrackingEnabledShift: true,
+      filteredSampleCount: 200,
+      rawPolylineDistanceKm: 40,
+      coverageRatio: 0.95,
+      snappedTrackDistanceKm: 38,
+      visitRouteDistanceKm: 42,
+      mobilityMode: "WALK_TRANSIT",
+    });
+    assert.equal(sel.kind, "none");
+    assert.equal(sel.ineligibleReason, "non_vehicle_day");
+    assert.ok(sel.warnings.includes("non_vehicle_day"));
+  });
+
+  it("CAR (default) still uses normal GPS eligibility", () => {
+    const sel = selectCompensationFactKind({
+      hasTrackingEnabledShift: true,
+      filteredSampleCount: 200,
+      rawPolylineDistanceKm: 40,
+      coverageRatio: 0.95,
+      snappedTrackDistanceKm: 38,
+      visitRouteDistanceKm: 42,
+      mobilityMode: "CAR",
+    });
+    assert.equal(sel.kind, "fact_gps");
+    assert.equal(sel.ineligibleReason, null);
+  });
+
   it("Hrybovska 31.07: track 18.8 + low coverage + no visits → fact_gps", () => {
     const sel = selectCompensationFactKind({
       hasTrackingEnabledShift: true,

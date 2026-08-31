@@ -1,17 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { LeadsUrlState } from "./leads-url";
+import { DEFAULT_LEADS_URL } from "./leads-url";
+import { strings } from "@/locales";
 
-export type LeadsFiltersState = {
-  status: string;
-  source: string;
-  channel: string;
-  ownerId: string;
-  dateFrom: string;
-  dateTo: string;
-  sortBy: string;
-  sortOrder: string;
-};
+export type LeadsFiltersState = Pick<
+  LeadsUrlState,
+  "status" | "source" | "channel" | "ownerId" | "dateFrom" | "dateTo" | "sortBy" | "sortOrder"
+>;
 
 export type OwnerOption = {
   id: string;
@@ -19,14 +16,14 @@ export type OwnerOption = {
 };
 
 export const DEFAULT_LEADS_FILTERS: LeadsFiltersState = {
-  status: "",
-  source: "",
-  channel: "",
-  ownerId: "",
-  dateFrom: "",
-  dateTo: "",
-  sortBy: "createdAt",
-  sortOrder: "desc",
+  status: DEFAULT_LEADS_URL.status,
+  source: DEFAULT_LEADS_URL.source,
+  channel: DEFAULT_LEADS_URL.channel,
+  ownerId: DEFAULT_LEADS_URL.ownerId,
+  dateFrom: DEFAULT_LEADS_URL.dateFrom,
+  dateTo: DEFAULT_LEADS_URL.dateTo,
+  sortBy: DEFAULT_LEADS_URL.sortBy,
+  sortOrder: DEFAULT_LEADS_URL.sortOrder,
 };
 
 type Props = {
@@ -40,16 +37,6 @@ type Props = {
   onApply: (next: LeadsFiltersState) => void;
   onReset: () => void;
 };
-
-const SORT_BY_OPTIONS: { value: string; label: string }[] = [
-  { value: "createdAt", label: "За датою створення" },
-  { value: "score", label: "За балом" },
-];
-
-const SORT_ORDER_OPTIONS: { value: string; label: string }[] = [
-  { value: "desc", label: "Спочатку новіші" },
-  { value: "asc", label: "Спочатку старіші" },
-];
 
 function isActiveFilterState(state: LeadsFiltersState): boolean {
   return Boolean(
@@ -75,6 +62,7 @@ export function LeadsFiltersPopover({
   onApply,
   onReset,
 }: Props) {
+  const t = strings.leads;
   const panelRef = useRef<HTMLDivElement | null>(null);
   const [draft, setDraft] = useState<LeadsFiltersState>(value);
 
@@ -98,6 +86,17 @@ export function LeadsFiltersPopover({
 
   const hasActiveFilters = useMemo(() => isActiveFilterState(draft), [draft]);
 
+  const sortOrderOptions =
+    draft.sortBy === "score"
+      ? [
+          { value: "desc", label: t.sortOrder.descHigh },
+          { value: "asc", label: t.sortOrder.ascLow },
+        ]
+      : [
+          { value: "desc", label: t.sortOrder.descNewest },
+          { value: "asc", label: t.sortOrder.ascOldest },
+        ];
+
   if (!open) return null;
 
   return (
@@ -106,36 +105,36 @@ export function LeadsFiltersPopover({
       className="absolute right-0 top-12 z-30 w-[min(92vw,440px)] rounded-xl border border-zinc-200 bg-white p-4 shadow-xl"
     >
       <div className="mb-3 flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-zinc-900">Фільтри лідів</h3>
+        <h3 className="text-sm font-semibold text-zinc-900">{t.filtersTitle}</h3>
         <button
           type="button"
           onClick={onClose}
           className="rounded-md border border-zinc-200 px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-50"
         >
-          Закрити
+          {t.close}
         </button>
       </div>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div>
-          <label className="mb-1 block text-xs font-medium text-zinc-500">Статус</label>
+          <label className="mb-1 block text-xs font-medium text-zinc-500">{t.filterLabels.status}</label>
           <select
             value={draft.status}
-            onChange={(e) => setDraft((p) => ({ ...p, status: e.target.value }))}
+            onChange={(e) => setDraft((p) => ({ ...p, status: e.target.value as LeadsFiltersState["status"] }))}
             className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm"
           >
             {statusOptions.map((opt) => (
-              <option key={opt.value || "_all"} value={opt.value}>
+              <option key={opt.value || "_active"} value={opt.value}>
                 {opt.label}
               </option>
             ))}
           </select>
         </div>
         <div>
-          <label className="mb-1 block text-xs font-medium text-zinc-500">Джерело</label>
+          <label className="mb-1 block text-xs font-medium text-zinc-500">{t.filterLabels.source}</label>
           <select
             value={draft.source}
-            onChange={(e) => setDraft((p) => ({ ...p, source: e.target.value }))}
+            onChange={(e) => setDraft((p) => ({ ...p, source: e.target.value as LeadsFiltersState["source"] }))}
             className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm"
           >
             {sourceOptions.map((opt) => (
@@ -146,10 +145,10 @@ export function LeadsFiltersPopover({
           </select>
         </div>
         <div>
-          <label className="mb-1 block text-xs font-medium text-zinc-500">Канал</label>
+          <label className="mb-1 block text-xs font-medium text-zinc-500">{t.filterLabels.channel}</label>
           <select
             value={draft.channel}
-            onChange={(e) => setDraft((p) => ({ ...p, channel: e.target.value }))}
+            onChange={(e) => setDraft((p) => ({ ...p, channel: e.target.value as LeadsFiltersState["channel"] }))}
             className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm"
           >
             {channelOptions.map((opt) => (
@@ -160,13 +159,14 @@ export function LeadsFiltersPopover({
           </select>
         </div>
         <div>
-          <label className="mb-1 block text-xs font-medium text-zinc-500">Відповідальний</label>
+          <label className="mb-1 block text-xs font-medium text-zinc-500">{t.filterLabels.owner}</label>
           <select
             value={draft.ownerId}
             onChange={(e) => setDraft((p) => ({ ...p, ownerId: e.target.value }))}
             className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm"
           >
-            <option value="">Усі</option>
+            <option value="">{t.owners.all}</option>
+            <option value="unassigned">{t.owners.unassigned}</option>
             {ownerOptions.map((u) => (
               <option key={u.id} value={u.id}>
                 {u.fullName}
@@ -175,7 +175,7 @@ export function LeadsFiltersPopover({
           </select>
         </div>
         <div>
-          <label className="mb-1 block text-xs font-medium text-zinc-500">Створено з</label>
+          <label className="mb-1 block text-xs font-medium text-zinc-500">{t.filterLabels.dateFrom}</label>
           <input
             type="date"
             value={draft.dateFrom}
@@ -184,7 +184,7 @@ export function LeadsFiltersPopover({
           />
         </div>
         <div>
-          <label className="mb-1 block text-xs font-medium text-zinc-500">Створено до</label>
+          <label className="mb-1 block text-xs font-medium text-zinc-500">{t.filterLabels.dateTo}</label>
           <input
             type="date"
             value={draft.dateTo}
@@ -193,27 +193,34 @@ export function LeadsFiltersPopover({
           />
         </div>
         <div>
-          <label className="mb-1 block text-xs font-medium text-zinc-500">Сортування</label>
+          <label className="mb-1 block text-xs font-medium text-zinc-500">{t.filterLabels.sortBy}</label>
           <select
             value={draft.sortBy}
-            onChange={(e) => setDraft((p) => ({ ...p, sortBy: e.target.value }))}
+            onChange={(e) =>
+              setDraft((p) => ({
+                ...p,
+                sortBy: e.target.value as LeadsFiltersState["sortBy"],
+              }))
+            }
             className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm"
           >
-            {SORT_BY_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
+            <option value="createdAt">{t.sortBy.createdAt}</option>
+            <option value="score">{t.sortBy.score}</option>
           </select>
         </div>
         <div>
-          <label className="mb-1 block text-xs font-medium text-zinc-500">Порядок</label>
+          <label className="mb-1 block text-xs font-medium text-zinc-500">{t.filterLabels.sortOrder}</label>
           <select
             value={draft.sortOrder}
-            onChange={(e) => setDraft((p) => ({ ...p, sortOrder: e.target.value }))}
+            onChange={(e) =>
+              setDraft((p) => ({
+                ...p,
+                sortOrder: e.target.value as LeadsFiltersState["sortOrder"],
+              }))
+            }
             className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm"
           >
-            {SORT_ORDER_OPTIONS.map((opt) => (
+            {sortOrderOptions.map((opt) => (
               <option key={opt.value} value={opt.value}>
                 {opt.label}
               </option>
@@ -231,7 +238,7 @@ export function LeadsFiltersPopover({
           }}
           className="btn-primary"
         >
-          Застосувати
+          {t.applyFilters}
         </button>
         <button
           type="button"
@@ -241,10 +248,10 @@ export function LeadsFiltersPopover({
           }}
           className="rounded-lg border border-zinc-200 px-3 py-2 text-sm hover:bg-zinc-50"
         >
-          Скинути
+          {t.resetFilters}
         </button>
         <span className="text-xs text-zinc-500">
-          {hasActiveFilters ? "Фільтри активні" : "Без фільтрів"}
+          {hasActiveFilters ? t.filtersActive : t.filtersNone}
         </span>
       </div>
     </div>

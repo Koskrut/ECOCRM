@@ -17,6 +17,8 @@ type Props = {
   activeShift: boolean;
   isTracking: boolean;
   trackingMode?: "background" | "foreground" | "none";
+  mobilityMode?: "CAR" | "WALK_TRANSIT" | null;
+  mobilityNote?: string | null;
   trackingHealthy?: boolean;
   /** True when no successful GPS accept for >10 min (ACTIVE shift). */
   acceptStale?: boolean;
@@ -35,6 +37,8 @@ export function ShiftStatusCard({
   activeShift,
   isTracking,
   trackingMode = "none",
+  mobilityMode = null,
+  mobilityNote = null,
   trackingHealthy = true,
   acceptStale = false,
   unhealthyReason = "none",
@@ -80,6 +84,12 @@ export function ShiftStatusCard({
       {activeShift ? (
         <View style={{ gap: theme.spacing.sm }}>
           <Text style={theme.typography.bodyMedium}>{t("today.shiftActive")}</Text>
+          {mobilityMode === "WALK_TRANSIT" ? (
+            <Text style={[theme.typography.caption, { color: theme.colors.warningText }]}>
+              {t("today.shiftMobilityBadgeWalk")}
+              {mobilityNote?.trim() ? ` · ${mobilityNote.trim()}` : ""}
+            </Text>
+          ) : null}
           {isTracking && !trackingBroken ? (
             <Text style={[theme.typography.caption, { color: theme.colors.primaryText }]}>
               {t("today.trackingActive")}

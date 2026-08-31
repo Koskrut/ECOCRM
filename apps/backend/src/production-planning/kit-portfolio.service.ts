@@ -30,6 +30,7 @@ import {
   type KitPile,
   type SharedBottleneckGroup,
 } from "./kit-portfolio.util";
+import { computeStockouts, type StockoutSummary } from "./stockout.util";
 
 export type KitPortfolioKit = {
   productId: string;
@@ -84,6 +85,8 @@ export type KitPortfolioView = {
     ending: number;
     pareto80Count: number;
   };
+  stockouts: StockoutSummary;
+  draftRequests: { packing: number; factory: number };
   kits: KitPortfolioKit[];
   sharedBottlenecks: SharedBottleneckGroup[];
 };
@@ -135,6 +138,8 @@ export class KitPortfolioService {
         criticalWeeks,
         week: emptyWeek,
         summary: { packableToday: 0, blocked: 0, ending: 0, pareto80Count: 0 },
+        stockouts: { zeroCount: 0, paretoZeroCount: 0, zeroKits: [], zeroParts: [] },
+        draftRequests: { packing: 0, factory: 0 },
         kits: [],
         sharedBottlenecks: [],
       };
@@ -204,7 +209,8 @@ export class KitPortfolioService {
     const since = monthsAgoUtc(Math.max(horizon.velocityLookbackMonths, 18));
     const excluded = [...ANALYTICS_EXCLUDED_ORDER_STAGES] as OrderStage[];
 
-    const [historyRows, revenueRows, waitingRows] = await Promise.all([
+    const [historyRows, revenueRows, waitingRows, draftPackingCount, draftFactoryCount] =
+      await Promise.all([
       latestSales
         ? this.prisma.salesHistoryLine.findMany({
             where: {
@@ -237,6 +243,8 @@ export class KitPortfolioService {
         },
         select: { productId: true, orderId: true, qty: true, qtyShipped: true },
       }),
+      this.prisma.packingList.count({ where: { status: PackingListStatus.DRAFT } }),
+      this.prisma.factoryOrder.count({ where: { status: FactoryOrderStatus.DRAFT } }),
     ]);
 
     const historyByKit = new Map<string, Map<string, number>>();
@@ -363,6 +371,46 @@ export class KitPortfolioService {
     const partAvailable = new Map(componentIds.map((id) => [id, availableOf(id)]));
     const sharedBottlenecks = groupSharedBottlenecks(draftKits, partAvailable);
 
+    const paretoAKitIds = new Set(
+      draftKits.filter((k) => k.inPareto80).map((k) => k.productId),
+    );
+    const partInPareto = new Set<string>();
+    for (const bom of bomByKit.values()) {
+      if (!paretoAKitIds.has(bom.kitProductId)) continue;
+      for (const line of bom.lines) {
+        partInPareto.add(line.componentProductId);
+      }
+    }
+
+    const componentProducts =
+      componentIds.length > 0
+        ? await this.prisma.product.findMany({
+            where: { id: { in: componentIds } },
+            select: { id: true, sku: true, name: true },
+          })
+        : [];
+    const componentById = new Map(componentProducts.map((p) => [p.id, p]));
+
+    const stockouts = computeStockouts({
+      kits: draftKits.map((k) => ({
+        productId: k.productId,
+        sku: k.sku,
+        name: k.name,
+        inPareto80: k.inPareto80,
+        stockFinished: k.stockFinished,
+      })),
+      parts: componentIds.map((id) => {
+        const meta = componentById.get(id);
+        return {
+          productId: id,
+          sku: meta?.sku ?? id,
+          name: meta?.name ?? "",
+          qty: partAvailable.get(id) ?? 0,
+          inPareto80: partInPareto.has(id),
+        };
+      }),
+    });
+
     const ending = draftKits.filter((k) => k.pile === "ending" && k.inPareto80);
     const packableToday = ending.filter((k) => k.maxBuildNow > 0).length;
     const blocked = ending.filter((k) => k.maxBuildNow <= 0).length;
@@ -412,6 +460,11 @@ export class KitPortfolioService {
         blocked,
         ending: ending.length,
         pareto80Count: draftKits.filter((k) => k.inPareto80).length,
+      },
+      stockouts,
+      draftRequests: {
+        packing: draftPackingCount,
+        factory: draftFactoryCount,
       },
       kits: kitsOut,
       sharedBottlenecks,

@@ -35,8 +35,8 @@ function displayName(call: KyivstarFmcLiveCall): string {
 }
 
 function primaryLink(call: KyivstarFmcLiveCall): { href: string; label: string } | null {
-  if (call.contact) return { href: `/contacts?open=${call.contact.id}`, label: "Відкрити контакт" };
-  if (call.lead) return { href: `/leads?open=${call.lead.id}`, label: "Відкрити лід" };
+  if (call.contact) return { href: `/contacts?contactId=${call.contact.id}`, label: "Відкрити контакт" };
+  if (call.lead) return { href: `/leads?leadId=${call.lead.id}`, label: "Відкрити лід" };
   if (call.company) return { href: `/companies/${call.company.id}`, label: "Компанія" };
   return null;
 }

@@ -225,6 +225,17 @@ export class FieldFuelRefuelsService {
     this.assertCanModifyReport(day.report.compensationStatus);
 
     const date = this.parseUtcDay(dateStr);
+    const dayShift = await this.prisma.fieldShift.findFirst({
+      where: { ownerId, date },
+      orderBy: { startedAt: "desc" },
+      select: { mobilityMode: true },
+    });
+    if (dayShift?.mobilityMode === "WALK_TRANSIT") {
+      throw new BadRequestException(
+        "Cannot add refuels on a walk / public-transit day (no fuel compensation)",
+      );
+    }
+
     const existingCount = await this.prisma.fuelRefuelEntry.count({
       where: { ownerId, date },
     });

@@ -383,6 +383,24 @@ export class ProductionPlanningController {
     return this.packingLists.exportExcel(id);
   }
 
+  @Delete("packing-lists/:id")
+  @Roles(UserRole.ADMIN, UserRole.LEAD)
+  deletePackingList(@Param("id") id: string) {
+    return this.packingLists.deleteList(id);
+  }
+
+  @Delete("packing-lists/:id/lines/:lineId")
+  @Roles(UserRole.ADMIN, UserRole.LEAD)
+  deletePackingLine(@Param("id") id: string, @Param("lineId") lineId: string) {
+    return this.packingLists.deleteLine(id, lineId);
+  }
+
+  @Post("packing-lists/:id/reopen")
+  @Roles(UserRole.ADMIN, UserRole.LEAD)
+  reopenPackingList(@Param("id") id: string) {
+    return this.packingLists.reopen(id);
+  }
+
   @Get("factory/recommendations")
   factoryRecommendations() {
     return this.factoryOrders.getRecommendations();
@@ -442,6 +460,12 @@ export class ProductionPlanningController {
   @Roles(UserRole.ADMIN, UserRole.LEAD)
   deleteFactoryLine(@Param("id") id: string, @Param("lineId") lineId: string) {
     return this.factoryOrders.deleteLine(id, lineId);
+  }
+
+  @Delete("factory/orders/:id")
+  @Roles(UserRole.ADMIN, UserRole.LEAD)
+  deleteFactoryOrder(@Param("id") id: string) {
+    return this.factoryOrders.deleteOrder(id);
   }
 
   @Patch("factory/orders/:id/lines/:lineId")

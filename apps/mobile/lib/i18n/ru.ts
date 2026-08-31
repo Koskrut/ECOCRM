@@ -43,4 +43,10 @@ export const ruGps = {
   batteryUnknownHint:
     "Статус энергосбережения неизвестен — проверьте, что для приложения выбрано «Без ограничений».",
   batteryOpen: "Настроить",
+  shiftMobilityTitle: "Как передвигаетесь?",
+  shiftMobilityHint:
+    "Авто — обычный день с компенсацией топлива. Пешком / ОТ — если авто на СТО или без машины: топливо не начисляется.",
+  shiftMobilityCar: "Авто",
+  shiftMobilityWalkTransit: "Пешком или общественный транспорт",
+  shiftMobilityBadgeWalk: "Пешком / ОТ",
 } as const;

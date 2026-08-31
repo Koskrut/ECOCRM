@@ -7,6 +7,7 @@ export type LeadSource =
   | "INSTAGRAM"
   | "WEBSITE"
   | "RINGOSTAT"
+  | "KYIVSTAR"
   | "OTHER"
   | "META";
 export type LeadChannel = "FB_LEAD_ADS" | "IG_LEAD_ADS" | "FB_DM" | "IG_DM";
@@ -99,7 +100,7 @@ export type LeadAttentionPreset = "without-touch" | "never-contacted-new" | "sta
 export type ListLeadsParams = {
   page?: number;
   pageSize?: number;
-  status?: LeadStatus;
+  status?: LeadStatus | "all";
   source?: LeadSource;
   channel?: LeadChannel;
   ownerId?: string;
@@ -158,9 +159,13 @@ export const leadsApi = {
   },
 
   create: async (payload: {
-    companyId: string;
+    companyId?: string;
     source?: LeadSource;
     name?: string;
+    firstName?: string;
+    lastName?: string;
+    middleName?: string;
+    fullName?: string;
     phone?: string;
     email?: string;
     companyName?: string;

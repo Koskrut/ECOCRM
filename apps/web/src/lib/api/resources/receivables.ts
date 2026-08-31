@@ -38,6 +38,8 @@ export type DebtComment = {
   createdAt: string;
   createdBy: string;
   authorName: string | null;
+  promiseDate?: string | null;
+  promiseAmount?: number | null;
 };
 
 export type WorkClientRow = {
@@ -54,6 +56,11 @@ export type WorkClientRow = {
   lastCommentAt: string | null;
   lastCommentPreview: string | null;
   lastCommentAuthorName: string | null;
+  phone?: string | null;
+  overdueDays?: number;
+  primaryOrderId?: string | null;
+  promiseDate?: string | null;
+  promiseAmount?: number | null;
 };
 
 export type PeriodPaymentRow = {
@@ -216,6 +223,9 @@ export const receivablesApi = {
         ordersWithDebtCount: number;
         bitrixLegacyDebt: number;
         bitrixLegacyOrdersCount: number;
+        promisedTodayAmount?: number;
+        promisedTodayCount?: number;
+        collectedTodayAmount?: number;
       };
     }>("/receivables/work/summary", { params: { ownerId: ownerId || undefined } });
   },
@@ -227,6 +237,8 @@ export const receivablesApi = {
     ownerId?: string;
     overdue?: boolean;
     needsComment?: boolean;
+    promisedToday?: boolean;
+    promiseBroken?: boolean;
   }) {
     return apiHttp.get<{
       currency: string;
@@ -244,8 +256,16 @@ export const receivablesApi = {
     );
   },
 
-  addDebtComment(contactId: string, body: string) {
-    return apiHttp.post<DebtComment>(`/receivables/contacts/${contactId}/comments`, { body });
+  addDebtComment(
+    contactId: string,
+    body: string,
+    promise?: { promiseDate?: string; promiseAmount?: number | null },
+  ) {
+    return apiHttp.post<DebtComment>(`/receivables/contacts/${contactId}/comments`, {
+      body,
+      promiseDate: promise?.promiseDate,
+      promiseAmount: promise?.promiseAmount,
+    });
   },
 
   workOrders(params: {
@@ -255,6 +275,7 @@ export const receivablesApi = {
     ownerId?: string;
     overdue?: boolean;
     contactId?: string;
+    clientId?: string;
   }) {
     return apiHttp.get<{
       currency: string;

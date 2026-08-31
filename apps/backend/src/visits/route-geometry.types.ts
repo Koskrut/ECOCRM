@@ -81,4 +81,9 @@ export type RouteGeometryBundle = {
   plannedKmWarning?: string | null;
   /** Plan visit order much longer than same stops in fact order. */
   plannedOrderInefficient?: boolean;
+  /** Latest FieldShift mobility for the day (CAR default when no shift). */
+  mobilityMode?: "CAR" | "WALK_TRANSIT";
+  mobilityNote?: string | null;
+  /** Latest FieldShift id for the day (for supervisor mobility PATCH). */
+  shiftId?: string | null;
 };

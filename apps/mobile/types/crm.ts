@@ -64,6 +64,8 @@ export type FieldShiftStatus = "ACTIVE" | "ENDED";
 
 export type FieldShiftAnchorKind = "HOME" | "CURRENT";
 
+export type FieldShiftMobilityMode = "CAR" | "WALK_TRANSIT";
+
 export type FieldShift = {
   id: string;
   ownerId: string;
@@ -79,6 +81,8 @@ export type FieldShift = {
   destinationKind?: FieldShiftAnchorKind | null;
   destinationLat?: number | null;
   destinationLng?: number | null;
+  mobilityMode?: FieldShiftMobilityMode | null;
+  mobilityNote?: string | null;
 };
 
 export type LocationSampleInput = {

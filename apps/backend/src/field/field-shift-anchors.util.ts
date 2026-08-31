@@ -51,6 +51,13 @@ export function parseAnchorKind(raw: unknown): FieldShiftAnchorKindValue | null 
   return null;
 }
 
+export type FieldShiftMobilityModeValue = "CAR" | "WALK_TRANSIT";
+
+export function parseMobilityMode(raw: unknown): FieldShiftMobilityModeValue | null {
+  if (raw === "CAR" || raw === "WALK_TRANSIT") return raw;
+  return null;
+}
+
 export function parseClientLatLng(input: {
   lat?: number | null;
   lng?: number | null;

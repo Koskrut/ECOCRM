@@ -7,4 +7,8 @@ export type UpdateTaskDto = {
   status?: TaskStatus;
   assigneeId?: string | null;
   collaboratorIds?: string[];
+  contactId?: string | null;
+  companyId?: string | null;
+  leadId?: string | null;
+  orderId?: string | null;
 };

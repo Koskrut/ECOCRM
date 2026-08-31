@@ -5,29 +5,23 @@ import type { Lead } from "@/lib/api";
 import { StatusBadge } from "@/components/StatusBadge";
 import { formatRelativeTime } from "@/lib/formatRelativeTime";
 import { isTextSelected } from "@/lib/dom";
+import { strings } from "@/locales";
+import { interpolate } from "@/lib/task-labels";
+import { leadScoreTone } from "./lead-score";
+
+const t = strings.leads;
 
 function leadDisplayName(lead: Lead): string {
   const personName = [lead.lastName, lead.firstName, lead.middleName]
     .filter((part): part is string => Boolean(part))
     .join(" ")
     .trim();
-  return (
-    personName ||
-    lead.companyName ||
-    lead.fullName ||
-    lead.name ||
-    "—"
-  );
+  return personName || lead.companyName || lead.fullName || lead.name || "—";
 }
 
-function leadClientLine(lead: Lead): string {
-  return lead.phone || "—";
-}
-
-function scoreTone(score: number): string {
-  if (score >= 70) return "border-emerald-200 bg-emerald-50 text-emerald-700";
-  if (score >= 40) return "border-amber-200 bg-amber-50 text-amber-700";
-  return "border-zinc-200 bg-zinc-100 text-zinc-600";
+function sourceLabel(source?: string | null): string | null {
+  if (!source) return null;
+  return (t.sources as Record<string, string>)[source] ?? source;
 }
 
 export function LeadCard({
@@ -41,6 +35,7 @@ export function LeadCard({
 }) {
   const title = leadDisplayName(lead);
   const hasScore = typeof lead.score === "number";
+  const source = sourceLabel(lead.source);
 
   return (
     <button
@@ -56,12 +51,12 @@ export function LeadCard({
           <div className="flex flex-wrap items-center gap-2 font-medium text-zinc-900">
             <span className="min-w-0 truncate">{title}</span>
             {lead.hasCallToday && (
-              <span title="Дзвінок сьогодні" className="inline-flex text-emerald-600">
+              <span title={t.callToday} className="inline-flex text-emerald-600">
                 <Phone className="h-4 w-4" />
               </span>
             )}
             {lead.hasMissedCall && (
-              <span title="Пропущений дзвінок" className="inline-flex text-red-600">
+              <span title={t.callMissed} className="inline-flex text-red-600">
                 <PhoneMissed className="h-4 w-4" />
               </span>
             )}
@@ -74,18 +69,24 @@ export function LeadCard({
         <StatusBadge variant="lead" status={lead.status} />
         {hasScore && (
           <span
-            className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold tabular-nums ${scoreTone(lead.score as number)}`}
+            title={t.scoreTooltip}
+            className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold tabular-nums ${leadScoreTone(lead.score as number)}`}
           >
-            Бал {lead.score}
+            {interpolate(t.card.score, { score: lead.score as number })}
           </span>
         )}
+        {source ? (
+          <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] font-medium text-zinc-600">
+            {source}
+          </span>
+        ) : null}
       </div>
 
       <div className="mt-3 grid grid-cols-[auto,1fr] gap-x-3 gap-y-1 text-sm">
-        <span className="text-xs font-medium uppercase text-zinc-400">Клієнт</span>
+        <span className="text-xs font-medium uppercase text-zinc-400">{t.card.client}</span>
         <div className="flex items-center justify-between gap-2">
-          <span className="truncate text-zinc-900">{leadClientLine(lead)}</span>
-          {lead.contactId && onOpenContact && (
+          <span className="truncate text-zinc-900">{lead.phone || "—"}</span>
+          {lead.contactId && onOpenContact ? (
             <span
               role="button"
               tabIndex={0}
@@ -102,12 +103,19 @@ export function LeadCard({
               }}
               className="shrink-0 text-xs font-medium text-blue-600 underline"
             >
-              контакт
+              {t.card.contact}
             </span>
-          )}
+          ) : null}
         </div>
 
-        <span className="text-xs font-medium uppercase text-zinc-400">Відповідальний</span>
+        {lead.city ? (
+          <>
+            <span className="text-xs font-medium uppercase text-zinc-400">{t.columns.city}</span>
+            <span className="truncate text-zinc-900">{lead.city}</span>
+          </>
+        ) : null}
+
+        <span className="text-xs font-medium uppercase text-zinc-400">{t.card.owner}</span>
         <span className="truncate text-zinc-900">{lead.owner?.fullName ?? "—"}</span>
       </div>
     </button>
