@@ -45,6 +45,7 @@ import {
   filterStuckOrders,
   isOrderAttentionPreset,
   resolveOrderAttentionPeriod,
+  shouldPrePaginateStuckIds,
   STUCK_ORDERS_CANDIDATE_CAP,
 } from "./orders-attention.util";
 import type { UpdateOrderDto } from "./dto/update-order.dto";
@@ -83,6 +84,7 @@ import {
 } from "./order-line-total.utils";
 import { syncMisPickOutboundForReplacementOrder } from "../order-returns/order-return-replacement.utils";
 import { PICKUP_AUTO_SHIP_REASON, PICKUP_AUTO_SHIP_WHERE } from "./pickup-auto-ship.util";
+import { kyivInstantRangeFromQuery } from "../crm-timezone";
 import { ModuleIds } from "../modules/module-ids";
 import { ModuleStateService } from "../modules/module-state.service";
 import { RiskPolicyService } from "../risk/risk-policy.service";
@@ -478,10 +480,17 @@ export class OrdersService {
 
     if (q?.attention === "stuck" && isOrderAttentionPreset(q.attention) && (!idList || idList.length === 0)) {
       const stuckIds = await this.resolveStuckOrderIds(q, actor);
-      stuckTotalOverride = stuckIds.length;
-      effectiveIdList = stuckIds.slice(skip, skip + pageSize);
-      if (effectiveIdList.length === 0) {
-        return { items: [], total: stuckTotalOverride, page, pageSize };
+      if (stuckIds.length === 0) {
+        return { items: [], total: 0, page, pageSize };
+      }
+      if (shouldPrePaginateStuckIds(q)) {
+        stuckTotalOverride = stuckIds.length;
+        effectiveIdList = stuckIds.slice(skip, skip + pageSize);
+        if (effectiveIdList.length === 0) {
+          return { items: [], total: stuckTotalOverride, page, pageSize };
+        }
+      } else {
+        effectiveIdList = stuckIds;
       }
     }
 
@@ -707,21 +716,7 @@ export class OrdersService {
     }
 
     if (q?.dateFrom || q?.dateTo) {
-      const createdAt: Prisma.DateTimeFilter = {};
-      if (q?.dateFrom) {
-        const from = new Date(q.dateFrom);
-        if (!Number.isNaN(from.getTime())) {
-          createdAt.gte = from;
-        }
-      }
-      if (q?.dateTo) {
-        const to = new Date(q.dateTo);
-        if (!Number.isNaN(to.getTime())) {
-          const hasTime = q.dateTo.includes("T");
-          if (!hasTime) to.setHours(23, 59, 59, 999);
-          createdAt.lte = to;
-        }
-      }
+      const createdAt = kyivInstantRangeFromQuery(q.dateFrom, q.dateTo);
       if (createdAt.gte || createdAt.lte) {
         andWhere.push({ createdAt });
       }

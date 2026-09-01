@@ -37,6 +37,7 @@ import {
 import { normalizeTtnNumber } from "./return-package-np-status.utils";
 import { ReturnPackagesService } from "./return-packages.service";
 import { resolveReturnWarehouseId } from "./return-warehouse.utils";
+import { kyivInstantRangeFromQuery } from "../crm-timezone";
 
 const CLOSED_RETURN_STATUS: ReturnStatus = "CLOSED";
 
@@ -385,11 +386,30 @@ export class OrderReturnsService {
     const page = Math.max(1, q?.page ?? 1);
     const pageSize = Math.min(100, Math.max(1, q?.pageSize ?? 50));
     const where: Prisma.OrderReturnWhereInput = {};
-    if (q?.orderId) where.orderId = q.orderId;
-    if (q?.status) where.status = q.status;
+    const andWhere: Prisma.OrderReturnWhereInput[] = [];
+    if (q?.orderId) andWhere.push({ orderId: q.orderId });
+    if (q?.status) andWhere.push({ status: q.status });
     if (actor?.role === UserRole.MANAGER) {
-      where.order = { ownerId: actor.id };
+      andWhere.push({ order: { ownerId: actor.id } });
     }
+    const search = q?.q?.trim();
+    if (search) {
+      andWhere.push({
+        OR: [
+          { externalCode: { contains: search, mode: "insensitive" } },
+          { order: { orderNumber: { contains: search, mode: "insensitive" } } },
+          { returnPackage: { ttnNumber: { contains: search, mode: "insensitive" } } },
+        ],
+      });
+    }
+    if (q?.ownerId) {
+      andWhere.push({ order: { ownerId: String(q.ownerId) } });
+    }
+    const requestedAt = kyivInstantRangeFromQuery(q?.dateFrom, q?.dateTo);
+    if (requestedAt.gte || requestedAt.lte) {
+      andWhere.push({ requestedAt });
+    }
+    if (andWhere.length > 0) where.AND = andWhere;
 
     const [items, total] = await Promise.all([
       this.prisma.orderReturn.findMany({

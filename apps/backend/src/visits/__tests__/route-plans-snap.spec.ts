@@ -159,4 +159,111 @@ describe("RoutePlansService.snapGpsPathToRoads", () => {
     assert.ok(result.distanceKm <= straightKm * 1.2);
     assert.ok(result.distanceKm < 50);
   });
+
+  it("Gribovsky 26.08 loop: split both legs, ignore home jitter, not half-match", async () => {
+    const home = { lat: 49.8235, lng: 24.1397 };
+    const visit = { lat: 50.243, lng: 24.138 };
+    const points: LatLng[] = [home];
+    for (let i = 1; i <= 40; i++) {
+      const t = i / 40;
+      points.push({
+        lat: home.lat + (visit.lat - home.lat) * t,
+        lng: home.lng + (visit.lng - home.lng) * t,
+      });
+    }
+    for (let i = 1; i <= 40; i++) {
+      const t = i / 40;
+      points.push({
+        lat: visit.lat + (home.lat - visit.lat) * t,
+        lng: visit.lng + (home.lng - visit.lng) * t,
+      });
+    }
+    for (let i = 0; i < 80; i++) {
+      points.push({
+        lat: home.lat + Math.sin(i * 0.4) * 0.0005,
+        lng: home.lng + Math.cos(i * 0.3) * 0.0005,
+      });
+    }
+
+    const osrm = {
+      matchTrack: async (pts: LatLng[]) => {
+        const a = pts[0]!;
+        const b = pts[pts.length - 1]!;
+        const straight = haversineKm(a, b);
+        if (straight <= 2) {
+          return {
+            source: "osrm" as const,
+            path: [a, b],
+            distanceKm: 68.9,
+            durationMin: null,
+          };
+        }
+        const km = Math.round(straight * 1.2 * 10) / 10;
+        return {
+          source: "osrm" as const,
+          path: [a, { lat: (a.lat + b.lat) / 2, lng: (a.lng + b.lng) / 2 }, b],
+          distanceKm: km,
+          durationMin: null,
+        };
+      },
+      routeLeg: async (opts: { origin: LatLng; destination: LatLng; intermediates: LatLng[] }) => {
+        const chain = [opts.origin, ...opts.intermediates, opts.destination];
+        let sum = 0;
+        for (let i = 1; i < chain.length; i++) {
+          sum += haversineKm(chain[i - 1]!, chain[i]!);
+        }
+        const km = Math.round(sum * 1.15 * 10) / 10;
+        return {
+          source: "osrm" as const,
+          path: chain,
+          distanceKm: km,
+          durationMin: null,
+        };
+      },
+    };
+
+    const svc = new RoutePlansService({} as never, osrm as never);
+    const result = await svc.snapGpsPathToRoads(points);
+
+    assert.equal(result.snapFailureReason, null);
+    assert.ok(result.distanceKm != null, "expected snapped km");
+    assert.ok(result.distanceKm >= 110, `got ${result.distanceKm}`);
+    assert.ok(result.distanceKm <= 150, `got ${result.distanceKm}`);
+    assert.ok(result.path.some((p) => p.lat > 50.2), "path should reach the visit");
+    const last = result.path[result.path.length - 1]!;
+    assert.ok(haversineKm(last, home) < 3, "path should return home");
+  });
+
+  it("non-loop A→B day is unchanged (no loop split)", async () => {
+    const start = { lat: 50.45, lng: 30.52 };
+    const end = { lat: 50.55, lng: 30.62 };
+    const points: LatLng[] = Array.from({ length: 40 }, (_, i) => ({
+      lat: start.lat + ((end.lat - start.lat) * i) / 39,
+      lng: start.lng + ((end.lng - start.lng) * i) / 39,
+    }));
+    const straightKm = haversineKm(start, end);
+    const chunkKm = Math.round(straightKm * 1.1 * 10) / 10;
+    let matchCalls = 0;
+
+    const osrm = {
+      matchTrack: async () => {
+        matchCalls += 1;
+        return {
+          source: "osrm" as const,
+          path: points,
+          distanceKm: chunkKm,
+          durationMin: null,
+        };
+      },
+      routeLeg: async () => null,
+    };
+
+    const svc = new RoutePlansService({} as never, osrm as never);
+    const result = await svc.snapGpsPathToRoads(points);
+
+    assert.equal(result.snapFailureReason, null);
+    assert.equal(result.distanceKm, chunkKm);
+    assert.ok(matchCalls >= 1);
+    assert.ok(matchCalls <= 2, `unexpected extra matches from loop split: ${matchCalls}`);
+  });
 });

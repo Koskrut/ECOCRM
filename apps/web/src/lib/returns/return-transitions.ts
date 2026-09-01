@@ -87,3 +87,37 @@ export function isWarehouseReturnTransitionAllowed(
   const allowed = WAREHOUSE_RETURN_TRANSITIONS[from];
   return allowed?.includes(to) ?? false;
 }
+
+export function getReturnDragTargets(
+  from: ReturnStatusCode,
+  ret: ReturnTransitionSnapshot,
+  warehouseMode: boolean,
+): ReturnStatusCode[] {
+  if (warehouseMode) {
+    return (WAREHOUSE_RETURN_TRANSITIONS[from] ?? []).filter(
+      (to) => !WAREHOUSE_FORBIDDEN_RETURN_STATUSES.includes(to),
+    );
+  }
+  return getAllowedReturnStatusTransitions(from, ret);
+}
+
+export function isReturnDropAllowed(
+  ret: ReturnTransitionSnapshot,
+  from: ReturnStatusCode,
+  to: ReturnStatusCode,
+  warehouseMode: boolean,
+): boolean {
+  if (from === to) return true;
+  return getReturnDragTargets(from, ret, warehouseMode).includes(to);
+}
+
+/**
+ * Mirrors backend updateStatus skipSettlement:
+ * mis-pick with replacement (outbound not waived) closes without credit/refund.
+ */
+export function shouldSkipSettlementPreviewOnClose(ret: {
+  reason?: string | null;
+  outboundWaivedAt?: string | null;
+}): boolean {
+  return ret.reason === "WRONG_ITEM" && !ret.outboundWaivedAt;
+}

@@ -1,6 +1,9 @@
+import { PlanningDemandMix } from "@prisma/client";
+import { mixKitDemand, uncoveredKitDemand } from "./demand-mix.util";
 import { constrainsKitCapacity, displayBottleneckSku } from "./bom-part.util";
 
 export type KitPile = "ending" | "ok" | "idle";
+export type EndingReason = "orders" | "cover" | "both";
 export type ParetoClass = "A" | "B" | "C";
 export type CoverTone = "critical" | "warn" | "ok";
 
@@ -41,18 +44,53 @@ export function assignPile(input: {
   hardNeed: number;
   weeksOfCover: number | null;
   warnWeeks: number;
-}): KitPile {
+}): { pile: KitPile; endingReason: EndingReason | null } {
   const stock = effectiveStock(input.stockFinished, input.maxBuildNow);
   const noSales = !(input.avgMonthlySold > 0);
   const ordersUncovered = input.hardNeed > input.stockFinished;
+  const coverLow =
+    input.weeksOfCover != null && input.weeksOfCover < input.warnWeeks;
 
   if (noSales && !ordersUncovered) {
-    return stock > 0 ? "idle" : "ok";
+    return { pile: stock > 0 ? "idle" : "ok", endingReason: null };
   }
-  if (ordersUncovered) return "ending";
-  if (input.weeksOfCover != null && input.weeksOfCover < input.warnWeeks) return "ending";
-  if (input.maxBuildNow <= 0 && input.hardNeed > input.stockFinished) return "ending";
-  return "ok";
+
+  let endingReason: EndingReason | null = null;
+  if (ordersUncovered && coverLow) endingReason = "both";
+  else if (ordersUncovered) endingReason = "orders";
+  else if (coverLow) endingReason = "cover";
+  else if (input.maxBuildNow <= 0 && input.hardNeed > input.stockFinished) {
+    endingReason = "orders";
+  }
+
+  if (endingReason) return { pile: "ending", endingReason };
+  return { pile: "ok", endingReason: null };
+}
+
+/** Same formula as packing-list targetPack: mix demand for the cycle, minus on-hand kits. */
+export function computeWeeklyPackNeed(input: {
+  hardNeed: number;
+  forecastNeed: number;
+  softNeed?: number;
+  stockKits: number;
+  demandMix: PlanningDemandMix;
+}): number {
+  const mixed = mixKitDemand(
+    input.demandMix,
+    input.hardNeed,
+    input.forecastNeed,
+    input.softNeed ?? 0,
+  );
+  return uncoveredKitDemand(mixed, input.stockKits);
+}
+
+/** MRP cover norm (warnCoverDays) — display/tooltip only, not used for pack button. */
+export function computeCoverTarget(input: {
+  avgMonthlySold: number;
+  warnWeeks: number;
+}): number {
+  if (!(input.avgMonthlySold > 0)) return 0;
+  return Math.ceil((input.avgMonthlySold * (input.warnWeeks * 7)) / 30);
 }
 
 /** Rank by CRM revenue. A = cumulative up to 80%, B to 95%, rest C. Zero revenue is always C. */
@@ -85,30 +123,69 @@ export function assignParetoClasses<T extends { revenue: number }>(
   });
 }
 
+export type KitPositionPlan = {
+  coverTarget: number;
+  targetStock: number;
+  stockNow: number;
+  packGap: number;
+  canPackNow: number;
+  toWork: number;
+};
+
 /**
- * How many more kits to put on this week's list so stock lasts `warnWeeks`,
- * enough for hard orders, not more than we can assemble, not past remaining 2000.
+ * Weekly pack plan (14d cycle): targetStock = cycle pack need (same as targetPack),
+ * coverTarget = MRP norm for tooltip only.
  */
-export function suggestedPackQty(input: {
+export function computeKitPositionPlan(input: {
   stockFinished: number;
   maxBuildNow: number;
-  avgMonthlySold: number;
-  hardNeed: number;
-  warnWeeks: number;
+  weeklyPackNeed: number;
+  coverTarget?: number;
+  alreadyInRequest?: number;
+}): KitPositionPlan {
+  const stockNow = Math.max(0, Math.floor(input.stockFinished));
+  const maxBuildNow = Math.max(0, Math.floor(input.maxBuildNow));
+  const already = Math.max(0, Math.floor(input.alreadyInRequest ?? 0));
+  const coverTarget = Math.max(0, Math.floor(input.coverTarget ?? 0));
+  const weeklyNeed = Math.max(0, Math.floor(input.weeklyPackNeed));
+  const targetStock = weeklyNeed;
+  const packGap = Math.max(0, weeklyNeed - already);
+  const partsRemaining = Math.max(0, maxBuildNow - already);
+  const canPackNow = Math.min(packGap, partsRemaining);
+  const toWork = Math.max(0, packGap - canPackNow);
+  return { coverTarget, targetStock, stockNow, packGap, canPackNow, toWork };
+}
+
+/** Absolute qty that should be on the draft packing list for this SKU this cycle. */
+export function suggestedPackTargetQty(input: {
+  weeklyPackNeed: number;
+  maxBuildNow: number;
   alreadyInRequest: number;
   weekCapacityLeft: number;
   ignoreParts?: boolean;
 }): number {
-  const partsCap = input.ignoreParts ? Number.POSITIVE_INFINITY : Math.max(0, Math.floor(input.maxBuildNow));
+  const already = Math.max(0, Math.floor(input.alreadyInRequest));
+  const need = Math.max(0, Math.floor(input.weeklyPackNeed));
+  if (need <= 0) return already;
+  const maxFromParts = input.ignoreParts
+    ? Number.POSITIVE_INFINITY
+    : Math.max(0, Math.floor(input.maxBuildNow));
+  if (!input.ignoreParts && maxFromParts <= 0) return already;
   const room = Math.max(0, Math.floor(input.weekCapacityLeft));
-  const already = Math.max(0, input.alreadyInRequest);
-  const target =
-    input.avgMonthlySold > 0 ? Math.ceil((input.avgMonthlySold * (input.warnWeeks * 7)) / 30) : 0;
-  const coverGap = Math.max(0, target - input.stockFinished - already);
-  const hardGap = Math.max(0, Math.ceil(input.hardNeed) - input.stockFinished - already);
-  const need = Math.max(coverGap, hardGap);
-  if (need <= 0 || partsCap <= 0 || room <= 0) return 0;
-  return Math.floor(Math.min(need, partsCap, room));
+  return Math.floor(Math.min(need, maxFromParts, already + room));
+}
+
+/** Increment to add via pack button (target minus already in request). */
+export function suggestedPackQty(input: {
+  weeklyPackNeed: number;
+  maxBuildNow: number;
+  alreadyInRequest: number;
+  weekCapacityLeft: number;
+  ignoreParts?: boolean;
+}): number {
+  const target = suggestedPackTargetQty(input);
+  const already = Math.max(0, Math.floor(input.alreadyInRequest));
+  return Math.max(0, target - already);
 }
 
 export function sortEndingKits<T extends { maxBuildNow: number; weeksOfCover: number | null; revenue: number }>(

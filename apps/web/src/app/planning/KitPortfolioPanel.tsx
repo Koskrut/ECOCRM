@@ -183,7 +183,7 @@ export function KitPortfolioPanel({
   );
 
   const addToPack = async (kit: KitPortfolioKit) => {
-    if (kit.suggestedPackQty <= 0) return;
+    if (kit.suggestedPackQty <= 0 || kit.suggestedPackTargetQty > kit.maxBuildNow) return;
     setActing(kit.productId);
     try {
       let listId = view?.week.packingListId ?? null;
@@ -206,7 +206,7 @@ export function KitPortfolioPanel({
         reportError(t.errors.packing);
         return;
       }
-      const nextQty = kit.alreadyInRequest + kit.suggestedPackQty;
+      const nextQty = kit.suggestedPackTargetQty;
       await planningApi.setPackingKitQty(listId, kit.productId, nextQty);
       setToast(kb.packedToast(kit.sku, nextQty));
       await load();
@@ -432,6 +432,71 @@ export function KitPortfolioPanel({
   );
 }
 
+function PositionPlanRow({
+  kit,
+  compact,
+}: {
+  kit: KitPortfolioKit;
+  compact?: boolean;
+}) {
+  const t = strings.planning;
+  const kb = t.kitBoard;
+  const grid = compact
+    ? "mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-zinc-600"
+    : "mt-3 grid grid-cols-3 gap-2 rounded-lg bg-zinc-50 p-2 text-center";
+  const labelClass = compact ? "text-zinc-500" : "text-[10px] font-medium uppercase tracking-wide text-zinc-500";
+  const valueClass = compact ? "font-medium text-zinc-800" : "text-lg font-semibold text-zinc-900";
+
+  return (
+    <div className={grid} title={kb.positionPlanHint}>
+      <div className={compact ? undefined : "min-w-0"}>
+        {!compact ? <p className={labelClass}>{t.labels.targetStockShort}</p> : null}
+        <p className={valueClass}>
+          {compact ? (
+            <>
+              <span className={labelClass}>{t.labels.targetStockShort}: </span>
+              {t.labels.stockNowVsTarget(kit.stockNow, kit.targetStock)}
+            </>
+          ) : (
+            t.labels.stockNowVsTarget(kit.stockNow, kit.targetStock)
+          )}
+        </p>
+      </div>
+      <div className={compact ? undefined : "min-w-0"}>
+        {!compact ? <p className={labelClass}>{t.labels.canPackNow}</p> : null}
+        <p className={`${valueClass} ${kit.canPackNow > 0 ? "text-cyan-700" : ""}`}>
+          {compact ? (
+            <>
+              <span className={labelClass}>{t.labels.canPackNow}: </span>
+              {kit.canPackNow}
+            </>
+          ) : (
+            kit.canPackNow
+          )}
+        </p>
+      </div>
+      <div className={compact ? undefined : "min-w-0"}>
+        {!compact ? <p className={labelClass}>{t.labels.toWork}</p> : null}
+        <p className={`${valueClass} ${kit.toWork > 0 ? "text-rose-700" : ""}`}>
+          {compact ? (
+            <>
+              <span className={labelClass}>{t.labels.toWork}: </span>
+              {kit.toWork}
+            </>
+          ) : (
+            kit.toWork
+          )}
+        </p>
+        {!compact && kit.toWork > 0 && kit.bottleneckSku ? (
+          <p className="mt-0.5 truncate text-[10px] text-rose-600">
+            {kb.orderPart(kit.bottleneckName || kit.bottleneckSku, kit.suggestedFactoryQty)}
+          </p>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 function EndingCard({
   kit,
   open,
@@ -448,7 +513,16 @@ function EndingCard({
   onOrderPart: () => void;
 }) {
   const kb = strings.planning.kitBoard;
-  const canPack = kit.suggestedPackQty > 0 && kit.maxBuildNow > 0;
+  const canPack =
+    kit.suggestedPackQty > 0 &&
+    kit.suggestedPackTargetQty <= kit.maxBuildNow &&
+    kit.maxBuildNow > 0;
+  const packDisabledReason =
+    kit.alreadyInRequest >= kit.maxBuildNow
+      ? kb.atPartsCap
+      : kit.suggestedPackQty <= 0
+        ? kb.noPackNeed
+        : null;
   const needFactory = kit.maxBuildNow <= 0 && kit.bottleneckSku;
   const border =
     kit.coverTone === "critical" ? "border-rose-300" : "border-amber-200";
@@ -465,8 +539,18 @@ function EndingCard({
         <div className="mt-3">
           <StockSplit finished={kit.stockFinished} buildable={kit.maxBuildNow} />
         </div>
+        <PositionPlanRow kit={kit} />
         {kit.waitingOrders > 0 ? (
           <p className="mt-2 text-xs font-medium text-rose-800">{kb.waiting(kit.waitingOrders)}</p>
+        ) : null}
+        {kit.endingReason ? (
+          <p className="mt-1 text-xs font-medium text-amber-800">
+            {kit.endingReason === "orders"
+              ? kb.endingOrders
+              : kit.endingReason === "cover"
+                ? kb.endingCover
+                : kb.endingBoth}
+          </p>
         ) : null}
         <div className="mt-2">
           <Sparkline points={kit.monthlyHistory} />
@@ -481,9 +565,12 @@ function EndingCard({
           disabled={busy}
           className="mt-3 w-full rounded-lg bg-cyan-600 px-3 py-2 text-sm font-medium text-white hover:bg-cyan-700 disabled:opacity-50"
           onClick={onPack}
+          title={packDisabledReason ?? undefined}
         >
-          {kb.pack(kit.suggestedPackQty)}
+          {kb.addToRequest(kit.suggestedPackTargetQty, kit.suggestedPackQty)}
         </button>
+      ) : packDisabledReason && kit.maxBuildNow > 0 ? (
+        <p className="mt-3 text-xs text-zinc-500">{packDisabledReason}</p>
       ) : needFactory ? (
         <button
           type="button"
@@ -519,6 +606,7 @@ function CompactRow({ kit, muted }: { kit: KitPortfolioKit; muted: boolean }) {
           {kit.sku} · {kb.finished(kit.stockFinished)}
           {muted && kit.maxBuildNow > 0 ? ` · ${kb.dontPackMore}` : ""}
         </p>
+        <PositionPlanRow kit={kit} compact />
       </div>
       <p className="shrink-0 text-xs">{weeks}</p>
     </li>

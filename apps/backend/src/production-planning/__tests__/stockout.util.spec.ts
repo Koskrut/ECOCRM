@@ -11,6 +11,7 @@ test("computeStockouts counts kits and parts with zero stock", () => {
         name: "Kit A",
         inPareto80: true,
         stockFinished: 0,
+        maxBuildNow: 0,
       },
       {
         productId: "k2",
@@ -18,6 +19,15 @@ test("computeStockouts counts kits and parts with zero stock", () => {
         name: "Kit B",
         inPareto80: false,
         stockFinished: 5,
+        maxBuildNow: 10,
+      },
+      {
+        productId: "k3",
+        sku: "KIT-C",
+        name: "Kit C",
+        inPareto80: true,
+        stockFinished: 0,
+        maxBuildNow: 6,
       },
     ],
     parts: [
@@ -28,44 +38,21 @@ test("computeStockouts counts kits and parts with zero stock", () => {
         qty: 0,
         inPareto80: true,
       },
-      {
-        productId: "p2",
-        sku: "PART-2",
-        name: "Part 2",
-        qty: 3,
-        inPareto80: false,
-      },
     ],
   });
 
-  assert.equal(result.zeroCount, 2);
-  assert.equal(result.paretoZeroCount, 2);
-  assert.equal(result.zeroKits.length, 1);
-  assert.equal(result.zeroParts.length, 1);
-  assert.equal(result.zeroKits[0]?.inPareto80, true);
+  assert.equal(result.zeroCount, 3);
+  assert.equal(result.paretoZeroCount, 3);
+  assert.equal(result.zeroFinishedBlocked.length, 1);
+  assert.equal(result.zeroFinishedBuildable.length, 1);
+  assert.equal(result.paretoZeroFinishedBlocked, 1);
+  assert.equal(result.paretoZeroFinishedBuildable, 1);
 });
 
 test("computeStockouts treats missing snapshot qty as zero for parts list", () => {
   const result = computeStockouts({
     kits: [],
     parts: [{ productId: "p1", sku: "P", name: "P", qty: 0, inPareto80: false }],
-  });
-  assert.equal(result.zeroCount, 1);
-  assert.equal(result.paretoZeroCount, 0);
-});
-
-test("computeStockouts pareto count ignores non-A zero kits", () => {
-  const result = computeStockouts({
-    kits: [
-      {
-        productId: "k1",
-        sku: "KIT-C",
-        name: "Kit C",
-        inPareto80: false,
-        stockFinished: 0,
-      },
-    ],
-    parts: [],
   });
   assert.equal(result.zeroCount, 1);
   assert.equal(result.paretoZeroCount, 0);

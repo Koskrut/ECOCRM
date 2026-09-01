@@ -11,8 +11,23 @@ export const LOOP_ENDPOINT_NEAR_KM = 2;
 /** Minimum trip extent (km) before loop-endpoint heuristic applies. */
 export const LOOP_MIN_TRIP_KM = 30;
 
-/** Snapped km below this fraction of simplified track → loop collapse / bad match. */
+/** Snapped km below this fraction of simplified track → tiny / collapsed match. */
 export const LOOP_SNAP_VS_SIMPLIFIED_RATIO = 0.25;
+
+/** Half-loop / post-split collapse: snapped below this × simplified (or visit-route km). */
+export const LOOP_SNAP_HALF_RATIO = 0.75;
+
+/** Home-parking tail: samples within this radius of the start/anchor (meters). */
+export const HOME_DWELL_RADIUS_M = 250;
+
+/** Home-parking tail: dwell at least this long before the tail is trimmed (minutes). */
+export const HOME_DWELL_MIN_MIN = 15;
+
+/** Keep this many minutes of samples after the return-home moment. */
+export const HOME_DWELL_KEEP_ARRIVAL_MIN = 3;
+
+/** Max points for OSRM /route fallback along a loop leg (chronological waypoints). */
+export const LOOP_WAYPOINT_ROUTE_MAX_POINTS = 24;
 
 /** Map polyline haversine sum above this × snapped km → path/display bug (backtrack duplicates). */
 export const PATH_VS_SNAPPED_MAX_RATIO = 1.35;
@@ -89,17 +104,110 @@ export function isLoopTripSuspicious(opts: {
   return extent >= LOOP_MIN_TRIP_KM;
 }
 
-/** True when OSRM snap is tiny vs trip extent on a suspected loop day. */
+/** True when OSRM snap is tiny / half-loop vs trip extent on a suspected loop day. */
 export function isLoopSnapCollapsed(opts: {
   snappedDistanceKm: number | null;
   simplifiedPathDistanceKm: number | null;
   loopSuspicious: boolean;
+  ratio?: number;
+  visitRouteKm?: number | null;
 }): boolean {
   if (!opts.loopSuspicious) return false;
   const snapped = opts.snappedDistanceKm;
   const simplified = opts.simplifiedPathDistanceKm;
   if (snapped == null || simplified == null || simplified < LOOP_MIN_TRIP_KM) return false;
-  return snapped < simplified * LOOP_SNAP_VS_SIMPLIFIED_RATIO;
+  const ratio = opts.ratio ?? LOOP_SNAP_VS_SIMPLIFIED_RATIO;
+  if (snapped < simplified * ratio) return true;
+  const visitKm = opts.visitRouteKm;
+  if (visitKm != null && Number.isFinite(visitKm) && visitKm >= LOOP_MIN_TRIP_KM) {
+    return snapped < visitKm * ratio;
+  }
+  return false;
+}
+
+function sampleTimeMs<T extends { clientRecordedAt?: Date | string }>(
+  sample: T,
+  index: number,
+): number {
+  const raw = sample.clientRecordedAt;
+  if (raw != null) {
+    const t = new Date(raw).getTime();
+    if (Number.isFinite(t)) return t;
+  }
+  return index * 60_000;
+}
+
+/**
+ * Drop the long parking tail after returning home (Gribovskaya 26.08: 6h jitter).
+ * Requires the track to have left the start radius, then a ≥15 min dwell back inside it.
+ */
+export function trimHomeDwellTail<T extends LatLng & { clientRecordedAt?: Date | string }>(
+  samples: T[],
+  opts?: { anchor?: LatLng; radiusM?: number; minDwellMin?: number },
+): T[] {
+  if (samples.length < 2) return samples;
+  const anchor = opts?.anchor ?? samples[0]!;
+  const radiusM = opts?.radiusM ?? HOME_DWELL_RADIUS_M;
+  const minDwellMs = (opts?.minDwellMin ?? HOME_DWELL_MIN_MIN) * 60_000;
+  const keepArrivalMs = HOME_DWELL_KEEP_ARRIVAL_MIN * 60_000;
+  const distM = (p: LatLng) => haversineDistanceM(anchor.lat, anchor.lng, p.lat, p.lng);
+
+  let departed = false;
+  let candidateReturn = -1;
+  let candidateReturnTime = 0;
+
+  for (let i = 0; i < samples.length; i++) {
+    const inRadius = distM(samples[i]!) <= radiusM;
+    const t = sampleTimeMs(samples[i]!, i);
+    if (!departed) {
+      if (!inRadius) departed = true;
+      continue;
+    }
+    if (candidateReturn < 0) {
+      if (inRadius) {
+        candidateReturn = i;
+        candidateReturnTime = t;
+      }
+      continue;
+    }
+    if (!inRadius) {
+      candidateReturn = -1;
+      continue;
+    }
+    if (t - candidateReturnTime >= minDwellMs) {
+      let keepUntil = candidateReturn;
+      for (let j = candidateReturn; j <= i; j++) {
+        const tj = sampleTimeMs(samples[j]!, j);
+        if (tj - candidateReturnTime <= keepArrivalMs) keepUntil = j;
+        else break;
+      }
+      return samples.slice(0, keepUntil + 1);
+    }
+  }
+  return samples;
+}
+
+/** Split a round-trip at the sample farthest from the start (haversine, not max lat). */
+export function splitLoopAtFarthest<T extends LatLng>(
+  samples: T[],
+): { outbound: T[]; inbound: T[]; turnaroundIndex: number } | null {
+  if (samples.length < 4) return null;
+  const start = samples[0]!;
+  let bestI = 0;
+  let bestKm = -1;
+  for (let i = 1; i < samples.length - 1; i++) {
+    const km = haversineKm(start, samples[i]!);
+    if (km > bestKm) {
+      bestKm = km;
+      bestI = i;
+    }
+  }
+  if (bestI < 2 || bestI > samples.length - 3) return null;
+  return {
+    outbound: samples.slice(0, bestI + 1),
+    inbound: samples.slice(bestI),
+    turnaroundIndex: bestI,
+  };
 }
 
 /** True when vertex-sum polyline length far exceeds payable OSRM km (Bondarenko path bug). */
@@ -126,10 +234,12 @@ function coordKey(p: LatLng, decimals = 4): string {
 export function dedupeRepeatedPathLegs(
   path: LatLng[],
   minLegKm = DEDUPE_MIN_LEG_KM,
+  opts?: { directed?: boolean },
 ): LatLng[] {
   if (path.length < 2) return path;
   const out: LatLng[] = [path[0]!];
   const seenLongLegs = new Set<string>();
+  const directed = opts?.directed === true;
 
   for (let i = 1; i < path.length; i++) {
     const prev = out[out.length - 1]!;
@@ -138,11 +248,11 @@ export function dedupeRepeatedPathLegs(
     if (legKm >= minLegKm) {
       const a = coordKey(prev);
       const b = coordKey(next);
-      const undirected = a < b ? `${a}|${b}` : `${b}|${a}`;
-      if (seenLongLegs.has(undirected)) {
+      const key = directed ? `${a}>${b}` : a < b ? `${a}|${b}` : `${b}|${a}`;
+      if (seenLongLegs.has(key)) {
         continue;
       }
-      seenLongLegs.add(undirected);
+      seenLongLegs.add(key);
     }
     const last = out[out.length - 1];
     if (!last || last.lat !== next.lat || last.lng !== next.lng) {
@@ -162,12 +272,14 @@ export type ReconcileSnapPathResult = {
 export function reconcileSnapPathDisplay(
   path: LatLng[],
   osrmDistanceKm: number | null,
+  opts?: { preserveLoopPath?: boolean },
 ): ReconcileSnapPathResult {
-  let cleaned = dedupeRepeatedPathLegs(path);
+  const directed = opts?.preserveLoopPath === true;
+  let cleaned = directed ? path : dedupeRepeatedPathLegs(path);
   let displayPathPolylineKm = pathDistanceKm(cleaned);
   let pathDistanceMismatch = isPathDistanceInconsistent(cleaned, osrmDistanceKm);
 
-  if (pathDistanceMismatch) {
+  if (pathDistanceMismatch && !directed) {
     cleaned = dedupeRepeatedPathLegs(path, 1.0);
     displayPathPolylineKm = pathDistanceKm(cleaned);
     pathDistanceMismatch = isPathDistanceInconsistent(cleaned, osrmDistanceKm);

@@ -415,6 +415,14 @@ export class NotificationsService {
     return { deleted: result.count > 0 };
   }
 
+  async markReadForEntity(entityType: string, entityId: string): Promise<number> {
+    const result = await this.prisma.userNotification.updateMany({
+      where: { entityType, entityId, readAt: null },
+      data: { readAt: new Date() },
+    });
+    return result.count;
+  }
+
   async notifyTaskAssigned(params: {
     assigneeId: string;
     taskId: string;
@@ -424,6 +432,13 @@ export class NotificationsService {
     orderId?: string | null;
     leadId?: string | null;
   }): Promise<void> {
+    const task = await this.prisma.task.findUnique({
+      where: { id: params.taskId },
+      select: { status: true },
+    });
+    if (!task || task.status === "DONE" || task.status === "CANCELED") {
+      return;
+    }
     await this.create({
       userId: params.assigneeId,
       type: "TASK_ASSIGNED",

@@ -43,6 +43,9 @@ test("groups remaining lines of the same SKU from different orders", () => {
   assert.equal(view.summary.skuCount, 1);
   assert.equal(view.summary.orderCount, 2);
   assert.equal(view.summary.totalQty, 8);
+  assert.equal(view.summary.gapSkuCount, 1);
+  assert.equal(view.summary.gapQty, 8);
+  assert.equal(view.summary.coveredSkuCount, 0);
 });
 
 test("skips fully shipped qty when grouping", () => {
@@ -95,6 +98,9 @@ test("stockGap is zero when catalog stock covers remaining qty", () => {
   );
 
   assert.equal(view.groups[0]!.stockGap, 0);
+  assert.equal(view.summary.gapSkuCount, 0);
+  assert.equal(view.summary.coveredSkuCount, 1);
+  assert.equal(view.summary.coveredQty, 3);
 });
 
 test("lines without productId form a separate group by name", () => {
@@ -156,7 +162,22 @@ test("sorts groups by stockGap then remaining qty", () => {
   );
 });
 
-test("enrich adds canAssemble and primaryAction from kit capacity", () => {
+test("enrich picks production when stock is covered even if parts can assemble", () => {
+  const view = groupAwaitingStockLines(
+    [line({ orderItemId: "i1", qty: 10 })],
+    new Map([["p1", 10]]),
+    new Map(),
+  );
+  const enriched = enrichAwaitingStockGroup(view.groups[0]!, {
+    maxFromParts: 6,
+    hasBom: true,
+  });
+  assert.equal(enriched.stockGap, 0);
+  assert.equal(enriched.canAssemble, 6);
+  assert.equal(enriched.primaryAction, "production");
+});
+
+test("enrich adds canAssemble and primaryAction from kit capacity when gap exists", () => {
   const view = groupAwaitingStockLines(
     [line({ orderItemId: "i1", qty: 10 })],
     new Map([["p1", 2]]),

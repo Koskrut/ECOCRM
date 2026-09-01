@@ -375,6 +375,7 @@ describe("RingostatIngestService", () => {
         updateMany: async () => null,
       },
       task: {
+        findUnique: async () => null,
         upsert: async (args: unknown) => {
           tasks.push(args);
           return null;

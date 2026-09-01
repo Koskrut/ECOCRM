@@ -43,7 +43,15 @@ export type TodayAwaitingStockGroup = {
 };
 
 export type TodayAwaitingStockView = {
-  summary: { skuCount: number; orderCount: number; totalQty: number };
+  summary: {
+    skuCount: number;
+    orderCount: number;
+    totalQty: number;
+    gapSkuCount: number;
+    gapQty: number;
+    coveredSkuCount: number;
+    coveredQty: number;
+  };
   groups: TodayAwaitingStockGroup[];
 };
 
@@ -162,12 +170,20 @@ export function groupAwaitingStockLines(
 
   const allOrderIds = new Set(remaining.map((line) => line.orderId));
   const totalQty = remaining.reduce((sum, line) => sum + remainingQty(line), 0);
+  const gapGroups = result.filter((g) => g.stockGap > 0);
+  const coveredGroups = result.filter((g) => g.stockGap <= 0);
+  const gapQty = gapGroups.reduce((sum, g) => sum + g.totalQtyRemaining, 0);
+  const coveredQty = coveredGroups.reduce((sum, g) => sum + g.totalQtyRemaining, 0);
 
   return {
     summary: {
       skuCount: result.length,
       orderCount: allOrderIds.size,
       totalQty,
+      gapSkuCount: gapGroups.length,
+      gapQty,
+      coveredSkuCount: coveredGroups.length,
+      coveredQty,
     },
     groups: result,
   };
@@ -194,8 +210,10 @@ export function enrichAwaitingStockGroup(
   const maxFromParts = Math.max(0, capacity.maxFromParts);
   const canAssemble = Math.min(group.totalQtyRemaining, maxFromParts);
   let primaryAction: TodayAwaitingStockPrimaryAction = "production";
-  if (canAssemble > 0) {
+  if (group.stockGap > 0 && canAssemble > 0) {
     primaryAction = "pack";
+  } else if (group.stockGap <= 0) {
+    primaryAction = "production";
   } else if (!capacity.hasBom) {
     primaryAction = "factory";
   }

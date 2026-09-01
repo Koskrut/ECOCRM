@@ -327,7 +327,7 @@ export class RingostatIngestService {
         managerUserId: managerUserId ?? null,
       };
 
-      await this.prisma.$transaction(async (tx) => {
+      const ingestFlags = await this.prisma.$transaction(async (tx) => {
         const call = await tx.call.upsert({
           where: {
             provider_externalId: {
@@ -361,6 +361,7 @@ export class RingostatIngestService {
           where: { callId: call.id },
           select: { id: true, leadId: true, contactId: true, companyId: true },
         });
+        const isFirstActivity = !existingActivity;
 
         if (!existingActivity) {
           await this.createCallActivity(tx, call.id, call.startedAt, {
@@ -429,9 +430,10 @@ export class RingostatIngestService {
             leadId: call.leadId,
           });
         }
+        return { isFirstActivity };
       });
 
-      if (this.isMissed(status) && customerPhoneNormalized && managerUserId) {
+      if (this.isMissed(status) && customerPhoneNormalized && managerUserId && ingestFlags.isFirstActivity) {
         void this.notifications?.notifyMissedCall({
           managerUserId,
           customerPhone: customerPhoneNormalized,
@@ -1214,6 +1216,13 @@ export class RingostatIngestService {
     const hasAssignee = params.managerUserId != null;
 
     if (hasAssignee && hasEntity) {
+      const existing = await tx.task.findUnique({
+        where: { callId: params.callId },
+        select: { id: true, status: true },
+      });
+      if (existing?.status === "DONE" || existing?.status === "CANCELED") {
+        return;
+      }
       await tx.task.upsert({
         where: { callId: params.callId },
         create: {

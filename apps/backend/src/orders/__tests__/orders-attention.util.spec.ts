@@ -6,6 +6,7 @@ import {
   filterStuckOrders,
   getStuckCutoff,
   isOrderStuck,
+  shouldPrePaginateStuckIds,
 } from "../orders-attention.util";
 import { resolvePresetPeriod } from "../../analytics/utils/analytics-date.util";
 
@@ -53,6 +54,14 @@ describe("orders-attention.util", () => {
       isOrderStuck({ id: "3", updatedAt: recent, statusHistory: [{ createdAt: recent }] }, asOf),
       false,
     );
+  });
+
+  it("shouldPrePaginateStuckIds is false when a kanban column filter is present", () => {
+    assert.equal(shouldPrePaginateStuckIds({}), true);
+    assert.equal(shouldPrePaginateStuckIds({ orderStages: "NEW" }), false);
+    assert.equal(shouldPrePaginateStuckIds({ orderStage: "NEW" }), false);
+    assert.equal(shouldPrePaginateStuckIds({ financialStatus: "OVERDUE" }), false);
+    assert.equal(shouldPrePaginateStuckIds({ orderStages: "  " }), true);
   });
 
   it("filterStuckOrders returns only stuck rows", () => {

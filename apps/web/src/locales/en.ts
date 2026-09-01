@@ -589,7 +589,9 @@ export const en = {
   planning: {
     pageTitle: "Production Planning",
     pageSubtitle:
-      "Friday packing (2000 kits/week), 3-month MRP, and factory part orders (~7000 parts/month).",
+      "Friday packing request, 3-month MRP, and factory part orders — values load from settings.",
+    pageSubtitleDynamic: (packCycleDays: number, packCapacity: number) =>
+      `Friday packing (${packCapacity} kits / ${packCycleDays} days), 3-month MRP, and factory part orders.`,
     tabs: {
       overview: "Overview",
       requests: "Requests",
@@ -678,16 +680,21 @@ export const en = {
     overview: {
       zeroStockTitle: "Zero stock SKUs",
       zeroStockHint: "Kits and BOM parts at 0 in 1C snapshot",
+      zeroFinishedBlockedTitle: "Zero kits · no parts",
+      zeroFinishedBuildableTitle: "Zero kits · can assemble",
       paretoZeroTitle: "Zero in top 80%",
       paretoZeroHint: "Gaps that hit revenue drivers",
-      packableTitle: "Can pack now",
-      packableHint: (blocked: number) =>
-        blocked > 0 ? `${blocked} blocked by parts` : "From kit board",
-      packableDetail: (packable: number, blocked: number) =>
-        `Can assemble today: ${packable} kits · missing parts: ${blocked}`,
+      packableTitle: "Hot in 80% · can assemble",
+      packableHint: (blocked: number, allPackable?: number) =>
+        blocked > 0
+          ? `${blocked} blocked · all with parts: ${allPackable ?? 0}`
+          : `All SKUs with parts: ${allPackable ?? 0}`,
+      packableDetail: (packable: number, blocked: number, allPackable?: number) =>
+        `Top-80% ending: ${packable} can assemble · ${blocked} blocked. All kits with parts: ${allPackable ?? 0}.`,
       openPackRequests: "Open packing requests →",
       awaitingTitle: "Orders awaiting stock",
-      awaitingHint: (orders: number, qty: number) => `${orders} orders · ${qty} pcs`,
+      awaitingHint: (gapSku: number, gapQty: number, coveredSku: number) =>
+        `Finished gap: ${gapSku} SKU · ${gapQty} pcs · stock covers: ${coveredSku} SKU`,
       draftsTitle: "Draft requests",
       draftsHint: (pack: number, factory: number) =>
         `Pack ${pack} · Factory ${factory}`,
@@ -742,6 +749,10 @@ export const en = {
       maxBuildNowHint:
         "Kits you can assemble from inventoriable BOM parts on hand. Packaging (PKG blister/label) does not constrain this.",
       packNeed: "Need",
+      targetStockShort: "Stock (target)",
+      canPackNow: "Can pack",
+      toWork: "To production",
+      stockNowVsTarget: (now: number, target: number) => `${now} → ${target}`,
       canAssemble: "Can assemble",
       kit: "Kit",
       kitParts: "Parts in the kit",
@@ -1017,33 +1028,38 @@ export const en = {
     howTo: {
       title: "How to use planning",
       intro:
-        "This section answers what to launch in production and what to pack, using 1C stock, open orders, and the monthly parts quota.",
+        "Three screens: Overview (KPIs and kit board), Requests (packing and factory), Data (snapshots, sales, BOM, MRP).",
       stepsTitle: "Quick start (weekly)",
       steps: [
-        "1C snapshots → upload stock file → Publish. Without a fresh snapshot the plan is wrong.",
-        "Forecast → upload sales XLS (SKU × month) → Post. Without POSTED sales MRP forecast is zero.",
-        "BOM — kits need an active bill of materials (PKG:… packaging does not block capacity).",
-        "MRP tab → Run MRP — the main 3-month calculation.",
-        "Critical → triage the red list; Production / Semi-finished → Create batch.",
-        "As needed: Pack (Friday list, 2000 kits) and Factory (~90-day part orders).",
+        "Data → 1C snapshots: upload stock file → Publish. Planning needs a fresh snapshot.",
+        "Data → Forecast: upload sales XLS → Publish. MRP forecast is 0 without POSTED sales.",
+        "Data → BOM: every kit needs an active spec (PKG lines do not block assembly).",
+        "Data → Settings: verify pack cycle and capacity; re-run MRP when inputs change.",
+        "Overview: zero-stock KPIs, AWAITING_STOCK orders, ending kits — add to pack request or order parts.",
+        "Requests → Packing: cycle need (not 2-month MRP cover). Factory — part drafts.",
       ],
-      tabsTitle: "What the tabs mean",
+      tabsTitle: "Three tabs",
       tabsHint:
-        "Today — fires. Kits — leftovers board (80% of revenue). Pack — Friday list. Make — factory. Data — 1C snapshots, sales XLS, BOM.",
+        "Overview — KPIs, kit board, fires. Requests — packing and factory drafts. Data — snapshots, sales, BOM, MRP, settings.",
       tipTitle: "Tip",
       tipBody:
-        "After changing the 1C snapshot, sales XLS, or quota, always re-run MRP. The full guide is in the Instructions center.",
+        "After changing the 1C snapshot, sales XLS, or pack quota, re-run MRP. Full guide is in Instructions.",
     },
     kitBoard: {
       title: "Kit leftovers",
       hint: "Important kits first (80% of revenue). Pack or order parts without leaving this board.",
+      positionPlanHint:
+        "Target = pack-cycle need (same as request). Can pack = from parts now. To production = missing parts. MRP cover norm is separate.",
       filter80: "80% of revenue",
       filterAll: "All kits",
       search: "Name or SKU",
       weekRequest: "This week's pack request",
       todayLine: (packable: number, blocked: number) =>
-        `Can assemble today: ${packable} kits · missing parts: ${blocked}`,
+        `Top-80% ending: ${packable} can assemble · ${blocked} blocked`,
       pileEnding: "Running out",
+      endingOrders: "Orders",
+      endingCover: "Low cover",
+      endingBoth: "Orders + cover",
       pileOk: "Healthy",
       pileIdle: "Sitting idle",
       count: (n: number) => `${n} kits`,
@@ -1055,6 +1071,10 @@ export const en = {
       waiting: (n: number) => `${n} orders waiting`,
       inRequest: (n: number) => `Already in this week's list: ${n}`,
       pack: (n: number) => `Pack ${n}`,
+      addToRequest: (target: number, increment: number) =>
+        increment > 0 ? `Add to request → ${target} (+${increment})` : `In request: ${target}`,
+      atPartsCap: "Parts capacity for this SKU is full",
+      noPackNeed: "Cycle need already covered",
       orderPart: (name: string, qty: number) =>
         qty > 0 ? `Order “${name}” · ${qty}` : `Order “${name}”`,
       sharedPart: (name: string, n: number) => `“${name}” blocks ${n} kits`,
@@ -2536,6 +2556,8 @@ export const en = {
       discounts: "Discounts",
       shipmentWarehouse: "Shipment warehouse",
       noItems: "No items",
+      itemReturnedBadge: (qty: number) => `Returned ${qty}`,
+      itemReturnedTitle: (qty: number) => `Returned ${qty} pcs`,
       splitByStock: "Split by stock (child order)",
       splitting: "Splitting…",
       splitHint:
@@ -2602,9 +2624,24 @@ export const en = {
     loadFailed: "Failed to load",
     moveFailed: "Failed to move",
     statusUpdateFailed: "Failed to update status",
+    emptyColumn: "—",
+    retry: "Retry",
+    paymentTypeRequired: "Set payment terms before moving the order to the next stage.",
+    completeBlockedDebt:
+      "Cannot complete the order: payment is not closed. Pay or apply a settlement first.",
+    awaitingPaymentPrepay: "“Awaiting payment” is only for prepaid orders.",
+    prepayMustAwaitPayment: "Prepaid orders must move to “Awaiting payment” first.",
+    deferredNoAwaitingPayment: "For deferred payment use “Awaiting stock”, not “Awaiting payment”.",
+    loadedCardsHint: "Amount for loaded cards",
+    financialLoadingBoard: "Loading finance board…",
+    financialHint:
+      "Finance kanban is a control screen. Status comes from order and payment data — no dragging.",
+    invalidTransition: (from: string, to: string) =>
+      `Invalid transition: ${from} → ${to}`,
     returnsInvalidTransition: (from: string, to: string) =>
       `Cannot change status from “${from}” to “${to}”`,
     returnsCloseBlockedItems: "Cannot close a return without line items",
+    settlementPreviewFailed: "Could not check settlement before closing. Try again.",
     returnsLoadingBoard: "Loading returns…",
     returnsHint: "Drag a card to the next allowed status",
     loadingColumn: "Loading…",

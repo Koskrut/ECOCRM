@@ -61,9 +61,18 @@ function cx(...parts: Array<string | false | null | undefined>) {
   return parts.filter(Boolean).join(" ");
 }
 
-function Badge({ children, className }: { children: React.ReactNode; className?: string }) {
+function Badge({
+  children,
+  className,
+  title,
+}: {
+  children: React.ReactNode;
+  className?: string;
+  title?: string;
+}) {
   return (
     <span
+      title={title}
       className={cx(
         "inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium",
         className,
@@ -918,6 +927,17 @@ export function OrderModal({
     () => (order?.items ? computeOrderGrossSubtotal(order.items) : 0),
     [order?.items],
   );
+  const returnedQtyByItemId = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const ret of orderReturns) {
+      for (const item of ret.items ?? []) {
+        const qty = Number(item.qtyReturned) || 0;
+        if (!item.orderItemId || qty <= 0) continue;
+        map.set(item.orderItemId, (map.get(item.orderItemId) ?? 0) + qty);
+      }
+    }
+    return map;
+  }, [orderReturns]);
   const { status: modulesStatus, effective: moduleEffective } = useModules();
   const npModuleEffective = modulesStatus !== "ready" || moduleEffective(ModuleIds.NovaPoshta);
   const riskModuleEffective = modulesStatus === "ready" && moduleEffective(ModuleIds.RiskManagement);
@@ -2882,8 +2902,10 @@ export function OrderModal({
                   {order.items.length === 0 ? (
                     <li className="py-2 text-zinc-500">{t.noItems}</li>
                   ) : (
-                    order.items.map((it, index) => (
-                      <li
+                    order.items.map((it, index) => {
+                      const returnedQty = returnedQtyByItemId.get(it.id) ?? 0;
+                      return (
+                        <li
                         key={it.id}
                         className="flex flex-wrap items-start justify-between gap-x-2 gap-y-2 py-1.5 sm:items-center"
                       >
@@ -2894,9 +2916,19 @@ export function OrderModal({
                           {it.product?.sku ? (
                             <div className="truncate text-[11px] text-zinc-500">{it.product.sku}</div>
                           ) : null}
-                          <span className="block truncate text-xs font-medium text-zinc-700">
-                            {it.product?.name || it.productName || it.productId}
-                          </span>
+                          <div className="flex min-w-0 items-center gap-1.5">
+                            <span className="min-w-0 truncate text-xs font-medium text-zinc-700">
+                              {it.product?.name || it.productName || it.productId}
+                            </span>
+                            {returnedQty > 0 ? (
+                              <Badge
+                                className="shrink-0 border-amber-200 bg-amber-50 text-amber-800"
+                                title={t.itemReturnedTitle(returnedQty)}
+                              >
+                                {t.itemReturnedBadge(returnedQty)}
+                              </Badge>
+                            ) : null}
+                          </div>
                         </div>
                         <div className="flex shrink-0 flex-wrap items-center justify-end gap-1">
                           {editingItem?.itemId === it.id && editingItem?.field === "qty" ? (
@@ -3139,8 +3171,9 @@ export function OrderModal({
                             />
                           </svg>
                         </button>
-                      </li>
-                    ))
+                        </li>
+                      );
+                    })
                   )}
                 </ul>
               </EntitySection>

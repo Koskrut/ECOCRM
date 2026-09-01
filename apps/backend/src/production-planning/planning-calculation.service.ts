@@ -2,6 +2,7 @@ import { forwardRef, Inject, Injectable } from "@nestjs/common";
 import {
   FactoryOrderStatus,
   InventorySnapshotStatus,
+  OrderStage,
   PackingListStatus,
   ProductKind,
   ProductionBatchStatus,
@@ -216,6 +217,22 @@ export class PlanningCalculationService {
   async getDemandByProduct(): Promise<Map<string, { hard: number; soft: number }>> {
     const rules = await this.demandRules.getRules();
     const stages = [...new Set([...rules.hardStages, ...rules.softStages])];
+    return this.aggregateDemandByProduct(stages, rules);
+  }
+
+  /** Hard demand for pack-cycle need — excludes READY_TO_SHIP (reserved for ship, not assembly). */
+  async getPackDemandByProduct(): Promise<Map<string, { hard: number; soft: number }>> {
+    const rules = await this.demandRules.getRules();
+    const packHardStages = rules.hardStages.filter((s) => s !== OrderStage.READY_TO_SHIP);
+    const stages = [...new Set([...packHardStages, ...rules.softStages])];
+    return this.aggregateDemandByProduct(stages, rules, packHardStages);
+  }
+
+  private async aggregateDemandByProduct(
+    stages: OrderStage[],
+    rules: Awaited<ReturnType<DemandRulesService["getRules"]>>,
+    hardStages: OrderStage[] = rules.hardStages,
+  ): Promise<Map<string, { hard: number; soft: number }>> {
     const demandRows = await this.prisma.orderItem.findMany({
       where: {
         productId: { not: null },
@@ -233,7 +250,7 @@ export class PlanningCalculationService {
       if (!row.productId) continue;
       const remaining = Math.max(0, row.qty - row.qtyShipped);
       const current = map.get(row.productId) ?? { hard: 0, soft: 0 };
-      const isHard = row.order.orderStage && rules.hardStages.includes(row.order.orderStage);
+      const isHard = row.order.orderStage && hardStages.includes(row.order.orderStage);
       if (isHard) current.hard += remaining;
       else current.soft += remaining;
       map.set(row.productId, current);

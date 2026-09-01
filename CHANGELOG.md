@@ -4,7 +4,32 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.168**.)_
+_(планируемые изменения после **0.2.169**.)_
+
+## [0.2.169] — 2026-09-01
+
+### Summary
+
+Патч **0.2.169**: orders/returns kanban UX + фільтри; kit portfolio / packing demand; GPS loop-day snap; missed-call/task notify без повторів на DONE.
+
+### Added
+
+- **Orders kanban util** (`orders-kanban.util`) + тести; infinite columns / filters polish; Kyiv date range helper `kyivInstantRangeFromQuery`.
+- **Returns list filters**: `q`, `ownerId`, `dateFrom`/`dateTo`; client `return-transitions` + tests.
+- **GPS track snap**: loop-day / home-dwell trim, path vs snapped ratio, waypoint fallback (route-plans snap).
+
+### Changed
+
+- Kit portfolio / packing / stockout / awaiting-stock: pack hard demand excludes `READY_TO_SHIP`.
+- Stuck-order pagination: не pre-paginate, коли колонка вже фільтрує stage/financialStatus.
+- Ringostat / Kyivstar: missed-call notify лише на first activity; не reopen DONE/CANCELED call tasks.
+- Notifications: `markReadForEntity` при DONE/CANCELED task; skip assign notify for closed tasks.
+- Planning MRP help seed rewrite; locales en/uk.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.169`**.
+- **Миграций нет.**
 
 ## [0.2.168] — 2026-08-31
 

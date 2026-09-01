@@ -3,7 +3,7 @@
 import { apiHttp } from "../../lib/api/client";
 import { isTextSelected } from "@/lib/dom";
 import { formatOrderAmount } from "@/lib/formatOrderAmount";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   KanbanLoadSentinel,
   KANBAN_COLUMN_BODY_CLASS,
@@ -23,22 +23,19 @@ import {
   type OrderStockReadiness,
 } from "@/components/orders/StockReadinessBadge";
 import { formatRelativeTime } from "@/lib/formatRelativeTime";
-
-/** Phase 3: orderStage as main axis. */
-type OrderStage =
-  | "NEW"
-  | "CONFIRMED"
-  | "AWAITING_PAYMENT"
-  | "AWAITING_STOCK"
-  | "READY_TO_SHIP"
-  | "SHIPPED"
-  | "AWAITING_RECEIPT"
-  | "RECEIVED"
-  | "COMPLETED"
-  | "CANCELED"
-  | "REFUSED"
-  | "RETURN_IN_PROGRESS"
-  | "FULLY_RETURNED";
+import {
+  allowedNextForStage,
+  FALLBACK_FINAL_DROP_ZONES,
+  FALLBACK_MAIN_STAGE_ORDER,
+  getKanbanDropBlock,
+  isFinalOrderStage,
+  isKnownStage,
+  resolveStage,
+  STAGE_LABELS,
+  WAREHOUSE_KANBAN_STAGES,
+  type KanbanDropBlockCode,
+  type OrderStage,
+} from "./orders-kanban.util";
 
 type BoardOrder = {
   id: string;
@@ -94,80 +91,12 @@ type BoardFilters = {
   dateTo?: string;
   sortBy?: string;
   sortDir?: "asc" | "desc";
+  ids?: string;
+  overdue?: string;
+  dueSoon?: string;
+  hasDebt?: string;
+  hasDueDate?: string;
 };
-
-/** Fallback when GET /orders/pipeline fails — mirrors backend order-pipeline.defaults.ts. */
-const FALLBACK_MAIN_STAGE_ORDER: OrderStage[] = [
-  "NEW",
-  "AWAITING_PAYMENT",
-  "AWAITING_STOCK",
-  "CONFIRMED",
-  "READY_TO_SHIP",
-  "SHIPPED",
-  "AWAITING_RECEIPT",
-  "RECEIVED",
-];
-
-function isForwardStageTransition(from: OrderStage, to: OrderStage): boolean {
-  if (from === to) return false;
-  if (to === "CANCELED") return false;
-  const fromIdx = FALLBACK_MAIN_STAGE_ORDER.indexOf(from);
-  const toIdx = FALLBACK_MAIN_STAGE_ORDER.indexOf(to);
-  if (fromIdx >= 0 && toIdx >= 0) return toIdx > fromIdx;
-  return to === "COMPLETED";
-}
-
-const FALLBACK_FINAL_DROP_ZONES: { id: OrderStage; label: string; className: string }[] = [
-  { id: "COMPLETED", label: "Завершено", className: "border-emerald-300 bg-emerald-50/80" },
-  { id: "CANCELED", label: "Скасовано", className: "border-red-300 bg-red-50/80" },
-  { id: "REFUSED", label: "Відмова", className: "border-orange-300 bg-orange-50/80" },
-  { id: "RETURN_IN_PROGRESS", label: "Повернення", className: "border-amber-300 bg-amber-50/80" },
-  { id: "FULLY_RETURNED", label: "Повернений", className: "border-amber-400 bg-amber-50/80" },
-];
-
-const STAGE_LABELS: Record<OrderStage, string> = {
-  NEW: "Новий",
-  CONFIRMED: "Підтверджено",
-  AWAITING_PAYMENT: "Очікує оплату",
-  AWAITING_STOCK: "Очікує на склад",
-  READY_TO_SHIP: "Готово до відправки",
-  SHIPPED: "Відправлено",
-  AWAITING_RECEIPT: "Очікує отримання",
-  RECEIVED: "Отримано",
-  COMPLETED: "Завершено",
-  CANCELED: "Скасовано",
-  REFUSED: "Відмова",
-  RETURN_IN_PROGRESS: "Повернення",
-  FULLY_RETURNED: "Повернений",
-};
-
-function isKnownStage(s: string): s is OrderStage {
-  return Object.keys(STAGE_LABELS).includes(s);
-}
-
-/** Legacy Order.status values → orderStage (mirrors backend order-status-sync.mapper). */
-const LEGACY_STATUS_TO_STAGE: Record<string, OrderStage> = {
-  NEW: "NEW",
-  IN_WORK: "CONFIRMED",
-  READY_TO_SHIP: "READY_TO_SHIP",
-  SHIPPED: "SHIPPED",
-  CONTROL_PAYMENT: "RECEIVED",
-  SUCCESS: "COMPLETED",
-  RETURNING: "RETURN_IN_PROGRESS",
-  CANCELED: "CANCELED",
-};
-
-/** Resolve display stage: prefer orderStage; fall back to legacy status mapping. */
-function resolveStage(o: BoardOrder): OrderStage {
-  if (o.orderStage && isKnownStage(o.orderStage)) return o.orderStage;
-  const legacy = o.status?.trim();
-  if (legacy) {
-    const mapped = LEGACY_STATUS_TO_STAGE[legacy];
-    if (mapped) return mapped;
-    if (isKnownStage(legacy)) return legacy;
-  }
-  return "NEW";
-}
 
 type PipelineStageRow = {
   stage: OrderStage;
@@ -178,42 +107,53 @@ type PipelineStageRow = {
   allowedNext: OrderStage[];
 };
 
-const WAREHOUSE_KANBAN_STAGES: OrderStage[] = [
-  "AWAITING_STOCK",
-  "CONFIRMED",
-  "READY_TO_SHIP",
-  "SHIPPED",
-];
+const tr = strings.kanban;
 
-const WAREHOUSE_TRANSITIONS: Partial<Record<OrderStage, OrderStage[]>> = {
-  AWAITING_STOCK: ["CONFIRMED"],
-  CONFIRMED: ["READY_TO_SHIP", "AWAITING_STOCK"],
-  READY_TO_SHIP: ["SHIPPED"],
-};
+function dropBlockMessage(code: KanbanDropBlockCode, from: OrderStage, to: OrderStage): string {
+  switch (code) {
+    case "payment_type":
+      return tr.paymentTypeRequired;
+    case "complete_debt":
+      return tr.completeBlockedDebt;
+    case "awaiting_payment_prepay":
+      return tr.awaitingPaymentPrepay;
+    case "prepay_must_await_payment":
+      return tr.prepayMustAwaitPayment;
+    case "deferred_no_awaiting_payment":
+      return tr.deferredNoAwaitingPayment;
+    default:
+      return tr.invalidTransition(STAGE_LABELS[from], STAGE_LABELS[to]);
+  }
+}
 
 export function OrdersKanban({
   onOpenOrder,
   filters,
   refreshKey = 0,
   warehouseMode = false,
+  warehouseRestricted = false,
 }: {
   onOpenOrder: (id: string) => void;
   filters?: BoardFilters;
   refreshKey?: number;
   warehouseMode?: boolean;
+  /** WAREHOUSE role on the full board: keep all columns, restrict drops. */
+  warehouseRestricted?: boolean;
 }) {
+  const restrictTransitions = warehouseMode || warehouseRestricted;
   const [pipeline, setPipeline] = useState<PipelineStageRow[] | null>(null);
 
   const [dragging, setDragging] = useState<{ orderId: string; from: OrderStage } | null>(null);
+  const draggingRef = useRef(dragging);
+  draggingRef.current = dragging;
   const [dragOver, setDragOver] = useState<OrderStage | null>(null);
-  /** На мобильных: индекс выбранной колонки (одна колонка на экран). */
   const [selectedStageIndex, setSelectedStageIndex] = useState(0);
 
   const loadPipeline = useCallback(async () => {
     try {
       const res = await apiHttp.get<{ stages: PipelineStageRow[] }>("/orders/pipeline");
       const stages = res.data?.stages;
-      if (Array.isArray(stages) && stages.length >= 12) setPipeline(stages);
+      if (Array.isArray(stages) && stages.length > 0) setPipeline(stages);
       else setPipeline(null);
     } catch {
       setPipeline(null);
@@ -232,7 +172,7 @@ export function OrdersKanban({
         label: STAGE_LABELS[stage],
         color: null,
         kanbanGroup: "MAIN" as const,
-        allowedNext: WAREHOUSE_TRANSITIONS[stage] ?? [],
+        allowedNext: allowedNextForStage(stage, undefined, restrictTransitions),
       }));
 
     if (warehouseMode) return build(WAREHOUSE_KANBAN_STAGES);
@@ -249,11 +189,12 @@ export function OrdersKanban({
       label: STAGE_LABELS[stage],
       color: null,
       kanbanGroup: "MAIN" as const,
-      allowedNext: [],
+      allowedNext: allowedNextForStage(stage, undefined, restrictTransitions),
     }));
-  }, [pipeline, warehouseMode]);
+  }, [pipeline, warehouseMode, restrictTransitions]);
 
   const finalDropZones = useMemo(() => {
+    if (restrictTransitions) return [];
     if (pipeline?.length) {
       const finals = pipeline
         .filter((s) => s.kanbanGroup === "FINAL")
@@ -267,36 +208,68 @@ export function OrdersKanban({
       }
     }
     return FALLBACK_FINAL_DROP_ZONES;
-  }, [pipeline]);
+  }, [pipeline, restrictTransitions]);
 
-  const loadColumnIds = useMemo((): OrderStage[] => {
-    const stages = mainBoardStages.map((cfg) => cfg.stage);
-    if (filters?.orderStage && isKnownStage(filters.orderStage)) {
-      return stages.includes(filters.orderStage) ? [filters.orderStage] : [];
+  const allowedNextByStage = useMemo(() => {
+    const map = new Map<OrderStage, OrderStage[]>();
+    const rows = pipeline?.length ? pipeline : [...mainBoardStages];
+    for (const row of rows) {
+      map.set(row.stage, allowedNextForStage(row.stage, row.allowedNext, restrictTransitions));
     }
-    return stages;
-  }, [mainBoardStages, filters?.orderStage]);
+    for (const stage of Object.keys(STAGE_LABELS) as OrderStage[]) {
+      if (!map.has(stage)) {
+        map.set(stage, allowedNextForStage(stage, undefined, restrictTransitions));
+      }
+    }
+    return map;
+  }, [pipeline, mainBoardStages, restrictTransitions]);
+
+  const visibleStages = useMemo((): PipelineStageRow[] => {
+    const filterStage = filters?.orderStage;
+    if (!filterStage || !isKnownStage(filterStage)) return mainBoardStages;
+
+    const main = mainBoardStages.find((s) => s.stage === filterStage);
+    if (main) return [main];
+
+    const final = finalDropZones.find((z) => z.id === filterStage);
+    if (final) {
+      return [
+        {
+          stage: final.id,
+          sortOrder: 0,
+          label: final.label,
+          color: null,
+          kanbanGroup: "FINAL",
+          allowedNext: allowedNextByStage.get(final.id) ?? [],
+        },
+      ];
+    }
+    return [];
+  }, [filters?.orderStage, mainBoardStages, finalDropZones, allowedNextByStage]);
+
+  const loadColumnIds = useMemo((): OrderStage[] => visibleStages.map((s) => s.stage), [visibleStages]);
 
   const kanbanResetKey = useMemo(
     () =>
       JSON.stringify({
         refreshKey,
         warehouseMode,
+        warehouseRestricted,
         filters,
         stages: loadColumnIds,
       }),
-    [refreshKey, warehouseMode, filters, loadColumnIds],
+    [refreshKey, warehouseMode, warehouseRestricted, filters, loadColumnIds],
   );
 
   const buildParams = useCallback(
     (stage: OrderStage, page: number): Record<string, string> => {
       const params: Record<string, string> = {
-        board: "true",
         withCompanyClient: "true",
         orderStages: stage,
         page: String(page),
         pageSize: String(KANBAN_PAGE_SIZE),
       };
+      if (!isFinalOrderStage(stage)) params.board = "true";
       if (filters?.status) params.status = filters.status;
       if (filters?.ownerId) params.ownerId = filters.ownerId;
       if (filters?.attention) params.attention = filters.attention;
@@ -313,6 +286,11 @@ export function OrdersKanban({
       if (filters?.dateTo) params.dateTo = filters.dateTo;
       if (filters?.sortBy) params.sortBy = filters.sortBy;
       if (filters?.sortDir) params.sortDir = filters.sortDir;
+      if (filters?.ids) params.ids = filters.ids;
+      if (filters?.overdue === "true") params.overdue = "true";
+      if (filters?.dueSoon === "true") params.dueSoon = "true";
+      if (filters?.hasDebt === "true") params.hasDebt = "true";
+      if (filters?.hasDueDate === "true") params.hasDueDate = "true";
       if (warehouseMode) {
         params.sortBy = "createdAt";
         params.sortDir = "asc";
@@ -327,6 +305,11 @@ export function OrdersKanban({
       filters?.dateFrom,
       filters?.dateTo,
       filters?.hasTtn,
+      filters?.ids,
+      filters?.overdue,
+      filters?.dueSoon,
+      filters?.hasDebt,
+      filters?.hasDueDate,
       filters?.ownerId,
       filters?.paymentStatus,
       filters?.paymentType,
@@ -351,6 +334,7 @@ export function OrdersKanban({
     columns: columnStates,
     loadMore,
     reloadAll,
+    reloadColumn,
     moveItem,
     anyInitialLoading,
     firstError,
@@ -363,12 +347,12 @@ export function OrdersKanban({
 
   const columns: BoardColumn[] = useMemo(
     () =>
-      mainBoardStages.map((cfg) => ({
+      visibleStages.map((cfg) => ({
         id: cfg.stage,
         title: cfg.label,
         items: columnStates[cfg.stage]?.items ?? [],
       })),
-    [mainBoardStages, columnStates],
+    [visibleStages, columnStates],
   );
 
   useEffect(() => {
@@ -377,7 +361,6 @@ export function OrdersKanban({
     }
   }, [columns.length, selectedStageIndex]);
 
-  /** Phase 3: PATCH /orders/:id/stage with toStage. */
   const patchStage = useCallback(async (orderId: string, toStage: OrderStage, reason?: string) => {
     const res = await apiHttp.patch(`/orders/${orderId}/stage`, { toStage, reason });
     return res.data ?? null;
@@ -394,58 +377,70 @@ export function OrdersKanban({
     [columnStates],
   );
 
+  const dropBlockFor = useCallback(
+    (orderId: string, from: OrderStage, to: OrderStage): KanbanDropBlockCode | null => {
+      const order = findOrder(orderId);
+      return getKanbanDropBlock({
+        from,
+        to,
+        paymentType: order?.paymentType,
+        debtAmount: order?.debtAmount,
+        allowedNext: allowedNextByStage.get(from) ?? [],
+      });
+    },
+    [allowedNextByStage, findOrder],
+  );
+
+  const isDropTargetAllowed = useCallback(
+    (to: OrderStage) => {
+      const drag = draggingRef.current;
+      if (!drag) return true;
+      if (drag.from === to) return true;
+      return dropBlockFor(drag.orderId, drag.from, to) === null;
+    },
+    [dropBlockFor],
+  );
+
   const handleDrop = useCallback(
     async (orderId: string, to: OrderStage) => {
-      const from = dragging?.from;
-      if (from && from === to) {
+      const from = draggingRef.current?.from ?? dragging?.from;
+      if (!from || from === to) {
+        draggingRef.current = null;
         setDragging(null);
         return;
       }
-      const order = findOrder(orderId);
-      if (from && isForwardStageTransition(from, to) && !order?.paymentType) {
-        alert("Оберіть умови оплати перед переведенням замовлення на наступний етап.");
+      const block = dropBlockFor(orderId, from, to);
+      if (block) {
+        alert(dropBlockMessage(block, from, to));
         setDragging(null);
         return;
       }
-      if (to === "COMPLETED") {
-        const debt = Number(order?.debtAmount ?? 0);
-        if (debt > 0.009) {
-          alert(
-            "Неможливо завершити замовлення: оплата не закрита. Спочатку оплатіть або застосуйте залік.",
-          );
-          setDragging(null);
-          return;
-        }
-      }
-      if (warehouseMode && from) {
-        const allowed = WAREHOUSE_TRANSITIONS[from];
-        if (!allowed?.includes(to)) {
-          alert(`Недопустимий перехід: ${STAGE_LABELS[from]} → ${STAGE_LABELS[to]}`);
-          setDragging(null);
-          return;
-        }
-      }
-      if (from) {
-        moveItem(orderId, from, to, (o) => ({ ...o, orderStage: to }));
-      }
+      moveItem(orderId, from, to, (o) => ({ ...o, orderStage: to }));
       try {
         await patchStage(orderId, to, "Moved in board");
-        if (["COMPLETED", "CANCELED", "REFUSED", "RETURN_IN_PROGRESS", "FULLY_RETURNED"].includes(to)) {
+        if (isFinalOrderStage(to) || !loadColumnIds.includes(to)) {
           reloadAll();
         }
       } catch (error) {
-        alert(error instanceof Error ? error.message : strings.kanban.moveFailed);
+        alert(error instanceof Error ? error.message : tr.moveFailed);
         reloadAll();
       } finally {
         setDragging(null);
       }
     },
-    [dragging, findOrder, moveItem, patchStage, reloadAll, warehouseMode],
+    [dragging, dropBlockFor, loadColumnIds, moveItem, patchStage, reloadAll],
   );
+
+  const clearDrag = useCallback(() => {
+    requestAnimationFrame(() => {
+      setDragging(null);
+      setDragOver(null);
+    });
+  }, []);
 
   const boardEmpty = columns.every((col) => col.items.length === 0);
   if (anyInitialLoading && boardEmpty) {
-    return <div className="text-sm text-zinc-500">{strings.kanban.loadingBoard}</div>;
+    return <div className="text-sm text-zinc-500">{tr.loadingBoard}</div>;
   }
   if (firstError && boardEmpty) {
     return <div className="text-sm text-red-600">{firstError}</div>;
@@ -453,7 +448,6 @@ export function OrdersKanban({
 
   return (
     <div className="space-y-4">
-      {/* Мобильный переключатель стадий: одна колонка на экран */}
       <div className="md:hidden overflow-x-auto overflow-y-hidden pb-2 -mx-1">
         <div className="flex gap-2 flex-nowrap min-w-0">
           {columns.map((col, idx) => (
@@ -484,6 +478,7 @@ export function OrdersKanban({
           const colState = columnStates[st];
           const isOver = dragOver === st;
           const isSelectedOnMobile = colIndex === selectedStageIndex;
+          const dropAllowed = isDropTargetAllowed(st);
 
           return (
             <div
@@ -492,7 +487,7 @@ export function OrdersKanban({
                 "rounded-lg border bg-zinc-50/80 transition-colors",
                 "w-full min-w-0 md:w-[220px] md:min-w-[220px] md:flex-shrink-0",
                 isSelectedOnMobile ? "block" : "hidden md:block",
-                isOver ? "border-zinc-900" : "border-zinc-200",
+                isOver && dropAllowed ? "border-zinc-900" : "border-zinc-200",
               ].join(" ")}
             >
               <div className="flex items-center justify-between border-b border-zinc-200 px-3 py-2">
@@ -504,26 +499,38 @@ export function OrdersKanban({
                 className={[
                   KANBAN_COLUMN_BODY_CLASS,
                   "min-h-[200px] transition-colors",
-                  isOver ? "bg-zinc-50" : "",
+                  isOver && dropAllowed ? "bg-zinc-50" : "",
                 ].join(" ")}
                 onDragOver={(e) => {
                   e.preventDefault();
-                  e.dataTransfer.dropEffect = "move";
-                  setDragOver(st);
+                  const allowed = isDropTargetAllowed(st);
+                  e.dataTransfer.dropEffect = allowed ? "move" : "none";
+                  if (allowed) setDragOver(st);
                 }}
                 onDragLeave={() => setDragOver((cur) => (cur === st ? null : cur))}
                 onDrop={(e) => {
                   e.preventDefault();
                   setDragOver(null);
-                  const orderId = e.dataTransfer.getData("text/plain") || dragging?.orderId;
+                  const orderId = e.dataTransfer.getData("text/plain") || draggingRef.current?.orderId;
                   if (!orderId) return;
                   void handleDrop(orderId, st);
                 }}
               >
                 {colState?.initialLoading ? (
-                  <div className="text-xs text-zinc-500">Завантаження…</div>
+                  <div className="text-xs text-zinc-500">{tr.loadingColumn}</div>
+                ) : colState?.error && items.length === 0 ? (
+                  <div className="space-y-2">
+                    <div className="text-xs text-red-600">{colState.error}</div>
+                    <button
+                      type="button"
+                      onClick={() => reloadColumn(st)}
+                      className="text-xs font-medium text-zinc-700 underline"
+                    >
+                      {tr.retry}
+                    </button>
+                  </div>
                 ) : items.length === 0 ? (
-                  <div className="text-xs text-zinc-500">Empty</div>
+                  <div className="text-xs text-zinc-500">{tr.emptyColumn}</div>
                 ) : (
                   items.map((o) => {
                     const clientName =
@@ -531,10 +538,10 @@ export function OrdersKanban({
                         ? `${o.client.lastName} ${o.client.firstName}`.trim() || "—"
                         : o.company?.name ?? "—";
                     const stage = resolveStage(o);
-                  const stockFullyReady =
-                    stage === "AWAITING_STOCK" && o.stockReadiness === "FULL";
-                  return (
-                    <button
+                    const stockFullyReady = stage === "AWAITING_STOCK" && o.stockReadiness === "FULL";
+                    const canDrag = (allowedNextByStage.get(st) ?? []).length > 0;
+                    return (
+                      <button
                         key={o.id}
                         type="button"
                         title={stockFullyReady ? stockReadinessHint(o.stockReadiness) ?? undefined : undefined}
@@ -542,29 +549,33 @@ export function OrdersKanban({
                           if (isTextSelected()) return;
                           onOpenOrder(o.id);
                         }}
-                        draggable
+                        draggable={canDrag}
                         onDragStart={(e) => {
-                          setDragging({ orderId: o.id, from: stage });
+                          if (!canDrag) {
+                            e.preventDefault();
+                            return;
+                          }
+                          const payload = { orderId: o.id, from: st };
+                          draggingRef.current = payload;
+                          setDragging(payload);
                           e.dataTransfer.setData("text/plain", o.id);
                           e.dataTransfer.effectAllowed = "move";
                         }}
                         onDragOver={(e) => {
                           e.preventDefault();
-                          e.dataTransfer.dropEffect = "move";
-                          setDragOver(st);
+                          const allowed = isDropTargetAllowed(st);
+                          e.dataTransfer.dropEffect = allowed ? "move" : "none";
+                          if (allowed) setDragOver(st);
                         }}
                         onDrop={(e) => {
                           e.preventDefault();
                           e.stopPropagation();
                           setDragOver(null);
-                          const orderId = e.dataTransfer.getData("text/plain") || dragging?.orderId;
+                          const orderId = e.dataTransfer.getData("text/plain") || draggingRef.current?.orderId;
                           if (!orderId) return;
                           void handleDrop(orderId, st);
                         }}
-                        onDragEnd={() => {
-                          setDragging(null);
-                          setDragOver(null);
-                        }}
+                        onDragEnd={clearDrag}
                         className={[
                           "w-full rounded-xl border bg-white p-4 text-left transition-shadow",
                           stockFullyReady
@@ -647,7 +658,7 @@ export function OrdersKanban({
                   />
                 ) : null}
                 {colState?.loadingMore ? (
-                  <div className="py-1 text-center text-xs text-zinc-400">Завантаження…</div>
+                  <div className="py-1 text-center text-xs text-zinc-400">{tr.loadingColumn}</div>
                 ) : null}
               </div>
             </div>
@@ -655,26 +666,28 @@ export function OrdersKanban({
         })}
       </div>
 
-      {dragging && !warehouseMode && (
+      {dragging && finalDropZones.length > 0 && (
         <div className="fixed bottom-0 left-0 right-0 z-50 flex gap-4 bg-zinc-50/95 p-4 backdrop-blur-sm md:left-[var(--sidebar-px)]">
           {finalDropZones.map(({ id, label, className }) => {
             const isOver = dragOver === id;
+            const dropAllowed = isDropTargetAllowed(id);
             return (
               <div
                 key={id}
                 className={`flex flex-1 items-center justify-center rounded-lg border-2 border-dashed p-6 transition-colors ${className} ${
-                  isOver ? "ring-2 ring-offset-2 ring-zinc-400" : ""
-                }`}
+                  isOver && dropAllowed ? "ring-2 ring-offset-2 ring-zinc-400" : ""
+                } ${dropAllowed ? "" : "opacity-40"}`}
                 onDragOver={(e) => {
                   e.preventDefault();
-                  e.dataTransfer.dropEffect = "move";
-                  setDragOver(id);
+                  const allowed = isDropTargetAllowed(id);
+                  e.dataTransfer.dropEffect = allowed ? "move" : "none";
+                  if (allowed) setDragOver(id);
                 }}
                 onDragLeave={() => setDragOver((cur) => (cur === id ? null : cur))}
                 onDrop={(e) => {
                   e.preventDefault();
                   setDragOver(null);
-                  const orderId = e.dataTransfer.getData("text/plain") || dragging?.orderId;
+                  const orderId = e.dataTransfer.getData("text/plain") || draggingRef.current?.orderId;
                   if (!orderId) return;
                   void handleDrop(orderId, id);
                 }}

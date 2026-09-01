@@ -55,11 +55,22 @@ export function useKanbanInfiniteColumns<
   resetKey: unknown;
 }) {
   const [columns, setColumns] = useState<Record<string, KanbanColumnState<T>>>({});
-  const generationRef = useRef(0);
+  const columnGenRef = useRef<Record<string, number>>({});
+  const moreInFlightRef = useRef<Set<string>>(new Set());
+
+  const bumpColumn = useCallback((columnId: string) => {
+    columnGenRef.current[columnId] = (columnGenRef.current[columnId] ?? 0) + 1;
+    moreInFlightRef.current.delete(columnId);
+    return columnGenRef.current[columnId];
+  }, []);
 
   const fetchColumnPage = useCallback(
     async (columnId: TColumn, page: number, mode: "initial" | "more") => {
-      const myGen = generationRef.current;
+      const myGen = columnGenRef.current[columnId] ?? 0;
+      if (mode === "more") {
+        if (moreInFlightRef.current.has(columnId)) return;
+        moreInFlightRef.current.add(columnId);
+      }
       setColumns((prev) => ({
         ...prev,
         [columnId]: {
@@ -70,7 +81,7 @@ export function useKanbanInfiniteColumns<
 
       try {
         const { items, total } = await fetchPage(buildParams(columnId, page));
-        if (myGen !== generationRef.current) return;
+        if (myGen !== (columnGenRef.current[columnId] ?? 0)) return;
 
         setColumns((prev) => {
           const current = prev[columnId] ?? emptyColumnState<T>();
@@ -90,7 +101,7 @@ export function useKanbanInfiniteColumns<
           };
         });
       } catch (e) {
-        if (myGen !== generationRef.current) return;
+        if (myGen !== (columnGenRef.current[columnId] ?? 0)) return;
         const message = e instanceof Error ? e.message : strings.kanban.loadFailed;
         setColumns((prev) => ({
           ...prev,
@@ -101,13 +112,15 @@ export function useKanbanInfiniteColumns<
             error: message,
           },
         }));
+      } finally {
+        if (mode === "more") moreInFlightRef.current.delete(columnId);
       }
     },
     [buildParams, fetchPage],
   );
 
   useEffect(() => {
-    generationRef.current += 1;
+    for (const id of columnIds) bumpColumn(id);
     const next: Record<string, KanbanColumnState<T>> = {};
     for (const id of columnIds) {
       next[id] = { ...emptyColumnState<T>(), initialLoading: true };
@@ -117,12 +130,13 @@ export function useKanbanInfiniteColumns<
     for (const id of columnIds) {
       void fetchColumnPage(id, 1, "initial");
     }
-  }, [columnIds.join("|"), resetKey, fetchColumnPage]);
+  }, [columnIds.join("|"), resetKey, fetchColumnPage, bumpColumn]);
 
   const loadMore = useCallback(
     (columnId: TColumn) => {
       const col = columns[columnId];
       if (!col || col.initialLoading || col.loadingMore || !col.hasMore) return;
+      if (moreInFlightRef.current.has(columnId)) return;
       void fetchColumnPage(columnId, col.page + 1, "more");
     },
     [columns, fetchColumnPage],
@@ -130,17 +144,18 @@ export function useKanbanInfiniteColumns<
 
   const reloadColumn = useCallback(
     (columnId: TColumn) => {
+      bumpColumn(columnId);
       void fetchColumnPage(columnId, 1, "initial");
     },
-    [fetchColumnPage],
+    [bumpColumn, fetchColumnPage],
   );
 
   const reloadAll = useCallback(() => {
-    generationRef.current += 1;
+    for (const id of columnIds) bumpColumn(id);
     for (const id of columnIds) {
       void fetchColumnPage(id, 1, "initial");
     }
-  }, [columnIds, fetchColumnPage]);
+  }, [bumpColumn, columnIds, fetchColumnPage]);
 
   const updateItem = useCallback((itemId: string, updater: (item: T) => T) => {
     setColumns((prev) => {
@@ -166,21 +181,27 @@ export function useKanbanInfiniteColumns<
         const item = from.items.find((x) => x.id === itemId);
         if (!item) return prev;
 
-        const to = prev[toColumnId] ?? emptyColumnState<T>();
         const nextFromItems = from.items.filter((x) => x.id !== itemId);
+        const nextFrom = {
+          ...from,
+          items: nextFromItems,
+          total: Math.max(0, from.total - 1),
+        };
+
+        if (!(toColumnId in prev) || fromColumnId === toColumnId) {
+          return { ...prev, [fromColumnId]: nextFrom };
+        }
+
+        const to = prev[toColumnId] ?? emptyColumnState<T>();
         const nextToItems = dedupeById([...to.items, updater(item)]);
 
         return {
           ...prev,
-          [fromColumnId]: {
-            ...from,
-            items: nextFromItems,
-            total: Math.max(0, from.total - 1),
-          },
+          [fromColumnId]: nextFrom,
           [toColumnId]: {
             ...to,
             items: nextToItems,
-            total: to.total + (fromColumnId === toColumnId ? 0 : 1),
+            total: to.total + 1,
           },
         };
       });

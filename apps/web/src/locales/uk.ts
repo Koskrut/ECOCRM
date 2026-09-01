@@ -590,7 +590,9 @@ export const uk = {
   planning: {
     pageTitle: "Планування виробництва",
     pageSubtitle:
-      "П’ятнична заявка на упаковку (2000 комплектів/тиждень), MRP на 3 місяці та замовлення деталей (~7000 шт/міс).",
+      "П’ятнична заявка на упаковку, MRP та замовлення деталей — параметри завантажуються з налаштувань.",
+    pageSubtitleDynamic: (packCycleDays: number, packCapacity: number) =>
+      `П’ятнична заявка на упаковку (${packCapacity} комплектів / ${packCycleDays} дн.), MRP на 3 місяці та замовлення деталей.`,
     tabs: {
       overview: "Огляд",
       requests: "Заявки",
@@ -679,16 +681,21 @@ export const uk = {
     overview: {
       zeroStockTitle: "Позицій з 0 на залишку",
       zeroStockHint: "Комплекти та деталі BOM з 0 у снапшоті 1С",
+      zeroFinishedBlockedTitle: "Комплекти 0 · немає деталей",
+      zeroFinishedBuildableTitle: "Комплекти 0 · можна зібрати",
       paretoZeroTitle: "З них у топ 80%",
       paretoZeroHint: "Діри, що б’ють по драйверах виручки",
-      packableTitle: "Можна напакувати",
-      packableHint: (blocked: number) =>
-        blocked > 0 ? `${blocked} без деталей` : "З дошки комплектів",
-      packableDetail: (packable: number, blocked: number) =>
-        `Можна зібрати сьогодні: ${packable} компл. · немає деталей: ${blocked}`,
+      packableTitle: "Гарячі в 80% · можна зібрати",
+      packableHint: (blocked: number, allPackable?: number) =>
+        blocked > 0
+          ? `${blocked} без деталей · усього з деталей: ${allPackable ?? 0}`
+          : `Усього SKU з деталями: ${allPackable ?? 0}`,
+      packableDetail: (packable: number, blocked: number, allPackable?: number) =>
+        `Топ-80% «закінчуються»: ${packable} можна зібрати · ${blocked} без деталей. Усього комплектів з деталями: ${allPackable ?? 0}.`,
       openPackRequests: "Відкрити заявки на упаковку →",
       awaitingTitle: "Замовлення чекають склад",
-      awaitingHint: (orders: number, qty: number) => `${orders} зам. · ${qty} шт`,
+      awaitingHint: (gapSku: number, gapQty: number, coveredSku: number) =>
+        `Брак готових: ${gapSku} SKU · ${gapQty} шт · готове є: ${coveredSku} SKU`,
       draftsTitle: "Чернетки заявок",
       draftsHint: (pack: number, factory: number) =>
         `Упаковка ${pack} · Завод ${factory}`,
@@ -743,6 +750,10 @@ export const uk = {
       maxBuildNowHint:
         "Скільки комплектів можна зібрати з наявних inventoriable деталей BOM. Упаковка (PKG блистер/етикетка) не обмежує.",
       packNeed: "Треба",
+      targetStockShort: "На складі (треба)",
+      canPackNow: "Можемо",
+      toWork: "В роботу",
+      stockNowVsTarget: (now: number, target: number) => `${now} → ${target}`,
       canAssemble: "Можна зібрати",
       kit: "Комплект",
       kitParts: "Деталі в комплекті",
@@ -1020,33 +1031,38 @@ export const uk = {
     howTo: {
       title: "Як користуватися плануванням",
       intro:
-        "Мета розділу — зрозуміти, що запускати в цех і що запакувати, з урахуванням залишків 1С, замовлень і місячної квоти деталей.",
+        "Три екрани: Огляд (KPI і дошка комплектів), Заявки (упаковка та завод), Дані (снапшоти, продажі, BOM, MRP).",
       stepsTitle: "Швидкий старт (раз на тиждень)",
       steps: [
-        "Снапшоти 1С → завантажити файл залишків → Опублікувати. Без свіжого знімка розрахунок бреше.",
-        "Прогноз → завантажити XLS продажів (SKU × місяць) → Опублікувати. Без POSTED продажів прогноз MRP = 0.",
-        "Специфікації — у комплектів має бути BOM (блістери PKG:… квоту/збірку не блокують).",
-        "Вкладка MRP → Запустити MRP — головний розрахунок на ~3 місяці.",
-        "Критичні → розібрати червоний список; Виробництво / Напівфабрикати → Створити партію.",
-        "За потреби: Напакувати (п’ятнична заявка 2000 комплектів) і Завод (замовлення деталей ~90 днів).",
+        "Дані → Снапшоти 1С: завантажити залишки → Опублікувати. Без свіжого знімка розрахунок бреше.",
+        "Дані → Прогноз: завантажити XLS продажів → Опублікувати. Без POSTED продажів прогноз = 0.",
+        "Дані → Специфікації: у комплектів має бути BOM (PKG не блокує збірку).",
+        "Дані → Параметри: перевірити цикл упаковки та квоту; за потреби — Перерахувати MRP.",
+        "Огляд: KPI нулів, замовлення AWAITING_STOCK, дошка «Закінчуються» — додати в заявку або замовити деталі.",
+        "Заявки → Упаковка: п’ятнична заявка (потреба циклу, не MRP-норма 2 міс.). Завод — чернетки деталей.",
       ],
-      tabsTitle: "Що на вкладках",
+      tabsTitle: "Три вкладки",
       tabsHint:
-        "Сьогодні — пожежі. Комплекти — дошка залишків (80% доходу). Напакувати — п’ятнична заявка. Зробити — завод. Дані — снапшоти 1С, продажі, BOM.",
+        "Огляд — KPI, залишки комплектів, пожежі. Заявки — чернетки упаковки та заводу. Дані — снапшоти, продажі, BOM, MRP і параметри.",
       tipTitle: "Порада",
       tipBody:
-        "Після зміни знімка 1С, XLS продажів або квоти завжди робіть новий прогін MRP. Повна інструкція — у центрі «Інструкції».",
+        "Після зміни знімка 1С, XLS продажів або квоти упаковки — новий прогін MRP. Повна інструкція — у центрі «Інструкції».",
     },
     kitBoard: {
       title: "Залишки комплектів",
       hint: "Спочатку важливі позиції (80% доходу). Пакуйте або замовляйте деталі, не йдучи з дошки.",
+      positionPlanHint:
+        "Треба = потреба циклу упаковки (як у заявці). Можемо = зібрати з деталей зараз. В роботу = брак деталей. Норма MRP — у підказці cover.",
       filter80: "80% доходу",
       filterAll: "Усі комплекти",
       search: "Назва або SKU",
       weekRequest: "Заявка цього тижня",
       todayLine: (packable: number, blocked: number) =>
-        `Можна зібрати сьогодні: ${packable} позицій · без деталей: ${blocked}`,
+        `Топ-80% «закінчуються»: ${packable} можна зібрати · ${blocked} без деталей`,
       pileEnding: "Закінчуються",
+      endingOrders: "Замовлення",
+      endingCover: "Мало запасу",
+      endingBoth: "Замовлення + запас",
       pileOk: "Норма",
       pileIdle: "Лежить без руху",
       count: (n: number) => `${n} позицій`,
@@ -1058,6 +1074,10 @@ export const uk = {
       waiting: (n: number) => `чекає ${n} замовлень`,
       inRequest: (n: number) => `в заявці ${n}`,
       pack: (n: number) => `Напакувати ${n}`,
+      addToRequest: (target: number, increment: number) =>
+        increment > 0 ? `Додати в заявку → ${target} (+${increment})` : `У заявці ${target}`,
+      atPartsCap: "Ліміт деталей для цієї позиції вичерпано",
+      noPackNeed: "Потреба циклу вже закрита",
       orderPart: (name: string, qty: number) =>
         qty > 0 ? `Замовити «${name}» · ${qty}` : `Замовити «${name}»`,
       sharedPart: (name: string, n: number) => `«${name}» блокує ${n} позицій`,
@@ -2546,6 +2566,8 @@ export const uk = {
       discounts: "Знижки",
       shipmentWarehouse: "Склад відвантаження",
       noItems: "Немає товарів",
+      itemReturnedBadge: (qty: number) => `Повернення ${qty}`,
+      itemReturnedTitle: (qty: number) => `Повернуто ${qty} шт`,
       splitByStock: "Розділити за залишками (дочірнє замовлення)",
       splitting: "Розділення…",
       splitHint:
@@ -2612,9 +2634,24 @@ export const uk = {
     loadFailed: "Не вдалося завантажити",
     moveFailed: "Не вдалося перемістити",
     statusUpdateFailed: "Не вдалося оновити статус",
+    emptyColumn: "—",
+    retry: "Повторити",
+    paymentTypeRequired: "Оберіть умови оплати перед переведенням замовлення на наступний етап.",
+    completeBlockedDebt:
+      "Неможливо завершити замовлення: оплата не закрита. Спочатку оплатіть або застосуйте залік.",
+    awaitingPaymentPrepay: "Стадія «Очікує оплату» лише для замовлень з передоплатою.",
+    prepayMustAwaitPayment: "Замовлення з передоплатою спочатку переведіть у «Очікує оплату».",
+    deferredNoAwaitingPayment: "Для відтермінування використовуйте «Очікує на склад», не «Очікує оплату».",
+    loadedCardsHint: "Сума по завантажених картках",
+    financialLoadingBoard: "Завантаження фін. дошки…",
+    financialHint:
+      "Фінансовий канбан — контрольний екран. Статус визначається з даних замовлення та оплат, без перетягування.",
+    invalidTransition: (from: string, to: string) =>
+      `Недопустимий перехід: ${from} → ${to}`,
     returnsInvalidTransition: (from: string, to: string) =>
       `Не можна змінити статус з «${from}» на «${to}»`,
     returnsCloseBlockedItems: "Не можна закрити повернення без позицій",
+    settlementPreviewFailed: "Не вдалося перевірити розрахунок перед закриттям. Спробуйте ще раз.",
     returnsLoadingBoard: "Завантаження повернень…",
     returnsHint: "Перетягніть картку в наступний дозволений статус",
     loadingColumn: "Завантаження…",

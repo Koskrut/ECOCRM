@@ -241,4 +241,50 @@ describe("NotificationsService", () => {
     const row = await service.markRead("u1", "n1");
     assert.ok(row.readAt);
   });
+
+  it("skips TASK_ASSIGNED when the task is already done", async () => {
+    let created = false;
+    const prisma = makePrisma({
+      task: {
+        findUnique: async () => ({ status: "DONE" }),
+      },
+      userNotification: {
+        create: async () => {
+          created = true;
+          return { id: "n1" };
+        },
+      },
+    });
+    const service = new NotificationsService(prisma);
+    await service.notifyTaskAssigned({
+      assigneeId: "u2",
+      taskId: "t1",
+      title: "Нова задача",
+    });
+    assert.equal(created, false);
+  });
+
+  it("markReadForEntity closes unread notifications for a task", async () => {
+    let updatedWhere: unknown;
+    const prisma = makePrisma({
+      userNotification: {
+        create: async ({ data }: { data: Record<string, unknown> }) => ({
+          id: "n1",
+          ...data,
+          readAt: null,
+          createdAt: new Date(),
+        }),
+        findFirst: async () => null,
+        count: async () => 0,
+        updateMany: async ({ where }: { where: unknown }) => {
+          updatedWhere = where;
+          return { count: 2 };
+        },
+      },
+    });
+    const service = new NotificationsService(prisma);
+    const count = await service.markReadForEntity("TASK", "t1");
+    assert.equal(count, 2);
+    assert.deepEqual(updatedWhere, { entityType: "TASK", entityId: "t1", readAt: null });
+  });
 });

@@ -11,14 +11,19 @@ import {
   isLoopTripSuspicious,
   LOOP_ENDPOINT_NEAR_KM,
   LOOP_MIN_TRIP_KM,
+  LOOP_SNAP_HALF_RATIO,
+  LOOP_SNAP_VS_SIMPLIFIED_RATIO,
+  LOOP_WAYPOINT_ROUTE_MAX_POINTS,
   maxStraightSegmentKm,
   mergeSnapPathsForDisplay,
   reconcileSnapPathDisplay,
+  splitLoopAtFarthest,
   splitSamplesByTimeGap,
   stitchPathGaps,
   STITCH_GAP_DEGRADED_KM,
   STITCH_GAP_THRESHOLD_KM,
   TRACK_SEGMENT_GAP_MIN,
+  trimHomeDwellTail,
   type TrackedGpsSample,
 } from "../routing/gps-track-snap.util";
 import { resolveRouteGeometry, resolveFactRouteGeometry, type LatLng, type RouteAnchorConfig, type ShiftDayAnchors } from "./route-geometry";
@@ -831,10 +836,14 @@ export class RoutePlansService {
     return out;
   }
 
-  /** Match one GPS chunk to roads (OSRM match → single A→B leg; no haversine payout). */
+  /** Match one GPS chunk to roads (OSRM match → waypoint / A→B route; no haversine payout). */
   private async matchGpsChunkToRoads(
     points: LatLng[],
-    opts?: { loopSuspicious?: boolean; referencePathKm?: number | null },
+    opts?: {
+      loopSuspicious?: boolean;
+      referencePathKm?: number | null;
+      waypointFallback?: boolean;
+    },
   ): Promise<{ path: LatLng[]; source: "osrm" | "fallback"; distanceKm: number | null }> {
     if (points.length < 2) {
       return { path: points, source: "fallback", distanceKm: null };
@@ -862,17 +871,28 @@ export class RoutePlansService {
         (matched.distanceKm < MIN_TRACK_COMPENSATION_KM ||
           (referenceKm != null &&
             referenceKm >= MIN_TRACK_COMPENSATION_KM &&
-            matched.distanceKm < referenceKm * 0.25));
-      if (matched?.source === "osrm" && matched.path.length >= 2 && !matchTooTiny) {
+            matched.distanceKm < referenceKm * LOOP_SNAP_VS_SIMPLIFIED_RATIO));
+      const matchHalfLoop =
+        opts?.loopSuspicious === true &&
+        matched?.distanceKm != null &&
+        referenceKm != null &&
+        referenceKm >= LOOP_MIN_TRIP_KM &&
+        matched.distanceKm < referenceKm * LOOP_SNAP_HALF_RATIO;
+      if (
+        matched?.source === "osrm" &&
+        matched.path.length >= 2 &&
+        !matchTooTiny &&
+        !matchHalfLoop
+      ) {
         return {
           path: matched.path,
           source: "osrm",
           distanceKm: matched.distanceKm,
         };
       }
-      if (matchTooTiny) {
+      if (matchTooTiny || matchHalfLoop) {
         this.logger.warn(
-          `snapGpsPathToRoads: match_too_tiny km=${matched?.distanceKm} refKm=${referenceKm}`,
+          `snapGpsPathToRoads: ${matchTooTiny ? "match_too_tiny" : "match_half_loop"} km=${matched?.distanceKm} refKm=${referenceKm}`,
         );
       }
     } catch (e) {
@@ -885,6 +905,30 @@ export class RoutePlansService {
     const endpointsNear =
       this.haversineKm(origin.lat, origin.lng, [], destination.lat, destination.lng) <=
       LOOP_ENDPOINT_NEAR_KM;
+
+    if (opts?.waypointFallback) {
+      const via = downsamplePathUniform(points, LOOP_WAYPOINT_ROUTE_MAX_POINTS);
+      const intermediates = via.length >= 3 ? via.slice(1, -1) : [];
+      if (intermediates.length > 0) {
+        try {
+          const routed = await this.computeRouteMultiLeg({
+            origin: via[0]!,
+            destination: via[via.length - 1]!,
+            intermediates,
+          });
+          if (routed?.source === "osrm" && routed.path.length >= 2 && routed.distanceKm != null) {
+            return {
+              path: routed.path,
+              source: "osrm",
+              distanceKm: routed.distanceKm,
+            };
+          }
+        } catch (e) {
+          const message = e instanceof Error ? e.message : String(e);
+          this.logger.warn(`snapGpsPathToRoads: waypoint_route_error ${message}`);
+        }
+      }
+    }
 
     if (opts?.loopSuspicious && endpointsNear && (referenceKm ?? 0) >= LOOP_MIN_TRIP_KM) {
       this.logger.warn("snapGpsPathToRoads: loop_chunk_reject_ab_route");
@@ -926,6 +970,77 @@ export class RoutePlansService {
       source: "fallback",
       distanceKm: null,
     };
+  }
+
+  private async snapTrackedSequence(
+    tracked: TrackedGpsSample[],
+    opts: { loopSuspicious: boolean; waypointFallback: boolean },
+  ): Promise<{
+    chunkResults: Array<{ path: LatLng[]; source: "osrm" | "fallback"; distanceKm: number | null }>;
+    interChunkBridgePaths: LatLng[][];
+    usedOsrm: boolean;
+    usedFallback: boolean;
+    totalKm: number;
+  }> {
+    const chunks = splitSamplesByTimeGap(tracked, TRACK_SEGMENT_GAP_MIN);
+    const chunkResults: Array<{
+      path: LatLng[];
+      source: "osrm" | "fallback";
+      distanceKm: number | null;
+    }> = [];
+    let usedOsrm = false;
+    let usedFallback = false;
+    let totalKm = 0;
+
+    for (const chunk of chunks) {
+      const chunkPoints = chunk.map((s) => ({ lat: s.lat, lng: s.lng }));
+      const chunkRefKm = this.pathDistanceKm(downsamplePathUniform(chunkPoints, 80));
+      const matched = await this.matchGpsChunkToRoads(chunkPoints, {
+        loopSuspicious: opts.loopSuspicious,
+        referencePathKm: chunkRefKm,
+        waypointFallback: opts.waypointFallback,
+      });
+      chunkResults.push(matched);
+      if (matched.source === "osrm") usedOsrm = true;
+      if (matched.source === "fallback") usedFallback = true;
+      if (matched.source === "osrm" && matched.distanceKm != null && Number.isFinite(matched.distanceKm)) {
+        totalKm += matched.distanceKm;
+      }
+    }
+
+    const interChunkBridgePaths: LatLng[][] = [];
+    for (let i = 0; i < chunks.length - 1; i++) {
+      const prevChunk = chunks[i]!;
+      const nextChunk = chunks[i + 1]!;
+      const origin = {
+        lat: prevChunk[prevChunk.length - 1]!.lat,
+        lng: prevChunk[prevChunk.length - 1]!.lng,
+      };
+      const destination = {
+        lat: nextChunk[0]!.lat,
+        lng: nextChunk[0]!.lng,
+      };
+      try {
+        const routed = await this.computeRouteMultiLeg({
+          origin,
+          destination,
+          intermediates: [],
+        });
+        if (routed?.source === "osrm" && routed.distanceKm != null && Number.isFinite(routed.distanceKm)) {
+          totalKm += routed.distanceKm;
+          usedOsrm = true;
+          if (routed.path.length >= 2) {
+            interChunkBridgePaths.push(routed.path);
+          }
+        } else if (routed?.source === "fallback") {
+          usedFallback = true;
+        }
+      } catch {
+        usedFallback = true;
+      }
+    }
+
+    return { chunkResults, interChunkBridgePaths, usedOsrm, usedFallback, totalKm };
   }
 
   /** Chronological GPS track → drivable path (time-split match + stitch gaps). */
@@ -970,66 +1085,55 @@ export class RoutePlansService {
       bboxDiagonalKm: bboxDiagonalKm(trackPoints),
     });
 
-    const chunks = splitSamplesByTimeGap(tracked, TRACK_SEGMENT_GAP_MIN);
+    let workSamples = tracked;
+    let collapseSimplifiedKm = simplifiedPathDistanceKm;
+    const preserveLoopPath = loopSuspicious;
+
+    if (loopSuspicious) {
+      workSamples = trimHomeDwellTail(tracked);
+      const trimmedPts = workSamples.map((s) => ({ lat: s.lat, lng: s.lng }));
+      collapseSimplifiedKm = this.pathDistanceKm(downsamplePathUniform(trimmedPts, 80));
+    }
+
+    const sequences: TrackedGpsSample[][] = [];
+    if (loopSuspicious) {
+      const split = splitLoopAtFarthest(workSamples);
+      if (split) {
+        sequences.push(split.outbound, split.inbound);
+      } else {
+        sequences.push(workSamples);
+      }
+    } else {
+      sequences.push(workSamples);
+    }
+
     const chunkResults: Array<{
       path: LatLng[];
       source: "osrm" | "fallback";
       distanceKm: number | null;
     }> = [];
+    const sequenceDisplayParts: LatLng[][] = [];
     let usedOsrm = false;
     let usedFallback = false;
     let totalKm = 0;
 
-    for (const chunk of chunks) {
-      const chunkPoints = chunk.map((s) => ({ lat: s.lat, lng: s.lng }));
-      const chunkRefKm = this.pathDistanceKm(downsamplePathUniform(chunkPoints, 80));
-      const matched = await this.matchGpsChunkToRoads(chunkPoints, {
+    for (const seq of sequences) {
+      const snapped = await this.snapTrackedSequence(seq, {
         loopSuspicious,
-        referencePathKm: chunkRefKm ?? simplifiedPathDistanceKm,
+        waypointFallback: loopSuspicious,
       });
-      chunkResults.push(matched);
-      if (matched.source === "osrm") usedOsrm = true;
-      if (matched.source === "fallback") usedFallback = true;
-      if (matched.source === "osrm" && matched.distanceKm != null && Number.isFinite(matched.distanceKm)) {
-        totalKm += matched.distanceKm;
-      }
-    }
-
-    const interChunkBridgePaths: LatLng[][] = [];
-
-    for (let i = 0; i < chunks.length - 1; i++) {
-      const prevChunk = chunks[i]!;
-      const nextChunk = chunks[i + 1]!;
-      const origin = {
-        lat: prevChunk[prevChunk.length - 1]!.lat,
-        lng: prevChunk[prevChunk.length - 1]!.lng,
-      };
-      const destination = {
-        lat: nextChunk[0]!.lat,
-        lng: nextChunk[0]!.lng,
-      };
-      try {
-        const routed = await this.computeRouteMultiLeg({
-          origin,
-          destination,
-          intermediates: [],
-        });
-        if (routed?.source === "osrm" && routed.distanceKm != null && Number.isFinite(routed.distanceKm)) {
-          totalKm += routed.distanceKm;
-          usedOsrm = true;
-          if (routed.path.length >= 2) {
-            interChunkBridgePaths.push(routed.path);
-          }
-        } else if (routed?.source === "fallback") {
-          usedFallback = true;
-        }
-      } catch {
-        usedFallback = true;
-      }
+      chunkResults.push(...snapped.chunkResults);
+      usedOsrm = usedOsrm || snapped.usedOsrm;
+      usedFallback = usedFallback || snapped.usedFallback;
+      totalKm += snapped.totalKm;
+      const seqChunkPaths = snapped.chunkResults.map((r) => r.path).filter((p) => p.length >= 2);
+      const seqDisplay = mergeSnapPathsForDisplay(seqChunkPaths, snapped.interChunkBridgePaths);
+      if (seqDisplay.length >= 2) sequenceDisplayParts.push(seqDisplay);
+      else if (seqChunkPaths.length > 0) sequenceDisplayParts.push(concatPaths(seqChunkPaths));
     }
 
     const chunkPaths = chunkResults.map((r) => r.path).filter((p) => p.length >= 2);
-    let displayPath = mergeSnapPathsForDisplay(chunkPaths, interChunkBridgePaths);
+    let displayPath = concatPaths(sequenceDisplayParts);
     if (displayPath.length < 2) {
       displayPath = concatPaths(chunkPaths);
     }
@@ -1073,38 +1177,35 @@ export class RoutePlansService {
 
     let distanceKm = totalKm > 0 ? Math.round(totalKm * 10) / 10 : null;
 
-    let reconciled = reconcileSnapPathDisplay(displayPath, distanceKm);
+    let reconciled = reconcileSnapPathDisplay(displayPath, distanceKm, { preserveLoopPath });
     if (reconciled.pathDistanceMismatch) {
       this.logger.warn(
         `snapGpsPathToRoads: path_distance_mismatch poly=${reconciled.displayPathPolylineKm} snapped=${distanceKm}`,
       );
-      const compact = mergeSnapPathsForDisplay(chunkPaths, interChunkBridgePaths, 40);
-      const compactReconciled = reconcileSnapPathDisplay(compact, distanceKm);
-      if (!compactReconciled.pathDistanceMismatch) {
-        reconciled = compactReconciled;
-      } else {
-        reconciled = compactReconciled;
-      }
+      const compact = concatPaths(sequenceDisplayParts.map((p) => downsamplePathUniform(p, 40)));
+      const compactReconciled = reconcileSnapPathDisplay(compact, distanceKm, { preserveLoopPath });
+      reconciled = compactReconciled;
     }
     displayPath = reconciled.path;
-    let pathDistanceMismatch = reconciled.pathDistanceMismatch;
+    const pathDistanceMismatch = reconciled.pathDistanceMismatch;
 
     let snapFailureReason: string | null = null;
     if (
       isLoopSnapCollapsed({
         snappedDistanceKm: distanceKm,
-        simplifiedPathDistanceKm,
+        simplifiedPathDistanceKm: collapseSimplifiedKm,
         loopSuspicious,
+        ratio: LOOP_SNAP_HALF_RATIO,
       }) ||
       (loopSuspicious &&
         distanceKm == null &&
-        simplifiedPathDistanceKm != null &&
-        simplifiedPathDistanceKm >= LOOP_MIN_TRIP_KM)
+        collapseSimplifiedKm != null &&
+        collapseSimplifiedKm >= LOOP_MIN_TRIP_KM)
     ) {
       snapFailureReason = "gps_snap_loop_collapse";
       distanceKm = null;
       this.logger.warn(
-        `snapGpsPathToRoads: loop_collapse simplified=${simplifiedPathDistanceKm} snapped=${totalKm}`,
+        `snapGpsPathToRoads: loop_collapse simplified=${collapseSimplifiedKm} snapped=${totalKm}`,
       );
     }
 

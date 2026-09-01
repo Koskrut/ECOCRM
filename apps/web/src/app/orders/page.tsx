@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { AlertTriangle, CheckCircle2, Filter, Globe, MailPlus, Search } from "lucide-react";
 import { apiHttp } from "@/lib/api/client";
@@ -302,12 +302,15 @@ function OrdersPageContent() {
     orderIdsFilter,
   ]);
 
+  const qRef = useRef(q);
+  qRef.current = q;
   useEffect(() => {
     const timer = window.setTimeout(() => {
       const nextQ = qInput.trim();
+      if (qRef.current === nextQ) return;
       setAppendOnNextFetch(false);
       setPage(1);
-      setQ((prev) => (prev === nextQ ? prev : nextQ));
+      setQ(nextQ);
     }, 300);
 
     return () => window.clearTimeout(timer);
@@ -366,6 +369,7 @@ function OrdersPageContent() {
           params.financialStatus = financialStatusFilter;
         }
         if (orderStageFilter) params.orderStage = orderStageFilter;
+        if (statusFilter) params.status = statusFilter;
         if (ownerIdFilter) params.ownerId = ownerIdFilter;
         if (paymentTypeFilter) params.paymentType = paymentTypeFilter;
         if (paymentStatusFilter) params.paymentStatus = paymentStatusFilter;
@@ -375,6 +379,10 @@ function OrdersPageContent() {
         if (q.trim()) params.q = q.trim();
         if (dateFrom) params.dateFrom = dateFrom;
         if (dateTo) params.dateTo = dateTo;
+        if (financialOverdue) params.overdue = true;
+        if (financialDueSoon) params.dueSoon = true;
+        if (financialHasDebt) params.hasDebt = true;
+        if (financialHasDueDate) params.hasDueDate = true;
         params.sortBy = sortBy;
         params.sortDir = sortDir;
 
@@ -420,14 +428,19 @@ function OrdersPageContent() {
     sortBy,
     sortDir,
     orderStageFilter,
+    statusFilter,
     attention,
     attentionPeriod,
     orderIdsFilter,
     financialStatusFilter,
+    financialOverdue,
+    financialDueSoon,
+    financialHasDebt,
+    financialHasDueDate,
   ]);
 
   useEffect(() => {
-    if (view !== "financial" && view !== "returns") void fetchOrders();
+    if (view === "list") void fetchOrders();
   }, [fetchOrders, view]);
 
   useEffect(() => {
@@ -509,7 +522,7 @@ function OrdersPageContent() {
 
   const closeOrderModal = () => {
     stack.closeAll();
-    void fetchOrders({ silent: true });
+    if (view === "list") void fetchOrders({ silent: true });
     setKanbanRefreshKey((k) => k + 1);
     const params = new URLSearchParams(searchParams.toString());
     params.delete("orderId");
@@ -568,8 +581,32 @@ function OrdersPageContent() {
     setSortDir("desc");
     setQInput("");
     setQ("");
+    setAttention("");
+    setAttentionPeriod("month");
+    setOrderIdsFilter("");
+    setFinancialStatusFilter("");
+    setFinancialOverdue(false);
+    setFinancialDueSoon(false);
+    setFinancialHasDebt(false);
+    setFinancialHasDueDate(false);
     setPage(1);
   };
+
+  const popoverFiltersActive =
+    view === "returns"
+      ? Boolean(ownerIdFilter || dateFrom || dateTo)
+      : Boolean(
+          orderStageFilter ||
+            ownerIdFilter ||
+            amountFrom ||
+            amountTo ||
+            dateFrom ||
+            dateTo ||
+            paymentTypeFilter ||
+            paymentStatusFilter ||
+            hasTtnFilter ||
+            (view !== "financial" && (sortBy !== "createdAt" || sortDir !== "desc")),
+        );
 
   const filtersState: OrdersFiltersState = {
     orderStage: orderStageFilter,
@@ -632,14 +669,31 @@ function OrdersPageContent() {
         {(attention || orderIdsFilter) && view !== "returns" ? (
           <div className="mb-3 flex flex-wrap items-center gap-2">
             {attention ? (
-              <span className="inline-flex items-center rounded-full bg-amber-100 px-3 py-1 text-xs font-medium text-amber-900">
-                {ORDER_ATTENTION_LABELS[attention]}
-              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  setAttention("");
+                  setAttentionPeriod("month");
+                  setPage(1);
+                }}
+                className="inline-flex items-center rounded-full bg-amber-100 px-3 py-1 text-xs font-medium text-amber-900 hover:bg-amber-200"
+                title="Скинути фільтр"
+              >
+                {ORDER_ATTENTION_LABELS[attention]} ×
+              </button>
             ) : null}
             {orderIdsFilter ? (
-              <span className="inline-flex items-center rounded-full bg-sky-100 px-3 py-1 text-xs font-medium text-sky-900">
-                План дня ({orderIdsFilter.split(",").filter(Boolean).length})
-              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  setOrderIdsFilter("");
+                  setPage(1);
+                }}
+                className="inline-flex items-center rounded-full bg-sky-100 px-3 py-1 text-xs font-medium text-sky-900 hover:bg-sky-200"
+                title="Скинути фільтр"
+              >
+                План дня ({orderIdsFilter.split(",").filter(Boolean).length}) ×
+              </button>
             ) : null}
           </div>
         ) : null}
@@ -707,7 +761,11 @@ function OrdersPageContent() {
                 <input
                   value={qInput}
                   onChange={(e) => setQInput(e.target.value)}
-                  placeholder="Пошук за номером, клієнтом, компанією, ТТН, товаром"
+                  placeholder={
+                    view === "returns"
+                      ? "Пошук за номером замовлення, ТТН, кодом"
+                      : "Пошук за номером, клієнтом, компанією, ТТН, товаром"
+                  }
                   className="min-w-0 flex-1 bg-transparent text-sm outline-none"
                   type="search"
                   aria-label="Пошук замовлень"
@@ -715,10 +773,18 @@ function OrdersPageContent() {
                 <button
                   type="button"
                   onClick={() => setFiltersOpen(true)}
-                  className="flex shrink-0 items-center justify-center rounded p-1 text-zinc-500 hover:bg-zinc-200/50 hover:text-zinc-700"
+                  className={`relative flex shrink-0 items-center justify-center rounded p-1 hover:bg-zinc-200/50 ${
+                    popoverFiltersActive
+                      ? "text-accent-700"
+                      : "text-zinc-500 hover:text-zinc-700"
+                  }`}
                   aria-label="Відкрити фільтри"
+                  aria-pressed={popoverFiltersActive}
                 >
                   <Filter className="h-4 w-4" />
+                  {popoverFiltersActive ? (
+                    <span className="absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full bg-accent-500" />
+                  ) : null}
                 </button>
               </div>
             </form>
@@ -728,6 +794,7 @@ function OrdersPageContent() {
               value={filtersState}
               ownerOptions={owners}
               orderStageOptions={ORDER_STAGE_OPTIONS}
+              variant={view === "returns" ? "returns" : view === "financial" ? "financial" : "orders"}
               onClose={() => setFiltersOpen(false)}
               onApply={applyPopoverFilters}
               onReset={resetAllFilters}
@@ -738,7 +805,9 @@ function OrdersPageContent() {
               ? "Фінансова дошка — за станом оплат і термінів"
               : view === "returns"
                 ? "Канбан повернень замовлень"
-                : `Всего: ${total} | Страница ${page} из ${totalPages}`}
+                : view === "kanban"
+                  ? "Канбан за стадіями замовлення"
+                  : `Всего: ${total} | Страница ${page} из ${totalPages}`}
           </div>
         </div>
 
@@ -747,8 +816,16 @@ function OrdersPageContent() {
             onOpenOrder={(orderId) => openExistingOrder(orderId)}
             onOpenReturn={(returnId) => openReturn(returnId)}
             refreshKey={returnsRefreshKey}
-            onRegisterIncoming={() => setShowIncomingReturnPackage(true)}
+            onRegisterIncoming={
+              isWarehouse ? undefined : () => setShowIncomingReturnPackage(true)
+            }
             warehouseMode={isWarehouse}
+            filters={{
+              q: q || undefined,
+              ownerId: ownerIdFilter || undefined,
+              dateFrom: dateFrom || undefined,
+              dateTo: dateTo || undefined,
+            }}
           />
         ) : view === "financial" ? (
           <div className="space-y-3">
@@ -825,6 +902,12 @@ function OrdersPageContent() {
                 dateTo: dateTo || undefined,
                 sortBy: "paymentDueDate",
                 sortDir: "asc",
+                ids: orderIdsFilter || undefined,
+                orderStage: orderStageFilter || undefined,
+                amountFrom: amountFrom || undefined,
+                amountTo: amountTo || undefined,
+                paymentStatus: paymentStatusFilter || undefined,
+                hasTtn: hasTtnFilter || undefined,
               }}
             />
           </div>
@@ -1098,6 +1181,7 @@ function OrdersPageContent() {
             onOpenOrder={(id) => openExistingOrder(id)}
             refreshKey={kanbanRefreshKey}
             warehouseMode={false}
+            warehouseRestricted={isWarehouse}
             filters={{
               orderStage: orderStageFilter || undefined,
               status: statusFilter || undefined,
@@ -1114,6 +1198,11 @@ function OrdersPageContent() {
               dateTo: dateTo || undefined,
               sortBy,
               sortDir,
+              ids: orderIdsFilter || undefined,
+              overdue: financialOverdue ? "true" : undefined,
+              dueSoon: financialDueSoon ? "true" : undefined,
+              hasDebt: financialHasDebt ? "true" : undefined,
+              hasDueDate: financialHasDueDate ? "true" : undefined,
             }}
           />
         )}

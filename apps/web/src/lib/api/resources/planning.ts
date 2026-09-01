@@ -391,6 +391,12 @@ export type PackingListLine = {
   }>;
   targetPack?: number;
   partsBlocked?: boolean;
+  coverTarget?: number;
+  targetStock?: number;
+  stockNow?: number;
+  canPackNow?: number;
+  toWork?: number;
+  suggestedFactoryPartQty?: number;
 };
 
 export type PackingList = {
@@ -507,6 +513,7 @@ export type KitPortfolioKit = {
   cumulativePct: number;
   inPareto80: boolean;
   pile: "ending" | "ok" | "idle";
+  endingReason: "orders" | "cover" | "both" | null;
   stockFinished: number;
   maxBuildNow: number;
   weeksOfCover: number | null;
@@ -515,7 +522,14 @@ export type KitPortfolioKit = {
   hardNeed: number;
   waitingOrders: number;
   suggestedPackQty: number;
+  suggestedPackTargetQty: number;
+  weeklyPackNeed: number;
   alreadyInRequest: number;
+  coverTarget: number;
+  targetStock: number;
+  stockNow: number;
+  canPackNow: number;
+  toWork: number;
   suggestedFactoryQty: number;
   bottleneckComponentId: string | null;
   bottleneckSku: string | null;
@@ -556,6 +570,8 @@ export type KitPortfolioView = {
   summary: {
     packableToday: number;
     blocked: number;
+    packableAllKits: number;
+    blockedAllKits: number;
     ending: number;
     pareto80Count: number;
   };
@@ -564,6 +580,10 @@ export type KitPortfolioView = {
     paretoZeroCount: number;
     zeroKits: StockoutRow[];
     zeroParts: StockoutRow[];
+    zeroFinishedBlocked: StockoutRow[];
+    zeroFinishedBuildable: StockoutRow[];
+    paretoZeroFinishedBlocked: number;
+    paretoZeroFinishedBuildable: number;
   };
   draftRequests: { packing: number; factory: number };
   kits: KitPortfolioKit[];
@@ -1145,7 +1165,15 @@ export type TodayAwaitingStockGroup = {
 };
 
 export type TodayAwaitingStockView = {
-  summary: { skuCount: number; orderCount: number; totalQty: number };
+  summary: {
+    skuCount: number;
+    orderCount: number;
+    totalQty: number;
+    gapSkuCount: number;
+    gapQty: number;
+    coveredSkuCount: number;
+    coveredQty: number;
+  };
   groups: TodayAwaitingStockGroup[];
 };
 

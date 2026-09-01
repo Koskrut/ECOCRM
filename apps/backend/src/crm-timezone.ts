@@ -16,6 +16,38 @@ export function kyivDayBounds(dateYmd: string): { from: Date; to: Date } {
   return { from: start.toJSDate(), to: end.toJSDate() };
 }
 
+/** Inclusive createdAt/requestedAt filter from YYYY-MM-DD (Kyiv) or ISO datetime. */
+export function kyivInstantRangeFromQuery(
+  dateFrom?: string,
+  dateTo?: string,
+): { gte?: Date; lte?: Date } {
+  const out: { gte?: Date; lte?: Date } = {};
+  const parseBound = (raw: string, endOfDay: boolean): Date | undefined => {
+    const trimmed = raw.trim();
+    if (!trimmed) return undefined;
+    if (trimmed.includes("T")) {
+      const dt = new Date(trimmed);
+      return Number.isNaN(dt.getTime()) ? undefined : dt;
+    }
+    try {
+      const bounds = kyivDayBounds(trimmed);
+      return endOfDay ? bounds.to : bounds.from;
+    } catch {
+      const dt = new Date(trimmed);
+      return Number.isNaN(dt.getTime()) ? undefined : dt;
+    }
+  };
+  if (dateFrom) {
+    const from = parseBound(dateFrom, false);
+    if (from) out.gte = from;
+  }
+  if (dateTo) {
+    const to = parseBound(dateTo, true);
+    if (to) out.lte = to;
+  }
+  return out;
+}
+
 export function todayYmdKyiv(now = new Date()): string {
   return DateTime.fromJSDate(now).setZone(CRM_TIME_ZONE).toISODate()!;
 }

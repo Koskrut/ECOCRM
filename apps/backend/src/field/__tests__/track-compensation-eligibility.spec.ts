@@ -260,6 +260,19 @@ describe("selectCompensationFactKind", () => {
     assert.equal(sel.ineligibleReason, null);
   });
 
+  it("Gribovsky 26.08 after loop split: GPS ~130 vs visits 119 → fact_gps", () => {
+    const sel = selectCompensationFactKind({
+      hasTrackingEnabledShift: true,
+      filteredSampleCount: 813,
+      rawPolylineDistanceKm: 140,
+      coverageRatio: 0.95,
+      snappedTrackDistanceKm: 130,
+      visitRouteDistanceKm: 119,
+    });
+    assert.equal(sel.kind, "fact_gps");
+    assert.equal(sel.ineligibleReason, null);
+  });
+
   it("Hrybovska 31.07: track 18.8 + low coverage + no visits → fact_gps", () => {
     const sel = selectCompensationFactKind({
       hasTrackingEnabledShift: true,

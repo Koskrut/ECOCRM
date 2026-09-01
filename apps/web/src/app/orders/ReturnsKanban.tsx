@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apiHttp } from "../../lib/api/client";
 import { formatOrderAmount } from "@/lib/formatOrderAmount";
 import { isTextSelected } from "@/lib/dom";
@@ -8,8 +8,9 @@ import { formatDate } from "@/lib/crmDatetime";
 import { TtnStatusBadge } from "@/components/TtnStatusBadge";
 import { returnReasonLabel, returnStatusLabel, type ReturnStatusCode } from "@/lib/returns/return-labels";
 import {
-  getAllowedReturnStatusTransitions,
-  isWarehouseReturnTransitionAllowed,
+  getReturnDragTargets,
+  isReturnDropAllowed,
+  shouldSkipSettlementPreviewOnClose,
   WAREHOUSE_FORBIDDEN_RETURN_STATUSES,
   WAREHOUSE_RETURN_COLUMNS,
 } from "@/lib/returns/return-transitions";
@@ -103,6 +104,7 @@ export function ReturnsKanban({
   refreshKey = 0,
   onRegisterIncoming,
   warehouseMode = false,
+  filters,
 }: {
   onOpenOrder: (orderId: string) => void;
   onOpenReturn?: (returnId: string) => void;
@@ -111,8 +113,11 @@ export function ReturnsKanban({
   onRegisterIncoming?: () => void;
   /** Warehouse staff: limited columns and transitions. */
   warehouseMode?: boolean;
+  filters?: { q?: string; ownerId?: string; dateFrom?: string; dateTo?: string };
 }) {
   const [dragging, setDragging] = useState<{ returnId: string; from: ReturnStatus } | null>(null);
+  const draggingRef = useRef(dragging);
+  draggingRef.current = dragging;
   const [dragOver, setDragOver] = useState<ReturnStatus | null>(null);
   const [pendingSettlement, setPendingSettlement] = useState<{
     returnId: string;
@@ -121,20 +126,37 @@ export function ReturnsKanban({
     currency: string;
   } | null>(null);
 
+  const [selectedColumnIndex, setSelectedColumnIndex] = useState(0);
+
   const columnOrder = warehouseMode ? WAREHOUSE_RETURN_COLUMNS : ALL_COLUMN_ORDER;
 
   const kanbanResetKey = useMemo(
-    () => JSON.stringify({ refreshKey, warehouseMode }),
-    [refreshKey, warehouseMode],
+    () =>
+      JSON.stringify({
+        refreshKey,
+        warehouseMode,
+        q: filters?.q ?? "",
+        ownerId: filters?.ownerId ?? "",
+        dateFrom: filters?.dateFrom ?? "",
+        dateTo: filters?.dateTo ?? "",
+      }),
+    [refreshKey, warehouseMode, filters?.q, filters?.ownerId, filters?.dateFrom, filters?.dateTo],
   );
 
   const buildParams = useCallback(
-    (status: ReturnStatus, page: number): Record<string, string> => ({
-      status,
-      page: String(page),
-      pageSize: String(KANBAN_PAGE_SIZE),
-    }),
-    [],
+    (status: ReturnStatus, page: number): Record<string, string> => {
+      const params: Record<string, string> = {
+        status,
+        page: String(page),
+        pageSize: String(KANBAN_PAGE_SIZE),
+      };
+      if (filters?.q?.trim()) params.q = filters.q.trim();
+      if (filters?.ownerId) params.ownerId = filters.ownerId;
+      if (filters?.dateFrom) params.dateFrom = filters.dateFrom;
+      if (filters?.dateTo) params.dateTo = filters.dateTo;
+      return params;
+    },
+    [filters?.q, filters?.ownerId, filters?.dateFrom, filters?.dateTo],
   );
 
   const fetchPage = useCallback(async (params: Record<string, string>) => {
@@ -171,6 +193,12 @@ export function ReturnsKanban({
     [columnOrder, columnStates],
   );
 
+  useEffect(() => {
+    if (columns.length > 0 && selectedColumnIndex >= columns.length) {
+      setSelectedColumnIndex(Math.max(0, columns.length - 1));
+    }
+  }, [columns.length, selectedColumnIndex]);
+
   const findReturn = useCallback(
     (returnId: string): ReturnCard | undefined => {
       for (const col of Object.values(columnStates)) {
@@ -183,13 +211,8 @@ export function ReturnsKanban({
   );
 
   const isDropAllowed = useCallback(
-    (ret: ReturnCard, from: ReturnStatus, to: ReturnStatus): boolean => {
-      if (warehouseMode) {
-        if (WAREHOUSE_FORBIDDEN_RETURN_STATUSES.includes(to)) return false;
-        return isWarehouseReturnTransitionAllowed(from, to);
-      }
-      return getAllowedReturnStatusTransitions(from, ret).includes(to);
-    },
+    (ret: ReturnCard, from: ReturnStatus, to: ReturnStatus): boolean =>
+      isReturnDropAllowed(ret, from, to, warehouseMode),
     [warehouseMode],
   );
 
@@ -233,8 +256,9 @@ export function ReturnsKanban({
 
   const handleDrop = useCallback(
     async (returnId: string, to: ReturnStatus) => {
-      const from = dragging?.from;
+      const from = draggingRef.current?.from ?? dragging?.from;
       if (!from || from === to) {
+        draggingRef.current = null;
         setDragging(null);
         return;
       }
@@ -258,14 +282,12 @@ export function ReturnsKanban({
           return;
         }
 
-        try {
-          const previewRes = await fetch(`/api/order-returns/${returnId}/settlement-preview`, {
-            credentials: "include",
-            cache: "no-store",
-          });
-          if (previewRes.ok) {
-            const preview = (await previewRes.json()) as { requiresSettlement?: boolean };
-            if (preview.requiresSettlement) {
+        if (!shouldSkipSettlementPreviewOnClose(ret)) {
+          try {
+            const previewRes = await apiHttp.get<{ requiresSettlement?: boolean }>(
+              `/order-returns/${returnId}/settlement-preview`,
+            );
+            if (previewRes.data?.requiresSettlement) {
               setPendingSettlement({
                 returnId,
                 from,
@@ -275,9 +297,11 @@ export function ReturnsKanban({
               setDragging(null);
               return;
             }
+          } catch (e) {
+            alert(e instanceof Error ? e.message : tr.settlementPreviewFailed);
+            setDragging(null);
+            return;
           }
-        } catch {
-          /* proceed without preview */
         }
       }
 
@@ -312,13 +336,44 @@ export function ReturnsKanban({
           </button>
         ) : null}
       </div>
-      <div className="flex flex-nowrap gap-4 overflow-x-auto pb-2">
-        {columns.map((col) => (
+      <div className="md:hidden overflow-x-auto overflow-y-hidden pb-2 -mx-1">
+        <div className="flex gap-2 flex-nowrap min-w-0">
+          {columns.map((col, idx) => (
+            <button
+              key={col.id}
+              type="button"
+              onClick={() => setSelectedColumnIndex(idx)}
+              className={[
+                "shrink-0 rounded-lg border px-3 py-2 text-left text-sm font-medium transition-colors",
+                selectedColumnIndex === idx
+                  ? "border-accent-500 bg-accent-500 text-white"
+                  : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
+              ].join(" ")}
+            >
+              <span className="whitespace-nowrap">{col.title}</span>
+              <span className="ml-1.5 text-xs opacity-80">
+                ({col.state?.total ?? col.items.length})
+              </span>
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="flex flex-col gap-4 md:flex-row md:flex-nowrap md:overflow-x-auto pb-2">
+        {columns.map((col, colIndex) => {
+          const dropAllowed = (() => {
+            const drag = draggingRef.current;
+            if (!drag) return true;
+            const ret = findReturn(drag.returnId);
+            if (!ret) return !warehouseMode || !WAREHOUSE_FORBIDDEN_RETURN_STATUSES.includes(col.id);
+            return isDropAllowed(ret, drag.from, col.id);
+          })();
+          const isSelectedOnMobile = colIndex === selectedColumnIndex;
+          return (
           <div
             key={col.id}
-            className={`flex-shrink-0 w-[220px] min-w-[220px] rounded-lg border bg-zinc-50/80 ${
-              dragOver === col.id ? "border-zinc-900" : "border-zinc-200"
-            }`}
+            className={`w-full min-w-0 rounded-lg border bg-zinc-50/80 md:w-[220px] md:min-w-[220px] md:flex-shrink-0 ${
+              isSelectedOnMobile ? "block" : "hidden md:block"
+            } ${dragOver === col.id && dropAllowed ? "border-zinc-900" : "border-zinc-200"}`}
           >
             <div className="flex items-center justify-between border-b border-zinc-200 px-3 py-2">
               <div className="text-sm font-semibold text-zinc-900">{col.title}</div>
@@ -328,10 +383,11 @@ export function ReturnsKanban({
               className={KANBAN_COLUMN_BODY_CLASS}
               onDragOver={(e) => {
                 e.preventDefault();
-                const from = dragging?.from;
-                const ret = dragging ? findReturn(dragging.returnId) : undefined;
+                const drag = draggingRef.current;
+                const from = drag?.from;
+                const ret = drag ? findReturn(drag.returnId) : undefined;
                 const allowed =
-                  from && ret && dragging
+                  from && ret
                     ? isDropAllowed(ret, from, col.id)
                     : !warehouseMode || !WAREHOUSE_FORBIDDEN_RETURN_STATUSES.includes(col.id);
                 e.dataTransfer.dropEffect = allowed ? "move" : "none";
@@ -341,19 +397,31 @@ export function ReturnsKanban({
               onDrop={(e) => {
                 e.preventDefault();
                 setDragOver(null);
-                const id = e.dataTransfer.getData("text/plain") || dragging?.returnId;
+                const id = e.dataTransfer.getData("text/plain") || draggingRef.current?.returnId;
                 if (id) void handleDrop(id, col.id);
               }}
             >
               {col.state?.initialLoading ? (
                 <div className="text-xs text-zinc-500">{tr.loadingColumn}</div>
+              ) : col.state?.error && col.items.length === 0 ? (
+                <div className="space-y-2">
+                  <div className="text-xs text-red-600">{col.state.error}</div>
+                  <button
+                    type="button"
+                    onClick={() => reloadColumn(col.id)}
+                    className="text-xs font-medium text-zinc-700 underline"
+                  >
+                    {tr.retry}
+                  </button>
+                </div>
               ) : col.items.length === 0 ? (
-                <div className="text-xs text-zinc-500">—</div>
+                <div className="text-xs text-zinc-500">{tr.emptyColumn}</div>
               ) : (
                 col.items.map((r) => {
                   const clientName = r.order.client
                     ? `${r.order.client.lastName ?? ""} ${r.order.client.firstName ?? ""}`.trim() || "—"
                     : r.order.company?.name ?? "—";
+                  const canDrag = getReturnDragTargets(col.id, r, warehouseMode).length > 0;
                   return (
                     <button
                       key={r.id}
@@ -367,13 +435,44 @@ export function ReturnsKanban({
                         const oid = r.orderId ?? r.order?.id;
                         if (oid) onOpenOrder(oid);
                       }}
-                      draggable
+                      draggable={canDrag}
                       onDragStart={(e) => {
-                        setDragging({ returnId: r.id, from: r.status });
+                        if (!canDrag) {
+                          e.preventDefault();
+                          return;
+                        }
+                        const payload = { returnId: r.id, from: col.id };
+                        draggingRef.current = payload;
+                        setDragging(payload);
                         e.dataTransfer.setData("text/plain", r.id);
                         e.dataTransfer.effectAllowed = "move";
                       }}
-                      onDragEnd={() => setDragging(null)}
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        const drag = draggingRef.current;
+                        const from = drag?.from;
+                        const ret = drag ? findReturn(drag.returnId) : undefined;
+                        const allowed =
+                          from && ret
+                            ? isDropAllowed(ret, from, col.id)
+                            : !warehouseMode || !WAREHOUSE_FORBIDDEN_RETURN_STATUSES.includes(col.id);
+                        e.dataTransfer.dropEffect = allowed ? "move" : "none";
+                        if (allowed) setDragOver(col.id);
+                      }}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setDragOver(null);
+                        const id = e.dataTransfer.getData("text/plain") || draggingRef.current?.returnId;
+                        if (id) void handleDrop(id, col.id);
+                      }}
+                      onDragEnd={() => {
+                        requestAnimationFrame(() => {
+                          draggingRef.current = null;
+                          setDragging(null);
+                          setDragOver(null);
+                        });
+                      }}
                       className={`w-full rounded-xl border border-zinc-200 bg-white p-3 text-left shadow-sm hover:shadow-md ${
                         dragging?.returnId === r.id ? "opacity-60" : ""
                       }`}
@@ -411,16 +510,16 @@ export function ReturnsKanban({
                           {strings.returns.externalCodeLabel}: {r.externalCode}
                         </div>
                       ) : null}
-                      {r.order.debtAmount != null && (
+                      {Number(r.order.debtAmount) > 0 ? (
                         <div className="mt-1 text-xs text-amber-700">
                           {strings.contacts.card.kpi.debt}:{" "}
                           {formatOrderAmount(
-                            r.order.debtAmount,
+                            r.order.debtAmount ?? 0,
                             r.order.currency ?? "UAH",
                             r.order.exchangeRate,
                           )}
                         </div>
-                      )}
+                      ) : null}
                       <div className="mt-1 text-xs text-zinc-400">
                         {tr.returnsOrderStage(orderStageLabel(r.order.orderStage))}
                       </div>
@@ -439,7 +538,8 @@ export function ReturnsKanban({
               ) : null}
             </div>
           </div>
-        ))}
+          );
+        })}
       </div>
 
       {pendingSettlement ? (

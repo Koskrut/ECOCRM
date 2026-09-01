@@ -537,6 +537,7 @@ function WeekFillBar({ used, limit }: { used: number; limit: number }) {
 export function PackingPanel({ onError }: { onError: (msg: string) => void }) {
   const t = strings.planning;
   const reportError = useStableErrorHandler(onError);
+  const [packCapacityFallback, setPackCapacityFallback] = useState(2500);
   const highlightSku = (useSearchParams().get("sku") ?? "").trim().toLowerCase();
   const [lists, setLists] = useState<PackingList[]>([]);
   const [active, setActive] = useState<PackingList | null>(null);
@@ -560,6 +561,13 @@ export function PackingPanel({ onError }: { onError: (msg: string) => void }) {
   }, []);
 
   useEffect(() => {
+    void planningApi
+      .getSettings()
+      .then((s) => setPackCapacityFallback(s.packCapacityPerCycle))
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
     void (async () => {
       try {
         const next = await reloadLists();
@@ -574,7 +582,7 @@ export function PackingPanel({ onError }: { onError: (msg: string) => void }) {
   const weekNeed = lines.reduce((s, l) => s + (l.targetPack ?? 0), 0);
   const weekCan = lines.reduce((s, l) => s + Math.max(0, l.maxFromParts), 0);
   const weekRequest = active?.capacityUsed ?? 0;
-  const weekLimit = active?.capacityLimit ?? 2000;
+  const weekLimit = active?.capacityLimit ?? packCapacityFallback;
   const blockedCount = lines.filter((l) => (l.targetPack ?? 0) > 0 && l.maxFromParts <= 0).length;
 
   const filtered = useMemo(() => {
@@ -825,18 +833,21 @@ export function PackingPanel({ onError }: { onError: (msg: string) => void }) {
             headers={[
               t.labels.kit,
               t.labels.kitParts,
-              t.labels.packNeed,
-              t.labels.canAssemble,
+              t.labels.targetStockShort,
+              t.labels.canPackNow,
+              t.labels.toWork,
               t.labels.weekRequest,
-              t.labels.whyInRequest,
               ...(active.status === "DRAFT" ? [t.labels.actions] : []),
             ]}
             rows={filtered.map((line) => {
-              const need = line.targetPack ?? 0;
-              const blocked = need > 0 && line.maxFromParts <= 0;
+              const blocked = (line.toWork ?? 0) > 0 && (line.canPackNow ?? 0) <= 0;
               const highlighted =
                 highlightSku.length > 0 &&
                 line.kitProduct.sku.toLowerCase() === highlightSku;
+              const stockNow = line.stockNow ?? line.stockKits;
+              const targetStock = line.targetStock ?? 0;
+              const canPackNow = line.canPackNow ?? line.maxFromParts;
+              const toWork = line.toWork ?? 0;
               const baseRow = [
                 <span key={line.id} className={highlighted ? "rounded bg-cyan-50 px-1" : undefined}>
                   <span className={`block font-medium ${blocked ? "text-rose-700" : ""}`}>
@@ -850,8 +861,21 @@ export function PackingPanel({ onError }: { onError: (msg: string) => void }) {
                   ) : null}
                 </span>,
                 <KitPartsCell key={`${line.id}-parts`} line={line} />,
-                String(need),
-                String(line.maxFromParts),
+                t.labels.stockNowVsTarget(stockNow, targetStock),
+                <span key={`${line.id}-can`} className={canPackNow > 0 ? "font-medium text-cyan-700" : undefined}>
+                  {canPackNow}
+                </span>,
+                <span key={`${line.id}-work`} className="block">
+                  <span className={toWork > 0 ? "font-medium text-rose-700" : undefined}>{toWork}</span>
+                  {toWork > 0 && line.bottleneckSku ? (
+                    <span className="mt-0.5 block text-xs text-rose-600">
+                      {strings.planning.kitBoard.orderPart(
+                        line.bottleneckName || line.bottleneckSku || "",
+                        line.suggestedFactoryPartQty ?? 0,
+                      )}
+                    </span>
+                  ) : null}
+                </span>,
                 active.status === "DRAFT" && line.maxFromParts > 0 ? (
                   <input
                     key={`${line.id}-qty`}
@@ -864,7 +888,6 @@ export function PackingPanel({ onError }: { onError: (msg: string) => void }) {
                 ) : (
                   String(line.qtyApproved)
                 ),
-                line.priority === 0 ? t.labels.ordersPriority : t.labels.stockPriority,
               ];
               if (active.status === "DRAFT") {
                 baseRow.push(

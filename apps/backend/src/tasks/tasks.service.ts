@@ -481,7 +481,9 @@ export class TasksService {
     const nextSnapshot = taskRecordFromRow(result as unknown as TaskRowLike);
     const changes = diffTaskRecords(prevSnapshot, nextSnapshot);
     this.workflowEmitter?.emitRecordUpdated(CustomFieldEntityType.TASK, id, nextSnapshot, changes);
-    if (
+    if (result.status === "DONE" || result.status === "CANCELED") {
+      void this.notifications?.markReadForEntity("TASK", id);
+    } else if (
       assigneeId !== undefined &&
       assigneeId !== task.assigneeId &&
       assigneeId !== actor.id
@@ -524,6 +526,7 @@ export class TasksService {
       nextSnapshot,
       diffTaskRecords(prevSnapshot, nextSnapshot),
     );
+    void this.notifications?.markReadForEntity("TASK", id);
     return updated;
   }
 
@@ -552,6 +555,7 @@ export class TasksService {
       nextSnapshot,
       diffTaskRecords(prevSnapshot, nextSnapshot),
     );
+    void this.notifications?.markReadForEntity("TASK", id);
     return updated;
   }
 

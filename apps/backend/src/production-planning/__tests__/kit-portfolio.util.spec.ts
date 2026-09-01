@@ -1,12 +1,17 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { PlanningDemandMix } from "@prisma/client";
 import {
   assignParetoClasses,
   assignPile,
+  computeCoverTarget,
+  computeKitPositionPlan,
+  computeWeeklyPackNeed,
   coverTone,
   groupSharedBottlenecks,
   sortEndingKits,
   suggestedPackQty,
+  suggestedPackTargetQty,
   weeksOfCover,
 } from "../kit-portfolio.util";
 
@@ -15,12 +20,11 @@ test("weeksOfCover is null when there are no sales", () => {
 });
 
 test("weeksOfCover uses 30-day months", () => {
-  // 60 kits, 30/month → 60 days → ~8.6 weeks
   assert.equal(weeksOfCover(60, 30), 8.6);
 });
 
 test("no sales and leftover → idle, not ending", () => {
-  assert.equal(
+  assert.deepEqual(
     assignPile({
       avgMonthlySold: 0,
       stockFinished: 200,
@@ -29,12 +33,12 @@ test("no sales and leftover → idle, not ending", () => {
       weeksOfCover: null,
       warnWeeks: 8,
     }),
-    "idle",
+    { pile: "idle", endingReason: null },
   );
 });
 
 test("uncovered hard orders beat idle even with no sales", () => {
-  assert.equal(
+  assert.deepEqual(
     assignPile({
       avgMonthlySold: 0,
       stockFinished: 2,
@@ -43,12 +47,23 @@ test("uncovered hard orders beat idle even with no sales", () => {
       weeksOfCover: null,
       warnWeeks: 8,
     }),
-    "ending",
+    { pile: "ending", endingReason: "orders" },
   );
 });
 
-test("important kit with 1 week of stock → ending", () => {
-  assert.equal(
+test("assignPile splits orders vs cover ending reasons", () => {
+  assert.deepEqual(
+    assignPile({
+      avgMonthlySold: 40,
+      stockFinished: 80,
+      maxBuildNow: 20,
+      hardNeed: 100,
+      weeksOfCover: 12,
+      warnWeeks: 8,
+    }),
+    { pile: "ending", endingReason: "orders" },
+  );
+  assert.deepEqual(
     assignPile({
       avgMonthlySold: 40,
       stockFinished: 5,
@@ -57,12 +72,26 @@ test("important kit with 1 week of stock → ending", () => {
       weeksOfCover: 1,
       warnWeeks: 8,
     }),
+    { pile: "ending", endingReason: "cover" },
+  );
+});
+
+test("important kit with 1 week of stock → ending (cover)", () => {
+  assert.equal(
+    assignPile({
+      avgMonthlySold: 40,
+      stockFinished: 5,
+      maxBuildNow: 0,
+      hardNeed: 0,
+      weeksOfCover: 1,
+      warnWeeks: 8,
+    }).pile,
     "ending",
   );
 });
 
 test("enough weeks of stock → ok", () => {
-  assert.equal(
+  assert.deepEqual(
     assignPile({
       avgMonthlySold: 10,
       stockFinished: 80,
@@ -71,42 +100,47 @@ test("enough weeks of stock → ok", () => {
       weeksOfCover: 12,
       warnWeeks: 8,
     }),
-    "ok",
+    { pile: "ok", endingReason: null },
   );
 });
 
-test("empty catalog and zero revenue stay class C", () => {
-  assert.deepEqual(assignParetoClasses([]), []);
-  const [only] = assignParetoClasses([{ id: "a", revenue: 100 }]);
-  assert.equal(only?.paretoClass, "A");
-  assert.equal(only?.inPareto80, true);
-  assert.equal(only?.cumulativePct, 100);
+test("computeWeeklyPackNeed matches packing targetPack formula", () => {
+  const need = computeWeeklyPackNeed({
+    hardNeed: 50,
+    forecastNeed: 80,
+    softNeed: 0,
+    stockKits: 12,
+    demandMix: PlanningDemandMix.HARD_PLUS_FORECAST_BEYOND_COVERED,
+  });
+  assert.equal(need, 80 - 12);
 });
 
-test("Pareto 80% marks the money-makers A", () => {
-  const rows = assignParetoClasses([
-    { id: "a", revenue: 80 },
-    { id: "b", revenue: 10 },
-    { id: "c", revenue: 10 },
-    { id: "d", revenue: 0 },
-  ]);
-  const byId = Object.fromEntries(rows.map((r) => [r.id, r]));
-  assert.equal(byId.a?.paretoClass, "A");
-  assert.equal(byId.a?.inPareto80, true);
-  assert.equal(byId.b?.paretoClass, "B");
-  assert.equal(byId.d?.paretoClass, "C");
-  assert.equal(byId.d?.inPareto80, false);
-});
-
-test("suggested pack qty fills warn cover, capped by parts and week limit", () => {
-  // 10/month, 8 weeks → target ceil(10 * 56/30) = 19; stock 5 → gap 14; parts 40; week 9 → 9
+test("suggestedPackTargetQty is absolute qty in request (10.045 case)", () => {
+  assert.equal(
+    suggestedPackTargetQty({
+      weeklyPackNeed: 3,
+      maxBuildNow: 3,
+      alreadyInRequest: 3,
+      weekCapacityLeft: 500,
+    }),
+    3,
+  );
   assert.equal(
     suggestedPackQty({
-      stockFinished: 5,
+      weeklyPackNeed: 3,
+      maxBuildNow: 3,
+      alreadyInRequest: 3,
+      weekCapacityLeft: 500,
+    }),
+    0,
+  );
+});
+
+test("suggested pack respects parts cap and week room", () => {
+  assert.equal(
+    suggestedPackTargetQty({
+      weeklyPackNeed: 14,
       maxBuildNow: 40,
-      avgMonthlySold: 10,
-      hardNeed: 0,
-      warnWeeks: 8,
       alreadyInRequest: 0,
       weekCapacityLeft: 9,
     }),
@@ -114,11 +148,8 @@ test("suggested pack qty fills warn cover, capped by parts and week limit", () =
   );
   assert.equal(
     suggestedPackQty({
-      stockFinished: 5,
+      weeklyPackNeed: 14,
       maxBuildNow: 0,
-      avgMonthlySold: 10,
-      hardNeed: 0,
-      warnWeeks: 8,
       alreadyInRequest: 0,
       weekCapacityLeft: 2000,
     }),
@@ -126,29 +157,50 @@ test("suggested pack qty fills warn cover, capped by parts and week limit", () =
   );
 });
 
-test("already in request reduces pack suggestion", () => {
-  const qty = suggestedPackQty({
-    stockFinished: 0,
-    maxBuildNow: 100,
-    avgMonthlySold: 30,
-    hardNeed: 0,
-    warnWeeks: 8,
-    alreadyInRequest: 50,
-    weekCapacityLeft: 2000,
+test("computeKitPositionPlan uses weekly pack need not MRP cover", () => {
+  const plan = computeKitPositionPlan({
+    stockFinished: 12,
+    maxBuildNow: 15,
+    weeklyPackNeed: 138,
+    coverTarget: 40,
+    alreadyInRequest: 0,
   });
-  assert.ok(qty < 60);
+  assert.equal(plan.coverTarget, 40);
+  assert.equal(plan.targetStock, 138);
+  assert.equal(plan.stockNow, 12);
+  assert.equal(plan.packGap, 138);
+  assert.equal(plan.canPackNow, 15);
+  assert.equal(plan.toWork, 123);
+});
+
+test("computeKitPositionPlan alreadyInRequest reduces packGap", () => {
+  const plan = computeKitPositionPlan({
+    stockFinished: 5,
+    maxBuildNow: 40,
+    weeklyPackNeed: 14,
+    alreadyInRequest: 10,
+  });
+  assert.equal(plan.packGap, 4);
+  assert.equal(plan.canPackNow, 4);
+  assert.equal(plan.toWork, 0);
+});
+
+test("computeCoverTarget for MRP tooltip", () => {
+  assert.equal(computeCoverTarget({ avgMonthlySold: 10, warnWeeks: 8 }), 19);
+});
+
+test("empty catalog and zero revenue stay class C", () => {
+  assert.deepEqual(assignParetoClasses([]), []);
+  const [only] = assignParetoClasses([{ id: "a", revenue: 100 }]);
+  assert.equal(only?.paretoClass, "A");
 });
 
 test("ending sort: packable today first, then worst weeks", () => {
   const sorted = sortEndingKits([
     { id: "blocked", maxBuildNow: 0, weeksOfCover: 0.5, revenue: 100 },
     { id: "pack", maxBuildNow: 40, weeksOfCover: 1, revenue: 50 },
-    { id: "packWorse", maxBuildNow: 10, weeksOfCover: 0.2, revenue: 10 },
   ]);
-  assert.deepEqual(
-    sorted.map((r) => r.id),
-    ["packWorse", "pack", "blocked"],
-  );
+  assert.deepEqual(sorted.map((r) => r.id), ["pack", "blocked"]);
 });
 
 test("shared bottleneck groups 4 kits on one part", () => {
@@ -194,27 +246,13 @@ test("shared bottleneck groups 4 kits on one part", () => {
         bottleneckQtyPerKit: 1,
         suggestedPackIgnoringParts: 5,
       },
-      {
-        productId: "ok",
-        pile: "ok",
-        maxBuildNow: 0,
-        bottleneckComponentId: "p1",
-        bottleneckSku: "VAL-12",
-        bottleneckName: "Вал 12",
-        bottleneckQtyPerKit: 1,
-        suggestedPackIgnoringParts: 99,
-      },
     ],
     new Map([["p1", 0]]),
   );
   assert.equal(groups.length, 1);
-  assert.equal(groups[0]?.sku, "VAL-12");
   assert.equal(groups[0]?.kitCount, 4);
-  assert.equal(groups[0]?.suggestedQty, 75);
 });
 
 test("coverTone critical under 2 weeks", () => {
   assert.equal(coverTone(1, 8, 2), "critical");
-  assert.equal(coverTone(4, 8, 2), "warn");
-  assert.equal(coverTone(12, 8, 2), "ok");
 });

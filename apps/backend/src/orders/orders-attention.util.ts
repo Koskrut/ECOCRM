@@ -81,3 +81,20 @@ export function isOrderStuck(row: StuckOrderCandidate, asOf: Date): boolean {
 export function filterStuckOrders<T extends StuckOrderCandidate>(rows: T[], asOf: Date): T[] {
   return rows.filter((o) => isOrderStuck(o, asOf));
 }
+
+/**
+ * Stuck attention resolves IDs first, then slices that list for pagination.
+ * That is correct for the unfiltered list. Kanban/financial columns add a stage
+ * or financialStatus filter AFTER the slice, so the column would show the wrong
+ * page and an inflated total. Defer Prisma skip/take until after those filters.
+ */
+export function shouldPrePaginateStuckIds(q: {
+  orderStages?: string;
+  orderStage?: string;
+  financialStatus?: string;
+}): boolean {
+  if (q.orderStage) return false;
+  if (q.financialStatus) return false;
+  if (typeof q.orderStages === "string" && q.orderStages.trim()) return false;
+  return true;
+}

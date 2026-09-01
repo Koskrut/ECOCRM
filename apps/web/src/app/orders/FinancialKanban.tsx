@@ -11,7 +11,13 @@ import {
   KanbanLoadSentinel,
   KANBAN_COLUMN_BODY_CLASS,
 } from "@/components/kanban/KanbanLoadSentinel";
-import { useKanbanInfiniteColumns } from "@/components/kanban/useKanbanInfiniteColumns";
+import {
+  KANBAN_PAGE_SIZE,
+  useKanbanInfiniteColumns,
+} from "@/components/kanban/useKanbanInfiniteColumns";
+import { strings } from "@/locales";
+
+const tr = strings.kanban;
 
 /** Phase 4: Financial view — columns by financialStatus, no drag-and-drop. */
 
@@ -64,6 +70,12 @@ type FinancialFilters = {
   dateTo?: string;
   sortBy?: string;
   sortDir?: "asc" | "desc";
+  ids?: string;
+  orderStage?: string;
+  amountFrom?: string;
+  amountTo?: string;
+  paymentStatus?: string;
+  hasTtn?: string;
 };
 
 const COLUMN_ORDER: FinancialStatus[] = [
@@ -192,6 +204,7 @@ export function FinancialKanban({
         withCompanyClient: "true",
         financialStatus: status,
         page: String(page),
+        pageSize: String(KANBAN_PAGE_SIZE),
       };
       if (filters?.paymentType) params.paymentType = filters.paymentType;
       if (filters?.overdue === "true") params.overdue = "true";
@@ -208,6 +221,12 @@ export function FinancialKanban({
       if (filters?.dateTo) params.dateTo = filters.dateTo;
       if (filters?.sortBy) params.sortBy = filters.sortBy;
       if (filters?.sortDir) params.sortDir = filters.sortDir;
+      if (filters?.ids) params.ids = filters.ids;
+      if (filters?.orderStage) params.orderStage = filters.orderStage;
+      if (filters?.amountFrom) params.amountFrom = filters.amountFrom;
+      if (filters?.amountTo) params.amountTo = filters.amountTo;
+      if (filters?.paymentStatus) params.paymentStatus = filters.paymentStatus;
+      if (filters?.hasTtn) params.hasTtn = filters.hasTtn;
       return params;
     },
     [
@@ -224,6 +243,12 @@ export function FinancialKanban({
       filters?.dateTo,
       filters?.sortBy,
       filters?.sortDir,
+      filters?.ids,
+      filters?.orderStage,
+      filters?.amountFrom,
+      filters?.amountTo,
+      filters?.paymentStatus,
+      filters?.hasTtn,
     ],
   );
 
@@ -236,7 +261,7 @@ export function FinancialKanban({
     };
   }, []);
 
-  const { columns: columnStates, loadMore, anyInitialLoading, firstError } =
+  const { columns: columnStates, loadMore, reloadColumn, anyInitialLoading, firstError } =
     useKanbanInfiniteColumns<FinancialOrder, FinancialStatus>({
       columnIds: loadColumnIds,
       buildParams,
@@ -246,7 +271,7 @@ export function FinancialKanban({
 
   const columns = useMemo(
     () =>
-      COLUMN_ORDER.map((id) => {
+      loadColumnIds.map((id) => {
         const items = [...(columnStates[id]?.items ?? [])].sort(dueSort);
         const total = columnStates[id]?.total ?? items.length;
         return {
@@ -257,12 +282,12 @@ export function FinancialKanban({
           state: columnStates[id],
         };
       }),
-    [columnStates],
+    [columnStates, loadColumnIds],
   );
 
   const boardEmpty = columns.every((col) => col.items.length === 0);
   if (anyInitialLoading && boardEmpty) {
-    return <div className="text-sm text-zinc-500">Завантаження фін. дошки…</div>;
+    return <div className="text-sm text-zinc-500">{tr.financialLoadingBoard}</div>;
   }
   if (firstError && boardEmpty) {
     return <div className="text-sm text-red-600">{firstError}</div>;
@@ -270,10 +295,7 @@ export function FinancialKanban({
 
   return (
     <div className="max-w-full min-w-0 space-y-4">
-      <p className="text-xs text-zinc-500">
-        Фінансовий канбан — контрольний екран. Статус визначається з даних замовлення та оплат, без
-        перетягування.
-      </p>
+      <p className="text-xs text-zinc-500">{tr.financialHint}</p>
       <div className="flex flex-nowrap gap-4 overflow-x-auto pb-2">
         {columns.map((col) => (
           <div
@@ -293,7 +315,7 @@ export function FinancialKanban({
                           ? "mt-0.5 font-medium text-amber-700"
                           : "mt-0.5 font-medium text-zinc-700"
                       }
-                      title={col.totals.isDebt ? "Сумарний борг (завантажені картки)" : undefined}
+                      title={tr.loadedCardsHint}
                     >
                       {col.totals.isDebt ? `борг ${col.totals.amountLabel}` : col.totals.amountLabel}
                     </div>
@@ -301,12 +323,21 @@ export function FinancialKanban({
                 </div>
               </div>
               <div className={KANBAN_COLUMN_BODY_CLASS}>
-                {!loadColumnIds.includes(col.id) ? (
-                  <div className="text-xs text-zinc-500">—</div>
-                ) : col.state?.initialLoading ? (
-                  <div className="text-xs text-zinc-500">Завантаження…</div>
+                {col.state?.initialLoading ? (
+                  <div className="text-xs text-zinc-500">{tr.loadingColumn}</div>
+                ) : col.state?.error && col.items.length === 0 ? (
+                  <div className="space-y-2">
+                    <div className="text-xs text-red-600">{col.state.error}</div>
+                    <button
+                      type="button"
+                      onClick={() => reloadColumn(col.id)}
+                      className="text-xs font-medium text-zinc-700 underline"
+                    >
+                      {tr.retry}
+                    </button>
+                  </div>
                 ) : col.items.length === 0 ? (
-                  <div className="text-xs text-zinc-500">—</div>
+                  <div className="text-xs text-zinc-500">{tr.emptyColumn}</div>
                 ) : (
                   col.items.map((o) => {
                     const clientName =

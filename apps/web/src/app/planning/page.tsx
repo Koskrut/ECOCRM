@@ -615,7 +615,14 @@ function PlanningPageInner() {
       <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <h1 className="text-2xl font-semibold text-zinc-900">{t.pageTitle}</h1>
-          <p className="mt-1 text-sm text-zinc-600">{t.pageSubtitle}</p>
+          <p className="mt-1 text-sm text-zinc-600">
+            {planningSettings
+              ? t.pageSubtitleDynamic(
+                  planningSettings.packCycleDays,
+                  planningSettings.packCapacityPerCycle,
+                )
+              : t.pageSubtitle}
+          </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <button

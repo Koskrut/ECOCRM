@@ -11,11 +11,15 @@ export type StockoutSummary = {
   paretoZeroCount: number;
   zeroKits: StockoutRow[];
   zeroParts: StockoutRow[];
+  zeroFinishedBlocked: StockoutRow[];
+  zeroFinishedBuildable: StockoutRow[];
+  paretoZeroFinishedBlocked: number;
+  paretoZeroFinishedBuildable: number;
 };
 
 /**
  * Positions with zero available stock from the latest posted snapshot.
- * Pareto 80%: kit in class A with stock 0, or part in BOM of any class-A kit with stock 0.
+ * Finished kits with stock 0 split by whether parts allow assembly today.
  */
 export function computeStockouts(input: {
   kits: Array<{
@@ -24,6 +28,7 @@ export function computeStockouts(input: {
     name: string;
     inPareto80: boolean;
     stockFinished: number;
+    maxBuildNow: number;
   }>;
   parts: Array<{
     productId: string;
@@ -35,6 +40,28 @@ export function computeStockouts(input: {
 }): StockoutSummary {
   const zeroKits: StockoutRow[] = input.kits
     .filter((k) => k.stockFinished <= 0)
+    .map((k) => ({
+      productId: k.productId,
+      sku: k.sku,
+      name: k.name,
+      kind: "KIT" as const,
+      inPareto80: k.inPareto80,
+    }))
+    .sort((a, b) => a.sku.localeCompare(b.sku));
+
+  const zeroFinishedBlocked: StockoutRow[] = input.kits
+    .filter((k) => k.stockFinished <= 0 && k.maxBuildNow <= 0)
+    .map((k) => ({
+      productId: k.productId,
+      sku: k.sku,
+      name: k.name,
+      kind: "KIT" as const,
+      inPareto80: k.inPareto80,
+    }))
+    .sort((a, b) => a.sku.localeCompare(b.sku));
+
+  const zeroFinishedBuildable: StockoutRow[] = input.kits
+    .filter((k) => k.stockFinished <= 0 && k.maxBuildNow > 0)
     .map((k) => ({
       productId: k.productId,
       sku: k.sku,
@@ -63,5 +90,9 @@ export function computeStockouts(input: {
     paretoZeroCount,
     zeroKits,
     zeroParts,
+    zeroFinishedBlocked,
+    zeroFinishedBuildable,
+    paretoZeroFinishedBlocked: zeroFinishedBlocked.filter((k) => k.inPareto80).length,
+    paretoZeroFinishedBuildable: zeroFinishedBuildable.filter((k) => k.inPareto80).length,
   };
 }

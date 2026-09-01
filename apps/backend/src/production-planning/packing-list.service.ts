@@ -20,6 +20,9 @@ import { PlanningCalculationService } from "./planning-calculation.service";
 import { PlanningSettingsService } from "./planning-settings.service";
 import { filterPackableProposedLines } from "./planning-packable-lines.util";
 import { assertFreshSnapshot, evaluateSnapshotFreshness } from "./snapshot-freshness.util";
+import { MrpConfigService } from "./mrp-config.service";
+import { DemandForecastService } from "./demand-forecast.service";
+import { computeCoverTarget, computeKitPositionPlan } from "./kit-portfolio.util";
 
 type BomPartLine = {
   componentProductId: string;
@@ -47,6 +50,8 @@ export class PackingListService {
     private readonly settings: PlanningSettingsService,
     private readonly forecast: ForecastService,
     private readonly calculations: PlanningCalculationService,
+    private readonly mrpConfig: MrpConfigService,
+    private readonly demandForecast: DemandForecastService,
   ) {}
 
   list(limit = 20) {
@@ -86,13 +91,21 @@ export class PackingListService {
       hardNeed: number;
       forecastNeed: number;
       stockKits: number;
+      qtyApproved: number;
       kitProduct?: { kind?: ProductKind };
     },
   >(lines: T[]) {
-    const [settings, demand] = await Promise.all([
+    const [settings, packDemand, horizon] = await Promise.all([
       this.settings.getSettings(),
-      this.calculations.getDemandByProduct(),
+      this.calculations.getPackDemandByProduct(),
+      this.mrpConfig.getHorizon(),
     ]);
+    const warnWeeks = Math.round((horizon.warnCoverDays / 7) * 10) / 10;
+    const kitIds = lines
+      .filter((l) => l.kitProduct?.kind !== ProductKind.PART)
+      .map((l) => l.kitProductId);
+    const forecastMap =
+      kitIds.length > 0 ? await this.demandForecast.getDemandForecastMap(kitIds) : new Map();
     const capCache = new Map<
       string,
       Awaited<ReturnType<PlanningCalculationService["getKitCapacity"]>>
@@ -102,6 +115,7 @@ export class PackingListService {
         const isPart = line.kitProduct?.kind === ProductKind.PART;
         let bottleneckSku: string | null = null;
         let bottleneckName: string | null = null;
+        let cap: Awaited<ReturnType<PlanningCalculationService["getKitCapacity"]>> | undefined;
         let parts: Array<{
           sku: string;
           name: string;
@@ -110,7 +124,7 @@ export class PackingListService {
           isBottleneck: boolean;
         }> = [];
         if (!isPart) {
-          let cap = capCache.get(line.kitProductId);
+          cap = capCache.get(line.kitProductId);
           if (!cap) {
             cap = await this.calculations.getKitCapacity(line.kitProductId);
             capCache.set(line.kitProductId, cap);
@@ -132,15 +146,50 @@ export class PackingListService {
               isBottleneck: c.componentProductId === cap!.bottleneckComponentId,
             }));
         }
-        const softNeed = demand.get(line.kitProductId)?.soft ?? 0;
+        const packRow = packDemand.get(line.kitProductId);
+        const hardNeed = packRow?.hard ?? line.hardNeed;
+        const softNeed = packRow?.soft ?? 0;
         const mixedNeed = mixKitDemand(
           settings.demandMix,
-          line.hardNeed,
+          hardNeed,
           line.forecastNeed,
           softNeed,
         );
         const targetPack = uncoveredKitDemand(mixedNeed, line.stockKits);
         const partsBlocked = !isPart && targetPack > 0 && line.maxFromParts < targetPack;
+        let coverTarget = 0;
+        let targetStock = 0;
+        let stockNow = line.stockKits;
+        let canPackNow = 0;
+        let toWork = 0;
+        let suggestedFactoryPartQty = 0;
+        if (!isPart) {
+          const avgMonthlySold = forecastMap.get(line.kitProductId)?.avgMonthlySold ?? 0;
+          const maxBuildNow = line.maxFromParts;
+          const plan = computeKitPositionPlan({
+            stockFinished: line.stockKits,
+            maxBuildNow,
+            weeklyPackNeed: targetPack,
+            coverTarget: computeCoverTarget({ avgMonthlySold, warnWeeks }),
+            alreadyInRequest: line.qtyApproved,
+          });
+          coverTarget = plan.coverTarget;
+          targetStock = plan.targetStock;
+          stockNow = plan.stockNow;
+          canPackNow = plan.canPackNow;
+          toWork = plan.toWork;
+          if (toWork > 0 && cap) {
+            const bottleneck = cap.components.find(
+              (c) => c.componentProductId === cap!.bottleneckComponentId,
+            );
+            const qtyPerKit = bottleneck?.qtyPerKit ?? 0;
+            const avail = bottleneck?.available ?? 0;
+            suggestedFactoryPartQty = Math.max(
+              1,
+              Math.ceil(toWork * Math.max(0, qtyPerKit)) - Math.floor(avail),
+            );
+          }
+        }
         return {
           ...line,
           bottleneckSku,
@@ -148,6 +197,12 @@ export class PackingListService {
           parts,
           targetPack,
           partsBlocked,
+          coverTarget,
+          targetStock,
+          stockNow,
+          canPackNow,
+          toWork,
+          suggestedFactoryPartQty,
         };
       }),
     );
@@ -190,7 +245,7 @@ export class PackingListService {
     const cycleEnd = packCycleEndUtc(instantToKyivYmd(cycleStart), settings.packCycleDays);
 
     const forecastCycle = await this.forecast.getForecastMap(settings.packCycleDays);
-    const demand = await this.calculations.getDemandByProduct();
+    const demand = await this.calculations.getPackDemandByProduct();
     const kits = await this.prisma.product.findMany({
       where: { kind: ProductKind.KIT, isActive: true },
       select: { id: true },

@@ -114,11 +114,6 @@ export function OverviewPanel({ onError }: { onError: (msg: string) => void }) {
     ];
   }, [portfolio]);
 
-  const allZeroRows = useMemo(() => {
-    if (!portfolio) return [];
-    return [...portfolio.stockouts.zeroKits, ...portfolio.stockouts.zeroParts];
-  }, [portfolio]);
-
   const draftTotal =
     (portfolio?.draftRequests.packing ?? 0) + (portfolio?.draftRequests.factory ?? 0);
 
@@ -179,16 +174,20 @@ export function OverviewPanel({ onError }: { onError: (msg: string) => void }) {
         <KpiCard
           title={ov.packableTitle}
           value={String(portfolio?.summary.packableToday ?? "—")}
-          subtitle={ov.packableHint(portfolio?.summary.blocked ?? 0)}
+          subtitle={ov.packableHint(
+            portfolio?.summary.blocked ?? 0,
+            portfolio?.summary.packableAllKits,
+          )}
           active={drilldown === "packable"}
           onClick={() => toggleDrill("packable")}
         />
         <KpiCard
           title={ov.awaitingTitle}
-          value={String(today?.awaitingStock.summary.skuCount ?? "—")}
+          value={String(today?.awaitingStock.summary.gapSkuCount ?? "—")}
           subtitle={ov.awaitingHint(
-            today?.awaitingStock.summary.orderCount ?? 0,
-            today?.awaitingStock.summary.totalQty ?? 0,
+            today?.awaitingStock.summary.gapSkuCount ?? 0,
+            today?.awaitingStock.summary.gapQty ?? 0,
+            today?.awaitingStock.summary.coveredSkuCount ?? 0,
           )}
           active={drilldown === "awaiting"}
           onClick={() => toggleDrill("awaiting")}
@@ -206,9 +205,32 @@ export function OverviewPanel({ onError }: { onError: (msg: string) => void }) {
       </div>
 
       {drilldown === "zero" ? (
-        <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
-          <h3 className="mb-3 text-sm font-semibold text-zinc-900">{ov.zeroStockTitle}</h3>
-          <StockoutTable rows={allZeroRows} noDataLabel={ov.noZeroStock} />
+        <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm space-y-4">
+          <h3 className="text-sm font-semibold text-zinc-900">{ov.zeroStockTitle}</h3>
+          <div>
+            <h4 className="mb-2 text-xs font-medium uppercase text-zinc-500">
+              {ov.zeroFinishedBlockedTitle} ({portfolio?.stockouts.zeroFinishedBlocked.length ?? 0})
+            </h4>
+            <StockoutTable
+              rows={portfolio?.stockouts.zeroFinishedBlocked ?? []}
+              noDataLabel={ov.noZeroStock}
+            />
+          </div>
+          <div>
+            <h4 className="mb-2 text-xs font-medium uppercase text-zinc-500">
+              {ov.zeroFinishedBuildableTitle} ({portfolio?.stockouts.zeroFinishedBuildable.length ?? 0})
+            </h4>
+            <StockoutTable
+              rows={portfolio?.stockouts.zeroFinishedBuildable ?? []}
+              noDataLabel={ov.noZeroStock}
+            />
+          </div>
+          <div>
+            <h4 className="mb-2 text-xs font-medium uppercase text-zinc-500">
+              {t.overview.kindPart} ({portfolio?.stockouts.zeroParts.length ?? 0})
+            </h4>
+            <StockoutTable rows={portfolio?.stockouts.zeroParts ?? []} noDataLabel={ov.noZeroStock} />
+          </div>
         </div>
       ) : null}
 
@@ -225,6 +247,7 @@ export function OverviewPanel({ onError }: { onError: (msg: string) => void }) {
             {ov.packableDetail(
               portfolio?.summary.packableToday ?? 0,
               portfolio?.summary.blocked ?? 0,
+              portfolio?.summary.packableAllKits,
             )}
           </p>
           <Link
@@ -239,10 +262,10 @@ export function OverviewPanel({ onError }: { onError: (msg: string) => void }) {
       {drilldown === "awaiting" ? (
         <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
           <p className="mb-3 text-sm text-zinc-600">
-            {t.labels.awaitingStockSummary(
-              today?.awaitingStock.summary.skuCount ?? 0,
-              today?.awaitingStock.summary.orderCount ?? 0,
-              today?.awaitingStock.summary.totalQty ?? 0,
+            {ov.awaitingHint(
+              today?.awaitingStock.summary.gapSkuCount ?? 0,
+              today?.awaitingStock.summary.gapQty ?? 0,
+              today?.awaitingStock.summary.coveredSkuCount ?? 0,
             )}
           </p>
           <div className="overflow-x-auto">

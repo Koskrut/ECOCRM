@@ -1,5 +1,5 @@
 import { ReturnStatus } from "@prisma/client";
-import { Transform, Type } from "class-transformer";
+import { Type } from "class-transformer";
 import { IsEnum, IsInt, IsOptional, IsString, Max, Min } from "class-validator";
 
 export class ListOrderReturnsQueryDto {
@@ -10,6 +10,22 @@ export class ListOrderReturnsQueryDto {
   @IsOptional()
   @IsEnum(ReturnStatus)
   status?: ReturnStatus;
+
+  @IsOptional()
+  @IsString()
+  q?: string;
+
+  @IsOptional()
+  @IsString()
+  ownerId?: string;
+
+  @IsOptional()
+  @IsString()
+  dateFrom?: string;
+
+  @IsOptional()
+  @IsString()
+  dateTo?: string;
 
   @IsOptional()
   @IsInt()

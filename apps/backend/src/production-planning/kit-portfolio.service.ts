@@ -21,12 +21,17 @@ import { monthsAgoUtc } from "./planning-safety.util";
 import {
   assignParetoClasses,
   assignPile,
+  computeCoverTarget,
   computeKitBuild,
+  computeKitPositionPlan,
+  computeWeeklyPackNeed,
   coverTone,
   effectiveStock,
   groupSharedBottlenecks,
   suggestedPackQty,
+  suggestedPackTargetQty,
   weeksOfCover,
+  type EndingReason,
   type KitPile,
   type SharedBottleneckGroup,
 } from "./kit-portfolio.util";
@@ -41,6 +46,7 @@ export type KitPortfolioKit = {
   cumulativePct: number;
   inPareto80: boolean;
   pile: KitPile;
+  endingReason: EndingReason | null;
   stockFinished: number;
   maxBuildNow: number;
   weeksOfCover: number | null;
@@ -49,7 +55,14 @@ export type KitPortfolioKit = {
   hardNeed: number;
   waitingOrders: number;
   suggestedPackQty: number;
+  suggestedPackTargetQty: number;
+  weeklyPackNeed: number;
   alreadyInRequest: number;
+  coverTarget: number;
+  targetStock: number;
+  stockNow: number;
+  canPackNow: number;
+  toWork: number;
   suggestedFactoryQty: number;
   bottleneckComponentId: string | null;
   bottleneckSku: string | null;
@@ -82,6 +95,8 @@ export type KitPortfolioView = {
   summary: {
     packableToday: number;
     blocked: number;
+    packableAllKits: number;
+    blockedAllKits: number;
     ending: number;
     pareto80Count: number;
   };
@@ -137,8 +152,17 @@ export class KitPortfolioService {
         warnWeeks,
         criticalWeeks,
         week: emptyWeek,
-        summary: { packableToday: 0, blocked: 0, ending: 0, pareto80Count: 0 },
-        stockouts: { zeroCount: 0, paretoZeroCount: 0, zeroKits: [], zeroParts: [] },
+        summary: { packableToday: 0, blocked: 0, packableAllKits: 0, blockedAllKits: 0, ending: 0, pareto80Count: 0 },
+        stockouts: {
+          zeroCount: 0,
+          paretoZeroCount: 0,
+          zeroKits: [],
+          zeroParts: [],
+          zeroFinishedBlocked: [],
+          zeroFinishedBuildable: [],
+          paretoZeroFinishedBlocked: 0,
+          paretoZeroFinishedBuildable: 0,
+        },
         draftRequests: { packing: 0, factory: 0 },
         kits: [],
         sharedBottlenecks: [],
@@ -167,7 +191,7 @@ export class KitPortfolioService {
     ];
     const allIds = [...new Set([...kitIds, ...componentIds])];
 
-    const [stockRows, reservedRows, forecastMap, demand, latestSales, packing, factoryDraft] =
+    const [stockRows, reservedRows, forecastMap, forecastCycle, packDemand, latestSales, packing, factoryDraft] =
       await Promise.all([
         postedSnapshot
           ? this.prisma.inventorySnapshotLine.groupBy({
@@ -186,7 +210,8 @@ export class KitPortfolioService {
           _sum: { qty: true },
         }),
         this.demandForecast.getDemandForecastMap(kitIds),
-        this.calculations.getDemandByProduct(),
+        this.demandForecast.getForecastQtyMap(planningSettings.packCycleDays, kitIds),
+        this.calculations.getPackDemandByProduct(),
         this.salesHistory.latestPosted(),
         this.prisma.packingList.findFirst({
           where: { status: { in: [PackingListStatus.DRAFT, PackingListStatus.APPROVED] } },
@@ -236,7 +261,7 @@ export class KitPortfolioService {
           productId: { in: kitIds },
           order: {
             orderStage: {
-              in: [OrderStage.AWAITING_STOCK, OrderStage.CONFIRMED, OrderStage.READY_TO_SHIP],
+              in: [OrderStage.AWAITING_STOCK],
               notIn: excluded,
             },
           },
@@ -306,10 +331,19 @@ export class KitPortfolioService {
       );
       const stockFinished = availableOf(row.productId);
       const avgMonthlySold = forecastMap.get(row.productId)?.avgMonthlySold ?? 0;
-      const hardNeed = demand.get(row.productId)?.hard ?? 0;
+      const hardNeed = packDemand.get(row.productId)?.hard ?? 0;
+      const softNeed = packDemand.get(row.productId)?.soft ?? 0;
+      const forecastNeed = forecastCycle.get(row.productId) ?? 0;
+      const weeklyPackNeed = computeWeeklyPackNeed({
+        hardNeed,
+        forecastNeed,
+        softNeed,
+        stockKits: stockFinished,
+        demandMix: planningSettings.demandMix,
+      });
       const stock = effectiveStock(stockFinished, build.maxBuildNow);
       const weeks = weeksOfCover(stock, avgMonthlySold);
-      const pile = assignPile({
+      const { pile, endingReason } = assignPile({
         avgMonthlySold,
         stockFinished,
         maxBuildNow: build.maxBuildNow,
@@ -319,29 +353,38 @@ export class KitPortfolioService {
       });
       const alreadyInRequest = packingIsDraft ? (alreadyByKit.get(row.productId) ?? 0) : 0;
       const capacityLeft = packingCanEdit ? weekLeft : 0;
-      const packQty = suggestedPackQty({
-        stockFinished,
+      const coverTarget = computeCoverTarget({ avgMonthlySold, warnWeeks });
+      const packTarget = suggestedPackTargetQty({
+        weeklyPackNeed,
         maxBuildNow: build.maxBuildNow,
-        avgMonthlySold,
-        hardNeed,
-        warnWeeks,
+        alreadyInRequest,
+        weekCapacityLeft: capacityLeft,
+      });
+      const packQty = suggestedPackQty({
+        weeklyPackNeed,
+        maxBuildNow: build.maxBuildNow,
         alreadyInRequest,
         weekCapacityLeft: capacityLeft,
       });
       const packIgnoringParts = suggestedPackQty({
-        stockFinished,
+        weeklyPackNeed,
         maxBuildNow: build.maxBuildNow,
-        avgMonthlySold,
-        hardNeed,
-        warnWeeks,
         alreadyInRequest,
         weekCapacityLeft: Math.max(capacityLeft, weekLimit),
         ignoreParts: true,
+      });
+      const positionPlan = computeKitPositionPlan({
+        stockFinished,
+        maxBuildNow: build.maxBuildNow,
+        weeklyPackNeed,
+        coverTarget,
+        alreadyInRequest,
       });
       const monthly = historyByKit.get(row.productId) ?? new Map<string, number>();
       return {
         ...row,
         pile,
+        endingReason,
         stockFinished,
         maxBuildNow: build.maxBuildNow,
         weeksOfCover: weeks,
@@ -350,7 +393,14 @@ export class KitPortfolioService {
         hardNeed,
         waitingOrders: waitingByKit.get(row.productId)?.size ?? 0,
         suggestedPackQty: packQty,
+        suggestedPackTargetQty: packTarget,
+        weeklyPackNeed,
         alreadyInRequest,
+        coverTarget: positionPlan.coverTarget,
+        targetStock: positionPlan.targetStock,
+        stockNow: positionPlan.stockNow,
+        canPackNow: positionPlan.canPackNow,
+        toWork: positionPlan.toWork,
         suggestedFactoryQty: Math.max(
           1,
           Math.ceil(packIgnoringParts * Math.max(0, build.bottleneckQtyPerKit)) -
@@ -398,6 +448,7 @@ export class KitPortfolioService {
         name: k.name,
         inPareto80: k.inPareto80,
         stockFinished: k.stockFinished,
+        maxBuildNow: k.maxBuildNow,
       })),
       parts: componentIds.map((id) => {
         const meta = componentById.get(id);
@@ -414,6 +465,8 @@ export class KitPortfolioService {
     const ending = draftKits.filter((k) => k.pile === "ending" && k.inPareto80);
     const packableToday = ending.filter((k) => k.maxBuildNow > 0).length;
     const blocked = ending.filter((k) => k.maxBuildNow <= 0).length;
+    const packableAllKits = draftKits.filter((k) => k.maxBuildNow > 0).length;
+    const blockedAllKits = draftKits.filter((k) => k.maxBuildNow <= 0).length;
 
     const kitsOut: KitPortfolioKit[] = draftKits.map((row) => ({
       productId: row.productId,
@@ -424,6 +477,7 @@ export class KitPortfolioService {
       cumulativePct: row.cumulativePct,
       inPareto80: row.inPareto80,
       pile: row.pile,
+      endingReason: row.endingReason,
       stockFinished: row.stockFinished,
       maxBuildNow: row.maxBuildNow,
       weeksOfCover: row.weeksOfCover,
@@ -432,7 +486,14 @@ export class KitPortfolioService {
       hardNeed: row.hardNeed,
       waitingOrders: row.waitingOrders,
       suggestedPackQty: row.suggestedPackQty,
+      suggestedPackTargetQty: row.suggestedPackTargetQty,
+      weeklyPackNeed: row.weeklyPackNeed,
       alreadyInRequest: row.alreadyInRequest,
+      coverTarget: row.coverTarget,
+      targetStock: row.targetStock,
+      stockNow: row.stockNow,
+      canPackNow: row.canPackNow,
+      toWork: row.toWork,
       suggestedFactoryQty: row.suggestedFactoryQty,
       bottleneckComponentId: row.bottleneckComponentId,
       bottleneckSku: row.bottleneckSku,
@@ -458,6 +519,8 @@ export class KitPortfolioService {
       summary: {
         packableToday,
         blocked,
+        packableAllKits,
+        blockedAllKits,
         ending: ending.length,
         pareto80Count: draftKits.filter((k) => k.inPareto80).length,
       },

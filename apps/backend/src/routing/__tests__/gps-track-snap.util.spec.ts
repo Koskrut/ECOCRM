@@ -3,13 +3,20 @@ import assert from "node:assert/strict";
 
 import {
   dedupeRepeatedPathLegs,
+  haversineKm,
+  isLoopSnapCollapsed,
+  isLoopTripSuspicious,
   isPathDistanceInconsistent,
+  LOOP_SNAP_HALF_RATIO,
+  LOOP_SNAP_VS_SIMPLIFIED_RATIO,
   maxStraightSegmentKm,
   mergeSnapPathsForDisplay,
   reconcileSnapPathDisplay,
+  splitLoopAtFarthest,
   splitSamplesByTimeGap,
   stitchPathGaps,
   STITCH_GAP_THRESHOLD_KM,
+  trimHomeDwellTail,
   type TrackedGpsSample,
 } from "../gps-track-snap.util";
 
@@ -175,5 +182,132 @@ describe("Gribovskaya fixture path", () => {
     const innerStitch = await stitchPathGaps(path, mockRoadLeg, STITCH_GAP_THRESHOLD_KM);
     assert.ok(innerStitch.maxStitchGapKm <= 1);
     assert.equal(innerStitch.hasUnfilledGaps, false);
+  });
+});
+
+const GRIBOV_HOME = { lat: 49.8235, lng: 24.1397 };
+const GRIBOV_VISIT = { lat: 50.243, lng: 24.138 };
+const GRIBOV_EAST = { lat: 50.21, lng: 24.38 };
+
+function lerp(a: number, b: number, t: number): number {
+  return a + (b - a) * t;
+}
+
+describe("trimHomeDwellTail", () => {
+  it("drops 6h home jitter after return, keeps a short arrival", () => {
+    const home = GRIBOV_HOME;
+    const far = GRIBOV_VISIT;
+    const samples: TrackedGpsSample[] = [];
+    const t0 = Date.parse("2026-08-26T06:26:00.000Z");
+    samples.push({ ...home, clientRecordedAt: new Date(t0) });
+    for (let i = 1; i <= 20; i++) {
+      const t = i / 20;
+      samples.push({
+        lat: lerp(home.lat, far.lat, t),
+        lng: lerp(home.lng, far.lng, t),
+        clientRecordedAt: new Date(t0 + i * 6 * 60_000),
+      });
+    }
+    for (let i = 1; i <= 20; i++) {
+      const t = i / 20;
+      samples.push({
+        lat: lerp(far.lat, home.lat, t),
+        lng: lerp(far.lng, home.lng, t),
+        clientRecordedAt: new Date(t0 + (20 + i) * 6 * 60_000),
+      });
+    }
+    const returnAt = t0 + 40 * 6 * 60_000;
+    for (let i = 1; i <= 80; i++) {
+      samples.push({
+        lat: home.lat + Math.sin(i) * 0.0004,
+        lng: home.lng + Math.cos(i) * 0.0004,
+        clientRecordedAt: new Date(returnAt + i * 4.5 * 60_000),
+      });
+    }
+    const trimmed = trimHomeDwellTail(samples);
+    assert.ok(trimmed.length < samples.length - 20, `trimmed ${trimmed.length} of ${samples.length}`);
+    const last = trimmed[trimmed.length - 1]!;
+    assert.ok(haversineKm(last, home) < 0.5);
+    const spanMin =
+      (new Date(trimmed[trimmed.length - 1]!.clientRecordedAt).getTime() -
+        new Date(trimmed[0]!.clientRecordedAt).getTime()) /
+      60_000;
+    assert.ok(spanMin < 8 * 60, `spanMin=${spanMin}`);
+  });
+});
+
+describe("splitLoopAtFarthest", () => {
+  it("splits Gribovsky-like loop at visit, not at a more-northern but closer point", () => {
+    const home = GRIBOV_HOME;
+    const visit = GRIBOV_VISIT;
+    const east = GRIBOV_EAST;
+    const samples: TrackedGpsSample[] = [{ ...home, clientRecordedAt: new Date() }];
+    for (let i = 1; i <= 30; i++) {
+      const t = i / 30;
+      samples.push({
+        lat: lerp(home.lat, visit.lat, t),
+        lng: lerp(home.lng, visit.lng, t),
+        clientRecordedAt: new Date(),
+      });
+    }
+    samples.push({ ...visit, clientRecordedAt: new Date() });
+    samples.push({ ...east, clientRecordedAt: new Date() });
+    for (let i = 1; i <= 30; i++) {
+      const t = i / 30;
+      samples.push({
+        lat: lerp(east.lat, home.lat, t),
+        lng: lerp(east.lng, home.lng, t),
+        clientRecordedAt: new Date(),
+      });
+    }
+    const split = splitLoopAtFarthest(samples);
+    assert.ok(split);
+    const turn = samples[split!.turnaroundIndex]!;
+    const visitKm = haversineKm(home, visit);
+    const eastKm = haversineKm(home, east);
+    const turnKm = haversineKm(home, turn);
+    assert.ok(turnKm >= Math.max(visitKm, eastKm) - 0.5);
+    if (eastKm > visitKm) {
+      assert.ok(haversineKm(turn, east) < 2);
+    }
+  });
+});
+
+describe("isLoopTripSuspicious / isLoopSnapCollapsed", () => {
+  it("short loop under 30 km is not suspicious", () => {
+    const home = { lat: 50.45, lng: 30.52 };
+    const near = { lat: 50.48, lng: 30.55 };
+    assert.equal(
+      isLoopTripSuspicious({
+        first: home,
+        last: home,
+        simplifiedPathDistanceKm: 12,
+        bboxDiagonalKm: 4,
+      }),
+      false,
+    );
+    assert.ok(haversineKm(home, near) < 10);
+  });
+
+  it("half-ratio (~0.5 simplified) is collapse at 0.75, not at tiny 0.25", () => {
+    const opts = {
+      snappedDistanceKm: 69,
+      simplifiedPathDistanceKm: 140,
+      loopSuspicious: true,
+    };
+    assert.equal(isLoopSnapCollapsed(opts), false);
+    assert.equal(isLoopSnapCollapsed({ ...opts, ratio: LOOP_SNAP_VS_SIMPLIFIED_RATIO }), false);
+    assert.equal(isLoopSnapCollapsed({ ...opts, ratio: LOOP_SNAP_HALF_RATIO }), true);
+  });
+
+  it("tiny snap still collapses at 0.25", () => {
+    assert.equal(
+      isLoopSnapCollapsed({
+        snappedDistanceKm: 1.4,
+        simplifiedPathDistanceKm: 140,
+        loopSuspicious: true,
+      }),
+      true,
+    );
   });
 });

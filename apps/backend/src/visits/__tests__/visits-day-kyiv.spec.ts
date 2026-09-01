@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { DateTime } from "luxon";
-import { kyivDayBounds } from "../../crm-timezone";
+import { kyivDayBounds, kyivInstantRangeFromQuery } from "../../crm-timezone";
 
 const CRM_TIME_ZONE = "Europe/Kyiv";
 
@@ -35,5 +35,20 @@ describe("visits day query (Kyiv calendar)", () => {
     assert.ok(earlyKyiv.getTime() < utcStart.getTime());
     assert.ok(earlyKyiv.getTime() >= from.getTime());
     assert.ok(earlyKyiv.getTime() <= to.getTime());
+  });
+
+  it("kyivInstantRangeFromQuery treats YYYY-MM-DD as Kyiv calendar, not UTC midnight", () => {
+    const range = kyivInstantRangeFromQuery("2026-06-26", "2026-06-26");
+    const utcMidnight = new Date("2026-06-26T00:00:00.000Z");
+    const earlyKyiv = DateTime.fromObject(
+      { year: 2026, month: 6, day: 26, hour: 1, minute: 0 },
+      { zone: CRM_TIME_ZONE },
+    ).toJSDate();
+
+    assert.ok(range.gte);
+    assert.ok(range.lte);
+    assert.ok(range.gte!.getTime() < utcMidnight.getTime());
+    assert.ok(earlyKyiv.getTime() >= range.gte!.getTime());
+    assert.ok(earlyKyiv.getTime() <= range.lte!.getTime());
   });
 });
