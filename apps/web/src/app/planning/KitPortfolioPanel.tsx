@@ -31,6 +31,12 @@ function sortEnding(rows: KitPortfolioKit[]): KitPortfolioKit[] {
     const aw = a.weeksOfCover ?? 9999;
     const bw = b.weeksOfCover ?? 9999;
     if (aw !== bw) return aw - bw;
+    const abc = (a.paretoClass === "A" ? 0 : a.paretoClass === "B" ? 1 : 2) -
+      (b.paretoClass === "A" ? 0 : b.paretoClass === "B" ? 1 : 2);
+    if (abc !== 0) return abc;
+    const xyzRank = (c: string | null) => (c === "X" ? 0 : c === "Y" ? 1 : c === "Z" ? 2 : 3);
+    const xyz = xyzRank(a.xyzClass) - xyzRank(b.xyzClass);
+    if (xyz !== 0) return xyz;
     return b.revenue - a.revenue;
   });
 }
@@ -126,6 +132,8 @@ export function KitPortfolioPanel({
   const busy = externalBusy ?? internalBusy;
   const [toast, setToast] = useState<string | null>(null);
   const [only80, setOnly80] = useState(true);
+  const [abcFilter, setAbcFilter] = useState<Array<"A" | "B" | "C">>(["A"]);
+  const [xyzFilter, setXyzFilter] = useState<Array<"X" | "Y" | "Z">>([]);
   const [query, setQuery] = useState("");
   const [openId, setOpenId] = useState<string | null>(null);
   const [acting, setActing] = useState<string | null>(null);
@@ -155,9 +163,21 @@ export function KitPortfolioPanel({
   }, [externalView, loadInternal]);
 
   const visible = useMemo(() => {
-    const rows = (view?.kits ?? []).filter((k) => matchesQuery(k, query));
-    return only80 ? rows.filter((k) => k.inPareto80) : rows;
-  }, [view, query, only80]);
+    let rows = (view?.kits ?? []).filter((k) => matchesQuery(k, query));
+    if (only80 || abcFilter.length > 0) {
+      const abcSet = new Set(only80 && abcFilter.length === 0 ? (["A"] as const) : abcFilter);
+      if (only80 && abcFilter.length === 0) {
+        rows = rows.filter((k) => k.inPareto80);
+      } else if (abcFilter.length > 0) {
+        rows = rows.filter((k) => abcSet.has(k.paretoClass));
+      }
+    }
+    if (xyzFilter.length > 0) {
+      const xyzSet = new Set(xyzFilter);
+      rows = rows.filter((k) => k.xyzClass != null && xyzSet.has(k.xyzClass));
+    }
+    return rows;
+  }, [view, query, only80, abcFilter, xyzFilter]);
 
   const ending = useMemo(
     () => sortEnding(visible.filter((k) => k.pile === "ending")),
@@ -338,9 +358,28 @@ export function KitPortfolioPanel({
             </div>
           </div>
           <p className="self-end text-sm text-zinc-700">
-            {kb.todayLine(view.summary.packableToday, view.summary.blocked)}
+            {kb.todayLine(view.summary.packableToday, view.summary.blocked, view.summary.axEnding)}
           </p>
         </div>
+        {(view.classMatrix?.length ?? 0) > 0 ? (
+          <div className="mt-3">
+            <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">{kb.matrixTitle}</p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {view.classMatrix.map((cell) => (
+                <span
+                  key={`${cell.paretoClass}${cell.xyzClass}`}
+                  className="rounded-lg border border-zinc-200 bg-zinc-50 px-2 py-1 text-xs text-zinc-700"
+                >
+                  {kb.classBadge(cell.paretoClass, cell.xyzClass)}: {cell.skuCount}
+                  {cell.endingCount > 0 ? ` · ${cell.endingCount}⚠` : ""}
+                </span>
+              ))}
+            </div>
+            <p className="mt-2 text-xs text-zinc-500">
+              {kb.classHintAx} · {kb.classHintAz}
+            </p>
+          </div>
+        ) : null}
         {toast ? (
           <p className="mt-3 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-900">{toast}</p>
         ) : null}
@@ -530,8 +569,13 @@ function EndingCard({
     <article className={`rounded-xl border bg-white p-3 shadow-sm ${border}`}>
       <button type="button" className="w-full text-left" onClick={onToggle}>
         <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <p className="truncate text-sm font-medium text-zinc-900">{kit.name}</p>
+            <div className="min-w-0">
+            <p className="truncate text-sm font-medium text-zinc-900">
+              <span className="mr-2 inline-block rounded bg-zinc-900 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                {kb.classBadge(kit.paretoClass, kit.xyzClass)}
+              </span>
+              {kit.name}
+            </p>
             <p className="text-xs text-zinc-500">{kit.sku}</p>
           </div>
           <WeeksHero kit={kit} />

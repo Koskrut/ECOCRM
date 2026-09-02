@@ -511,7 +511,13 @@ export type KitPortfolioKit = {
   revenue: number;
   sharePct: number;
   cumulativePct: number;
+  paretoClass: "A" | "B" | "C";
   inPareto80: boolean;
+  xyzClass: "X" | "Y" | "Z" | null;
+  demandCv: number | null;
+  xyzReason: "stable" | "variable" | "intermittent" | "insufficient_history";
+  xyzSource: "crm_weeks" | "sales_months" | null;
+  classificationPeriods: number;
   pile: "ending" | "ok" | "idle";
   endingReason: "orders" | "cover" | "both" | null;
   stockFinished: number;
@@ -574,7 +580,15 @@ export type KitPortfolioView = {
     blockedAllKits: number;
     ending: number;
     pareto80Count: number;
+    axEnding: number;
   };
+  classMatrix: Array<{
+    paretoClass: "A" | "B" | "C";
+    xyzClass: "X" | "Y" | "Z";
+    skuCount: number;
+    revenue: number;
+    endingCount: number;
+  }>;
   stockouts: {
     zeroCount: number;
     paretoZeroCount: number;
@@ -595,6 +609,24 @@ export type KitPortfolioView = {
     kitCount: number;
     suggestedQty: number;
   }>;
+};
+
+export type PlanningProductParamsRow = {
+  productId: string;
+  sku: string;
+  name: string;
+  kind: "KIT" | "PART";
+  safetyStock: number;
+  productionLeadDays: number;
+  packLeadDays: number | null;
+  isPlanned: boolean;
+  monthlyForecastOverride: number | null;
+  demandMode: "AUTO" | "MANUAL";
+  paretoClass: "A" | "B" | "C" | null;
+  xyzClass: "X" | "Y" | "Z" | null;
+  xyzReason: string | null;
+  xyzSource: string | null;
+  demandCv: number | null;
 };
 
 async function downloadBlob(path: string, filename: string) {
@@ -639,6 +671,31 @@ export const planningApi = {
   },
   getKitPortfolio: async (): Promise<KitPortfolioView> => {
     const res = await apiHttp.get<KitPortfolioView>("/planning/kit-portfolio");
+    return res.data;
+  },
+  listProductParams: async (params?: {
+    kind?: "KIT" | "PART";
+    q?: string;
+  }): Promise<PlanningProductParamsRow[]> => {
+    const res = await apiHttp.get<PlanningProductParamsRow[]>("/planning/product-params", {
+      params,
+    });
+    return res.data;
+  },
+  patchProductParams: async (
+    productId: string,
+    payload: {
+      safetyStock?: number;
+      productionLeadDays?: number;
+      packLeadDays?: number | null;
+      isPlanned?: boolean;
+      monthlyForecastOverride?: number | null;
+    },
+  ): Promise<PlanningProductParamsRow> => {
+    const res = await apiHttp.patch<PlanningProductParamsRow>(
+      `/planning/product-params/${productId}`,
+      payload,
+    );
     return res.data;
   },
   getProjection: async (weeks = [2, 4, 8, 12]): Promise<StockProjection> => {

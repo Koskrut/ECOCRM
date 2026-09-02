@@ -5,7 +5,18 @@ import { constrainsKitCapacity, displayBottleneckSku } from "./bom-part.util";
 export type KitPile = "ending" | "ok" | "idle";
 export type EndingReason = "orders" | "cover" | "both";
 export type ParetoClass = "A" | "B" | "C";
+export type XyzClass = "X" | "Y" | "Z";
+export type XyzReason = "stable" | "variable" | "intermittent" | "insufficient_history";
+export type XyzSource = "crm_weeks" | "sales_months";
 export type CoverTone = "critical" | "warn" | "ok";
+
+export type XyzResult = {
+  xyzClass: XyzClass | null;
+  demandCv: number | null;
+  xyzReason: XyzReason;
+  xyzSource: XyzSource | null;
+  classificationPeriods: number;
+};
 
 export type ParetoRow<T> = T & {
   paretoClass: ParetoClass;
@@ -123,6 +134,157 @@ export function assignParetoClasses<T extends { revenue: number }>(
   });
 }
 
+/** ISO week key YYYY-Www in UTC. */
+export function isoWeekKeyUtc(d: Date): string {
+  const date = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+  const day = date.getUTCDay() || 7;
+  date.setUTCDate(date.getUTCDate() + 4 - day);
+  const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+  const week = Math.ceil(((date.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
+  return `${date.getUTCFullYear()}-W${String(week).padStart(2, "0")}`;
+}
+
+/** Build contiguous period series with missing buckets filled as 0. */
+export function fillPeriodSeries(
+  qtyByPeriod: Map<string, number> | Record<string, number>,
+  orderedKeys: string[],
+): number[] {
+  const map =
+    qtyByPeriod instanceof Map ? qtyByPeriod : new Map(Object.entries(qtyByPeriod));
+  return orderedKeys.map((k) => Math.max(0, map.get(k) ?? 0));
+}
+
+/** Last `count` ISO week keys ending at `end` (inclusive of end's week). */
+export function recentIsoWeekKeys(end: Date, count: number): string[] {
+  const keys: string[] = [];
+  const cursor = new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate()));
+  for (let i = 0; i < count; i++) {
+    keys.unshift(isoWeekKeyUtc(cursor));
+    cursor.setUTCDate(cursor.getUTCDate() - 7);
+  }
+  return keys;
+}
+
+/** Last `count` YYYY-MM keys ending at `end`'s month. */
+export function recentYearMonthKeys(end: Date, count: number): string[] {
+  const keys: string[] = [];
+  const y = end.getUTCFullYear();
+  const m = end.getUTCMonth();
+  for (let i = count - 1; i >= 0; i--) {
+    const d = new Date(Date.UTC(y, m - i, 1));
+    keys.push(`${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`);
+  }
+  return keys;
+}
+
+function populationCv(values: number[]): number | null {
+  if (values.length === 0) return null;
+  const mean = values.reduce((s, v) => s + v, 0) / values.length;
+  if (!(mean > 0)) return null;
+  const variance =
+    values.reduce((s, v) => s + (v - mean) * (v - mean), 0) / values.length;
+  return Math.sqrt(variance) / mean;
+}
+
+/**
+ * XYZ from period qtys (weeks preferred). Missing periods must already be zero-filled.
+ * X CV≤0.25, Y≤0.50, else Z. Intermittent / short history handled explicitly.
+ */
+export function assignXyzClass(
+  periodQtys: number[],
+  opts?: {
+    source?: XyzSource;
+    minPeriods?: number;
+    intermittentNonZeroRatio?: number;
+    xCut?: number;
+    yCut?: number;
+  },
+): XyzResult {
+  const source = opts?.source ?? "crm_weeks";
+  const minPeriods = opts?.minPeriods ?? (source === "crm_weeks" ? 16 : 6);
+  const intermittentRatio = opts?.intermittentNonZeroRatio ?? 0.3;
+  const xCut = opts?.xCut ?? 0.25;
+  const yCut = opts?.yCut ?? 0.5;
+  const n = periodQtys.length;
+  const nonZero = periodQtys.filter((q) => q > 0).length;
+
+  if (n < minPeriods || nonZero === 0) {
+    return {
+      xyzClass: null,
+      demandCv: null,
+      xyzReason: "insufficient_history",
+      xyzSource: null,
+      classificationPeriods: n,
+    };
+  }
+
+  if (nonZero / n < intermittentRatio) {
+    const cv = populationCv(periodQtys);
+    return {
+      xyzClass: "Z",
+      demandCv: cv == null ? null : Math.round(cv * 1000) / 1000,
+      xyzReason: "intermittent",
+      xyzSource: source,
+      classificationPeriods: n,
+    };
+  }
+
+  const cvRaw = populationCv(periodQtys);
+  if (cvRaw == null) {
+    return {
+      xyzClass: null,
+      demandCv: null,
+      xyzReason: "insufficient_history",
+      xyzSource: null,
+      classificationPeriods: n,
+    };
+  }
+  const demandCv = Math.round(cvRaw * 1000) / 1000;
+  if (cvRaw <= xCut) {
+    return {
+      xyzClass: "X",
+      demandCv,
+      xyzReason: "stable",
+      xyzSource: source,
+      classificationPeriods: n,
+    };
+  }
+  if (cvRaw <= yCut) {
+    return {
+      xyzClass: "Y",
+      demandCv,
+      xyzReason: "variable",
+      xyzSource: source,
+      classificationPeriods: n,
+    };
+  }
+  return {
+    xyzClass: "Z",
+    demandCv,
+    xyzReason: "variable",
+    xyzSource: source,
+    classificationPeriods: n,
+  };
+}
+
+/** Max ABC class among parents (A > B > C). */
+export function maxParetoClass(classes: ParetoClass[]): ParetoClass {
+  if (classes.includes("A")) return "A";
+  if (classes.includes("B")) return "B";
+  return "C";
+}
+
+export function abcRank(c: ParetoClass): number {
+  return c === "A" ? 0 : c === "B" ? 1 : 2;
+}
+
+export function xyzRank(c: XyzClass | null): number {
+  if (c === "X") return 0;
+  if (c === "Y") return 1;
+  if (c === "Z") return 2;
+  return 3;
+}
+
 export type KitPositionPlan = {
   coverTarget: number;
   targetStock: number;
@@ -188,9 +350,15 @@ export function suggestedPackQty(input: {
   return Math.max(0, target - already);
 }
 
-export function sortEndingKits<T extends { maxBuildNow: number; weeksOfCover: number | null; revenue: number }>(
-  rows: T[],
-): T[] {
+export function sortEndingKits<
+  T extends {
+    maxBuildNow: number;
+    weeksOfCover: number | null;
+    revenue: number;
+    paretoClass?: ParetoClass;
+    xyzClass?: XyzClass | null;
+  },
+>(rows: T[]): T[] {
   return [...rows].sort((a, b) => {
     const aCan = a.maxBuildNow > 0 ? 0 : 1;
     const bCan = b.maxBuildNow > 0 ? 0 : 1;
@@ -198,6 +366,10 @@ export function sortEndingKits<T extends { maxBuildNow: number; weeksOfCover: nu
     const aw = a.weeksOfCover ?? 9999;
     const bw = b.weeksOfCover ?? 9999;
     if (aw !== bw) return aw - bw;
+    const abc = abcRank(a.paretoClass ?? "C") - abcRank(b.paretoClass ?? "C");
+    if (abc !== 0) return abc;
+    const xyz = xyzRank(a.xyzClass ?? null) - xyzRank(b.xyzClass ?? null);
+    if (xyz !== 0) return xyz;
     return b.revenue - a.revenue;
   });
 }

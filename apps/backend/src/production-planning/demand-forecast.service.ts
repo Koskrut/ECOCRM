@@ -96,7 +96,7 @@ export class DemandForecastService {
   }
 
   /**
-   * Velocity from POSTED sales XLS (primary), OrderItem fallback, override wins.
+   * Velocity: override → CRM shipped qty → POSTED sales XLS fallback.
    */
   async getDemandForecastMap(productIds?: string[]): Promise<Map<string, ProductDemandForecast>> {
     const horizon = await this.mrpConfig.getHorizon();

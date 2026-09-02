@@ -30,6 +30,7 @@ import {
   nearestOpenLineDueYmd,
 } from "./factory-order-tracking.util";
 import { assertFreshSnapshot, evaluateSnapshotFreshness } from "./snapshot-freshness.util";
+import { abcRank, assignParetoClasses, maxParetoClass, type ParetoClass } from "./kit-portfolio.util";
 
 export type FactoryRecommendationLine = {
   partProductId: string;
@@ -41,6 +42,7 @@ export type FactoryRecommendationLine = {
   safetyStock: number;
   netRequirement: number;
   suggestedQty: number;
+  parentParetoClass: ParetoClass;
 };
 
 export type FactoryLineInput = {
@@ -184,6 +186,30 @@ export class FactoryOrderService {
 
     const partGross = new Map<string, number>();
     const weeklyByPart = new Map<string, number>();
+    const parentClassByPart = new Map<string, ParetoClass[]>();
+
+    const kitIdList = [...kitIds];
+    const revenueRows = await this.prisma.orderItem.findMany({
+      where: {
+        productId: { in: kitIdList },
+        order: { orderStage: { notIn: ["CANCELED", "REFUSED"] } },
+      },
+      select: { productId: true, qty: true, price: true },
+      take: 50_000,
+    });
+    const revenueByKit = new Map<string, number>();
+    for (const row of revenueRows) {
+      if (!row.productId) continue;
+      revenueByKit.set(
+        row.productId,
+        (revenueByKit.get(row.productId) ?? 0) + row.price * row.qty,
+      );
+    }
+    const kitPareto = new Map(
+      assignParetoClasses(
+        kitIdList.map((id) => ({ productId: id, revenue: revenueByKit.get(id) ?? 0 })),
+      ).map((r) => [r.productId, r.paretoClass]),
+    );
 
     for (const kitId of kitIds) {
       const hard = demand.get(kitId)?.hard ?? 0;
@@ -203,6 +229,7 @@ export class FactoryOrderService {
         orderBy: [{ effectiveFrom: "desc" }, { revision: "desc" }],
       });
       if (!bom) continue;
+      const kitClass = kitPareto.get(kitId) ?? "C";
 
       for (const line of bom.lines) {
         if (!constrainsKitCapacity({ sku: line.component?.sku, name: line.component?.name })) continue;
@@ -214,6 +241,9 @@ export class FactoryOrderService {
           line.componentProductId,
           (weeklyByPart.get(line.componentProductId) ?? 0) + (kitDemand / (90 / 7)) * per * (1 + scrap / 100),
         );
+        const parents = parentClassByPart.get(line.componentProductId) ?? [];
+        parents.push(kitClass);
+        parentClassByPart.set(line.componentProductId, parents);
       }
     }
 
@@ -246,10 +276,15 @@ export class FactoryOrderService {
         safetyStock,
         netRequirement: net,
         suggestedQty: net,
+        parentParetoClass: maxParetoClass(parentClassByPart.get(partId) ?? ["C"]),
       });
     }
 
-    recommendations.sort((a, b) => b.suggestedQty - a.suggestedQty);
+    recommendations.sort(
+      (a, b) =>
+        abcRank(a.parentParetoClass) - abcRank(b.parentParetoClass) ||
+        b.suggestedQty - a.suggestedQty,
+    );
     const dueAt = new Date();
     dueAt.setDate(dueAt.getDate() + settings.factoryLeadTimeDays);
 

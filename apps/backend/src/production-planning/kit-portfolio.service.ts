@@ -21,19 +21,28 @@ import { monthsAgoUtc } from "./planning-safety.util";
 import {
   assignParetoClasses,
   assignPile,
+  assignXyzClass,
   computeCoverTarget,
   computeKitBuild,
   computeKitPositionPlan,
   computeWeeklyPackNeed,
   coverTone,
   effectiveStock,
+  fillPeriodSeries,
   groupSharedBottlenecks,
+  isoWeekKeyUtc,
+  recentIsoWeekKeys,
+  recentYearMonthKeys,
   suggestedPackQty,
   suggestedPackTargetQty,
   weeksOfCover,
   type EndingReason,
   type KitPile,
+  type ParetoClass,
   type SharedBottleneckGroup,
+  type XyzClass,
+  type XyzReason,
+  type XyzSource,
 } from "./kit-portfolio.util";
 import { computeStockouts, type StockoutSummary } from "./stockout.util";
 
@@ -44,7 +53,13 @@ export type KitPortfolioKit = {
   revenue: number;
   sharePct: number;
   cumulativePct: number;
+  paretoClass: ParetoClass;
   inPareto80: boolean;
+  xyzClass: XyzClass | null;
+  demandCv: number | null;
+  xyzReason: XyzReason;
+  xyzSource: XyzSource | null;
+  classificationPeriods: number;
   pile: KitPile;
   endingReason: EndingReason | null;
   stockFinished: number;
@@ -78,6 +93,14 @@ export type KitPortfolioKit = {
   }>;
 };
 
+export type AbcXyzCell = {
+  paretoClass: ParetoClass;
+  xyzClass: XyzClass;
+  skuCount: number;
+  revenue: number;
+  endingCount: number;
+};
+
 export type KitPortfolioView = {
   freshness: Awaited<ReturnType<PlanningCalculationService["getSnapshotFreshness"]>>;
   salesFreshness: Awaited<ReturnType<DemandForecastService["evaluateSalesFreshnessWithCoverage"]>>;
@@ -99,7 +122,9 @@ export type KitPortfolioView = {
     blockedAllKits: number;
     ending: number;
     pareto80Count: number;
+    axEnding: number;
   };
+  classMatrix: AbcXyzCell[];
   stockouts: StockoutSummary;
   draftRequests: { packing: number; factory: number };
   kits: KitPortfolioKit[];
@@ -152,7 +177,16 @@ export class KitPortfolioService {
         warnWeeks,
         criticalWeeks,
         week: emptyWeek,
-        summary: { packableToday: 0, blocked: 0, packableAllKits: 0, blockedAllKits: 0, ending: 0, pareto80Count: 0 },
+        summary: {
+          packableToday: 0,
+          blocked: 0,
+          packableAllKits: 0,
+          blockedAllKits: 0,
+          ending: 0,
+          pareto80Count: 0,
+          axEnding: 0,
+        },
+        classMatrix: [],
         stockouts: {
           zeroCount: 0,
           paretoZeroCount: 0,
@@ -232,9 +266,11 @@ export class KitPortfolioService {
     const availableOf = (id: string) => Math.max(0, (stockMap.get(id) ?? 0) - (reservedMap.get(id) ?? 0));
 
     const since = monthsAgoUtc(Math.max(horizon.velocityLookbackMonths, 18));
+    const xyzSince = new Date();
+    xyzSince.setUTCDate(xyzSince.getUTCDate() - 26 * 7);
     const excluded = [...ANALYTICS_EXCLUDED_ORDER_STAGES] as OrderStage[];
 
-    const [historyRows, revenueRows, waitingRows, draftPackingCount, draftFactoryCount] =
+    const [historyRows, revenueRows, waitingRows, shippedRows, draftPackingCount, draftFactoryCount] =
       await Promise.all([
       latestSales
         ? this.prisma.salesHistoryLine.findMany({
@@ -268,6 +304,21 @@ export class KitPortfolioService {
         },
         select: { productId: true, orderId: true, qty: true, qtyShipped: true },
       }),
+      this.prisma.orderItem.findMany({
+        where: {
+          productId: { in: kitIds },
+          qtyShipped: { gt: 0 },
+          order: {
+            createdAt: { gte: xyzSince },
+            orderStage: { notIn: [OrderStage.CANCELED, OrderStage.REFUSED] },
+          },
+        },
+        select: {
+          productId: true,
+          qtyShipped: true,
+          order: { select: { createdAt: true } },
+        },
+      }),
       this.prisma.packingList.count({ where: { status: PackingListStatus.DRAFT } }),
       this.prisma.factoryOrder.count({ where: { status: FactoryOrderStatus.DRAFT } }),
     ]);
@@ -281,6 +332,17 @@ export class KitPortfolioService {
       const byMonth = historyByKit.get(row.productId) ?? new Map<string, number>();
       byMonth.set(ym, (byMonth.get(ym) ?? 0) + row.qty);
       historyByKit.set(row.productId, byMonth);
+    }
+
+    const weekKeys = recentIsoWeekKeys(new Date(), 26);
+    const monthKeys = recentYearMonthKeys(new Date(), 12);
+    const crmWeeksByKit = new Map<string, Map<string, number>>();
+    for (const row of shippedRows) {
+      if (!row.productId) continue;
+      const wk = isoWeekKeyUtc(row.order.createdAt);
+      const byWeek = crmWeeksByKit.get(row.productId) ?? new Map<string, number>();
+      byWeek.set(wk, (byWeek.get(wk) ?? 0) + row.qtyShipped);
+      crmWeeksByKit.set(row.productId, byWeek);
     }
 
     const revenueByKit = new Map<string, number>();
@@ -381,8 +443,20 @@ export class KitPortfolioService {
         alreadyInRequest,
       });
       const monthly = historyByKit.get(row.productId) ?? new Map<string, number>();
+      const crmWeeks = crmWeeksByKit.get(row.productId) ?? new Map<string, number>();
+      const weekSeries = fillPeriodSeries(crmWeeks, weekKeys);
+      let xyz = assignXyzClass(weekSeries, { source: "crm_weeks" });
+      if (xyz.xyzReason === "insufficient_history" && monthly.size > 0) {
+        xyz = assignXyzClass(fillPeriodSeries(monthly, monthKeys), { source: "sales_months" });
+      }
       return {
         ...row,
+        paretoClass: row.paretoClass,
+        xyzClass: xyz.xyzClass,
+        demandCv: xyz.demandCv,
+        xyzReason: xyz.xyzReason,
+        xyzSource: xyz.xyzSource,
+        classificationPeriods: xyz.classificationPeriods,
         pile,
         endingReason,
         stockFinished,
@@ -467,6 +541,22 @@ export class KitPortfolioService {
     const blocked = ending.filter((k) => k.maxBuildNow <= 0).length;
     const packableAllKits = draftKits.filter((k) => k.maxBuildNow > 0).length;
     const blockedAllKits = draftKits.filter((k) => k.maxBuildNow <= 0).length;
+    const axEnding = ending.filter((k) => k.paretoClass === "A" && k.xyzClass === "X").length;
+
+    const classMatrix: AbcXyzCell[] = [];
+    for (const abc of ["A", "B", "C"] as ParetoClass[]) {
+      for (const xyz of ["X", "Y", "Z"] as XyzClass[]) {
+        const cellKits = draftKits.filter((k) => k.paretoClass === abc && k.xyzClass === xyz);
+        if (cellKits.length === 0) continue;
+        classMatrix.push({
+          paretoClass: abc,
+          xyzClass: xyz,
+          skuCount: cellKits.length,
+          revenue: Math.round(cellKits.reduce((s, k) => s + k.revenue, 0) * 100) / 100,
+          endingCount: cellKits.filter((k) => k.pile === "ending").length,
+        });
+      }
+    }
 
     const kitsOut: KitPortfolioKit[] = draftKits.map((row) => ({
       productId: row.productId,
@@ -475,7 +565,13 @@ export class KitPortfolioService {
       revenue: row.revenue,
       sharePct: row.sharePct,
       cumulativePct: row.cumulativePct,
+      paretoClass: row.paretoClass,
       inPareto80: row.inPareto80,
+      xyzClass: row.xyzClass,
+      demandCv: row.demandCv,
+      xyzReason: row.xyzReason,
+      xyzSource: row.xyzSource,
+      classificationPeriods: row.classificationPeriods,
       pile: row.pile,
       endingReason: row.endingReason,
       stockFinished: row.stockFinished,
@@ -523,7 +619,9 @@ export class KitPortfolioService {
         blockedAllKits,
         ending: ending.length,
         pareto80Count: draftKits.filter((k) => k.inPareto80).length,
+        axEnding,
       },
+      classMatrix,
       stockouts,
       draftRequests: {
         packing: draftPackingCount,

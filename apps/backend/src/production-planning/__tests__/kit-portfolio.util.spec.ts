@@ -4,11 +4,15 @@ import { PlanningDemandMix } from "@prisma/client";
 import {
   assignParetoClasses,
   assignPile,
+  assignXyzClass,
   computeCoverTarget,
   computeKitPositionPlan,
   computeWeeklyPackNeed,
   coverTone,
+  fillPeriodSeries,
   groupSharedBottlenecks,
+  recentIsoWeekKeys,
+  recentYearMonthKeys,
   sortEndingKits,
   suggestedPackQty,
   suggestedPackTargetQty,
@@ -255,4 +259,43 @@ test("shared bottleneck groups 4 kits on one part", () => {
 
 test("coverTone critical under 2 weeks", () => {
   assert.equal(coverTone(1, 8, 2), "critical");
+});
+
+test("assignXyzClass marks stable low CV as X", () => {
+  const series = Array(26).fill(10);
+  const r = assignXyzClass(series, { source: "crm_weeks" });
+  assert.equal(r.xyzClass, "X");
+  assert.equal(r.xyzReason, "stable");
+  assert.equal(r.xyzSource, "crm_weeks");
+});
+
+test("assignXyzClass marks high CV as Z", () => {
+  const series = [...Array(13).fill(1), ...Array(13).fill(40)];
+  const r = assignXyzClass(series, { source: "crm_weeks" });
+  assert.equal(r.xyzClass, "Z");
+  assert.ok((r.demandCv ?? 0) > 0.5);
+});
+
+test("assignXyzClass intermittent when mostly zeros", () => {
+  const series = Array(26).fill(0);
+  series[0] = 20;
+  series[10] = 5;
+  const r = assignXyzClass(series, { source: "crm_weeks" });
+  assert.equal(r.xyzClass, "Z");
+  assert.equal(r.xyzReason, "intermittent");
+});
+
+test("assignXyzClass insufficient history", () => {
+  const r = assignXyzClass([1, 2, 3], { source: "crm_weeks" });
+  assert.equal(r.xyzClass, null);
+  assert.equal(r.xyzReason, "insufficient_history");
+});
+
+test("fillPeriodSeries zero-fills missing keys", () => {
+  assert.deepEqual(fillPeriodSeries(new Map([["a", 5]]), ["a", "b", "c"]), [5, 0, 0]);
+});
+
+test("recentIsoWeekKeys returns requested count", () => {
+  assert.equal(recentIsoWeekKeys(new Date("2026-09-02T00:00:00Z"), 26).length, 26);
+  assert.equal(recentYearMonthKeys(new Date("2026-09-02T00:00:00Z"), 12).length, 12);
 });

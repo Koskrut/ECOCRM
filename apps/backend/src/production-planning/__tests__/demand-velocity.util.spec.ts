@@ -4,39 +4,39 @@ import { computeProductVelocity } from "../demand-velocity.util";
 
 test("avgMonthly divides by lookback even when some months are zero", () => {
   const { avgMonthlySold, forecastDemand, velocitySource } = computeProductVelocity({
-    totalSoldInLookback: 60,
-    totalOrderQtyInLookback: 0,
+    totalSoldInLookback: 0,
+    totalOrderQtyInLookback: 60,
     lookbackMonths: 6,
     coverMonths: 3,
   });
   assert.equal(avgMonthlySold, 10);
   assert.equal(forecastDemand, 30);
-  assert.equal(velocitySource, "sales_history");
+  assert.equal(velocitySource, "crm_orders");
 });
 
-test("sales wins over OrderItem fallback", () => {
+test("CRM wins over XLS sales history", () => {
   const { avgMonthlySold, velocitySource } = computeProductVelocity({
     totalSoldInLookback: 48,
     totalOrderQtyInLookback: 120,
     lookbackMonths: 6,
     coverMonths: 3,
   });
-  assert.equal(avgMonthlySold, 8);
-  assert.equal(velocitySource, "sales_history");
+  assert.equal(avgMonthlySold, 20);
+  assert.equal(velocitySource, "crm_orders");
 });
 
-test("OrderItem fallback when no sales history", () => {
+test("XLS fallback when no CRM shipments", () => {
   const { avgMonthlySold, velocitySource } = computeProductVelocity({
-    totalSoldInLookback: 0,
-    totalOrderQtyInLookback: 30,
+    totalSoldInLookback: 30,
+    totalOrderQtyInLookback: 0,
     lookbackMonths: 6,
     coverMonths: 3,
   });
   assert.equal(avgMonthlySold, 5);
-  assert.equal(velocitySource, "crm_orders");
+  assert.equal(velocitySource, "sales_history");
 });
 
-test("override replaces velocity from sales and orders", () => {
+test("override replaces velocity from CRM and XLS", () => {
   const { avgMonthlySold, forecastDemand, velocitySource } = computeProductVelocity({
     totalSoldInLookback: 100,
     totalOrderQtyInLookback: 50,
@@ -58,5 +58,5 @@ test("empty history yields zero velocity", () => {
   });
   assert.equal(avgMonthlySold, 0);
   assert.equal(forecastDemand, 0);
-  assert.equal(velocitySource, "sales_history");
+  assert.equal(velocitySource, "crm_orders");
 });

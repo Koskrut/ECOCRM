@@ -4,7 +4,28 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.169**.)_
+_(планируемые изменения после **0.2.170**.)_
+
+## [0.2.170] — 2026-09-02
+
+### Summary
+
+Патч **0.2.170**: Product Params UI/API; kit portfolio ABC–XYZ matrix; CRM-first demand velocity; packing/factory tweaks.
+
+### Added
+
+- **Planning product params**: `GET/PATCH planning/product-params` + `PlanningProductParamsService`; web `ProductParamsPanel` (safety stock, lead days, forecast override, ABC/XYZ).
+- **Kit portfolio XYZ**: demand CV / X–Y–Z class + `classMatrix` (AX ending etc.) on board API and UI.
+
+### Changed
+
+- **Demand velocity**: CRM-first (`override` → CRM orders → sales history fallback).
+- Kit portfolio / packing / factory-order refinements; MRP help seed; locales en/uk.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.170`**.
+- **Миграций нет.**
 
 ## [0.2.169] — 2026-09-01
 

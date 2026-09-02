@@ -25,6 +25,7 @@ import { PlanningRemindersService } from "./planning-reminders.service";
 import { PlanningRemindersCron } from "./planning-reminders.cron";
 import { WeeklyPlanningJob } from "./weekly-planning.job";
 import { KitPortfolioService } from "./kit-portfolio.service";
+import { PlanningProductParamsService } from "./planning-product-params.service";
 
 @Module({
   imports: [PrismaModule, SystemModule, NotificationsModule, SettingsServiceModule],
@@ -51,6 +52,7 @@ import { KitPortfolioService } from "./kit-portfolio.service";
     PlanningRemindersCron,
     WeeklyPlanningJob,
     KitPortfolioService,
+    PlanningProductParamsService,
   ],
 })
 export class ProductionPlanningModule {}

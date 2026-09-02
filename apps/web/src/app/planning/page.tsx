@@ -34,6 +34,7 @@ import {
 } from "./PlanningOpsPanels";
 import { OverviewPanel } from "./OverviewPanel";
 import { RequestsPanel } from "./RequestsPanel";
+import { ProductParamsPanel } from "./ProductParamsPanel";
 
 type PlanningScreen = "overview" | "requests" | "data";
 type BomEditorLine = {
@@ -1152,6 +1153,9 @@ function PlanningPageInner() {
                 }}
                 onError={(msg) => setError(msg)}
               />
+              <Panel title={t.productParams.title}>
+                <ProductParamsPanel onError={handleOpsError} />
+              </Panel>
               <Panel title={t.labels.demandRules}>
                 <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
                   <StageChecklist

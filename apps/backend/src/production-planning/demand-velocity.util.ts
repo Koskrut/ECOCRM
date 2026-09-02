@@ -1,5 +1,8 @@
 export type VelocitySource = "sales_history" | "crm_orders" | "override";
 
+/**
+ * CRM-first velocity: override → CRM shipped qty → XLS sales history fallback.
+ */
 export function computeProductVelocity(input: {
   totalSoldInLookback: number;
   totalOrderQtyInLookback: number;
@@ -24,15 +27,6 @@ export function computeProductVelocity(input: {
     };
   }
 
-  if (totalSoldInLookback > 0) {
-    const avgMonthlySold = totalSoldInLookback / denom;
-    return {
-      avgMonthlySold,
-      forecastDemand: Math.ceil(avgMonthlySold * coverMonths),
-      velocitySource: "sales_history",
-    };
-  }
-
   if (totalOrderQtyInLookback > 0) {
     const avgMonthlySold = totalOrderQtyInLookback / denom;
     return {
@@ -42,9 +36,18 @@ export function computeProductVelocity(input: {
     };
   }
 
+  if (totalSoldInLookback > 0) {
+    const avgMonthlySold = totalSoldInLookback / denom;
+    return {
+      avgMonthlySold,
+      forecastDemand: Math.ceil(avgMonthlySold * coverMonths),
+      velocitySource: "sales_history",
+    };
+  }
+
   return {
     avgMonthlySold: 0,
     forecastDemand: 0,
-    velocitySource: "sales_history",
+    velocitySource: "crm_orders",
   };
 }

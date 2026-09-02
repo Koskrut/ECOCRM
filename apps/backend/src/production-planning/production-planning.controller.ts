@@ -41,6 +41,7 @@ import { SalesHistoryService } from "./sales-history.service";
 import { PlanningTodayService } from "./planning-today.service";
 import { WeeklyPlanningJob } from "./weekly-planning.job";
 import { KitPortfolioService } from "./kit-portfolio.service";
+import { PlanningProductParamsService } from "./planning-product-params.service";
 import { RequireModule } from "../modules/gating/require-module.decorator";
 import { ModuleIds } from "../modules/module-ids";
 
@@ -65,6 +66,7 @@ export class ProductionPlanningController {
     private readonly today: PlanningTodayService,
     private readonly weeklyJob: WeeklyPlanningJob,
     private readonly kitPortfolio: KitPortfolioService,
+    private readonly productParams: PlanningProductParamsService,
   ) {}
 
   @Get("today")
@@ -161,6 +163,32 @@ export class ProductionPlanningController {
   @Get("kit-portfolio")
   getKitPortfolio() {
     return this.kitPortfolio.getBoard();
+  }
+
+  @Get("product-params")
+  listProductParams(
+    @Query("kind") kind?: string,
+    @Query("q") q?: string,
+  ) {
+    const kindFilter =
+      kind === "KIT" || kind === "PART" ? (kind as "KIT" | "PART") : undefined;
+    return this.productParams.list({ kind: kindFilter as never, q });
+  }
+
+  @Patch("product-params/:productId")
+  @Roles(UserRole.ADMIN, UserRole.LEAD)
+  patchProductParams(
+    @Param("productId") productId: string,
+    @Body()
+    body: {
+      safetyStock?: number;
+      productionLeadDays?: number;
+      packLeadDays?: number | null;
+      isPlanned?: boolean;
+      monthlyForecastOverride?: number | null;
+    },
+  ) {
+    return this.productParams.patch(productId, body ?? {});
   }
 
   @Get("projection")

@@ -22,7 +22,8 @@ import { filterPackableProposedLines } from "./planning-packable-lines.util";
 import { assertFreshSnapshot, evaluateSnapshotFreshness } from "./snapshot-freshness.util";
 import { MrpConfigService } from "./mrp-config.service";
 import { DemandForecastService } from "./demand-forecast.service";
-import { computeCoverTarget, computeKitPositionPlan } from "./kit-portfolio.util";
+import { computeCoverTarget, computeKitPositionPlan, abcRank, assignParetoClasses } from "./kit-portfolio.util";
+import type { ParetoClass } from "./kit-portfolio.util";
 
 type BomPartLine = {
   componentProductId: string;
@@ -259,7 +260,35 @@ export class PackingListService {
       stockKits: number;
       targetPack: number;
       priority: number;
+      paretoClass: ParetoClass;
     };
+
+    const revenueByKit = new Map<string, number>();
+    const revenueRows = await this.prisma.orderItem.findMany({
+      where: {
+        productId: { in: kits.map((k) => k.id) },
+        order: {
+          orderStage: { notIn: ["CANCELED", "REFUSED"] },
+        },
+      },
+      select: { productId: true, qty: true, price: true },
+      take: 50_000,
+    });
+    for (const row of revenueRows) {
+      if (!row.productId) continue;
+      revenueByKit.set(
+        row.productId,
+        (revenueByKit.get(row.productId) ?? 0) + row.price * row.qty,
+      );
+    }
+    const paretoById = new Map(
+      assignParetoClasses(
+        kits.map((k) => ({
+          productId: k.id,
+          revenue: revenueByKit.get(k.id) ?? 0,
+        })),
+      ).map((r) => [r.productId, r.paretoClass]),
+    );
 
     const candidates: Candidate[] = [];
     for (const kit of kits) {
@@ -279,10 +308,16 @@ export class PackingListService {
         stockKits,
         targetPack,
         priority: hardNeed > stockKits ? 0 : 1,
+        paretoClass: paretoById.get(kit.id) ?? "C",
       });
     }
 
-    candidates.sort((a, b) => a.priority - b.priority || b.targetPack - a.targetPack);
+    candidates.sort(
+      (a, b) =>
+        a.priority - b.priority ||
+        abcRank(a.paretoClass) - abcRank(b.paretoClass) ||
+        b.targetPack - a.targetPack,
+    );
 
     const capacityLimit = settings.packCapacityPerCycle;
     let remainingCap = capacityLimit;
@@ -296,24 +331,12 @@ export class PackingListService {
     }
 
     const soft = candidates.filter((x) => x.priority === 1 && x.targetPack > 0);
-    const softTotal = soft.reduce((s, x) => s + x.targetPack, 0);
-    if (remainingCap > 0 && softTotal > 0) {
-      for (const c of soft) {
-        const share = Math.floor((c.targetPack / softTotal) * remainingCap);
-        if (share <= 0) continue;
-        allocated.set(c.kitProductId, Math.min(c.targetPack, (allocated.get(c.kitProductId) ?? 0) + share));
-      }
-      const used = [...allocated.values()].reduce((a, b) => a + b, 0);
-      let residual = capacityLimit - used;
-      for (const c of soft) {
-        if (residual <= 0) break;
-        const cur = allocated.get(c.kitProductId) ?? 0;
-        const room = c.targetPack - cur;
-        if (room <= 0) continue;
-        const add = Math.min(room, residual);
-        allocated.set(c.kitProductId, cur + add);
-        residual -= add;
-      }
+    for (const c of soft) {
+      if (remainingCap <= 0) break;
+      const take = Math.min(c.targetPack, remainingCap);
+      if (take <= 0) continue;
+      allocated.set(c.kitProductId, (allocated.get(c.kitProductId) ?? 0) + take);
+      remainingCap -= take;
     }
 
     const partStock = new Map<string, number>();
