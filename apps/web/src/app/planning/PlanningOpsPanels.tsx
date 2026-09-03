@@ -2396,6 +2396,8 @@ export function PlanningSettingsPanel({
           [
             ["packCycleDays", t.labels.packCycleDays],
             ["packCapacityPerCycle", t.labels.packCapacity],
+            ["minPackLot", t.labels.minPackLot],
+            ["minProduceLot", t.labels.minProduceLot],
             ["factoryLeadTimeDays", t.labels.factoryLeadTime],
             ["safetyStockWeeks", t.labels.safetyStockWeeks],
             ["snapshotMaxAgeDays", t.labels.snapshotMaxAge],

@@ -2,6 +2,7 @@ import { Injectable } from "@nestjs/common";
 import {
   InventorySnapshotStatus,
   OrderStage,
+  PackingListStatus,
   ProductKind,
   ReservationHardness,
   ReservationStatus,
@@ -19,9 +20,11 @@ import { monthsAgoUtc } from "./planning-safety.util";
 import {
   assignParetoClasses,
   assignXyzClass,
+  applyMinProduceLot,
   computeCoverTarget,
   computeKitBuild,
   computeKitPositionPlan,
+  computeIdealProducePlan,
   computeWeeklyPackNeed,
   coverTone,
   effectiveStock,
@@ -70,8 +73,21 @@ export type KitBomListItem = {
   coverTarget: number;
   targetStock: number;
   maxBuildNow: number;
+  /** Toward ideal (coverTarget). */
   canPackNow: number;
+  /** Toward ideal after parts; raw gap. */
   toWork: number;
+  /** toWork rounded up to minProduceLot when > 0. */
+  toWorkLot: number;
+  /** Toward weekly pack cycle need. */
+  canPackCycle: number;
+  toWorkCycle: number;
+  alreadyInRequest: number;
+  bottleneckComponentId: string | null;
+  bottleneckQtyPerKit: number;
+  suggestedFactoryQty: number;
+  minPackLot: number;
+  minProduceLot: number;
   weeksOfCover: number | null;
   coverTone: CoverTone;
   avgMonthlySold: number;
@@ -187,6 +203,7 @@ export class KitBomListService {
       revenueRows,
       waitingRows,
       shippedRows,
+      packing,
     ] = await Promise.all([
       postedSnapshot
         ? this.prisma.inventorySnapshotLine.groupBy({
@@ -246,7 +263,17 @@ export class KitBomListService {
           order: { select: { createdAt: true } },
         },
       }),
+      this.prisma.packingList.findFirst({
+        where: { status: { in: [PackingListStatus.DRAFT, PackingListStatus.APPROVED] } },
+        orderBy: { cycleStart: "desc" },
+        include: { lines: { select: { kitProductId: true, qtyApproved: true } } },
+      }),
     ]);
+
+    const packingIsDraft = packing?.status === PackingListStatus.DRAFT;
+    const alreadyByKit = new Map(
+      (packing?.lines ?? []).map((l) => [l.kitProductId, l.qtyApproved]),
+    );
 
     const stockMap = new Map(
       stockRows.filter((r) => r.productId).map((r) => [r.productId!, r._sum.qty ?? 0]),
@@ -336,12 +363,20 @@ export class KitBomListService {
         demandMix: planningSettings.demandMix,
       });
       const coverTarget = computeCoverTarget({ avgMonthlySold, warnWeeks });
+      const alreadyInRequest = packingIsDraft ? (alreadyByKit.get(kit.id) ?? 0) : 0;
       const positionPlan = computeKitPositionPlan({
         stockFinished,
         maxBuildNow: build.maxBuildNow,
         weeklyPackNeed,
         coverTarget,
+        alreadyInRequest,
       });
+      const idealPlan = computeIdealProducePlan({
+        stockFinished,
+        maxBuildNow: build.maxBuildNow,
+        coverTarget,
+      });
+      const toWorkLot = applyMinProduceLot(idealPlan.toWork, planningSettings.minProduceLot);
       const weeks = weeksOfCover(effectiveStock(stockFinished, build.maxBuildNow), avgMonthlySold);
       const crmWeeks = crmWeeksByKit.get(kit.id) ?? new Map<string, number>();
       let xyz = assignXyzClass(fillPeriodSeries(crmWeeks, weekKeys), { source: "crm_weeks" });
@@ -377,8 +412,25 @@ export class KitBomListService {
         coverTarget: positionPlan.coverTarget,
         targetStock: positionPlan.targetStock,
         maxBuildNow: build.maxBuildNow,
-        canPackNow: positionPlan.canPackNow,
-        toWork: positionPlan.toWork,
+        canPackNow: idealPlan.canPackNow,
+        toWork: idealPlan.toWork,
+        toWorkLot,
+        canPackCycle: positionPlan.canPackNow,
+        toWorkCycle: positionPlan.toWork,
+        alreadyInRequest,
+        bottleneckComponentId: build.bottleneckComponentId,
+        bottleneckQtyPerKit: build.bottleneckQtyPerKit,
+        suggestedFactoryQty:
+          (toWorkLot > 0 || positionPlan.toWork > 0) && build.bottleneckComponentId
+            ? Math.max(
+                1,
+                Math.ceil(
+                  Math.max(toWorkLot, positionPlan.toWork) * Math.max(0, build.bottleneckQtyPerKit),
+                ) - Math.floor(availableOf(build.bottleneckComponentId)),
+              )
+            : 0,
+        minPackLot: planningSettings.minPackLot,
+        minProduceLot: planningSettings.minProduceLot,
         weeksOfCover: weeks,
         coverTone: coverTone(weeks, warnWeeks, criticalWeeks),
         avgMonthlySold,

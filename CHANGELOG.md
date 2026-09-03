@@ -4,7 +4,27 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.172**.)_
+_(планируемые изменения после **0.2.173**.)_
+
+## [0.2.173] — 2026-09-03
+
+### Summary
+
+Патч **0.2.173**: fuel payout v2.2 (повний OSRM plan); planning min pack/produce lots; Kit BOMs ideal-vs-cycle UX.
+
+### Changed
+
+- **Fuel payout v2.2**: valid OSRM plan → full `plannedKm` (`planned_osrm_full`); contradiction / extras / partial / 0 DONE — warnings only. Policy `plan_primary_gps_display_v2.2`.
+- **Planning settings**: `minPackLot` (30) / `minProduceLot` (200); packing + kit list apply lots; `computeIdealProducePlan` / `applyMinProduceLot`.
+- **Kit BOMs / portfolio UI**: ideal vs cycle columns, deficit filter, add-to-pack; locales en/uk. Fuel UI drop stop-share copy.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.173`**.
+- **Миграций нет.**
+- DRAFT/REJECTED підхоплять v2.2 через `getOrCreateDay`. За потреби:
+  `npx ts-node scripts/bulk-recalculate-fuel-range.ts --from=2026-08-01 --to=2026-09-30 --drafts-only --apply`
+- **SUBMITTED / APPROVED / PAID не чіпати.**
 
 ## [0.2.172] — 2026-09-03
 

@@ -10,7 +10,7 @@ import {
 
 const plan8 = ["p1", "p2", "p3", "p4", "p5", "p6", "p7", "p8"];
 
-describe("confirmedPlanVisitIds / extraDoneVisitIds", () => {
+describe("confirmedPlanVisitIds / extraDoneVisitIds (informational)", () => {
   it("preserves plan order for confirmed subset", () => {
     assert.deepEqual(confirmedPlanVisitIds(plan8, ["p3", "p1", "x"]), ["p1", "p3"]);
   });
@@ -20,8 +20,8 @@ describe("confirmedPlanVisitIds / extraDoneVisitIds", () => {
   });
 });
 
-describe("selectCompensationPayout stop-share", () => {
-  it("WALK_TRANSIT → none even with a valid plan", () => {
+describe("selectCompensationPayout v2.2 full plan", () => {
+  it("WALK_TRANSIT → none", () => {
     const r = selectCompensationPayout({
       mobilityMode: "WALK_TRANSIT",
       plannedKm: 119,
@@ -33,10 +33,58 @@ describe("selectCompensationPayout stop-share", () => {
     });
     assert.equal(r.kind, "none");
     assert.equal(r.compensationKm, null);
+    assert.equal(r.payoutReason, "none_non_vehicle_day");
     assert.equal(r.ineligibleReason, "non_vehicle_day");
   });
 
-  it("0 DONE + plan → none", () => {
+  it("contradiction + valid plan → pay plannedKm, not none", () => {
+    const r = selectCompensationPayout({
+      mobilityMode: "CAR",
+      plannedKm: 34.8,
+      plannedDegraded: false,
+      plannedSource: "osrm",
+      visitRouteKm: 31,
+      planVisitIds: ["a", "b", "c"],
+      doneVisitIds: ["a", "b", "c"],
+      visitTrackContradiction: true,
+    });
+    assert.equal(r.kind, "planned");
+    assert.equal(r.compensationKm, 34.8);
+    assert.equal(r.payoutReason, "planned_osrm_full");
+  });
+
+  it("extras + visitRouteKm=1047 + plan 20.2 → pay 20.2, not 1047", () => {
+    const r = selectCompensationPayout({
+      mobilityMode: "CAR",
+      plannedKm: 20.2,
+      plannedDegraded: false,
+      plannedSource: "osrm",
+      visitRouteKm: 1047,
+      planVisitIds: ["p1", "p2"],
+      doneVisitIds: ["p1", "adhoc"],
+    });
+    assert.equal(r.kind, "planned");
+    assert.equal(r.compensationKm, 20.2);
+    assert.equal(r.payoutReason, "planned_osrm_full");
+  });
+
+  it("1 DONE from N stops → pay full plannedKm, not partialPlanKm", () => {
+    const r = selectCompensationPayout({
+      mobilityMode: "CAR",
+      plannedKm: 119,
+      plannedDegraded: false,
+      plannedSource: "osrm",
+      visitRouteKm: 40,
+      planVisitIds: plan8,
+      doneVisitIds: ["p1"],
+      partialPlanKm: 25,
+    });
+    assert.equal(r.kind, "planned");
+    assert.equal(r.compensationKm, 119);
+    assert.equal(r.payoutReason, "planned_osrm_full");
+  });
+
+  it("0 DONE + valid plan → pay plannedKm", () => {
     const r = selectCompensationPayout({
       mobilityMode: "CAR",
       plannedKm: 80,
@@ -46,79 +94,12 @@ describe("selectCompensationPayout stop-share", () => {
       planVisitIds: plan8,
       doneVisitIds: [],
     });
-    assert.equal(r.kind, "none");
-    assert.equal(r.compensationKm, null);
-    assert.equal(r.ineligibleReason, "plan_without_completed_visits");
-    assert.ok(r.warnings.includes("plan_without_completed_visits"));
-  });
-
-  it("8/8 plan DONE, no extras → full planned km", () => {
-    const r = selectCompensationPayout({
-      mobilityMode: "CAR",
-      plannedKm: 119,
-      plannedDegraded: false,
-      plannedSource: "osrm",
-      visitRouteKm: 100,
-      planVisitIds: plan8,
-      doneVisitIds: [...plan8],
-      partialPlanKm: 40,
-    });
     assert.equal(r.kind, "planned");
-    assert.equal(r.compensationKm, 119);
-    assert.equal(r.payoutReason, "planned_osrm_complete");
-    assert.equal(r.confirmedStopCount, 8);
-    assert.equal(r.planStopCount, 8);
+    assert.equal(r.compensationKm, 80);
+    assert.equal(r.payoutReason, "planned_osrm_full");
   });
 
-  it("Gribovsky 26.08 single plan stop DONE → full round-trip plan", () => {
-    const r = selectCompensationPayout({
-      mobilityMode: "CAR",
-      plannedKm: 119,
-      plannedDegraded: false,
-      plannedSource: "osrm",
-      visitRouteKm: 119,
-      planVisitIds: ["v1"],
-      doneVisitIds: ["v1"],
-    });
-    assert.equal(r.kind, "planned");
-    assert.equal(r.compensationKm, 119);
-    assert.equal(r.payoutReason, "planned_osrm_complete");
-  });
-
-  it("3/8 confirmed, no extras, partial OSRM 40 → planned 40 (not 119, not 3/8*119)", () => {
-    const r = selectCompensationPayout({
-      mobilityMode: "CAR",
-      plannedKm: 119,
-      plannedDegraded: false,
-      plannedSource: "osrm",
-      visitRouteKm: 50,
-      planVisitIds: plan8,
-      doneVisitIds: ["p1", "p2", "p3"],
-      partialPlanKm: 40,
-    });
-    assert.equal(r.kind, "planned");
-    assert.equal(r.compensationKm, 40);
-    assert.equal(r.payoutReason, "planned_osrm_partial=3/8");
-    assert.equal(r.confirmedStopCount, 3);
-  });
-
-  it("extras (adhoc) → fact_visits even if plan exists", () => {
-    const r = selectCompensationPayout({
-      mobilityMode: "CAR",
-      plannedKm: 119,
-      plannedDegraded: false,
-      plannedSource: "osrm",
-      visitRouteKm: 26.5,
-      planVisitIds: plan8,
-      doneVisitIds: ["p1", "adhoc"],
-      partialPlanKm: 20,
-    });
-    assert.equal(r.kind, "fact_visits");
-    assert.equal(r.compensationKm, 26.5);
-    assert.equal(r.payoutReason, "fact_visits_extras");
-  });
-
-  it("no plan → fact_visits 26.5", () => {
+  it("no plan + visit route → fact_visits", () => {
     const r = selectCompensationPayout({
       mobilityMode: "CAR",
       plannedKm: null,
@@ -133,25 +114,44 @@ describe("selectCompensationPayout stop-share", () => {
     assert.equal(r.payoutReason, "fact_visits_no_plan");
   });
 
-  it("contradiction → none (manual review)", () => {
-    const r = selectCompensationPayout({
-      mobilityMode: "CAR",
-      plannedKm: 119,
-      plannedDegraded: false,
-      plannedSource: "osrm",
-      visitRouteKm: 119,
-      planVisitIds: ["v1"],
-      doneVisitIds: ["v1"],
-      visitTrackContradiction: true,
-    });
-    assert.equal(r.kind, "none");
-    assert.equal(r.compensationKm, null);
-    assert.equal(r.ineligibleReason, "visit_track_contradiction");
-    assert.ok(r.warnings.includes("visit_closed_off_address_unconfirmed"));
+  it("GPS kind is never selected", () => {
+    const cases = [
+      selectCompensationPayout({
+        mobilityMode: "CAR",
+        plannedKm: 50,
+        plannedDegraded: false,
+        plannedSource: "osrm",
+        visitRouteKm: 10,
+        planVisitIds: ["a"],
+        doneVisitIds: ["a"],
+      }),
+      selectCompensationPayout({
+        mobilityMode: "CAR",
+        plannedKm: null,
+        plannedDegraded: false,
+        plannedSource: "none",
+        visitRouteKm: 10,
+        planVisitIds: [],
+        doneVisitIds: ["a"],
+      }),
+      selectCompensationPayout({
+        mobilityMode: "CAR",
+        plannedKm: null,
+        plannedDegraded: false,
+        plannedSource: "none",
+        visitRouteKm: null,
+        planVisitIds: [],
+        doneVisitIds: [],
+      }),
+    ];
+    for (const r of cases) {
+      assert.notEqual((r.kind as string), "fact_gps");
+      assert.ok(r.kind === "planned" || r.kind === "fact_visits" || r.kind === "none");
+    }
   });
 
-  it("haversine/fallback plan is not paid — visits instead", () => {
-    const r = selectCompensationPayout({
+  it("fallback / degraded plan falls back to fact_visits", () => {
+    const fallback = selectCompensationPayout({
       mobilityMode: "CAR",
       plannedKm: 119,
       plannedDegraded: false,
@@ -160,77 +160,25 @@ describe("selectCompensationPayout stop-share", () => {
       planVisitIds: ["v1"],
       doneVisitIds: ["v1"],
     });
-    assert.equal(r.kind, "fact_visits");
-    assert.equal(r.compensationKm, 26.5);
-  });
+    assert.equal(fallback.kind, "fact_visits");
+    assert.equal(fallback.compensationKm, 26.5);
 
-  it("degraded plan (insane km) falls back to fact_visits", () => {
-    const r = selectCompensationPayout({
+    const degraded = selectCompensationPayout({
       mobilityMode: "CAR",
       plannedKm: 5289,
       plannedDegraded: true,
       plannedSource: "osrm",
       visitRouteKm: 20,
-      planVisitIds: ["v1", "v2"],
-      doneVisitIds: ["v1", "v2"],
+      planVisitIds: ["v1"],
+      doneVisitIds: ["v1"],
     });
-    assert.equal(r.kind, "fact_visits");
-    assert.equal(r.compensationKm, 20);
-  });
-
-  it("Gumenyuk full day: all plan DONE → full plan km", () => {
-    for (const plannedKm of [34.8, 47.3, 43.4, 34.3]) {
-      const ids = ["a", "b", "c"];
-      const r = selectCompensationPayout({
-        mobilityMode: "CAR",
-        plannedKm,
-        plannedDegraded: false,
-        plannedSource: "osrm",
-        visitRouteKm: 31,
-        planVisitIds: ids,
-        doneVisitIds: ids,
-      });
-      assert.equal(r.kind, "planned");
-      assert.equal(r.compensationKm, plannedKm);
-      assert.equal(r.payoutReason, "planned_osrm_complete");
-    }
-  });
-
-  it("partial without usable subset OSRM → fact_visits", () => {
-    const r = selectCompensationPayout({
-      mobilityMode: "CAR",
-      plannedKm: 119,
-      plannedDegraded: false,
-      plannedSource: "osrm",
-      visitRouteKm: 50,
-      planVisitIds: plan8,
-      doneVisitIds: ["p1", "p2"],
-      partialPlanKm: null,
-    });
-    assert.equal(r.kind, "fact_visits");
-    assert.equal(r.compensationKm, 50);
-    assert.equal(r.payoutReason, "fact_visits_partial_osrm_failed");
-  });
-
-  it("requiresDoneVisit=false with empty DONE still allows complete plan path only via plan ids", () => {
-    // With zero DONE, confirmed is empty — even with requiresDoneVisit false we need DONE for plan∩DONE.
-    // Flag only skips the early "0 DONE → none" gate; without confirmed stops we fall to visits/none.
-    const r = selectCompensationPayout({
-      mobilityMode: "CAR",
-      plannedKm: 80,
-      plannedDegraded: false,
-      plannedSource: "osrm",
-      visitRouteKm: null,
-      planVisitIds: plan8,
-      doneVisitIds: [],
-      requiresDoneVisit: false,
-    });
-    assert.equal(r.kind, "none");
+    assert.equal(degraded.kind, "fact_visits");
+    assert.equal(degraded.compensationKm, 20);
   });
 });
 
 describe("collectFuelGpsWarnings", () => {
-  it("loop collapse is informational, does not imply payout kind", () => {
+  it("contradiction and loop collapse are warnings only", () => {
     const w = collectFuelGpsWarnings({
       hasTrackingEnabledShift: true,
       filteredSampleCount: 800,
@@ -239,7 +187,9 @@ describe("collectFuelGpsWarnings", () => {
       snappedTrackDistanceKm: 68.9,
       visitRouteDistanceKm: 119,
       snapFailureReason: "gps_snap_loop_collapse",
+      visitTrackContradiction: true,
     });
     assert.ok(w.includes("gps_snap_loop_collapse"));
+    assert.ok(w.includes("visit_closed_off_address_unconfirmed"));
   });
 });

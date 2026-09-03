@@ -307,21 +307,6 @@ export default function FuelDayScreen() {
                 </Text>
                 <Text style={[theme.typography.caption, { color: theme.colors.primaryText, marginTop: 2 }]}>
                   {(() => {
-                    const snap = r.calculationSnapshot;
-                    const confirmed = snap?.payoutConfirmedStopCount;
-                    const planStops = snap?.payoutPlanStopCount;
-                    if (
-                      data?.compensationFactKind === "planned" &&
-                      confirmed != null &&
-                      planStops != null &&
-                      planStops > 0 &&
-                      confirmed < planStops
-                    ) {
-                      return t("fuel.payoutSourcePlanPartial", {
-                        confirmed,
-                        plan: planStops,
-                      });
-                    }
                     if (data?.compensationFactKind === "planned") return t("fuel.payoutSourcePlan");
                     if (data?.compensationFactKind === "fact_gps") return t("fuel.payoutSourceGps");
                     if (data?.compensationFactKind === "none") return t("fuel.payoutSourceReview");

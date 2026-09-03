@@ -13,6 +13,10 @@ export type PlanningSettings = {
   snapshotMaxAgeDays: number;
   salesMinCoverageMonths: number;
   demandMix: PlanningDemandMix;
+  /** Min kits per packing request line / pack action. */
+  minPackLot: number;
+  /** Min kits to send to production when toWork > 0 (round up). */
+  minProduceLot: number;
 };
 
 export const DEFAULT_PLANNING_SETTINGS: PlanningSettings = {
@@ -23,6 +27,8 @@ export const DEFAULT_PLANNING_SETTINGS: PlanningSettings = {
   snapshotMaxAgeDays: 7,
   salesMinCoverageMonths: 6,
   demandMix: PlanningDemandMix.HARD_PLUS_FORECAST_BEYOND_COVERED,
+  minPackLot: 30,
+  minProduceLot: 200,
 };
 
 function clampInt(value: unknown, fallback: number, min: number, max: number): number {
@@ -84,6 +90,8 @@ export class PlanningSettingsService {
         18,
       ),
       demandMix,
+      minPackLot: clampInt(value.minPackLot, DEFAULT_PLANNING_SETTINGS.minPackLot, 1, 10_000),
+      minProduceLot: clampInt(value.minProduceLot, DEFAULT_PLANNING_SETTINGS.minProduceLot, 1, 50_000),
     };
   }
 
@@ -132,6 +140,13 @@ export class PlanningSettingsService {
           : next.demandMix === PlanningDemandMix.HARD_PLUS_FORECAST_BEYOND_COVERED
             ? PlanningDemandMix.HARD_PLUS_FORECAST_BEYOND_COVERED
             : current.demandMix,
+      minPackLot: clampInt(next.minPackLot ?? current.minPackLot, current.minPackLot, 1, 10_000),
+      minProduceLot: clampInt(
+        next.minProduceLot ?? current.minProduceLot,
+        current.minProduceLot,
+        1,
+        50_000,
+      ),
     };
     await this.prisma.systemSetting.upsert({
       where: { id: SETTING_KEY },

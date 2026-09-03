@@ -46,6 +46,8 @@ export type PlanningSettings = {
   safetyStockWeeks: number;
   snapshotMaxAgeDays: number;
   demandMix: "HARD_PLUS_FORECAST_BEYOND_COVERED" | "MAX_FORECAST_HARD";
+  minPackLot: number;
+  minProduceLot: number;
 };
 
 export type PlanningCapacityConfig = {
@@ -304,6 +306,15 @@ export type KitBomListItem = {
   maxBuildNow: number;
   canPackNow: number;
   toWork: number;
+  toWorkLot: number;
+  canPackCycle: number;
+  toWorkCycle: number;
+  alreadyInRequest: number;
+  bottleneckComponentId: string | null;
+  bottleneckQtyPerKit: number;
+  suggestedFactoryQty: number;
+  minPackLot: number;
+  minProduceLot: number;
   weeksOfCover: number | null;
   coverTone: "critical" | "warn" | "ok";
   avgMonthlySold: number;
@@ -618,6 +629,8 @@ export type KitPortfolioView = {
     used: number;
     limit: number;
     factoryDraftId: string | null;
+    minPackLot: number;
+    minProduceLot: number;
   };
   summary: {
     packableToday: number;

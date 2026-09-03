@@ -6,6 +6,8 @@ import {
   assignPile,
   assignXyzClass,
   computeCoverTarget,
+  computeIdealProducePlan,
+  applyMinProduceLot,
   computeKitPositionPlan,
   computeWeeklyPackNeed,
   coverTone,
@@ -187,6 +189,44 @@ test("computeKitPositionPlan alreadyInRequest reduces packGap", () => {
   assert.equal(plan.packGap, 4);
   assert.equal(plan.canPackNow, 4);
   assert.equal(plan.toWork, 0);
+});
+
+test("computeIdealProducePlan fills gap to coverTarget using parts first", () => {
+  // Ideal 74, stock 0, can build 107 → pack all 74 from parts, produce 0
+  const fullParts = computeIdealProducePlan({
+    stockFinished: 0,
+    maxBuildNow: 107,
+    coverTarget: 74,
+  });
+  assert.equal(fullParts.gapToIdeal, 74);
+  assert.equal(fullParts.canPackNow, 74);
+  assert.equal(fullParts.toWork, 0);
+
+  // Ideal 915, stock 275, can build 100 → pack 100, produce 540
+  const shortParts = computeIdealProducePlan({
+    stockFinished: 275,
+    maxBuildNow: 100,
+    coverTarget: 915,
+  });
+  assert.equal(shortParts.gapToIdeal, 640);
+  assert.equal(shortParts.canPackNow, 100);
+  assert.equal(shortParts.toWork, 540);
+
+  // Already at/above ideal
+  const ok = computeIdealProducePlan({
+    stockFinished: 57,
+    maxBuildNow: 265,
+    coverTarget: 59,
+  });
+  assert.equal(ok.gapToIdeal, 2);
+  assert.equal(ok.canPackNow, 2);
+  assert.equal(ok.toWork, 0);
+});
+
+test("applyMinProduceLot rounds up when any production is needed", () => {
+  assert.equal(applyMinProduceLot(0, 200), 0);
+  assert.equal(applyMinProduceLot(50, 200), 200);
+  assert.equal(applyMinProduceLot(250, 200), 250);
 });
 
 test("computeCoverTarget for MRP tooltip", () => {

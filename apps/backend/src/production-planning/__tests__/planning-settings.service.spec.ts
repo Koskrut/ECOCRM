@@ -15,6 +15,8 @@ test("PlanningSettingsService returns defaults when unset", async () => {
   assert.equal(s.packCapacityPerCycle, 2000);
   assert.equal(s.factoryLeadTimeDays, 90);
   assert.equal(s.packCycleDays, 7);
+  assert.equal(s.minPackLot, 30);
+  assert.equal(s.minProduceLot, 200);
   assert.equal(s.demandMix, PlanningDemandMix.HARD_PLUS_FORECAST_BEYOND_COVERED);
 });
 

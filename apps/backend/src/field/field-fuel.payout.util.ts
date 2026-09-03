@@ -6,14 +6,17 @@ import {
 
 /** Snapshot marker so getOrCreateDay migrates DRAFT/REJECTED off GPS payout. */
 export const FUEL_PAYOUT_POLICY = "plan_primary_gps_display";
-/** Confirmed-plan / stop-share: pay subset OSRM for DONE plan stops, not full plan for 1 DONE. */
-export const FUEL_PAYOUT_POLICY_VERSION = "plan_primary_gps_display_v2.1";
+/**
+ * Full OSRM plan when valid; GPS/contradiction/extras/DONE count do not change money.
+ * Bump so DRAFT/REJECTED remigrate via getOrCreateDay.
+ */
+export const FUEL_PAYOUT_POLICY_VERSION = "plan_primary_gps_display_v2.2";
 
 /**
- * Plan payout requires at least one DONE visit.
- * Override with FUEL_PLAN_PAYOUT_REQUIRES_DONE_VISIT=0|false|off.
+ * @deprecated Money path no longer uses DONE-guard. Kept for callers/tests that still
+ * pass `requiresDoneVisit`; selector ignores it.
  */
-export const FUEL_PLAN_PAYOUT_REQUIRES_DONE_VISIT = true;
+export const FUEL_PLAN_PAYOUT_REQUIRES_DONE_VISIT = false;
 
 export type FuelPayoutKind = "planned" | "fact_visits" | "none";
 
@@ -23,9 +26,9 @@ export type CompensationPayoutResult = {
   payoutReason: string;
   warnings: string[];
   ineligibleReason: string | null;
-  /** Confirmed plan stops (DONE ∩ plan, plan order). */
+  /** Confirmed plan stops (DONE ∩ plan, plan order) — informational only. */
   confirmedStopCount: number;
-  /** Total stops on the route plan. */
+  /** Total stops on the route plan — informational only. */
   planStopCount: number;
 };
 
@@ -37,14 +40,13 @@ export type CompensationPayoutInput = {
   visitRouteKm: number | null;
   /** RoutePlan stop visit ids in position order. */
   planVisitIds: string[];
-  /** DONE visit ids for the day (any order). */
+  /** DONE visit ids for the day (any order). Snapshot counts only. */
   doneVisitIds: string[];
-  /**
-   * OSRM km for home → confirmed plan stops (plan order) → home.
-   * Required for partial days; ignored when all plan stops are DONE (use plannedKm).
-   */
+  /** Ignored for money (v2.2 pays full plan). Kept for API compatibility. */
   partialPlanKm?: number | null;
+  /** Ignored for money — warning via collectFuelGpsWarnings only. */
   visitTrackContradiction?: boolean;
+  /** Ignored for money (v2.2). */
   requiresDoneVisit?: boolean;
 };
 
@@ -52,11 +54,9 @@ function kmUsable(km: number | null | undefined): km is number {
   return km != null && Number.isFinite(km) && km >= MIN_TRACK_COMPENSATION_KM;
 }
 
+/** @deprecated Selector no longer reads DONE-guard for money. */
 export function planPayoutRequiresDoneVisit(): boolean {
-  const raw = process.env.FUEL_PLAN_PAYOUT_REQUIRES_DONE_VISIT?.trim().toLowerCase();
-  if (raw === "0" || raw === "false" || raw === "off") return false;
-  if (raw === "1" || raw === "true" || raw === "on") return true;
-  return FUEL_PLAN_PAYOUT_REQUIRES_DONE_VISIT;
+  return false;
 }
 
 /** Plan stops that were DONE, preserving plan order. */
@@ -82,18 +82,17 @@ function emptyCounts(planVisitIds: string[], confirmed: number): Pick<
 }
 
 /**
- * Money policy (stop-share):
- * - Valid OSRM plan + all stops DONE + no extras → full plannedKm
- * - Valid OSRM plan + some stops DONE + no extras → partialPlanKm (subset OSRM)
- * - Extras / no plan / degraded plan → fact_visits
- * - 0 DONE or contradiction → none
- * Never fact_gps.
+ * Money policy v2.2 (prod override):
+ * - WALK_TRANSIT → none
+ * - Valid OSRM plan → full plannedKm (planned_osrm_full)
+ * - Else visitRouteKm → fact_visits
+ * - Else none
+ * Never fact_gps. Contradiction / extras / partial / 0 DONE do not change money.
  */
 export function selectCompensationPayout(input: CompensationPayoutInput): CompensationPayoutResult {
   const planVisitIds = input.planVisitIds ?? [];
   const doneVisitIds = input.doneVisitIds ?? [];
   const confirmedIds = confirmedPlanVisitIds(planVisitIds, doneVisitIds);
-  const extras = extraDoneVisitIds(planVisitIds, doneVisitIds);
   const counts = emptyCounts(planVisitIds, confirmedIds.length);
 
   if (input.mobilityMode === "WALK_TRANSIT") {
@@ -107,105 +106,31 @@ export function selectCompensationPayout(input: CompensationPayoutInput): Compen
     };
   }
 
-  const requireDone = input.requiresDoneVisit ?? planPayoutRequiresDoneVisit();
-  if (requireDone && doneVisitIds.length === 0) {
-    const hadPlan =
-      kmUsable(input.plannedKm) ||
-      input.plannedSource === "osrm" ||
-      planVisitIds.length > 0;
-    return {
-      kind: "none",
-      compensationKm: null,
-      payoutReason: hadPlan ? "none_plan_without_done" : "none_no_plan_no_visits",
-      warnings: hadPlan ? ["plan_without_completed_visits"] : ["compensation_review_required"],
-      ineligibleReason: hadPlan ? "plan_without_completed_visits" : "compensation_unavailable",
-      ...counts,
-    };
-  }
-
-  if (input.visitTrackContradiction) {
-    return {
-      kind: "none",
-      compensationKm: null,
-      payoutReason: "none_visit_track_contradiction",
-      warnings: ["visit_closed_off_address_unconfirmed"],
-      ineligibleReason: "visit_track_contradiction",
-      ...counts,
-    };
-  }
-
-  const visitsOk = kmUsable(input.visitRouteKm);
   const planKm = input.plannedKm;
-  const planIsOsrm = input.plannedSource === "osrm";
-  const planOk = kmUsable(planKm) && !input.plannedDegraded && planIsOsrm && planVisitIds.length > 0;
+  const planOk =
+    kmUsable(planKm) &&
+    !input.plannedDegraded &&
+    input.plannedSource === "osrm" &&
+    planVisitIds.length > 0;
 
-  if (planOk && extras.length > 0) {
-    if (visitsOk) {
-      return {
-        kind: "fact_visits",
-        compensationKm: input.visitRouteKm,
-        payoutReason: "fact_visits_extras",
-        warnings: [],
-        ineligibleReason: null,
-        ...counts,
-      };
-    }
+  if (planOk) {
     return {
-      kind: "none",
-      compensationKm: null,
-      payoutReason: "none_extras_no_visit_route",
-      warnings: ["compensation_review_required"],
-      ineligibleReason: "compensation_unavailable",
+      kind: "planned",
+      compensationKm: planKm,
+      payoutReason: "planned_osrm_full",
+      warnings: [],
+      ineligibleReason: null,
       ...counts,
     };
   }
 
-  if (planOk && confirmedIds.length > 0 && extras.length === 0) {
-    const allDone = confirmedIds.length === planVisitIds.length;
-    if (allDone) {
-      return {
-        kind: "planned",
-        compensationKm: planKm,
-        payoutReason: "planned_osrm_complete",
-        warnings: [],
-        ineligibleReason: null,
-        ...counts,
-      };
-    }
-
-    if (kmUsable(input.partialPlanKm)) {
-      return {
-        kind: "planned",
-        compensationKm: input.partialPlanKm,
-        payoutReason: `planned_osrm_partial=${confirmedIds.length}/${planVisitIds.length}`,
-        warnings: [],
-        ineligibleReason: null,
-        ...counts,
-      };
-    }
-
-    // Partial day but subset OSRM failed → fall through to visits if possible.
-    if (visitsOk) {
-      return {
-        kind: "fact_visits",
-        compensationKm: input.visitRouteKm,
-        payoutReason: "fact_visits_partial_osrm_failed",
-        warnings: [],
-        ineligibleReason: null,
-        ...counts,
-      };
-    }
-  }
-
-  if (visitsOk) {
+  if (kmUsable(input.visitRouteKm)) {
     const reason =
-      !planIsOsrm && kmUsable(planKm)
+      input.plannedSource !== "osrm" && kmUsable(planKm)
         ? "fact_visits_plan_not_osrm"
         : input.plannedDegraded && kmUsable(planKm)
           ? "fact_visits_plan_degraded"
-          : planVisitIds.length === 0
-            ? "fact_visits_no_plan"
-            : "fact_visits_no_plan";
+          : "fact_visits_no_plan";
     return {
       kind: "fact_visits",
       compensationKm: input.visitRouteKm,
@@ -226,7 +151,7 @@ export function selectCompensationPayout(input: CompensationPayoutInput): Compen
   };
 }
 
-/** GPS issues for the snapshot/UI — never change payout kind (except contradiction handled in selector). */
+/** GPS / audit issues for snapshot/UI — never change payout kind or km. */
 export function collectFuelGpsWarnings(
   opts: TrackCompensationInput & {
     visitTrackContradiction?: boolean;

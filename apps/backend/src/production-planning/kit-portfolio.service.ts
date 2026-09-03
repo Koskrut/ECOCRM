@@ -114,6 +114,8 @@ export type KitPortfolioView = {
     used: number;
     limit: number;
     factoryDraftId: string | null;
+    minPackLot: number;
+    minProduceLot: number;
   };
   summary: {
     packableToday: number;
@@ -166,6 +168,8 @@ export class KitPortfolioService {
       used: 0,
       limit: planningSettings.packCapacityPerCycle,
       factoryDraftId: null as string | null,
+      minPackLot: planningSettings.minPackLot,
+      minProduceLot: planningSettings.minProduceLot,
     };
 
     if (kitIds.length === 0) {
@@ -611,6 +615,8 @@ export class KitPortfolioService {
         used: weekUsed,
         limit: weekLimit,
         factoryDraftId: factoryDraft?.id ?? null,
+        minPackLot: planningSettings.minPackLot,
+        minProduceLot: planningSettings.minProduceLot,
       },
       summary: {
         packableToday,

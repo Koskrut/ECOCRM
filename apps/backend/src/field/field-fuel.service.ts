@@ -22,8 +22,6 @@ import { assertCanAccessOwner, getAllowedOwnerIds } from "../visits/visits-owner
 import { assessPlannedKm, resolveUsableGpsKm } from "../visits/route-routing.util";
 import {
   collectFuelGpsWarnings,
-  confirmedPlanVisitIds,
-  extraDoneVisitIds,
   FUEL_PAYOUT_POLICY,
   FUEL_PAYOUT_POLICY_VERSION,
   selectCompensationPayout,
@@ -56,13 +54,11 @@ export class FieldFuelService {
     visitRouteKm: number | null;
     planVisitIds: string[];
     doneVisitIds: string[];
-    partialPlanKm: number | null;
-    visitTrackContradiction?: boolean;
   }): {
     plannedAssessment: ReturnType<typeof assessPlannedKm>;
     payout: CompensationPayoutResult;
   } {
-    // Stop-share: do not compare plan vs visitRoute (3× outlier). Only MAX_SANE_PLANNED_KM.
+    // v2.2: do not compare plan vs visitRoute (3×). Only MAX_SANE_PLANNED_KM.
     const plannedAssessment = assessPlannedKm({
       plannedKm: opts.plannedKmRaw,
       factKm: null,
@@ -76,8 +72,6 @@ export class FieldFuelService {
       visitRouteKm: opts.visitRouteKm,
       planVisitIds: opts.planVisitIds,
       doneVisitIds: opts.doneVisitIds,
-      partialPlanKm: opts.partialPlanKm,
-      visitTrackContradiction: opts.visitTrackContradiction,
     });
     return { plannedAssessment, payout };
   }
@@ -259,8 +253,6 @@ export class FieldFuelService {
     const planVisitIdsOrdered = await this.loadPlanVisitIdsOrdered(ownerId, date);
     const planVisitIds = new Set(planVisitIdsOrdered);
     const doneVisitIds = doneVisits.map((v) => v.id);
-    const confirmedIds = confirmedPlanVisitIds(planVisitIdsOrdered, doneVisitIds);
-    const extras = extraDoneVisitIds(planVisitIdsOrdered, doneVisitIds);
 
     const [plannedMetrics, factVisitsMetrics, factGpsMetrics, routeAnchors, geometryBundle] =
       await Promise.all([
@@ -270,21 +262,6 @@ export class FieldFuelService {
         this.routePlans.getRouteAnchors(ownerId),
         this.routePlans.getRouteGeometryBundle(dateStr, actor),
       ]);
-
-    let partialPlanKm: number | null = null;
-    const needsPartial =
-      confirmedIds.length > 0 &&
-      confirmedIds.length < planVisitIdsOrdered.length &&
-      extras.length === 0 &&
-      plannedMetrics.source === "osrm";
-    if (needsPartial) {
-      const partialGeom = await this.routePlans.getRouteGeometry(dateStr, "planned", actor, {
-        visitIds: confirmedIds,
-      });
-      if (partialGeom.source === "osrm" && partialGeom.distanceKm != null) {
-        partialPlanKm = partialGeom.distanceKm;
-      }
-    }
 
     const rawPolylineDistanceKm = geometryBundle.factGps.quality.rawDistanceKm ?? null;
     const snappedTrackDistanceKm =
@@ -306,8 +283,6 @@ export class FieldFuelService {
       visitRouteKm: factVisitsMetrics.distanceKm,
       planVisitIds: planVisitIdsOrdered,
       doneVisitIds,
-      partialPlanKm,
-      visitTrackContradiction,
     });
     const compensationFactKind = payout.kind;
     const compensationKm = payout.compensationKm;
@@ -494,7 +469,7 @@ export class FieldFuelService {
     const snapshot = (report.calculationSnapshot ?? { visits: [] }) as FuelCalculationSnapshot;
     const policyStale = snapshot.payoutPolicyVersion !== FUEL_PAYOUT_POLICY_VERSION;
 
-    // Stop-share needs plan∩DONE + optional subset OSRM; cheapest path is version bump → recalc.
+    // Policy version bump → recalc DRAFT/REJECTED only (not SUBMITTED/APPROVED/PAID).
     if (
       (report.compensationStatus === FuelCompensationStatus.DRAFT ||
         report.compensationStatus === FuelCompensationStatus.REJECTED) &&
@@ -515,27 +490,7 @@ export class FieldFuelService {
       ]);
 
     const doneVisitIds = (snapshot.visits ?? []).map((v) => v.id);
-    const confirmedIds = confirmedPlanVisitIds(planVisitIdsOrdered, doneVisitIds);
-    const extras = extraDoneVisitIds(planVisitIdsOrdered, doneVisitIds);
-    let partialPlanKm: number | null = null;
-    const needsPartial =
-      confirmedIds.length > 0 &&
-      confirmedIds.length < planVisitIdsOrdered.length &&
-      extras.length === 0 &&
-      plannedMetrics.source === "osrm";
-    if (needsPartial) {
-      const partialGeom = await this.routePlans.getRouteGeometry(dateStr, "planned", actorForMetrics, {
-        visitIds: confirmedIds,
-      });
-      if (partialGeom.source === "osrm" && partialGeom.distanceKm != null) {
-        partialPlanKm = partialGeom.distanceKm;
-      }
-    }
-
     const mobilityMode = geometryBundle.mobilityMode ?? "CAR";
-    const visitTrackContradiction =
-      geometryBundle.compensationWarnings?.includes("visit_closed_off_address_unconfirmed") ===
-        true || geometryBundle.compensationIneligibleReason === "visit_track_contradiction";
     const { payout: livePayout } = this.resolveDayPayout({
       mobilityMode,
       plannedKmRaw: plannedMetrics.distanceKm,
@@ -543,8 +498,6 @@ export class FieldFuelService {
       visitRouteKm: factVisitsMetrics.distanceKm,
       planVisitIds: planVisitIdsOrdered,
       doneVisitIds,
-      partialPlanKm,
-      visitTrackContradiction,
     });
     const liveKind = livePayout.kind;
     const liveKm = livePayout.compensationKm;

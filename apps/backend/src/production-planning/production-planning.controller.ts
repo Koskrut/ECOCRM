@@ -137,6 +137,8 @@ export class ProductionPlanningController {
       safetyStockWeeks?: number;
       snapshotMaxAgeDays?: number;
       demandMix?: string;
+      minPackLot?: number;
+      minProduceLot?: number;
     },
   ) {
     const demandMixValues = new Set(Object.values(PlanningDemandMix));

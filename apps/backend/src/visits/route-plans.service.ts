@@ -2137,7 +2137,7 @@ export class RoutePlansService {
       .filter((id): id is string => typeof id === "string" && id.length > 0);
 
     const plannedDegraded = plannedAssessment.degraded || planned.source !== "osrm";
-    // Map bundle: no subset OSRM (fuel recalculate is source of truth for partial km).
+    // Map bundle: fuel API is source of truth; payout here for layer labels only.
     const payout = selectCompensationPayout({
       mobilityMode: shiftMobility.mobilityMode,
       plannedKm: planned.distanceKm,
@@ -2146,8 +2146,6 @@ export class RoutePlansService {
       visitRouteKm: factVisits.distanceKm,
       planVisitIds,
       doneVisitIds,
-      partialPlanKm: null,
-      visitTrackContradiction,
     });
 
     const gpsWarnings = collectFuelGpsWarnings({

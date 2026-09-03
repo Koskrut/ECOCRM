@@ -318,6 +318,31 @@ export function computeKitPositionPlan(input: {
   return { coverTarget, targetStock, stockNow, packGap, canPackNow, toWork };
 }
 
+/**
+ * Kits list / produce vs ideal stock: fill gap to coverTarget.
+ * canPackNow = from parts toward ideal; toWork = still need to produce after parts.
+ */
+export function computeIdealProducePlan(input: {
+  stockFinished: number;
+  maxBuildNow: number;
+  coverTarget: number;
+}): { gapToIdeal: number; canPackNow: number; toWork: number } {
+  const stock = Math.max(0, Math.floor(input.stockFinished));
+  const maxBuild = Math.max(0, Math.floor(input.maxBuildNow));
+  const ideal = Math.max(0, Math.floor(input.coverTarget));
+  const gapToIdeal = Math.max(0, ideal - stock);
+  const canPackNow = Math.min(gapToIdeal, maxBuild);
+  const toWork = Math.max(0, gapToIdeal - canPackNow);
+  return { gapToIdeal, canPackNow, toWork };
+}
+
+/** Round up production need to shop min lot when any production is required. */
+export function applyMinProduceLot(toWork: number, minLot: number): number {
+  const need = Math.max(0, Math.floor(toWork));
+  if (need <= 0) return 0;
+  return Math.max(need, Math.max(1, Math.floor(minLot)));
+}
+
 /** Absolute qty that should be on the draft packing list for this SKU this cycle. */
 export function suggestedPackTargetQty(input: {
   weeklyPackNeed: number;

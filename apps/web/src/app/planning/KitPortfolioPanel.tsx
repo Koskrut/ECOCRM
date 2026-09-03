@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { strings } from "@/locales";
 import {
   planningApi,
@@ -125,6 +126,7 @@ export function KitPortfolioPanel({
 }) {
   const t = strings.planning;
   const kb = t.kitBoard;
+  const router = useRouter();
   const reportError = useStableErrorHandler(onError);
   const [internalView, setInternalView] = useState<KitPortfolioView | null>(null);
   const [internalBusy, setInternalBusy] = useState(false);
@@ -203,7 +205,13 @@ export function KitPortfolioPanel({
   );
 
   const addToPack = async (kit: KitPortfolioKit) => {
-    if (kit.suggestedPackQty <= 0 || kit.suggestedPackTargetQty > kit.maxBuildNow) return;
+    const minPack = view?.week.minPackLot ?? 30;
+    if (
+      kit.suggestedPackQty < minPack ||
+      kit.suggestedPackTargetQty > kit.maxBuildNow
+    ) {
+      return;
+    }
     setActing(kit.productId);
     try {
       let listId = view?.week.packingListId ?? null;
@@ -366,13 +374,21 @@ export function KitPortfolioPanel({
             <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">{kb.matrixTitle}</p>
             <div className="mt-2 flex flex-wrap gap-2">
               {view.classMatrix.map((cell) => (
-                <span
+                <button
                   key={`${cell.paretoClass}${cell.xyzClass}`}
-                  className="rounded-lg border border-zinc-200 bg-zinc-50 px-2 py-1 text-xs text-zinc-700"
+                  type="button"
+                  className="rounded-lg border border-zinc-200 bg-zinc-50 px-2 py-1 text-xs text-zinc-700 hover:border-cyan-400 hover:bg-cyan-50"
+                  onClick={() => {
+                    const params = new URLSearchParams();
+                    params.set("tab", "kits");
+                    params.set("abc", cell.paretoClass);
+                    params.set("xyz", cell.xyzClass);
+                    router.push(`/planning?${params.toString()}`);
+                  }}
                 >
                   {kb.classBadge(cell.paretoClass, cell.xyzClass)}: {cell.skuCount}
                   {cell.endingCount > 0 ? ` · ${cell.endingCount}⚠` : ""}
-                </span>
+                </button>
               ))}
             </div>
             <p className="mt-2 text-xs text-zinc-500">
@@ -419,6 +435,7 @@ export function KitPortfolioPanel({
                   kit={kit}
                   open={openId === kit.productId}
                   busy={acting === kit.productId}
+                  minPackLot={view.week.minPackLot ?? 30}
                   onToggle={() => setOpenId((id) => (id === kit.productId ? null : kit.productId))}
                   onPack={() => void addToPack(kit)}
                   onOrderPart={() => {
@@ -540,6 +557,7 @@ function EndingCard({
   kit,
   open,
   busy,
+  minPackLot,
   onToggle,
   onPack,
   onOrderPart,
@@ -547,21 +565,24 @@ function EndingCard({
   kit: KitPortfolioKit;
   open: boolean;
   busy: boolean;
+  minPackLot: number;
   onToggle: () => void;
   onPack: () => void;
   onOrderPart: () => void;
 }) {
   const kb = strings.planning.kitBoard;
   const canPack =
-    kit.suggestedPackQty > 0 &&
+    kit.suggestedPackQty >= minPackLot &&
     kit.suggestedPackTargetQty <= kit.maxBuildNow &&
     kit.maxBuildNow > 0;
   const packDisabledReason =
     kit.alreadyInRequest >= kit.maxBuildNow
       ? kb.atPartsCap
-      : kit.suggestedPackQty <= 0
-        ? kb.noPackNeed
-        : null;
+      : kit.suggestedPackQty > 0 && kit.suggestedPackQty < minPackLot
+        ? strings.planning.kitBoms.belowMinPack(minPackLot)
+        : kit.suggestedPackQty <= 0
+          ? kb.noPackNeed
+          : null;
   const needFactory = kit.maxBuildNow <= 0 && kit.bottleneckSku;
   const border =
     kit.coverTone === "critical" ? "border-rose-300" : "border-amber-200";

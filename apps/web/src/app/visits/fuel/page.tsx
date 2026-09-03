@@ -431,20 +431,6 @@ function DayDetailPanel({
                 </div>
                 <div className="text-xs text-zinc-400">
                   {(() => {
-                    const snap = r?.calculationSnapshot;
-                    const confirmed = snap?.payoutConfirmedStopCount;
-                    const planStops = snap?.payoutPlanStopCount;
-                    if (
-                      data.compensationFactKind === "planned" &&
-                      confirmed != null &&
-                      planStops != null &&
-                      planStops > 0 &&
-                      confirmed < planStops
-                    ) {
-                      return strings.visitsFuelPage.compensationPlannedPartial
-                        .replace("{confirmed}", String(confirmed))
-                        .replace("{plan}", String(planStops));
-                    }
                     if (data.compensationFactKind === "planned") {
                       return strings.visitsFuelPage.compensationPlanned;
                     }

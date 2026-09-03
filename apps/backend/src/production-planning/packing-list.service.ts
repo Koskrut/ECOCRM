@@ -353,7 +353,7 @@ export class PackingListService {
           partStock,
           bomByKit,
         );
-        if (maxFromParts > 0) {
+        if (maxFromParts > 0 && maxFromParts >= settings.minPackLot) {
           await this.consumeParts(c.kitProductId, maxFromParts, partStock, bomByKit);
           lines.push({
             kitProductId: c.kitProductId,
@@ -428,6 +428,7 @@ export class PackingListService {
           bomByKit,
         );
         if (extraCap <= 0) continue;
+        if (!existing && extraCap < settings.minPackLot) continue;
         await this.consumeParts(c.kitProductId, extraCap, partStock, bomByKit);
         if (existing) {
           existing.qtyApproved += extraCap;
