@@ -4,7 +4,32 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.170**.)_
+_(планируемые изменения после **0.2.171**.)_
+
+## [0.2.171] — 2026-09-03
+
+### Summary
+
+Патч **0.2.171**: fuel payout v2.1 (stop-share по підтвердженому плану); Kit BOMs list UI/API; route map payout labels.
+
+### Added
+
+- **Fuel payout util** (`field-fuel.payout.util`) + tests: policy `plan_primary_gps_display_v2.1`.
+- **Kit BOMs list**: `GET planning/boms` + `KitBomListService`; web `KitBomsPanel` (ABC/XYZ filters, expand lines, CSV).
+
+### Changed
+
+- **Fuel payout v2.1 (stop-share)**: full OSRM plan only when all plan stops DONE and no adhoc extras; partial day → OSRM home→confirmed stops (plan order)→home; extras → fact_visits; off-pin contradiction → none. GPS display-only.
+- Snapshot: `payoutConfirmedStopCount` / `payoutPlanStopCount`; UI «по плану (N з M стопів)».
+- Route geometry `compensationFactKind` includes `planned`; web/mobile fuel + map labels.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.171`**.
+- **Миграций нет.**
+- Після деплою перерахувати **тільки DRAFT** за серпень:
+  `npx ts-node scripts/bulk-recalculate-fuel-range.ts --from=2026-08-01 --to=2026-08-31 --drafts-only --apply`
+- **PAID / APPROVED / SUBMITTED не чіпати.**
 
 ## [0.2.170] — 2026-09-02
 

@@ -41,6 +41,7 @@ import { SalesHistoryService } from "./sales-history.service";
 import { PlanningTodayService } from "./planning-today.service";
 import { WeeklyPlanningJob } from "./weekly-planning.job";
 import { KitPortfolioService } from "./kit-portfolio.service";
+import { KitBomListService } from "./kit-bom-list.service";
 import { PlanningProductParamsService } from "./planning-product-params.service";
 import { RequireModule } from "../modules/gating/require-module.decorator";
 import { ModuleIds } from "../modules/module-ids";
@@ -55,6 +56,7 @@ export class ProductionPlanningController {
     private readonly mrpConfig: MrpConfigService,
     private readonly bomImport: BomImportService,
     private readonly bomService: BomService,
+    private readonly kitBomList: KitBomListService,
     private readonly snapshots: InventorySnapshotService,
     private readonly calculations: PlanningCalculationService,
     private readonly forecast: ForecastService,
@@ -208,6 +210,12 @@ export class ProductionPlanningController {
   importBomFile(@UploadedFile() file: { buffer?: Buffer } | undefined) {
     if (!file?.buffer) throw new BadRequestException("File is required");
     return this.bomImport.importFile(file.buffer);
+  }
+
+  /** Must stay above `boms/:kitProductId` so list is not captured as an id. */
+  @Get("boms")
+  listActiveBoms(@Query("q") q?: string) {
+    return this.kitBomList.listActive(q);
   }
 
   @Get("boms/:kitProductId")

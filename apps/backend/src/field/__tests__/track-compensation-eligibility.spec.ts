@@ -230,7 +230,7 @@ describe("isTrackEligibleForCompensation", () => {
   });
 });
 
-describe("selectCompensationFactKind", () => {
+describe("selectCompensationFactKind (GPS display eligibility, not payout)", () => {
   it("WALK_TRANSIT → none / non_vehicle_day even with healthy GPS + visits", () => {
     const sel = selectCompensationFactKind({
       hasTrackingEnabledShift: true,
@@ -260,7 +260,7 @@ describe("selectCompensationFactKind", () => {
     assert.equal(sel.ineligibleReason, null);
   });
 
-  it("Gribovsky 26.08 after loop split: GPS ~130 vs visits 119 → fact_gps", () => {
+  it("Gribovsky 26.08 after loop split: GPS ~130 vs visits 119 → fact_gps (display eligibility)", () => {
     const sel = selectCompensationFactKind({
       hasTrackingEnabledShift: true,
       filteredSampleCount: 813,

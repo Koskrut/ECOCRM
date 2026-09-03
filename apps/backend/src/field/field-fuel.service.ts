@@ -20,6 +20,15 @@ import { FieldFuelRefuelsService } from "./field-fuel-refuels.service";
 import { effectiveVisitLatLng, visitHasRoutableCoordinates } from "../visits/visit-coordinates";
 import { assertCanAccessOwner, getAllowedOwnerIds } from "../visits/visits-owner-scope";
 import { assessPlannedKm, resolveUsableGpsKm } from "../visits/route-routing.util";
+import {
+  collectFuelGpsWarnings,
+  confirmedPlanVisitIds,
+  extraDoneVisitIds,
+  FUEL_PAYOUT_POLICY,
+  FUEL_PAYOUT_POLICY_VERSION,
+  selectCompensationPayout,
+  type CompensationPayoutResult,
+} from "./field-fuel.payout.util";
 
 const MAX_EXPORT_DAYS = 31;
 
@@ -38,6 +47,39 @@ export class FieldFuelService {
       throw new BadRequestException("Invalid date");
     }
     return date;
+  }
+
+  private resolveDayPayout(opts: {
+    mobilityMode: "CAR" | "WALK_TRANSIT";
+    plannedKmRaw: number | null;
+    plannedSource: "osrm" | "fallback" | "none" | string;
+    visitRouteKm: number | null;
+    planVisitIds: string[];
+    doneVisitIds: string[];
+    partialPlanKm: number | null;
+    visitTrackContradiction?: boolean;
+  }): {
+    plannedAssessment: ReturnType<typeof assessPlannedKm>;
+    payout: CompensationPayoutResult;
+  } {
+    // Stop-share: do not compare plan vs visitRoute (3× outlier). Only MAX_SANE_PLANNED_KM.
+    const plannedAssessment = assessPlannedKm({
+      plannedKm: opts.plannedKmRaw,
+      factKm: null,
+    });
+    const plannedDegraded = plannedAssessment.degraded || opts.plannedSource !== "osrm";
+    const payout = selectCompensationPayout({
+      mobilityMode: opts.mobilityMode,
+      plannedKm: opts.plannedKmRaw,
+      plannedDegraded,
+      plannedSource: opts.plannedSource,
+      visitRouteKm: opts.visitRouteKm,
+      planVisitIds: opts.planVisitIds,
+      doneVisitIds: opts.doneVisitIds,
+      partialPlanKm: opts.partialPlanKm,
+      visitTrackContradiction: opts.visitTrackContradiction,
+    });
+    return { plannedAssessment, payout };
   }
 
   private kyivVisitWindow(dateStr: string): { dayStart: Date; dayEnd: Date } {
@@ -88,11 +130,13 @@ export class FieldFuelService {
     });
   }
 
-  private async planVisitIdSet(ownerId: string, date: Date): Promise<Set<string>> {
+  /** Ordered RoutePlan stop visit ids (position asc), owner-scoped. */
+  private async loadPlanVisitIdsOrdered(ownerId: string, date: Date): Promise<string[]> {
     const plan = await this.prisma.routePlan.findUnique({
       where: { ownerId_date: { ownerId, date } },
       include: {
         stops: {
+          orderBy: { position: "asc" },
           select: {
             visitId: true,
             visit: { select: { ownerId: true } },
@@ -100,9 +144,13 @@ export class FieldFuelService {
         },
       },
     });
-    const ids = (plan?.stops ?? [])
+    return (plan?.stops ?? [])
       .filter((s) => s.visit?.ownerId === ownerId)
       .map((s) => s.visitId);
+  }
+
+  private async planVisitIdSet(ownerId: string, date: Date): Promise<Set<string>> {
+    const ids = await this.loadPlanVisitIdsOrdered(ownerId, date);
     return new Set(ids);
   }
 
@@ -208,7 +256,11 @@ export class FieldFuelService {
 
     const profile = await this.getOrCreateProfile(ownerId);
     const doneVisits = await this.loadDoneVisitsForDay(ownerId, dateStr);
-    const planVisitIds = await this.planVisitIdSet(ownerId, date);
+    const planVisitIdsOrdered = await this.loadPlanVisitIdsOrdered(ownerId, date);
+    const planVisitIds = new Set(planVisitIdsOrdered);
+    const doneVisitIds = doneVisits.map((v) => v.id);
+    const confirmedIds = confirmedPlanVisitIds(planVisitIdsOrdered, doneVisitIds);
+    const extras = extraDoneVisitIds(planVisitIdsOrdered, doneVisitIds);
 
     const [plannedMetrics, factVisitsMetrics, factGpsMetrics, routeAnchors, geometryBundle] =
       await Promise.all([
@@ -219,7 +271,21 @@ export class FieldFuelService {
         this.routePlans.getRouteGeometryBundle(dateStr, actor),
       ]);
 
-    const compensationFactKind = geometryBundle.compensationFactKind;
+    let partialPlanKm: number | null = null;
+    const needsPartial =
+      confirmedIds.length > 0 &&
+      confirmedIds.length < planVisitIdsOrdered.length &&
+      extras.length === 0 &&
+      plannedMetrics.source === "osrm";
+    if (needsPartial) {
+      const partialGeom = await this.routePlans.getRouteGeometry(dateStr, "planned", actor, {
+        visitIds: confirmedIds,
+      });
+      if (partialGeom.source === "osrm" && partialGeom.distanceKm != null) {
+        partialPlanKm = partialGeom.distanceKm;
+      }
+    }
+
     const rawPolylineDistanceKm = geometryBundle.factGps.quality.rawDistanceKm ?? null;
     const snappedTrackDistanceKm =
       geometryBundle.factGps.quality.snappedDistanceKm ?? factGpsMetrics.distanceKm;
@@ -228,27 +294,29 @@ export class FieldFuelService {
       snappedTrackDistanceKm,
       rawPolylineDistanceKm,
     });
-    const compensationKm =
-      compensationFactKind === "none"
-        ? null
-        : compensationFactKind === "fact_gps" && gpsCompensationKm != null
-          ? gpsCompensationKm
-          : compensationFactKind === "fact_visits"
-            ? factVisitsMetrics.distanceKm
-            : null;
-    const actualKm = compensationKm;
-    const plannedKmRaw = plannedMetrics.distanceKm;
-    const plannedAssessment = assessPlannedKm({
-      plannedKm: plannedKmRaw,
-      factKm: compensationKm,
+    const visitCount = doneVisits.filter((v) => visitHasRoutableCoordinates(v)).length;
+    const mobilityMode = geometryBundle.mobilityMode ?? "CAR";
+    const visitTrackContradiction =
+      geometryBundle.compensationWarnings?.includes("visit_closed_off_address_unconfirmed") ===
+        true || geometryBundle.compensationIneligibleReason === "visit_track_contradiction";
+    const { plannedAssessment, payout } = this.resolveDayPayout({
+      mobilityMode,
+      plannedKmRaw: plannedMetrics.distanceKm,
+      plannedSource: plannedMetrics.source,
+      visitRouteKm: factVisitsMetrics.distanceKm,
+      planVisitIds: planVisitIdsOrdered,
+      doneVisitIds,
+      partialPlanKm,
+      visitTrackContradiction,
     });
+    const compensationFactKind = payout.kind;
+    const compensationKm = payout.compensationKm;
+    const actualKm = compensationKm;
     const plannedKm = plannedAssessment.plannedKm;
     const factMetrics = factVisitsMetrics;
-    // Persist a stable source label even when visit metrics are "none" but we still
-    // have compensation km from a soft GPS payout (or liters-only estimate).
     const metricsSource =
-      compensationFactKind === "fact_gps"
-        ? "track"
+      compensationFactKind === "planned"
+        ? "osrm"
         : compensationFactKind === "none"
           ? "none"
           : factVisitsMetrics.source !== "none"
@@ -256,7 +324,6 @@ export class FieldFuelService {
             : compensationKm != null
               ? "fallback"
               : "none";
-    const visitCount = doneVisits.filter((v) => visitHasRoutableCoordinates(v)).length;
 
     const snapshot = this.buildSnapshot(doneVisits, planVisitIds);
     snapshot.plannedMetricsSource = plannedMetrics.source;
@@ -264,14 +331,18 @@ export class FieldFuelService {
     snapshot.factVisitsMetricsSource = factVisitsMetrics.source;
     snapshot.factGpsMetricsSource = factGpsMetrics.source;
     snapshot.compensationFactKind = compensationFactKind;
+    snapshot.payoutPolicy = FUEL_PAYOUT_POLICY;
+    snapshot.payoutPolicyVersion = FUEL_PAYOUT_POLICY_VERSION;
+    snapshot.payoutReason = payout.payoutReason;
+    snapshot.payoutConfirmedStopCount = payout.confirmedStopCount;
+    snapshot.payoutPlanStopCount = payout.planStopCount;
     snapshot.rawPolylineDistanceKm = rawPolylineDistanceKm;
     snapshot.snappedTrackDistanceKm = snappedTrackDistanceKm;
     snapshot.snapFailureReason = snapFailureReason;
     snapshot.trackKm = snappedTrackDistanceKm ?? gpsCompensationKm;
     snapshot.trackMetricsSource = resolveTrackMetricsSource(factGpsMetrics.source);
     snapshot.visitRouteKm = factVisitsMetrics.distanceKm;
-    snapshot.compensationIneligibleReason =
-      geometryBundle.compensationIneligibleReason ?? null;
+    snapshot.compensationIneligibleReason = payout.ineligibleReason;
     snapshot.coverageRatio = geometryBundle.factGps.quality.coverageRatio ?? null;
     snapshot.filteredSampleCount = geometryBundle.factGps.quality.sampleCount;
     snapshot.droppedReasons = geometryBundle.factGps.quality.droppedReasons ?? {};
@@ -298,16 +369,23 @@ export class FieldFuelService {
     if (geometryBundle.factGps.quality.degradedReason === "gps_partial_coverage") {
       warnings.push("gps_partial_coverage");
     }
-    for (const w of geometryBundle.compensationWarnings ?? []) {
-      const softCode =
-        w === "gps_low_coverage"
-          ? "gps_low_coverage_partial_payout"
-          : w === "gps_ended_before_last_visit"
-            ? "gps_ended_early_partial_payout"
-            : w === "gps_implausibly_short_vs_visits"
-              ? "gps_implausibly_short_vs_visits"
-              : w;
-      if (!warnings.includes(softCode)) warnings.push(softCode);
+    const gpsWarnings = collectFuelGpsWarnings({
+      hasTrackingEnabledShift: geometryBundle.factGps.quality.hasTrackingEnabledShift ?? false,
+      filteredSampleCount: geometryBundle.factGps.quality.sampleCount,
+      rawPolylineDistanceKm,
+      coverageRatio: geometryBundle.factGps.quality.coverageRatio,
+      lastSampleAt: geometryBundle.factGps.quality.lastSampleAt ?? null,
+      lastDoneVisitCompletedAt: geometryBundle.factGps.quality.lastDoneVisitCompletedAt ?? null,
+      snappedTrackDistanceKm,
+      visitRouteDistanceKm: factVisitsMetrics.distanceKm,
+      snapFailureReason,
+      plannedKmWarning: plannedAssessment.warning,
+      mobilityMode,
+      visitTrackContradiction,
+      factGpsSource: factGpsMetrics.source,
+    });
+    for (const w of [...payout.warnings, ...gpsWarnings, ...(geometryBundle.compensationWarnings ?? [])]) {
+      if (!warnings.includes(w)) warnings.push(w);
     }
     if (plannedAssessment.warning && !warnings.includes(plannedAssessment.warning)) {
       warnings.push(plannedAssessment.warning);
@@ -320,36 +398,21 @@ export class FieldFuelService {
       warnings.push("fuel_price_missing_for_uah_estimate");
     }
     if (compensationFactKind === "none") {
-      if (geometryBundle.compensationIneligibleReason === "non_vehicle_day") {
+      if (payout.ineligibleReason === "non_vehicle_day") {
         warnings.push("non_vehicle_day");
-      } else if (snapFailureReason === "gps_snap_loop_collapse") {
-        warnings.push("gps_snap_loop_collapse");
-      } else {
+      } else if (payout.ineligibleReason === "plan_without_completed_visits") {
+        if (!warnings.includes("plan_without_completed_visits")) {
+          warnings.push("plan_without_completed_visits");
+        }
+      } else if (payout.ineligibleReason === "visit_track_contradiction") {
+        if (!warnings.includes("visit_closed_off_address_unconfirmed")) {
+          warnings.push("visit_closed_off_address_unconfirmed");
+        }
+      } else if (!warnings.includes("compensation_review_required")) {
         warnings.push("compensation_review_required");
       }
     }
-    if (compensationFactKind === "fact_visits" && geometryBundle.factGps.source !== "none") {
-      const ineligibleReason = geometryBundle.compensationIneligibleReason;
-      if (ineligibleReason === "gps_low_coverage") {
-        warnings.push("gps_low_coverage");
-      } else if (ineligibleReason === "gps_ended_before_last_visit") {
-        warnings.push("gps_ended_before_last_visit");
-      } else if (ineligibleReason === "gps_implausibly_short_vs_visits") {
-        warnings.push("gps_implausibly_short_vs_visits");
-      } else if (ineligibleReason === "gps_implausibly_long_vs_visits") {
-        warnings.push("gps_implausibly_long_vs_visits");
-      } else if (ineligibleReason === "track_too_short") {
-        warnings.push("gps_track_too_short");
-      } else if (geometryBundle.factGps.quality.degraded) {
-        warnings.push("gps_track_degraded");
-      } else if (ineligibleReason) {
-        warnings.push("gps_track_ineligible");
-      }
-    }
-    if (compensationFactKind === "fact_visits" && geometryBundle.factGps.source === "none") {
-      warnings.push("gps_track_unavailable");
-    }
-    snapshot.warnings = [...warnings];
+    snapshot.warnings = [...new Set(warnings)];
 
     const report = await this.prisma.fuelDayReport.upsert({
       where: { ownerId_date: { ownerId, date } },
@@ -428,27 +491,63 @@ export class FieldFuelService {
 
     const actorForMetrics =
       ownerId === actor.id ? actor : await this.actorForOwner(ownerId);
-    const [plannedMetrics, factVisitsMetrics, factGpsMetrics, geometryBundle] = await Promise.all([
-      this.routePlans.getRouteMetrics(dateStr, actorForMetrics),
-      this.routePlans.getFactRouteMetrics(dateStr, actorForMetrics),
-      this.routePlans.getFactGpsRouteMetrics(dateStr, actorForMetrics),
-      this.routePlans.getRouteGeometryBundle(dateStr, actorForMetrics),
-    ]);
-
     const snapshot = (report.calculationSnapshot ?? { visits: [] }) as FuelCalculationSnapshot;
-    const liveKind = geometryBundle.compensationFactKind;
-    const liveGpsKm = resolveUsableGpsKm({
-      snappedTrackDistanceKm: factGpsMetrics.distanceKm,
-      rawPolylineDistanceKm: geometryBundle.factGps.quality.rawDistanceKm ?? null,
+    const policyStale = snapshot.payoutPolicyVersion !== FUEL_PAYOUT_POLICY_VERSION;
+
+    // Stop-share needs plan∩DONE + optional subset OSRM; cheapest path is version bump → recalc.
+    if (
+      (report.compensationStatus === FuelCompensationStatus.DRAFT ||
+        report.compensationStatus === FuelCompensationStatus.REJECTED) &&
+      policyStale
+    ) {
+      const actorForRecalc =
+        ownerId === actor.id ? actor : await this.actorForOwner(ownerId);
+      return this.recalculate(actorForRecalc, dateStr);
+    }
+
+    const [plannedMetrics, factVisitsMetrics, factGpsMetrics, geometryBundle, planVisitIdsOrdered] =
+      await Promise.all([
+        this.routePlans.getRouteMetrics(dateStr, actorForMetrics),
+        this.routePlans.getFactRouteMetrics(dateStr, actorForMetrics),
+        this.routePlans.getFactGpsRouteMetrics(dateStr, actorForMetrics),
+        this.routePlans.getRouteGeometryBundle(dateStr, actorForMetrics),
+        this.loadPlanVisitIdsOrdered(ownerId, date),
+      ]);
+
+    const doneVisitIds = (snapshot.visits ?? []).map((v) => v.id);
+    const confirmedIds = confirmedPlanVisitIds(planVisitIdsOrdered, doneVisitIds);
+    const extras = extraDoneVisitIds(planVisitIdsOrdered, doneVisitIds);
+    let partialPlanKm: number | null = null;
+    const needsPartial =
+      confirmedIds.length > 0 &&
+      confirmedIds.length < planVisitIdsOrdered.length &&
+      extras.length === 0 &&
+      plannedMetrics.source === "osrm";
+    if (needsPartial) {
+      const partialGeom = await this.routePlans.getRouteGeometry(dateStr, "planned", actorForMetrics, {
+        visitIds: confirmedIds,
+      });
+      if (partialGeom.source === "osrm" && partialGeom.distanceKm != null) {
+        partialPlanKm = partialGeom.distanceKm;
+      }
+    }
+
+    const mobilityMode = geometryBundle.mobilityMode ?? "CAR";
+    const visitTrackContradiction =
+      geometryBundle.compensationWarnings?.includes("visit_closed_off_address_unconfirmed") ===
+        true || geometryBundle.compensationIneligibleReason === "visit_track_contradiction";
+    const { payout: livePayout } = this.resolveDayPayout({
+      mobilityMode,
+      plannedKmRaw: plannedMetrics.distanceKm,
+      plannedSource: plannedMetrics.source,
+      visitRouteKm: factVisitsMetrics.distanceKm,
+      planVisitIds: planVisitIdsOrdered,
+      doneVisitIds,
+      partialPlanKm,
+      visitTrackContradiction,
     });
-    const liveKm =
-      liveKind === "none"
-        ? null
-        : liveKind === "fact_gps" && liveGpsKm != null
-          ? liveGpsKm
-          : liveKind === "fact_visits"
-            ? factVisitsMetrics.distanceKm
-            : null;
+    const liveKind = livePayout.kind;
+    const liveKm = livePayout.compensationKm;
     const storedKind = snapshot.compensationFactKind;
     const storedKm = report.compensationKm;
     const kmStale =
@@ -497,7 +596,7 @@ export class FieldFuelService {
       factMetrics: factVisitsMetrics,
       factVisitsMetrics,
       factGpsMetrics,
-      compensationFactKind: geometryBundle.compensationFactKind,
+      compensationFactKind: snapshot.compensationFactKind ?? liveKind,
       snapFailureReason: snapshot.snapFailureReason ?? geometryBundle.factGps.quality.snapFailureReason ?? null,
       rawPolylineDistanceKm: snapshot.rawPolylineDistanceKm ?? geometryBundle.factGps.quality.rawDistanceKm ?? null,
       snappedTrackDistanceKm: snapshot.snappedTrackDistanceKm ?? geometryBundle.factGps.quality.snappedDistanceKm ?? null,

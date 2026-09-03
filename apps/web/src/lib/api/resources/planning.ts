@@ -269,6 +269,47 @@ export type ActiveBom = {
   lines: BomLine[];
 };
 
+export type KitBomListLine = {
+  componentProductId: string;
+  componentSku: string;
+  componentName: string;
+  componentKind: string;
+  qtyPerKit: number;
+  scrapPct: number | null;
+  sortOrder: number;
+  available: number;
+  isBottleneck: boolean;
+};
+
+export type KitBomListItem = {
+  kitProductId: string;
+  sku: string;
+  name: string;
+  unit: string;
+  basePrice: number;
+  isActive: boolean;
+  bomId: string;
+  revision: number;
+  effectiveFrom: string;
+  linesCount: number;
+  paretoClass: "A" | "B" | "C";
+  xyzClass: "X" | "Y" | "Z" | null;
+  demandCv: number | null;
+  xyzReason: "stable" | "variable" | "intermittent" | "insufficient_history";
+  xyzSource: "crm_weeks" | "sales_months" | null;
+  stockFinished: number;
+  maxBuildNow: number;
+  weeksOfCover: number | null;
+  coverTone: "critical" | "warn" | "ok";
+  avgMonthlySold: number;
+  hardNeed: number;
+  weeklyPackNeed: number;
+  waitingOrders: number;
+  bottleneckSku: string | null;
+  bottleneckName: string | null;
+  lines: KitBomListLine[];
+};
+
 export type BomImportRowError = {
   rowNumber: number;
   kitSku: string;
@@ -757,6 +798,12 @@ export const planningApi = {
   getAvailability: async (productId: string): Promise<PlanningAvailability> => {
     const res = await apiHttp.get(`/planning/availability/${productId}`);
     return res.data as PlanningAvailability;
+  },
+  listBoms: async (params?: { q?: string }): Promise<KitBomListItem[]> => {
+    const res = await apiHttp.get<KitBomListItem[]>("/planning/boms", {
+      params: params?.q ? { q: params.q } : undefined,
+    });
+    return res.data;
   },
   getBom: async (kitProductId: string): Promise<ActiveBom> => {
     const res = await apiHttp.get<ActiveBom>(`/planning/boms/${kitProductId}`);

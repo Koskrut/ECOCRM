@@ -430,11 +430,32 @@ function DayDetailPanel({
                   {r?.litersEstimated != null ? `${r.litersEstimated} л (оцінка)` : "—"}
                 </div>
                 <div className="text-xs text-zinc-400">
-                  {data.compensationFactKind === "fact_gps"
-                    ? strings.visitsFuelPage.compensationGps
-                    : data.compensationFactKind === "none"
-                      ? strings.visitsFuelPage.compensationReview
-                      : strings.visitsFuelPage.compensationVisits}
+                  {(() => {
+                    const snap = r?.calculationSnapshot;
+                    const confirmed = snap?.payoutConfirmedStopCount;
+                    const planStops = snap?.payoutPlanStopCount;
+                    if (
+                      data.compensationFactKind === "planned" &&
+                      confirmed != null &&
+                      planStops != null &&
+                      planStops > 0 &&
+                      confirmed < planStops
+                    ) {
+                      return strings.visitsFuelPage.compensationPlannedPartial
+                        .replace("{confirmed}", String(confirmed))
+                        .replace("{plan}", String(planStops));
+                    }
+                    if (data.compensationFactKind === "planned") {
+                      return strings.visitsFuelPage.compensationPlanned;
+                    }
+                    if (data.compensationFactKind === "fact_gps") {
+                      return strings.visitsFuelPage.compensationGps;
+                    }
+                    if (data.compensationFactKind === "none") {
+                      return strings.visitsFuelPage.compensationReview;
+                    }
+                    return strings.visitsFuelPage.compensationVisits;
+                  })()}
                   {data.snapFailureReason === "gps_snap_loop_collapse"
                     ? strings.visitsFuelPage.loopCollapseBadge
                     : ""}
@@ -447,7 +468,11 @@ function DayDetailPanel({
                     ? "border-amber-300 bg-amber-50"
                     : "border-zinc-200 bg-zinc-50"
                 }`}>
-                <div className="text-xs font-medium uppercase text-zinc-500">План (окремо)</div>
+                <div className="text-xs font-medium uppercase text-zinc-500">
+                  {data.compensationFactKind === "planned"
+                    ? strings.visitsFuelPage.plannedPayoutKpi
+                    : strings.visitsFuelPage.plannedSeparateKpi}
+                </div>
                 <div className="mt-1 text-xl font-semibold text-zinc-700">
                   {r?.plannedKm != null ? `${r.plannedKm} км` : "—"}
                 </div>
@@ -471,6 +496,7 @@ function DayDetailPanel({
                     {data.rawPolylineDistanceKm != null
                       ? ` · ${strings.visitsFuelPage.trackRawKm} ${data.rawPolylineDistanceKm} км`
                       : ""}
+                    {` · ${strings.visitsFuelPage.gpsDisplayOnly}`}
                   </span>
                   <span>
                     {strings.visitsFuelPage.visitsKm}:{" "}

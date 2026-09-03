@@ -558,7 +558,9 @@ function VisitsPageContent() {
       const b = await routePlansApi.geometryBundle(dateParam, planOwnerOpts);
       setRouteGeometryBundle(b);
       const paid =
-        b.compensationFactKind === "fact_gps"
+        b.compensationFactKind === "planned"
+          ? "planned"
+          : b.compensationFactKind === "fact_gps"
           ? "fact_gps"
           : b.compensationFactKind === "fact_visits"
             ? "fact_visits"
@@ -566,7 +568,7 @@ function VisitsPageContent() {
       setRouteLayers({
         planned: true,
         fact_visits: paid === "fact_visits",
-        fact_gps: paid === "fact_gps",
+        fact_gps: paid === "fact_gps" || paid === "planned",
         fact_visits_gps: false,
       });
     } catch {

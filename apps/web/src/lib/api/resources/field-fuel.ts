@@ -42,6 +42,9 @@ export type FuelDayReport = {
   calculationSnapshot?: {
     warnings?: string[];
     plannedKmDegraded?: boolean;
+    payoutConfirmedStopCount?: number;
+    payoutPlanStopCount?: number;
+    payoutReason?: string | null;
   } | null;
 };
 
@@ -61,7 +64,7 @@ export type FuelRouteAnchors = {
   usesSettingsAnchors: boolean;
 };
 
-export type CompensationFactKind = "fact_gps" | "fact_visits" | "none";
+export type CompensationFactKind = "planned" | "fact_gps" | "fact_visits" | "none";
 
 export type FuelRefuelEntry = {
   id: string;

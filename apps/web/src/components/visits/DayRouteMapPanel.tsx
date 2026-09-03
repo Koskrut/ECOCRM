@@ -51,7 +51,13 @@ function layersForCompensationKind(
     if (kind === "fact_gps") {
       return { planned: false, fact_visits: false, fact_gps: true, fact_visits_gps: false };
     }
+    if (kind === "planned") {
+      return { planned: true, fact_visits: false, fact_gps: true, fact_visits_gps: false };
+    }
     return { planned: false, fact_visits: true, fact_gps: false, fact_visits_gps: false };
+  }
+  if (kind === "planned") {
+    return { planned: true, fact_visits: false, fact_gps: true, fact_visits_gps: false };
   }
   if (kind === "fact_gps") {
     return { planned: true, fact_visits: false, fact_gps: true, fact_visits_gps: false };
@@ -135,7 +141,9 @@ export function DayRouteMapPanel({
     const factGps = bundle.factGps.distanceKm;
     const factVisits = bundle.factVisits.distanceKm;
     const compensationKm =
-      bundle.compensationFactKind === "fact_gps" && factGps != null
+      bundle.compensationFactKind === "planned" && plan != null
+        ? plan
+        : bundle.compensationFactKind === "fact_gps" && factGps != null
         ? factGps
         : bundle.compensationFactKind === "none"
           ? null
@@ -287,6 +295,7 @@ export function DayRouteMapPanel({
 
   const compensationLabel = useMemo(() => {
     if (!bundle?.compensationFactKind) return "";
+    if (bundle.compensationFactKind === "planned") return t.compensationPlanned;
     if (bundle.compensationFactKind === "fact_gps") return t.compensationGps;
     if (bundle.compensationFactKind === "none") return t.compensationReview;
     return t.compensationVisits;

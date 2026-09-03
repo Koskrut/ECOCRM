@@ -99,7 +99,7 @@ export type RouteGeometryBundle = {
   factVisits: RouteGeometryResult;
   factGps: RouteGeometryResult;
   factVisitsGps?: RouteGeometryResult;
-  compensationFactKind: "fact_gps" | "fact_visits" | "none";
+  compensationFactKind: "planned" | "fact_gps" | "fact_visits" | "none";
   compensationIneligibleReason?: string | null;
   shiftActive?: boolean;
   incompleteTour?: boolean;
@@ -160,7 +160,9 @@ export function normalizeGeometryBundle(raw: unknown): RouteGeometryBundle | nul
     lastSampleNearHome:
       typeof b.lastSampleNearHome === "boolean" ? b.lastSampleNearHome : undefined,
     compensationFactKind:
-      b.compensationFactKind === "fact_gps"
+      b.compensationFactKind === "planned"
+        ? "planned"
+        : b.compensationFactKind === "fact_gps"
         ? "fact_gps"
         : b.compensationFactKind === "none"
           ? "none"

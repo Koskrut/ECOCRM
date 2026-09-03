@@ -63,11 +63,14 @@ export type RouteGeometryBundle = {
   factGps: RouteGeometryResult;
   /** Hybrid: visit-order legs with GPS windows matched to roads where samples exist. */
   factVisitsGps: RouteGeometryResult;
-  /** Which fact source fuel/compensation should prefer when both exist. */
-  compensationFactKind: "fact_gps" | "fact_visits" | "none";
-  /** Set when compensationFactKind is fact_visits due to GPS eligibility failure, or none for review. */
+  /**
+   * Display/payout kind from fuel policy v2 (planned | fact_visits | none).
+   * @deprecated Money is decided in FieldFuelService.recalculate; this mirrors it for map labels.
+   */
+  compensationFactKind: "planned" | "fact_gps" | "fact_visits" | "none";
+  /** Set when payout is none, or visits used because plan was unavailable. */
   compensationIneligibleReason: string | null;
-  /** Soft GPS issues when still paying fact_gps (e.g. gps_low_coverage). */
+  /** Soft GPS / plan warnings (informational; do not block plan payout). */
   compensationWarnings?: string[];
   /** True when an open shift exists for this day (incomplete tour UX). */
   shiftActive?: boolean;

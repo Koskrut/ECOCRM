@@ -20,6 +20,9 @@ export type FuelRouteAnchorsSnapshot = {
 
 export type TrackMetricsSource = "track" | "track_fallback" | "none";
 
+/** Payout source for compensationKm. fact_gps is legacy (pre policy v2); never written by v2. */
+export type FuelCompensationFactKind = "planned" | "fact_gps" | "fact_visits" | "none";
+
 export type FuelCalculationSnapshot = {
   visits: FuelVisitSnapshotRow[];
   plannedMetricsSource: string | null;
@@ -27,8 +30,18 @@ export type FuelCalculationSnapshot = {
   factMetricsSource: string | null;
   factVisitsMetricsSource?: string | null;
   factGpsMetricsSource?: string | null;
-  /** fact_gps | fact_visits | none — payout source for compensationKm. */
-  compensationFactKind?: "fact_gps" | "fact_visits" | "none";
+  /** planned | fact_visits | none (legacy fact_gps may exist on old snapshots). */
+  compensationFactKind?: FuelCompensationFactKind;
+  /** Policy id, e.g. plan_primary_gps_display. */
+  payoutPolicy?: string;
+  /** Policy version so DRAFT migrates when payout rules change. */
+  payoutPolicyVersion?: string;
+  /** Audit: why this km was chosen. */
+  payoutReason?: string | null;
+  /** DONE plan stops counted toward planned payout. */
+  payoutConfirmedStopCount?: number;
+  /** Total route-plan stops for the day. */
+  payoutPlanStopCount?: number;
   /** GPS track distance (km), regardless of payout source. */
   trackKm?: number | null;
   /** Raw filtered polyline before road snap (km). */

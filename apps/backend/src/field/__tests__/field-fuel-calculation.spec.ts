@@ -48,7 +48,7 @@ function pathDistanceKm(points: { lat: number; lng: number }[]): number {
   return Math.round((total / 1000) * 10) / 10;
 }
 
-describe("fuel compensationFactKind selection (v2 eligibility)", () => {
+describe("fuel GPS eligibility (display-only; payout is selectCompensationPayout)", () => {
   it("prefers fact_gps when track meets v2 thresholds", () => {
     const rawKm = 1.2;
     const kind = pickCompensationFactKind({

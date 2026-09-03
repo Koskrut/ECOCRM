@@ -25,6 +25,7 @@ import { PlanningRemindersService } from "./planning-reminders.service";
 import { PlanningRemindersCron } from "./planning-reminders.cron";
 import { WeeklyPlanningJob } from "./weekly-planning.job";
 import { KitPortfolioService } from "./kit-portfolio.service";
+import { KitBomListService } from "./kit-bom-list.service";
 import { PlanningProductParamsService } from "./planning-product-params.service";
 
 @Module({
@@ -52,6 +53,7 @@ import { PlanningProductParamsService } from "./planning-product-params.service"
     PlanningRemindersCron,
     WeeklyPlanningJob,
     KitPortfolioService,
+    KitBomListService,
     PlanningProductParamsService,
   ],
 })

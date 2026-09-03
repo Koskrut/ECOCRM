@@ -589,6 +589,8 @@ export const uk = {
     statusPaid: "Виплачено",
     dayHint: "A: компенсація км (оцінка). B: чеки заправок — окремо.",
     payout: "Компенсація км",
+    payoutSourcePlan: "по плану",
+    payoutSourcePlanPartial: "по плану ({confirmed} з {plan} стопів)",
     payoutSourceGps: "по треку",
     payoutSourceVisits: "по візитах, трек неповний",
     payoutSourceReview: "на перевірці",

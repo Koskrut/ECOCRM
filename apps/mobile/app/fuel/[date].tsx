@@ -53,13 +53,17 @@ type FuelDayResponse = {
     compensationStatus: string;
     managerNote: string | null;
     metricsSource?: string | null;
+    calculationSnapshot?: {
+      payoutConfirmedStopCount?: number;
+      payoutPlanStopCount?: number;
+    } | null;
   };
   breakdown: BreakdownRow[];
   warnings: string[];
   factMetrics: RouteMetrics;
   factGpsMetrics?: RouteMetrics;
   factVisitsMetrics?: RouteMetrics;
-  compensationFactKind?: "fact_gps" | "fact_visits" | "none";
+  compensationFactKind?: "planned" | "fact_gps" | "fact_visits" | "none";
   refuels?: FuelRefuelEntry[];
   refuelTotals?: FuelRefuelTotals;
 };
@@ -302,11 +306,27 @@ export default function FuelDayScreen() {
                   {r.litersEstimated ?? "—"} л
                 </Text>
                 <Text style={[theme.typography.caption, { color: theme.colors.primaryText, marginTop: 2 }]}>
-                  {data?.compensationFactKind === "fact_gps"
-                    ? t("fuel.payoutSourceGps")
-                    : data?.compensationFactKind === "none"
-                      ? t("fuel.payoutSourceReview")
-                      : t("fuel.payoutSourceVisits")}
+                  {(() => {
+                    const snap = r.calculationSnapshot;
+                    const confirmed = snap?.payoutConfirmedStopCount;
+                    const planStops = snap?.payoutPlanStopCount;
+                    if (
+                      data?.compensationFactKind === "planned" &&
+                      confirmed != null &&
+                      planStops != null &&
+                      planStops > 0 &&
+                      confirmed < planStops
+                    ) {
+                      return t("fuel.payoutSourcePlanPartial", {
+                        confirmed,
+                        plan: planStops,
+                      });
+                    }
+                    if (data?.compensationFactKind === "planned") return t("fuel.payoutSourcePlan");
+                    if (data?.compensationFactKind === "fact_gps") return t("fuel.payoutSourceGps");
+                    if (data?.compensationFactKind === "none") return t("fuel.payoutSourceReview");
+                    return t("fuel.payoutSourceVisits");
+                  })()}
                   {r.metricsSource ? ` · ${r.metricsSource}` : ""}
                 </Text>
               </Card>

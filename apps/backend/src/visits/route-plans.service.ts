@@ -35,10 +35,13 @@ import {
   concatPaths,
   downsamplePathUniform,
   MIN_TRACK_COMPENSATION_KM,
-  selectCompensationFactKind,
   splitRouteLegs,
   sumLegMetrics,
 } from "./route-routing.util";
+import {
+  collectFuelGpsWarnings,
+  selectCompensationPayout,
+} from "../field/field-fuel.payout.util";
 import type {
   RouteGeometryBundle,
   RouteGeometryKind,
@@ -2115,19 +2118,39 @@ export class RoutePlansService {
       lastTracked ? { lat: lastTracked.lat, lng: lastTracked.lng } : null,
     );
 
+    const compensationFactKm = factVisits.distanceKm;
+    const plannedAssessment = assessPlannedKm({
+      plannedKm: planned.distanceKm,
+      factKm: null,
+    });
+
     const visitTrackContradiction = hasVisitTrackContradiction({
       visits: doneForContradiction,
       trackPoints: gpsMeta.trackedSamples.map((s) => ({ lat: s.lat, lng: s.lng })),
     });
 
-    const compensationFactKm =
-      factGps.distanceKm ?? factVisits.distanceKm;
-    const plannedAssessment = assessPlannedKm({
+    const planVisitIds = planned.waypoints
+      .map((w) => w.visitId)
+      .filter((id): id is string => typeof id === "string" && id.length > 0);
+    const doneVisitIds = factVisits.waypoints
+      .map((w) => w.visitId)
+      .filter((id): id is string => typeof id === "string" && id.length > 0);
+
+    const plannedDegraded = plannedAssessment.degraded || planned.source !== "osrm";
+    // Map bundle: no subset OSRM (fuel recalculate is source of truth for partial km).
+    const payout = selectCompensationPayout({
+      mobilityMode: shiftMobility.mobilityMode,
       plannedKm: planned.distanceKm,
-      factKm: compensationFactKm,
+      plannedDegraded,
+      plannedSource: planned.source,
+      visitRouteKm: factVisits.distanceKm,
+      planVisitIds,
+      doneVisitIds,
+      partialPlanKm: null,
+      visitTrackContradiction,
     });
 
-    const selection = selectCompensationFactKind({
+    const gpsWarnings = collectFuelGpsWarnings({
       hasTrackingEnabledShift: factGps.quality.hasTrackingEnabledShift ?? false,
       filteredSampleCount: factGps.quality.sampleCount,
       rawPolylineDistanceKm: factGps.quality.rawDistanceKm ?? null,
@@ -2140,6 +2163,7 @@ export class RoutePlansService {
       plannedKmWarning: plannedAssessment.warning,
       visitTrackContradiction,
       mobilityMode: shiftMobility.mobilityMode,
+      factGpsSource: factGps.source,
     });
 
     const plannedOrderAssessment = assessPlannedOrderEfficiency({
@@ -2149,7 +2173,7 @@ export class RoutePlansService {
       factVisitIds: factVisits.waypoints.map((w) => w.visitId),
     });
 
-    const compensationWarnings = [...(selection.warnings ?? [])];
+    const compensationWarnings = [...payout.warnings, ...gpsWarnings];
     if (plannedAssessment.warning && !compensationWarnings.includes(plannedAssessment.warning)) {
       compensationWarnings.push(plannedAssessment.warning);
     }
@@ -2175,8 +2199,8 @@ export class RoutePlansService {
       factVisits,
       factGps,
       factVisitsGps,
-      compensationFactKind: selection.kind,
-      compensationIneligibleReason: selection.ineligibleReason,
+      compensationFactKind: payout.kind,
+      compensationIneligibleReason: payout.ineligibleReason,
       compensationWarnings,
       shiftActive,
       incompleteTour,

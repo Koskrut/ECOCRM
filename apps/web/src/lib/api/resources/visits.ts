@@ -154,7 +154,7 @@ export type RouteGeometryResult = RouteGeometryLayer & {
 export type RouteGeometryBundle = {
   date: string;
   ownerId: string;
-  compensationFactKind: "fact_gps" | "fact_visits" | "none";
+  compensationFactKind: "planned" | "fact_gps" | "fact_visits" | "none";
   compensationIneligibleReason?: string | null;
   compensationWarnings?: string[];
   shiftActive?: boolean;

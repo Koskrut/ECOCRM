@@ -35,6 +35,7 @@ import {
 import { OverviewPanel } from "./OverviewPanel";
 import { RequestsPanel } from "./RequestsPanel";
 import { ProductParamsPanel } from "./ProductParamsPanel";
+import { KitBomsPanel } from "./KitBomsPanel";
 
 type PlanningScreen = "overview" | "requests" | "data";
 type BomEditorLine = {
@@ -756,6 +757,7 @@ function PlanningPageInner() {
               [
                 ["snapshots", t.dataSections.snapshots],
                 ["sales", t.dataSections.sales],
+                ["kits", t.dataSections.kits],
                 ["bom", t.dataSections.bom],
                 ["settings", t.dataSections.settings],
                 ["inventory", t.dataSections.inventory],
@@ -945,6 +947,8 @@ function PlanningPageInner() {
             </div>
                     ) : key === "sales" ? (
                       <ForecastPanel onError={handleOpsError} />
+                    ) : key === "kits" ? (
+                      <KitBomsPanel onError={handleOpsError} />
                     ) : key === "bom" ? (
             <div className="space-y-4">
               <p className="text-sm text-zinc-600">{t.messages.bomHint}</p>
