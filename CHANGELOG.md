@@ -4,7 +4,22 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.173**.)_
+_(планируемые изменения после **0.2.174**.)_
+
+## [0.2.174] — 2026-09-03
+
+### Summary
+
+Патч **0.2.174**: Kit BOMs UX — простий режим (склад / напакувати / виробити) + expert toggle.
+
+### Changed
+
+- **KitBomsPanel**: simple/expert modes; human filters (need action / can pack / need produce); stock bar + story copy; pack/produce action buttons; locales en/uk.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.174`**.
+- **Миграций нет.** Web-only UX.
 
 ## [0.2.173] — 2026-09-03
 

@@ -933,9 +933,35 @@ export const en = {
       inventory: "Stock by SKU (optional)",
     },
     kitBoms: {
-      hint: "All active kits. Can pack / Produce to ideal = cover norm; cycle = Friday request.",
+      hint: "What you have now and what to do to reach the stock norm.",
+      hintExpert:
+        "All active kits. Can pack / Produce to ideal = cover norm; cycle = Friday request.",
       banner:
         "This screen fills ideal stock. Weekly packing is on Overview / Requests. Produce rounds up to the shop min lot.",
+      simpleMode: "Simple",
+      expertMode: "Details",
+      colProduct: "Item",
+      colStock: "Stock",
+      colPack: "Pack",
+      colProduce: "Produce",
+      colDo: "Do",
+      stockOfIdeal: (have: number, ideal: number) => `${have} of ${ideal}`,
+      partsReady: "parts ready",
+      sendToShop: "send to shop",
+      storyNeed: (gap: number, pack: number, make: number) =>
+        `Short ${gap}. Pack ${pack} first — parts are ready. Produce the remaining ${make}.`,
+      storyPackOnly: (pack: number) =>
+        `Short ${pack}. Everything can be packed now — parts are ready.`,
+      storyMakeOnly: (make: number) =>
+        `Short ${make}. No parts — need to produce.`,
+      storyOk: "Stock is fine — nothing to do.",
+      filterNeedAction: "Needs action",
+      filterCanPack: "Can pack",
+      filterNeedProduce: "Need produce",
+      packBtn: (n: number) => `Pack ${n}`,
+      produceBtn: (n: number) => `Send to shop ${n}`,
+      belowMinPackSimple: (n: number) => `Too few for packing (min ${n})`,
+      noBottleneck: "No bottleneck part in BOM",
       classCol: "Class",
       qtyCol: "Qty",
       cycleNeed: "Cycle need",

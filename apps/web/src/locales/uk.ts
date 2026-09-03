@@ -934,9 +934,35 @@ export const uk = {
       inventory: "Залишки по SKU (опційно)",
     },
     kitBoms: {
-      hint: "Усі активні комплекти. Можемо/Виробити до ідеалу — норма cover; цикл — п’ятнична заявка.",
+      hint: "Скільки є зараз і що зробити, щоб дійти до норми.",
+      hintExpert:
+        "Усі активні комплекти. Можемо/Виробити до ідеалу — норма cover; цикл — п’ятнична заявка.",
       banner:
         "Тут — до ідеального запасу. Тижнева упаковка — на Огляді / Заявках. Виробити округлюється до мін. партії цеху.",
+      simpleMode: "Просто",
+      expertMode: "Детальніше",
+      colProduct: "Позиція",
+      colStock: "Склад",
+      colPack: "Напакувати",
+      colProduce: "Виробити",
+      colDo: "Зробити",
+      stockOfIdeal: (have: number, ideal: number) => `Є ${have} з ${ideal}`,
+      partsReady: "деталі вже є",
+      sendToShop: "замовити в цех",
+      storyNeed: (gap: number, pack: number, make: number) =>
+        `Не вистачає ${gap}. Спочатку напакуйте ${pack} — деталі є. Решту ${make} треба виробити.`,
+      storyPackOnly: (pack: number) =>
+        `Не вистачає ${pack}. Усе можна напакувати зараз — деталі є.`,
+      storyMakeOnly: (make: number) =>
+        `Не вистачає ${make}. Деталей немає — треба виробити.`,
+      storyOk: "Запас у нормі — нічого не робити.",
+      filterNeedAction: "Треба діяти",
+      filterCanPack: "Можна пакувати",
+      filterNeedProduce: "Треба виробляти",
+      packBtn: (n: number) => `Напакувати ${n}`,
+      produceBtn: (n: number) => `Віддати в цех ${n}`,
+      belowMinPackSimple: (n: number) => `Мало для упаковки (мін. ${n})`,
+      noBottleneck: "Немає вузької деталі в BOM",
       classCol: "Клас",
       qtyCol: "Кількість",
       cycleNeed: "Треба циклу",

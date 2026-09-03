@@ -27,6 +27,7 @@ type SortKey =
   | "effectiveFrom";
 
 type SortDir = "asc" | "desc";
+type HumanFilter = "needAction" | "canPack" | "needProduce" | null;
 
 function csvCell(value: string | number | null | undefined): string {
   const s = value == null ? "" : String(value);
@@ -48,6 +49,32 @@ function parseCsvParam(v: string | null): string[] {
     .split(",")
     .map((x) => x.trim().toUpperCase())
     .filter(Boolean);
+}
+
+function gapToIdeal(row: KitBomListItem): number {
+  return Math.max(0, row.coverTarget - row.stockFinished);
+}
+
+function storyFor(row: KitBomListItem, kb: typeof strings.planning.kitBoms): string {
+  const gap = gapToIdeal(row);
+  if (gap <= 0) return kb.storyOk;
+  if (row.canPackNow > 0 && row.toWorkLot > 0) {
+    return kb.storyNeed(gap, row.canPackNow, row.toWorkLot);
+  }
+  if (row.canPackNow > 0) return kb.storyPackOnly(row.canPackNow);
+  if (row.toWorkLot > 0) return kb.storyMakeOnly(row.toWorkLot);
+  return kb.storyOk;
+}
+
+function StockBar({ have, ideal }: { have: number; ideal: number }) {
+  const pct = ideal > 0 ? Math.min(100, Math.round((have / ideal) * 100)) : have > 0 ? 100 : 0;
+  const bar =
+    pct >= 100 ? "bg-emerald-500" : pct >= 50 ? "bg-cyan-600" : pct > 0 ? "bg-amber-500" : "bg-rose-500";
+  return (
+    <div className="mt-1 h-1.5 w-full max-w-[8rem] overflow-hidden rounded-full bg-zinc-100">
+      <div className={`h-full ${bar}`} style={{ width: `${pct}%` }} />
+    </div>
+  );
 }
 
 function compareRows(a: KitBomListItem, b: KitBomListItem, key: SortKey, dir: SortDir): number {
@@ -131,6 +158,53 @@ function compareRows(a: KitBomListItem, b: KitBomListItem, key: SortKey, dir: So
   return a.sku.localeCompare(b.sku, "uk");
 }
 
+function BomExpand({ row }: { row: KitBomListItem }) {
+  const t = strings.planning;
+  const kb = t.kitBoms;
+  return (
+    <td colSpan={99} className="px-4 py-3">
+      {row.bottleneckSku ? (
+        <p className="mb-2 text-xs text-amber-800">
+          {t.labels.bottleneck}: {row.bottleneckSku}
+          {row.bottleneckName ? ` · ${row.bottleneckName}` : ""}
+        </p>
+      ) : null}
+      {row.lines.length === 0 ? (
+        <p className="text-xs text-zinc-500">{t.states.noBom}</p>
+      ) : (
+        <table className="min-w-full divide-y divide-zinc-200 text-xs">
+          <thead>
+            <tr className="text-left text-zinc-500">
+              <th className="py-1 pr-3 font-medium">{t.labels.component}</th>
+              <th className="py-1 pr-3 font-medium">{t.labels.qty}</th>
+              <th className="py-1 pr-3 font-medium">{kb.scrap}</th>
+              <th className="py-1 pr-3 font-medium">{t.labels.available}</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-zinc-100">
+            {row.lines.map((line) => (
+              <tr
+                key={line.componentProductId}
+                className={line.isBottleneck ? "bg-amber-50 text-amber-950" : ""}
+              >
+                <td className="py-1 pr-3">
+                  <span className="font-medium">{line.componentSku}</span>
+                  <span className="ml-1 text-zinc-500">{line.componentName}</span>
+                </td>
+                <td className="py-1 pr-3 tabular-nums">{line.qtyPerKit}</td>
+                <td className="py-1 pr-3 tabular-nums">
+                  {line.scrapPct == null ? "—" : `${line.scrapPct}%`}
+                </td>
+                <td className="py-1 pr-3 tabular-nums">{line.available}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </td>
+  );
+}
+
 export function KitBomsPanel({ onError }: { onError: (msg: string) => void }) {
   const t = strings.planning;
   const kb = t.kitBoms;
@@ -139,6 +213,8 @@ export function KitBomsPanel({ onError }: { onError: (msg: string) => void }) {
   const searchParams = useSearchParams();
   const [rows, setRows] = useState<KitBomListItem[]>([]);
   const [query, setQuery] = useState("");
+  const [expert, setExpert] = useState(false);
+  const [humanFilter, setHumanFilter] = useState<HumanFilter>("needAction");
   const [abcFilter, setAbcFilter] = useState<Array<"A" | "B" | "C">>(() =>
     parseCsvParam(searchParams.get("abc")).filter((x): x is "A" | "B" | "C" =>
       x === "A" || x === "B" || x === "C",
@@ -149,7 +225,6 @@ export function KitBomsPanel({ onError }: { onError: (msg: string) => void }) {
       x === "X" || x === "Y" || x === "Z",
     ),
   );
-  const [onlyDeficit, setOnlyDeficit] = useState(searchParams.get("deficit") === "1");
   const [busy, setBusy] = useState(false);
   const [actingId, setActingId] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -157,15 +232,13 @@ export function KitBomsPanel({ onError }: { onError: (msg: string) => void }) {
   const [sortDir, setSortDir] = useState<SortDir>("asc");
 
   const syncFiltersToUrl = useCallback(
-    (abc: Array<"A" | "B" | "C">, xyz: Array<"X" | "Y" | "Z">, deficit: boolean) => {
+    (abc: Array<"A" | "B" | "C">, xyz: Array<"X" | "Y" | "Z">) => {
       const params = new URLSearchParams(searchParams.toString());
       params.set("tab", "kits");
       if (abc.length) params.set("abc", abc.join(","));
       else params.delete("abc");
       if (xyz.length) params.set("xyz", xyz.join(","));
       else params.delete("xyz");
-      if (deficit) params.set("deficit", "1");
-      else params.delete("deficit");
       router.replace(`/planning?${params.toString()}`, { scroll: false });
     },
     [router, searchParams],
@@ -180,7 +253,7 @@ export function KitBomsPanel({ onError }: { onError: (msg: string) => void }) {
     );
     setAbcFilter(abc);
     setXyzFilter(xyz);
-    setOnlyDeficit(searchParams.get("deficit") === "1");
+    if (abc.length > 0 || xyz.length > 0) setExpert(true);
   }, [searchParams]);
 
   const load = useCallback(async () => {
@@ -206,26 +279,35 @@ export function KitBomsPanel({ onError }: { onError: (msg: string) => void }) {
         (r) => r.sku.toLowerCase().includes(q) || r.name.toLowerCase().includes(q),
       );
     }
-    if (abcFilter.length > 0) {
-      const set = new Set(abcFilter);
-      list = list.filter((r) => set.has(r.paretoClass));
-    }
-    if (xyzFilter.length > 0) {
-      const set = new Set(xyzFilter);
-      list = list.filter((r) => r.xyzClass != null && set.has(r.xyzClass));
-    }
-    if (onlyDeficit) {
-      list = list.filter((r) => r.toWork > 0 || r.coverTarget > r.stockFinished);
+    if (!expert) {
+      if (humanFilter === "needAction") {
+        list = list.filter((r) => gapToIdeal(r) > 0);
+      } else if (humanFilter === "canPack") {
+        list = list.filter((r) => r.canPackNow > 0);
+      } else if (humanFilter === "needProduce") {
+        list = list.filter((r) => r.toWorkLot > 0 || r.toWork > 0);
+      }
+    } else {
+      if (abcFilter.length > 0) {
+        const set = new Set(abcFilter);
+        list = list.filter((r) => set.has(r.paretoClass));
+      }
+      if (xyzFilter.length > 0) {
+        const set = new Set(xyzFilter);
+        list = list.filter((r) => r.xyzClass != null && set.has(r.xyzClass));
+      }
     }
     return [...list].sort((a, b) => compareRows(a, b, sortKey, sortDir));
-  }, [rows, query, abcFilter, xyzFilter, onlyDeficit, sortKey, sortDir]);
+  }, [rows, query, expert, humanFilter, abcFilter, xyzFilter, sortKey, sortDir]);
 
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) {
       setSortDir((d) => (d === "asc" ? "desc" : "asc"));
     } else {
       setSortKey(key);
-      setSortDir(key === "sku" || key === "name" || key === "class" || key === "priority" ? "asc" : "desc");
+      setSortDir(
+        key === "sku" || key === "name" || key === "class" || key === "priority" ? "asc" : "desc",
+      );
     }
   };
 
@@ -302,8 +384,8 @@ export function KitBomsPanel({ onError }: { onError: (msg: string) => void }) {
     URL.revokeObjectURL(url);
   };
 
-  const addToPack = async (row: KitBomListItem) => {
-    if (row.canPackCycle < row.minPackLot) return;
+  const addToPack = async (row: KitBomListItem, qty: number) => {
+    if (qty < row.minPackLot) return;
     setActingId(row.kitProductId);
     try {
       let list = (await planningApi.listPackingLists(5))[0] ?? null;
@@ -318,7 +400,7 @@ export function KitBomsPanel({ onError }: { onError: (msg: string) => void }) {
         onError(t.errors.packing);
         return;
       }
-      const nextQty = Math.max(row.alreadyInRequest + row.canPackCycle, row.minPackLot);
+      const nextQty = Math.max(row.alreadyInRequest + qty, row.minPackLot);
       await planningApi.setPackingKitQty(list.id, row.kitProductId, nextQty);
       await load();
     } catch (e) {
@@ -360,7 +442,7 @@ export function KitBomsPanel({ onError }: { onError: (msg: string) => void }) {
   const coverClass = (tone: KitBomListItem["coverTone"]) =>
     tone === "critical" ? "text-rose-700" : tone === "warn" ? "text-amber-700" : "text-zinc-800";
 
-  const columns: Array<{ key: SortKey; label: string; title?: string }> = [
+  const expertColumns: Array<{ key: SortKey; label: string; title?: string }> = [
     { key: "sku", label: t.labels.sku },
     { key: "name", label: t.labels.name },
     { key: "class", label: kb.classCol },
@@ -380,19 +462,54 @@ export function KitBomsPanel({ onError }: { onError: (msg: string) => void }) {
     { key: "effectiveFrom", label: kb.effectiveFrom },
   ];
 
+  const chipClass = (on: boolean) =>
+    on
+      ? "rounded-full bg-zinc-900 px-3 py-1.5 text-sm text-white"
+      : "rounded-full border border-zinc-200 px-3 py-1.5 text-sm text-zinc-700";
+
   return (
     <div className="space-y-3">
-      <p className="text-sm text-zinc-600">{kb.hint}</p>
-      <div className="rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-2 text-sm text-cyan-900">
-        {kb.banner}{" "}
-        <Link href="/planning?tab=overview" className="underline">
-          {t.tabs.overview}
-        </Link>
-        {" · "}
-        <Link href="/planning?tab=requests&kind=pack" className="underline">
-          {t.tabs.requests}
-        </Link>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <p className="text-sm text-zinc-600">{expert ? kb.hintExpert : kb.hint}</p>
+        <div className="flex gap-1 rounded-full border border-zinc-200 bg-white p-0.5">
+          <button
+            type="button"
+            className={
+              !expert
+                ? "rounded-full bg-cyan-600 px-3 py-1 text-sm text-white"
+                : "rounded-full px-3 py-1 text-sm text-zinc-600"
+            }
+            onClick={() => setExpert(false)}
+          >
+            {kb.simpleMode}
+          </button>
+          <button
+            type="button"
+            className={
+              expert
+                ? "rounded-full bg-cyan-600 px-3 py-1 text-sm text-white"
+                : "rounded-full px-3 py-1 text-sm text-zinc-600"
+            }
+            onClick={() => setExpert(true)}
+          >
+            {kb.expertMode}
+          </button>
+        </div>
       </div>
+
+      {expert ? (
+        <div className="rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-2 text-sm text-cyan-900">
+          {kb.banner}{" "}
+          <Link href="/planning?tab=overview" className="underline">
+            {t.tabs.overview}
+          </Link>
+          {" · "}
+          <Link href="/planning?tab=requests&kind=pack" className="underline">
+            {t.tabs.requests}
+          </Link>
+        </div>
+      ) : null}
+
       <div className="flex flex-wrap items-center gap-2">
         <input
           type="search"
@@ -401,63 +518,71 @@ export function KitBomsPanel({ onError }: { onError: (msg: string) => void }) {
           placeholder={board.search}
           className="w-56 rounded-lg border border-zinc-200 px-3 py-1.5 text-sm"
         />
-        <span className="text-xs font-medium uppercase tracking-wide text-zinc-400">
-          {board.filterAbc}
-        </span>
-        {(["A", "B", "C"] as const).map((c) => (
-          <button
-            key={c}
-            type="button"
-            onClick={() => {
-              const next = toggleClass(abcFilter, c);
-              setAbcFilter(next);
-              syncFiltersToUrl(next, xyzFilter, onlyDeficit);
-            }}
-            className={
-              abcFilter.includes(c)
-                ? "rounded-full bg-zinc-900 px-2.5 py-1 text-xs text-white"
-                : "rounded-full border border-zinc-200 px-2.5 py-1 text-xs text-zinc-700"
-            }
-          >
-            {c}
-          </button>
-        ))}
-        <span className="text-xs font-medium uppercase tracking-wide text-zinc-400">
-          {board.filterXyz}
-        </span>
-        {(["X", "Y", "Z"] as const).map((c) => (
-          <button
-            key={c}
-            type="button"
-            onClick={() => {
-              const next = toggleClass(xyzFilter, c);
-              setXyzFilter(next);
-              syncFiltersToUrl(abcFilter, next, onlyDeficit);
-            }}
-            className={
-              xyzFilter.includes(c)
-                ? "rounded-full bg-zinc-900 px-2.5 py-1 text-xs text-white"
-                : "rounded-full border border-zinc-200 px-2.5 py-1 text-xs text-zinc-700"
-            }
-          >
-            {c}
-          </button>
-        ))}
-        <button
-          type="button"
-          onClick={() => {
-            const next = !onlyDeficit;
-            setOnlyDeficit(next);
-            syncFiltersToUrl(abcFilter, xyzFilter, next);
-          }}
-          className={
-            onlyDeficit
-              ? "rounded-full bg-rose-700 px-2.5 py-1 text-xs text-white"
-              : "rounded-full border border-zinc-200 px-2.5 py-1 text-xs text-zinc-700"
-          }
-        >
-          {kb.filterDeficit}
-        </button>
+        {!expert ? (
+          <>
+            {(
+              [
+                ["needAction", kb.filterNeedAction],
+                ["canPack", kb.filterCanPack],
+                ["needProduce", kb.filterNeedProduce],
+              ] as const
+            ).map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                className={chipClass(humanFilter === key)}
+                onClick={() => setHumanFilter((prev) => (prev === key ? null : key))}
+              >
+                {label}
+              </button>
+            ))}
+          </>
+        ) : (
+          <>
+            <span className="text-xs font-medium uppercase tracking-wide text-zinc-400">
+              {board.filterAbc}
+            </span>
+            {(["A", "B", "C"] as const).map((c) => (
+              <button
+                key={c}
+                type="button"
+                onClick={() => {
+                  const next = toggleClass(abcFilter, c);
+                  setAbcFilter(next);
+                  syncFiltersToUrl(next, xyzFilter);
+                }}
+                className={
+                  abcFilter.includes(c)
+                    ? "rounded-full bg-zinc-900 px-2.5 py-1 text-xs text-white"
+                    : "rounded-full border border-zinc-200 px-2.5 py-1 text-xs text-zinc-700"
+                }
+              >
+                {c}
+              </button>
+            ))}
+            <span className="text-xs font-medium uppercase tracking-wide text-zinc-400">
+              {board.filterXyz}
+            </span>
+            {(["X", "Y", "Z"] as const).map((c) => (
+              <button
+                key={c}
+                type="button"
+                onClick={() => {
+                  const next = toggleClass(xyzFilter, c);
+                  setXyzFilter(next);
+                  syncFiltersToUrl(abcFilter, next);
+                }}
+                className={
+                  xyzFilter.includes(c)
+                    ? "rounded-full bg-zinc-900 px-2.5 py-1 text-xs text-white"
+                    : "rounded-full border border-zinc-200 px-2.5 py-1 text-xs text-zinc-700"
+                }
+              >
+                {c}
+              </button>
+            ))}
+          </>
+        )}
         <button
           type="button"
           disabled={busy}
@@ -477,213 +602,277 @@ export function KitBomsPanel({ onError }: { onError: (msg: string) => void }) {
         <span className="text-xs text-zinc-500">{board.count(visible.length)}</span>
       </div>
 
-      <div className="overflow-x-auto rounded-xl border border-zinc-200 bg-white shadow-sm">
-        <table className="min-w-full divide-y divide-zinc-200 text-sm">
-          <thead className="bg-zinc-50">
-            <tr>
-              {columns.map((col) => (
-                <th
-                  key={col.key}
-                  className="whitespace-nowrap px-2 py-2 text-left font-medium text-zinc-600"
-                  title={col.title}
-                >
-                  <button
-                    type="button"
-                    className="inline-flex items-center hover:text-zinc-900"
-                    onClick={() => toggleSort(col.key)}
-                  >
-                    {col.label}
-                    <span className="text-zinc-400">{sortMark(col.key)}</span>
-                  </button>
-                </th>
-              ))}
-              <th className="whitespace-nowrap px-2 py-2 text-left font-medium text-zinc-600">
-                {t.labels.actions}
-              </th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-zinc-100">
-            {visible.length === 0 ? (
+      {!expert ? (
+        <div className="overflow-x-auto rounded-xl border border-zinc-200 bg-white shadow-sm">
+          <table className="min-w-full divide-y divide-zinc-200 text-sm">
+            <thead className="bg-zinc-50">
               <tr>
-                <td colSpan={columns.length + 1} className="px-3 py-4 text-zinc-500">
-                  {busy ? strings.common.loading : t.states.none}
-                </td>
+                {[kb.colProduct, kb.colStock, kb.colPack, kb.colProduce, kb.colDo].map((h) => (
+                  <th key={h} className="px-3 py-2 text-left font-medium text-zinc-600">
+                    {h}
+                  </th>
+                ))}
               </tr>
-            ) : (
-              visible.map((row) => {
-                const open = expandedId === row.kitProductId;
-                const canPack = row.canPackCycle >= row.minPackLot;
-                const canOrder =
-                  row.toWorkLot > 0 &&
-                  !!row.bottleneckComponentId &&
-                  row.suggestedFactoryQty > 0;
-                const produceHint = kb.produceLotHint(row.toWork, row.toWorkLot);
-                return (
-                  <Fragment key={row.kitProductId}>
-                    <tr className="hover:bg-zinc-50">
-                      <td
-                        className="cursor-pointer whitespace-nowrap px-2 py-1.5 font-medium text-zinc-900"
-                        onClick={() => setExpandedId(open ? null : row.kitProductId)}
+            </thead>
+            <tbody className="divide-y divide-zinc-100">
+              {visible.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="px-3 py-6 text-zinc-500">
+                    {busy ? strings.common.loading : t.states.none}
+                  </td>
+                </tr>
+              ) : (
+                visible.map((row) => {
+                  const open = expandedId === row.kitProductId;
+                  const gap = gapToIdeal(row);
+                  const ok = gap <= 0;
+                  const canPack = row.canPackNow >= row.minPackLot;
+                  const canOrder =
+                    row.toWorkLot > 0 &&
+                    !!row.bottleneckComponentId &&
+                    row.suggestedFactoryQty > 0;
+                  return (
+                    <Fragment key={row.kitProductId}>
+                      <tr
+                        className={
+                          ok ? "bg-emerald-50/40 hover:bg-emerald-50/70" : "hover:bg-zinc-50"
+                        }
                       >
-                        <span className="mr-1 text-zinc-400">{open ? "▾" : "▸"}</span>
-                        {row.sku}
-                      </td>
-                      <td
-                        className="max-w-[12rem] cursor-pointer truncate px-2 py-1.5 text-zinc-800"
-                        title={row.name}
-                        onClick={() => setExpandedId(open ? null : row.kitProductId)}
-                      >
-                        {row.name}
-                      </td>
-                      <td className="px-2 py-1.5 text-zinc-800">
-                        <span className="rounded bg-zinc-100 px-1.5 py-0.5 text-xs font-medium">
-                          {board.classBadge(row.paretoClass, row.xyzClass)}
-                        </span>
-                      </td>
-                      <td className="px-2 py-1.5 tabular-nums text-zinc-800" title={kb.cycleNeedHint}>
-                        {row.targetStock}
-                      </td>
-                      <td className="px-2 py-1.5 tabular-nums text-zinc-800" title={kb.idealHint}>
-                        {row.coverTarget}
-                      </td>
-                      <td className="px-2 py-1.5 tabular-nums text-zinc-800">{row.stockFinished}</td>
-                      <td
-                        className={`px-2 py-1.5 tabular-nums ${row.canPackNow > 0 ? "font-medium text-cyan-700" : "text-zinc-800"}`}
-                      >
-                        {row.canPackNow}
-                      </td>
-                      <td
-                        className={`px-2 py-1.5 tabular-nums ${row.toWorkLot > 0 ? "font-medium text-rose-700" : "text-zinc-800"}`}
-                        title={produceHint ?? undefined}
-                      >
-                        {row.toWorkLot}
-                      </td>
-                      <td
-                        className={`px-2 py-1.5 tabular-nums ${row.canPackCycle > 0 ? "text-cyan-700" : "text-zinc-800"}`}
-                      >
-                        {row.canPackCycle}
-                      </td>
-                      <td
-                        className={`px-2 py-1.5 tabular-nums ${row.toWorkCycle > 0 ? "text-rose-700" : "text-zinc-800"}`}
-                      >
-                        {row.toWorkCycle}
-                      </td>
-                      <td className="px-2 py-1.5 tabular-nums text-zinc-700">
-                        {row.alreadyInRequest > 0 ? row.alreadyInRequest : "—"}
-                      </td>
-                      <td className="px-2 py-1.5 tabular-nums text-zinc-800">{row.maxBuildNow}</td>
-                      <td className={`px-2 py-1.5 tabular-nums ${coverClass(row.coverTone)}`}>
-                        {row.weeksOfCover == null
-                          ? board.weeksUnknown
-                          : `${row.weeksOfCover} ${board.weeksUnit}`}
-                      </td>
-                      <td className="px-2 py-1.5 tabular-nums text-zinc-700">
-                        {row.basePrice.toLocaleString()}
-                      </td>
-                      <td className="px-2 py-1.5 tabular-nums text-zinc-700">
-                        {row.revision ?? "—"}
-                      </td>
-                      <td className="px-2 py-1.5 tabular-nums text-zinc-700">{row.linesCount}</td>
-                      <td className="whitespace-nowrap px-2 py-1.5 text-zinc-600">
-                        {row.effectiveFrom
-                          ? new Date(row.effectiveFrom).toLocaleDateString()
-                          : "—"}
-                      </td>
-                      <td className="px-2 py-1.5">
-                        <div className="flex flex-col gap-1">
-                          {canPack ? (
-                            <button
-                              type="button"
-                              disabled={actingId === row.kitProductId}
-                              className="rounded border border-cyan-200 bg-cyan-50 px-2 py-0.5 text-xs font-medium text-cyan-900 disabled:opacity-50"
-                              onClick={() => void addToPack(row)}
-                            >
-                              {kb.addToPack}
-                            </button>
-                          ) : row.canPackCycle > 0 ? (
-                            <span className="text-[10px] text-zinc-500">
-                              {kb.belowMinPack(row.minPackLot)}
-                            </span>
-                          ) : null}
-                          {canOrder ? (
-                            <button
-                              type="button"
-                              disabled={actingId === row.kitProductId}
-                              className="rounded border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-900 disabled:opacity-50"
-                              onClick={() => void orderBottleneck(row)}
-                            >
-                              {kb.orderBottleneck}
-                            </button>
-                          ) : null}
-                          <Link
-                            href={`/planning?tab=requests&kind=pack&sku=${encodeURIComponent(row.sku)}`}
-                            className="text-[10px] text-zinc-500 underline"
+                        <td className="max-w-[18rem] px-3 py-3">
+                          <button
+                            type="button"
+                            className="w-full text-left"
+                            onClick={() => setExpandedId(open ? null : row.kitProductId)}
                           >
-                            {t.tabs.requests}
-                          </Link>
-                        </div>
-                      </td>
-                    </tr>
-                    {open ? (
-                      <tr className="bg-zinc-50/80">
-                        <td colSpan={columns.length + 1} className="px-4 py-3">
-                          {row.bottleneckSku ? (
-                            <p className="mb-2 text-xs text-amber-800">
-                              {t.labels.bottleneck}: {row.bottleneckSku}
-                              {row.bottleneckName ? ` · ${row.bottleneckName}` : ""}
+                            <p className="font-medium text-zinc-900">
+                              <span className="mr-1 text-zinc-400">{open ? "▾" : "▸"}</span>
+                              {row.name}
                             </p>
-                          ) : null}
-                          {row.waitingOrders > 0 ? (
-                            <p className="mb-2 text-xs text-zinc-600">
-                              {board.waiting(row.waitingOrders)}
+                            <p className="text-xs text-zinc-500">{row.sku}</p>
+                            <p
+                              className={`mt-1 text-xs ${ok ? "text-emerald-800" : "text-zinc-600"}`}
+                            >
+                              {storyFor(row, kb)}
                             </p>
-                          ) : null}
-                          {row.lines.length === 0 ? (
-                            <p className="text-xs text-zinc-500">{t.states.noBom}</p>
+                          </button>
+                        </td>
+                        <td className="px-3 py-3">
+                          <p className="tabular-nums font-medium text-zinc-900">
+                            {kb.stockOfIdeal(row.stockFinished, row.coverTarget)}
+                          </p>
+                          <StockBar have={row.stockFinished} ideal={row.coverTarget} />
+                        </td>
+                        <td className="px-3 py-3">
+                          {row.canPackNow > 0 ? (
+                            <>
+                              <p className="text-lg font-semibold tabular-nums text-cyan-700">
+                                {row.canPackNow}
+                              </p>
+                              <p className="text-xs text-zinc-500">{kb.partsReady}</p>
+                            </>
                           ) : (
-                            <table className="min-w-full divide-y divide-zinc-200 text-xs">
-                              <thead>
-                                <tr className="text-left text-zinc-500">
-                                  <th className="py-1 pr-3 font-medium">{t.labels.component}</th>
-                                  <th className="py-1 pr-3 font-medium">{t.labels.qty}</th>
-                                  <th className="py-1 pr-3 font-medium">{kb.scrap}</th>
-                                  <th className="py-1 pr-3 font-medium">{t.labels.available}</th>
-                                </tr>
-                              </thead>
-                              <tbody className="divide-y divide-zinc-100">
-                                {row.lines.map((line) => (
-                                  <tr
-                                    key={line.componentProductId}
-                                    className={
-                                      line.isBottleneck ? "bg-amber-50 text-amber-950" : ""
-                                    }
-                                  >
-                                    <td className="py-1 pr-3">
-                                      <span className="font-medium">{line.componentSku}</span>
-                                      <span className="ml-1 text-zinc-500">
-                                        {line.componentName}
-                                      </span>
-                                    </td>
-                                    <td className="py-1 pr-3 tabular-nums">{line.qtyPerKit}</td>
-                                    <td className="py-1 pr-3 tabular-nums">
-                                      {line.scrapPct == null ? "—" : `${line.scrapPct}%`}
-                                    </td>
-                                    <td className="py-1 pr-3 tabular-nums">{line.available}</td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
+                            <span className="text-zinc-400">—</span>
                           )}
                         </td>
+                        <td className="px-3 py-3">
+                          {row.toWorkLot > 0 ? (
+                            <>
+                              <p className="text-lg font-semibold tabular-nums text-rose-700">
+                                {row.toWorkLot}
+                              </p>
+                              <p className="text-xs text-zinc-500">{kb.sendToShop}</p>
+                            </>
+                          ) : (
+                            <span className="text-zinc-400">—</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-3">
+                          <div className="flex flex-col gap-1.5">
+                            {canPack ? (
+                              <button
+                                type="button"
+                                disabled={actingId === row.kitProductId}
+                                className="rounded-lg bg-cyan-600 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+                                onClick={() => void addToPack(row, row.canPackNow)}
+                              >
+                                {kb.packBtn(row.canPackNow)}
+                              </button>
+                            ) : row.canPackNow > 0 ? (
+                              <span className="text-xs text-zinc-500">
+                                {kb.belowMinPackSimple(row.minPackLot)}
+                              </span>
+                            ) : null}
+                            {canOrder ? (
+                              <button
+                                type="button"
+                                disabled={actingId === row.kitProductId}
+                                className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-sm font-medium text-amber-950 disabled:opacity-50"
+                                onClick={() => void orderBottleneck(row)}
+                              >
+                                {kb.produceBtn(row.toWorkLot)}
+                              </button>
+                            ) : row.toWorkLot > 0 ? (
+                              <span className="text-xs text-zinc-500">{kb.noBottleneck}</span>
+                            ) : null}
+                            {ok ? (
+                              <span className="text-xs font-medium text-emerald-700">{kb.storyOk}</span>
+                            ) : null}
+                          </div>
+                        </td>
                       </tr>
-                    ) : null}
-                  </Fragment>
-                );
-              })
-            )}
-          </tbody>
-        </table>
-      </div>
+                      {open ? (
+                        <tr className="bg-zinc-50/80">
+                          <BomExpand row={row} />
+                        </tr>
+                      ) : null}
+                    </Fragment>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div className="overflow-x-auto rounded-xl border border-zinc-200 bg-white shadow-sm">
+          <table className="min-w-full divide-y divide-zinc-200 text-sm">
+            <thead className="bg-zinc-50">
+              <tr>
+                {expertColumns.map((col) => (
+                  <th
+                    key={col.key}
+                    className="whitespace-nowrap px-2 py-2 text-left font-medium text-zinc-600"
+                    title={col.title}
+                  >
+                    <button
+                      type="button"
+                      className="inline-flex items-center hover:text-zinc-900"
+                      onClick={() => toggleSort(col.key)}
+                    >
+                      {col.label}
+                      <span className="text-zinc-400">{sortMark(col.key)}</span>
+                    </button>
+                  </th>
+                ))}
+                <th className="whitespace-nowrap px-2 py-2 text-left font-medium text-zinc-600">
+                  {t.labels.actions}
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-zinc-100">
+              {visible.length === 0 ? (
+                <tr>
+                  <td colSpan={expertColumns.length + 1} className="px-3 py-4 text-zinc-500">
+                    {busy ? strings.common.loading : t.states.none}
+                  </td>
+                </tr>
+              ) : (
+                visible.map((row) => {
+                  const open = expandedId === row.kitProductId;
+                  const canPack = row.canPackCycle >= row.minPackLot;
+                  const canOrder =
+                    row.toWorkLot > 0 &&
+                    !!row.bottleneckComponentId &&
+                    row.suggestedFactoryQty > 0;
+                  return (
+                    <Fragment key={row.kitProductId}>
+                      <tr className="hover:bg-zinc-50">
+                        <td
+                          className="cursor-pointer whitespace-nowrap px-2 py-1.5 font-medium text-zinc-900"
+                          onClick={() => setExpandedId(open ? null : row.kitProductId)}
+                        >
+                          <span className="mr-1 text-zinc-400">{open ? "▾" : "▸"}</span>
+                          {row.sku}
+                        </td>
+                        <td
+                          className="max-w-[12rem] cursor-pointer truncate px-2 py-1.5 text-zinc-800"
+                          title={row.name}
+                          onClick={() => setExpandedId(open ? null : row.kitProductId)}
+                        >
+                          {row.name}
+                        </td>
+                        <td className="px-2 py-1.5 text-zinc-800">
+                          <span className="rounded bg-zinc-100 px-1.5 py-0.5 text-xs font-medium">
+                            {board.classBadge(row.paretoClass, row.xyzClass)}
+                          </span>
+                        </td>
+                        <td className="px-2 py-1.5 tabular-nums text-zinc-800">{row.targetStock}</td>
+                        <td className="px-2 py-1.5 tabular-nums text-zinc-800">{row.coverTarget}</td>
+                        <td className="px-2 py-1.5 tabular-nums text-zinc-800">{row.stockFinished}</td>
+                        <td
+                          className={`px-2 py-1.5 tabular-nums ${row.canPackNow > 0 ? "font-medium text-cyan-700" : "text-zinc-800"}`}
+                        >
+                          {row.canPackNow}
+                        </td>
+                        <td
+                          className={`px-2 py-1.5 tabular-nums ${row.toWorkLot > 0 ? "font-medium text-rose-700" : "text-zinc-800"}`}
+                        >
+                          {row.toWorkLot}
+                        </td>
+                        <td className="px-2 py-1.5 tabular-nums text-zinc-800">{row.canPackCycle}</td>
+                        <td className="px-2 py-1.5 tabular-nums text-zinc-800">{row.toWorkCycle}</td>
+                        <td className="px-2 py-1.5 tabular-nums text-zinc-700">
+                          {row.alreadyInRequest > 0 ? row.alreadyInRequest : "—"}
+                        </td>
+                        <td className="px-2 py-1.5 tabular-nums text-zinc-800">{row.maxBuildNow}</td>
+                        <td className={`px-2 py-1.5 tabular-nums ${coverClass(row.coverTone)}`}>
+                          {row.weeksOfCover == null
+                            ? board.weeksUnknown
+                            : `${row.weeksOfCover} ${board.weeksUnit}`}
+                        </td>
+                        <td className="px-2 py-1.5 tabular-nums text-zinc-700">
+                          {row.basePrice.toLocaleString()}
+                        </td>
+                        <td className="px-2 py-1.5 tabular-nums text-zinc-700">
+                          {row.revision ?? "—"}
+                        </td>
+                        <td className="px-2 py-1.5 tabular-nums text-zinc-700">{row.linesCount}</td>
+                        <td className="whitespace-nowrap px-2 py-1.5 text-zinc-600">
+                          {row.effectiveFrom
+                            ? new Date(row.effectiveFrom).toLocaleDateString()
+                            : "—"}
+                        </td>
+                        <td className="px-2 py-1.5">
+                          <div className="flex flex-col gap-1">
+                            {canPack ? (
+                              <button
+                                type="button"
+                                disabled={actingId === row.kitProductId}
+                                className="rounded border border-cyan-200 bg-cyan-50 px-2 py-0.5 text-xs font-medium text-cyan-900 disabled:opacity-50"
+                                onClick={() => void addToPack(row, row.canPackCycle)}
+                              >
+                                {kb.addToPack}
+                              </button>
+                            ) : row.canPackCycle > 0 ? (
+                              <span className="text-[10px] text-zinc-500">
+                                {kb.belowMinPack(row.minPackLot)}
+                              </span>
+                            ) : null}
+                            {canOrder ? (
+                              <button
+                                type="button"
+                                disabled={actingId === row.kitProductId}
+                                className="rounded border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-900 disabled:opacity-50"
+                                onClick={() => void orderBottleneck(row)}
+                              >
+                                {kb.orderBottleneck}
+                              </button>
+                            ) : null}
+                          </div>
+                        </td>
+                      </tr>
+                      {open ? (
+                        <tr className="bg-zinc-50/80">
+                          <BomExpand row={row} />
+                        </tr>
+                      ) : null}
+                    </Fragment>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
