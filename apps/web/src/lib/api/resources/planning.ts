@@ -288,9 +288,9 @@ export type KitBomListItem = {
   unit: string;
   basePrice: number;
   isActive: boolean;
-  bomId: string;
-  revision: number;
-  effectiveFrom: string;
+  bomId: string | null;
+  revision: number | null;
+  effectiveFrom: string | null;
   linesCount: number;
   paretoClass: "A" | "B" | "C";
   xyzClass: "X" | "Y" | "Z" | null;
@@ -298,7 +298,12 @@ export type KitBomListItem = {
   xyzReason: "stable" | "variable" | "intermittent" | "insufficient_history";
   xyzSource: "crm_weeks" | "sales_months" | null;
   stockFinished: number;
+  stockNow: number;
+  coverTarget: number;
+  targetStock: number;
   maxBuildNow: number;
+  canPackNow: number;
+  toWork: number;
   weeksOfCover: number | null;
   coverTone: "critical" | "warn" | "ok";
   avgMonthlySold: number;

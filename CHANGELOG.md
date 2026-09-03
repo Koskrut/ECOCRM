@@ -4,7 +4,23 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.171**.)_
+_(планируемые изменения после **0.2.172**.)_
+
+## [0.2.172] — 2026-09-03
+
+### Summary
+
+Патч **0.2.172**: Kit BOMs — усі активні комплекти + метрики позиції (кількість/ідеальне/Можемо/В роботу), сортування, вкладка «Комплекти».
+
+### Changed
+
+- **KitBomListService**: list all active KITs (BOM optional); `coverTarget` / `targetStock` / `canPackNow` / `toWork` / `stockNow`.
+- **KitBomsPanel**: sortable columns, richer CSV; planning tab + how-to copy; locales en/uk.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.172`**.
+- **Миграций нет.**
 
 ## [0.2.171] — 2026-09-03
 

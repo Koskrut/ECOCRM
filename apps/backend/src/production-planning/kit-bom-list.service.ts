@@ -19,7 +19,9 @@ import { monthsAgoUtc } from "./planning-safety.util";
 import {
   assignParetoClasses,
   assignXyzClass,
+  computeCoverTarget,
   computeKitBuild,
+  computeKitPositionPlan,
   computeWeeklyPackNeed,
   coverTone,
   effectiveStock,
@@ -54,9 +56,9 @@ export type KitBomListItem = {
   unit: string;
   basePrice: number;
   isActive: boolean;
-  bomId: string;
-  revision: number;
-  effectiveFrom: string;
+  bomId: string | null;
+  revision: number | null;
+  effectiveFrom: string | null;
   linesCount: number;
   paretoClass: ParetoClass;
   xyzClass: XyzClass | null;
@@ -64,7 +66,12 @@ export type KitBomListItem = {
   xyzReason: XyzReason;
   xyzSource: XyzSource | null;
   stockFinished: number;
+  stockNow: number;
+  coverTarget: number;
+  targetStock: number;
   maxBuildNow: number;
+  canPackNow: number;
+  toWork: number;
   weeksOfCover: number | null;
   coverTone: CoverTone;
   avgMonthlySold: number;
@@ -74,6 +81,19 @@ export type KitBomListItem = {
   bottleneckSku: string | null;
   bottleneckName: string | null;
   lines: KitBomListLine[];
+};
+
+type BomWithLines = {
+  id: string;
+  revision: number;
+  effectiveFrom: Date;
+  lines: Array<{
+    componentProductId: string;
+    qtyPerKit: { toString(): string } | number;
+    scrapPct: { toString(): string } | number | null;
+    sortOrder: number;
+    component: { id: string; sku: string; name: string; kind: string } | null;
+  }>;
 };
 
 @Injectable()
@@ -89,33 +109,35 @@ export class KitBomListService {
 
   async listActive(q?: string): Promise<KitBomListItem[]> {
     const query = q?.trim();
-    const boms = await this.prisma.kitBom.findMany({
+    const kits = await this.prisma.product.findMany({
       where: {
+        kind: ProductKind.KIT,
         isActive: true,
-        kitProduct: {
-          kind: ProductKind.KIT,
-          isActive: true,
-          ...(query
-            ? {
-                OR: [
-                  { sku: { contains: query, mode: "insensitive" } },
-                  { name: { contains: query, mode: "insensitive" } },
-                ],
-              }
-            : {}),
-        },
+        ...(query
+          ? {
+              OR: [
+                { sku: { contains: query, mode: "insensitive" } },
+                { name: { contains: query, mode: "insensitive" } },
+              ],
+            }
+          : {}),
       },
+      select: {
+        id: true,
+        sku: true,
+        name: true,
+        unit: true,
+        basePrice: true,
+        isActive: true,
+      },
+      orderBy: { sku: "asc" },
+    });
+    if (kits.length === 0) return [];
+
+    const kitIds = kits.map((k) => k.id);
+    const boms = await this.prisma.kitBom.findMany({
+      where: { isActive: true, kitProductId: { in: kitIds } },
       include: {
-        kitProduct: {
-          select: {
-            id: true,
-            sku: true,
-            name: true,
-            unit: true,
-            basePrice: true,
-            isActive: true,
-          },
-        },
         lines: {
           orderBy: { sortOrder: "asc" },
           include: {
@@ -123,22 +145,18 @@ export class KitBomListService {
           },
         },
       },
-      orderBy: [{ kitProduct: { sku: "asc" } }, { effectiveFrom: "desc" }, { revision: "desc" }],
+      orderBy: [{ effectiveFrom: "desc" }, { revision: "desc" }],
     });
 
-    // One active BOM per kit (prefer highest effectiveFrom/revision already ordered).
-    const bomByKit = new Map<string, (typeof boms)[number]>();
+    const bomByKit = new Map<string, BomWithLines>();
     for (const bom of boms) {
       if (!bomByKit.has(bom.kitProductId)) bomByKit.set(bom.kitProductId, bom);
     }
-    const uniqueBoms = [...bomByKit.values()].sort((a, b) =>
-      a.kitProduct.sku.localeCompare(b.kitProduct.sku, "uk"),
-    );
-    if (uniqueBoms.length === 0) return [];
 
-    const kitIds = uniqueBoms.map((b) => b.kitProductId);
     const componentIds = [
-      ...new Set(uniqueBoms.flatMap((b) => b.lines.map((l) => l.componentProductId))),
+      ...new Set(
+        [...bomByKit.values()].flatMap((b) => b.lines.map((l) => l.componentProductId)),
+      ),
     ];
     const allIds = [...new Set([...kitIds, ...componentIds])];
 
@@ -159,73 +177,83 @@ export class KitBomListService {
     xyzSince.setUTCDate(xyzSince.getUTCDate() - 26 * 7);
     const excluded = [...ANALYTICS_EXCLUDED_ORDER_STAGES] as OrderStage[];
 
-    const [stockRows, reservedRows, forecastMap, forecastCycle, packDemand, latestSales, revenueRows, waitingRows, shippedRows] =
-      await Promise.all([
-        postedSnapshot
-          ? this.prisma.inventorySnapshotLine.groupBy({
-              by: ["productId"],
-              where: { snapshotId: postedSnapshot.id, productId: { in: allIds } },
-              _sum: { qty: true },
-            })
-          : Promise.resolve([]),
-        this.prisma.materialReservation.groupBy({
-          by: ["productId"],
-          where: {
-            productId: { in: allIds },
-            status: ReservationStatus.ACTIVE,
-            hardness: ReservationHardness.HARD,
+    const [
+      stockRows,
+      reservedRows,
+      forecastMap,
+      forecastCycle,
+      packDemand,
+      latestSales,
+      revenueRows,
+      waitingRows,
+      shippedRows,
+    ] = await Promise.all([
+      postedSnapshot
+        ? this.prisma.inventorySnapshotLine.groupBy({
+            by: ["productId"],
+            where: { snapshotId: postedSnapshot.id, productId: { in: allIds } },
+            _sum: { qty: true },
+          })
+        : Promise.resolve([]),
+      this.prisma.materialReservation.groupBy({
+        by: ["productId"],
+        where: {
+          productId: { in: allIds },
+          status: ReservationStatus.ACTIVE,
+          hardness: ReservationHardness.HARD,
+        },
+        _sum: { qty: true },
+      }),
+      this.demandForecast.getDemandForecastMap(kitIds),
+      this.demandForecast.getForecastQtyMap(planningSettings.packCycleDays, kitIds),
+      this.calculations.getPackDemandByProduct(),
+      this.prisma.salesHistoryUpload.findFirst({
+        where: { status: SalesHistoryUploadStatus.POSTED },
+        orderBy: { postedAt: "desc" },
+        select: { id: true },
+      }),
+      this.prisma.orderItem.findMany({
+        where: {
+          productId: { in: kitIds },
+          order: {
+            createdAt: { gte: monthsAgoUtc(horizon.velocityLookbackMonths) },
+            OR: [{ orderStage: { notIn: excluded } }, { orderStage: null }],
           },
-          _sum: { qty: true },
-        }),
-        this.demandForecast.getDemandForecastMap(kitIds),
-        this.demandForecast.getForecastQtyMap(planningSettings.packCycleDays, kitIds),
-        this.calculations.getPackDemandByProduct(),
-        this.prisma.salesHistoryUpload.findFirst({
-          where: { status: SalesHistoryUploadStatus.POSTED },
-          orderBy: { postedAt: "desc" },
-          select: { id: true },
-        }),
-        this.prisma.orderItem.findMany({
-          where: {
-            productId: { in: kitIds },
-            order: {
-              createdAt: { gte: monthsAgoUtc(horizon.velocityLookbackMonths) },
-              OR: [{ orderStage: { notIn: excluded } }, { orderStage: null }],
-            },
+        },
+        select: { productId: true, qty: true, price: true, order: { select: { currency: true } } },
+      }),
+      this.prisma.orderItem.findMany({
+        where: {
+          productId: { in: kitIds },
+          order: {
+            orderStage: { in: [OrderStage.AWAITING_STOCK], notIn: excluded },
           },
-          select: { productId: true, qty: true, price: true, order: { select: { currency: true } } },
-        }),
-        this.prisma.orderItem.findMany({
-          where: {
-            productId: { in: kitIds },
-            order: {
-              orderStage: { in: [OrderStage.AWAITING_STOCK], notIn: excluded },
-            },
+        },
+        select: { productId: true, orderId: true, qty: true, qtyShipped: true },
+      }),
+      this.prisma.orderItem.findMany({
+        where: {
+          productId: { in: kitIds },
+          qtyShipped: { gt: 0 },
+          order: {
+            createdAt: { gte: xyzSince },
+            orderStage: { notIn: [OrderStage.CANCELED, OrderStage.REFUSED] },
           },
-          select: { productId: true, orderId: true, qty: true, qtyShipped: true },
-        }),
-        this.prisma.orderItem.findMany({
-          where: {
-            productId: { in: kitIds },
-            qtyShipped: { gt: 0 },
-            order: {
-              createdAt: { gte: xyzSince },
-              orderStage: { notIn: [OrderStage.CANCELED, OrderStage.REFUSED] },
-            },
-          },
-          select: {
-            productId: true,
-            qtyShipped: true,
-            order: { select: { createdAt: true } },
-          },
-        }),
-      ]);
+        },
+        select: {
+          productId: true,
+          qtyShipped: true,
+          order: { select: { createdAt: true } },
+        },
+      }),
+    ]);
 
     const stockMap = new Map(
       stockRows.filter((r) => r.productId).map((r) => [r.productId!, r._sum.qty ?? 0]),
     );
     const reservedMap = new Map(reservedRows.map((r) => [r.productId, r._sum.qty ?? 0]));
-    const availableOf = (id: string) => Math.max(0, (stockMap.get(id) ?? 0) - (reservedMap.get(id) ?? 0));
+    const availableOf = (id: string) =>
+      Math.max(0, (stockMap.get(id) ?? 0) - (reservedMap.get(id) ?? 0));
 
     const revenueByKit = new Map<string, number>();
     for (const row of revenueRows) {
@@ -283,10 +311,10 @@ export class KitBomListService {
       waitingByKit.set(row.productId, set);
     }
 
-    return uniqueBoms.map((bom) => {
-      const kit = bom.kitProduct;
+    return kits.map((kit) => {
+      const bom = bomByKit.get(kit.id) ?? null;
       const build = computeKitBuild(
-        bom.lines.map((line) => ({
+        (bom?.lines ?? []).map((line) => ({
           componentProductId: line.componentProductId,
           sku: line.component?.sku ?? "",
           name: line.component?.name,
@@ -306,6 +334,13 @@ export class KitBomListService {
         softNeed,
         stockKits: stockFinished,
         demandMix: planningSettings.demandMix,
+      });
+      const coverTarget = computeCoverTarget({ avgMonthlySold, warnWeeks });
+      const positionPlan = computeKitPositionPlan({
+        stockFinished,
+        maxBuildNow: build.maxBuildNow,
+        weeklyPackNeed,
+        coverTarget,
       });
       const weeks = weeksOfCover(effectiveStock(stockFinished, build.maxBuildNow), avgMonthlySold);
       const crmWeeks = crmWeeksByKit.get(kit.id) ?? new Map<string, number>();
@@ -328,17 +363,22 @@ export class KitBomListService {
         unit: kit.unit,
         basePrice: kit.basePrice,
         isActive: kit.isActive,
-        bomId: bom.id,
-        revision: bom.revision,
-        effectiveFrom: bom.effectiveFrom.toISOString(),
-        linesCount: bom.lines.length,
+        bomId: bom?.id ?? null,
+        revision: bom?.revision ?? null,
+        effectiveFrom: bom?.effectiveFrom.toISOString() ?? null,
+        linesCount: bom?.lines.length ?? 0,
         paretoClass: pareto?.paretoClass ?? "C",
         xyzClass: xyz.xyzClass,
         demandCv: xyz.demandCv,
         xyzReason: xyz.xyzReason,
         xyzSource: xyz.xyzSource,
         stockFinished,
+        stockNow: positionPlan.stockNow,
+        coverTarget: positionPlan.coverTarget,
+        targetStock: positionPlan.targetStock,
         maxBuildNow: build.maxBuildNow,
+        canPackNow: positionPlan.canPackNow,
+        toWork: positionPlan.toWork,
         weeksOfCover: weeks,
         coverTone: coverTone(weeks, warnWeeks, criticalWeeks),
         avgMonthlySold,
@@ -347,7 +387,7 @@ export class KitBomListService {
         waitingOrders: waitingByKit.get(kit.id)?.size ?? 0,
         bottleneckSku: build.bottleneckSku,
         bottleneckName: build.bottleneckName,
-        lines: bom.lines.map((line) => ({
+        lines: (bom?.lines ?? []).map((line) => ({
           componentProductId: line.componentProductId,
           componentSku: line.component?.sku ?? "",
           componentName: line.component?.name ?? "",

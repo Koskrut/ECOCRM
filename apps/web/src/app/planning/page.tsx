@@ -37,7 +37,7 @@ import { RequestsPanel } from "./RequestsPanel";
 import { ProductParamsPanel } from "./ProductParamsPanel";
 import { KitBomsPanel } from "./KitBomsPanel";
 
-type PlanningScreen = "overview" | "requests" | "data";
+type PlanningScreen = "overview" | "kits" | "requests" | "data";
 type BomEditorLine = {
   id: string;
   componentProductId: string;
@@ -46,10 +46,9 @@ type BomEditorLine = {
   sortOrder: number;
 };
 
-/** Legacy ?tab= keys → new IA (soft redirect). */
+/** Legacy ?tab= keys → new IA (soft redirect). `kits` is a first-class screen. */
 const LEGACY_TAB_MAP: Record<string, PlanningScreen> = {
   today: "overview",
-  kits: "overview",
   dashboard: "overview",
   mrp: "overview",
   mrpCritical: "overview",
@@ -69,7 +68,7 @@ const LEGACY_TAB_MAP: Record<string, PlanningScreen> = {
   queues: "data",
 };
 
-const PLANNING_SCREENS: PlanningScreen[] = ["overview", "requests", "data"];
+const PLANNING_SCREENS: PlanningScreen[] = ["overview", "kits", "requests", "data"];
 
 function resolveScreen(tab: string | null): PlanningScreen {
   if (!tab) return "overview";
@@ -717,6 +716,8 @@ function PlanningPageInner() {
       <>
         {activeScreen === "overview" && <OverviewPanel onError={handleOpsError} />}
 
+        {activeScreen === "kits" && <KitBomsPanel onError={handleOpsError} />}
+
         {activeScreen === "requests" && <RequestsPanel onError={handleOpsError} />}
 
         {activeScreen === "data" && (
@@ -757,7 +758,6 @@ function PlanningPageInner() {
               [
                 ["snapshots", t.dataSections.snapshots],
                 ["sales", t.dataSections.sales],
-                ["kits", t.dataSections.kits],
                 ["bom", t.dataSections.bom],
                 ["settings", t.dataSections.settings],
                 ["inventory", t.dataSections.inventory],
@@ -947,8 +947,6 @@ function PlanningPageInner() {
             </div>
                     ) : key === "sales" ? (
                       <ForecastPanel onError={handleOpsError} />
-                    ) : key === "kits" ? (
-                      <KitBomsPanel onError={handleOpsError} />
                     ) : key === "bom" ? (
             <div className="space-y-4">
               <p className="text-sm text-zinc-600">{t.messages.bomHint}</p>

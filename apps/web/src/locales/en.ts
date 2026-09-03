@@ -931,8 +931,11 @@ export const en = {
       inventory: "Stock by SKU (optional)",
     },
     kitBoms: {
-      hint: "Active BOMs for all kits. Stock = posted 1C snapshot minus HARD reserve (same as Overview).",
+      hint: "All active kits. Qty / ideal / stock; Can pack = from parts now; To work = must produce.",
       classCol: "Class",
+      qtyCol: "Qty",
+      idealCol: "Ideal",
+      stockCol: "Stock",
       stockFinished: "Finished (snapshot)",
       weeksCover: "Weeks of cover",
       cycleNeed: "Cycle need",
@@ -1049,19 +1052,20 @@ export const en = {
     howTo: {
       title: "How to use planning",
       intro:
-        "Three screens: Overview (KPIs and kit board), Requests (packing and factory), Data (snapshots, sales, BOM, MRP).",
+        "Four screens: Overview (KPIs and board), Kits (full list), Requests (packing and factory), Data (snapshots, sales, BOM, MRP).",
       stepsTitle: "Quick start (weekly)",
       steps: [
         "Data → 1C snapshots: upload stock → Publish.",
         "Overview: CRM sales drive ABC×XYZ and velocity; use the matrix and ending board.",
+        "Kits: full list, ABC×XYZ filters, column sort; qty / ideal / stock.",
         "Data → Parameters: per-SKU lead/safety/override (MANUAL when override is set).",
         "Data → Forecast XLS is a fallback when CRM has no shipments.",
         "Requests → Packing: cycle need; A→B→C priority. Factory shows parent kit class.",
         "After stock or override changes — Recalculate MRP in Data.",
       ],
-      tabsTitle: "Three tabs",
+      tabsTitle: "Four tabs",
       tabsHint:
-        "Overview — KPIs, kit board, fires. Requests — packing and factory drafts. Data — snapshots, sales, BOM, MRP, settings.",
+        "Overview — KPIs and fires. Kits — all SKUs with metrics. Requests — packing and factory drafts. Data — snapshots, sales, BOM, MRP, settings.",
       tipTitle: "Tip",
       tipBody:
         "After changing the 1C snapshot, sales XLS, or pack quota, re-run MRP. Full guide is in Instructions.",

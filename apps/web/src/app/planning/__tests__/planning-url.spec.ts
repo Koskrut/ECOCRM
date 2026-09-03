@@ -2,9 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 /** Mirrors apps/web/src/app/planning/page.tsx legacy tab routing. */
-const LEGACY_TAB_MAP: Record<string, "overview" | "requests" | "data"> = {
+const LEGACY_TAB_MAP: Record<string, "overview" | "kits" | "requests" | "data"> = {
   today: "overview",
-  kits: "overview",
   dashboard: "overview",
   mrp: "overview",
   mrpCritical: "overview",
@@ -24,7 +23,7 @@ const LEGACY_TAB_MAP: Record<string, "overview" | "requests" | "data"> = {
   queues: "data",
 };
 
-const PLANNING_SCREENS = ["overview", "requests", "data"] as const;
+const PLANNING_SCREENS = ["overview", "kits", "requests", "data"] as const;
 
 function resolveScreen(tab: string | null): (typeof PLANNING_SCREENS)[number] {
   if (!tab) return "overview";
@@ -39,11 +38,7 @@ function legacyKind(tab: string): "pack" | "factory" | null {
   if (tab === "make" || tab === "factory" || tab === "mrpProduction" || tab === "mrpSemi") {
     return "factory";
   }
-  if (
-    tab === "pack" ||
-    tab === "packing" ||
-    tab === "mrpPack"
-  ) {
+  if (tab === "pack" || tab === "packing" || tab === "mrpPack") {
     return "pack";
   }
   return null;
@@ -56,14 +51,14 @@ test("resolveScreen defaults to overview", () => {
 
 test("resolveScreen maps legacy tabs to new IA", () => {
   assert.equal(resolveScreen("today"), "overview");
-  assert.equal(resolveScreen("kits"), "overview");
   assert.equal(resolveScreen("pack"), "requests");
   assert.equal(resolveScreen("make"), "requests");
   assert.equal(resolveScreen("snapshots"), "data");
 });
 
-test("resolveScreen keeps new tab keys", () => {
+test("resolveScreen keeps new tab keys including kits", () => {
   assert.equal(resolveScreen("overview"), "overview");
+  assert.equal(resolveScreen("kits"), "kits");
   assert.equal(resolveScreen("requests"), "requests");
   assert.equal(resolveScreen("data"), "data");
 });

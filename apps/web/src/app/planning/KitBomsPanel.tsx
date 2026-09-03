@@ -4,6 +4,24 @@ import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { strings } from "@/locales";
 import { planningApi, type KitBomListItem } from "@/lib/api/resources/planning";
 
+type SortKey =
+  | "sku"
+  | "name"
+  | "class"
+  | "qty"
+  | "ideal"
+  | "stock"
+  | "canPackNow"
+  | "toWork"
+  | "maxBuildNow"
+  | "weeksOfCover"
+  | "price"
+  | "revision"
+  | "linesCount"
+  | "effectiveFrom";
+
+type SortDir = "asc" | "desc";
+
 function csvCell(value: string | number | null | undefined): string {
   const s = value == null ? "" : String(value);
   if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
@@ -12,6 +30,73 @@ function csvCell(value: string | number | null | undefined): string {
 
 function toggleClass<T extends string>(list: T[], value: T): T[] {
   return list.includes(value) ? list.filter((x) => x !== value) : [...list, value];
+}
+
+function classSortValue(row: KitBomListItem): string {
+  return `${row.paretoClass}${row.xyzClass ?? ""}`;
+}
+
+function compareRows(a: KitBomListItem, b: KitBomListItem, key: SortKey, dir: SortDir): number {
+  const mul = dir === "asc" ? 1 : -1;
+  const num = (x: number | null | undefined) => (x == null || Number.isNaN(x) ? null : x);
+  let cmp = 0;
+  switch (key) {
+    case "sku":
+      cmp = a.sku.localeCompare(b.sku, "uk");
+      break;
+    case "name":
+      cmp = a.name.localeCompare(b.name, "uk");
+      break;
+    case "class":
+      cmp = classSortValue(a).localeCompare(classSortValue(b));
+      break;
+    case "qty":
+      cmp = a.targetStock - b.targetStock;
+      break;
+    case "ideal":
+      cmp = a.coverTarget - b.coverTarget;
+      break;
+    case "stock":
+      cmp = a.stockFinished - b.stockFinished;
+      break;
+    case "canPackNow":
+      cmp = a.canPackNow - b.canPackNow;
+      break;
+    case "toWork":
+      cmp = a.toWork - b.toWork;
+      break;
+    case "maxBuildNow":
+      cmp = a.maxBuildNow - b.maxBuildNow;
+      break;
+    case "weeksOfCover": {
+      const aw = num(a.weeksOfCover);
+      const bw = num(b.weeksOfCover);
+      if (aw == null && bw == null) cmp = 0;
+      else if (aw == null) cmp = 1;
+      else if (bw == null) cmp = -1;
+      else cmp = aw - bw;
+      break;
+    }
+    case "price":
+      cmp = a.basePrice - b.basePrice;
+      break;
+    case "revision":
+      cmp = (a.revision ?? -1) - (b.revision ?? -1);
+      break;
+    case "linesCount":
+      cmp = a.linesCount - b.linesCount;
+      break;
+    case "effectiveFrom": {
+      const at = a.effectiveFrom ? Date.parse(a.effectiveFrom) : 0;
+      const bt = b.effectiveFrom ? Date.parse(b.effectiveFrom) : 0;
+      cmp = at - bt;
+      break;
+    }
+    default:
+      cmp = 0;
+  }
+  if (cmp !== 0) return cmp * mul;
+  return a.sku.localeCompare(b.sku, "uk") * mul;
 }
 
 export function KitBomsPanel({ onError }: { onError: (msg: string) => void }) {
@@ -24,6 +109,8 @@ export function KitBomsPanel({ onError }: { onError: (msg: string) => void }) {
   const [xyzFilter, setXyzFilter] = useState<Array<"X" | "Y" | "Z">>([]);
   const [busy, setBusy] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [sortKey, setSortKey] = useState<SortKey>("sku");
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
 
   const load = useCallback(async () => {
     setBusy(true);
@@ -56,8 +143,20 @@ export function KitBomsPanel({ onError }: { onError: (msg: string) => void }) {
       const set = new Set(xyzFilter);
       list = list.filter((r) => r.xyzClass != null && set.has(r.xyzClass));
     }
-    return list;
-  }, [rows, query, abcFilter, xyzFilter]);
+    return [...list].sort((a, b) => compareRows(a, b, sortKey, sortDir));
+  }, [rows, query, abcFilter, xyzFilter, sortKey, sortDir]);
+
+  const toggleSort = (key: SortKey) => {
+    if (sortKey === key) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir(key === "sku" || key === "name" || key === "class" ? "asc" : "desc");
+    }
+  };
+
+  const sortMark = (key: SortKey) =>
+    sortKey === key ? (sortDir === "asc" ? " ↑" : " ↓") : "";
 
   const exportCsv = () => {
     const header = [
@@ -65,7 +164,11 @@ export function KitBomsPanel({ onError }: { onError: (msg: string) => void }) {
       "kitName",
       "paretoClass",
       "xyzClass",
+      "targetStock",
+      "coverTarget",
       "stockFinished",
+      "canPackNow",
+      "toWork",
       "maxBuildNow",
       "weeksOfCover",
       "weeklyPackNeed",
@@ -78,36 +181,26 @@ export function KitBomsPanel({ onError }: { onError: (msg: string) => void }) {
     ].join(",");
     const body = visible
       .flatMap((kit) => {
+        const kitCells = [
+          csvCell(kit.sku),
+          csvCell(kit.name),
+          csvCell(kit.paretoClass),
+          csvCell(kit.xyzClass),
+          csvCell(kit.targetStock),
+          csvCell(kit.coverTarget),
+          csvCell(kit.stockFinished),
+          csvCell(kit.canPackNow),
+          csvCell(kit.toWork),
+          csvCell(kit.maxBuildNow),
+          csvCell(kit.weeksOfCover),
+          csvCell(kit.weeklyPackNeed),
+        ];
         if (kit.lines.length === 0) {
-          return [
-            [
-              csvCell(kit.sku),
-              csvCell(kit.name),
-              csvCell(kit.paretoClass),
-              csvCell(kit.xyzClass),
-              csvCell(kit.stockFinished),
-              csvCell(kit.maxBuildNow),
-              csvCell(kit.weeksOfCover),
-              csvCell(kit.weeklyPackNeed),
-              "",
-              "",
-              "",
-              "",
-              "",
-              csvCell(kit.revision),
-            ].join(","),
-          ];
+          return [[...kitCells, "", "", "", "", "", csvCell(kit.revision)].join(",")];
         }
         return kit.lines.map((line) =>
           [
-            csvCell(kit.sku),
-            csvCell(kit.name),
-            csvCell(kit.paretoClass),
-            csvCell(kit.xyzClass),
-            csvCell(kit.stockFinished),
-            csvCell(kit.maxBuildNow),
-            csvCell(kit.weeksOfCover),
-            csvCell(kit.weeklyPackNeed),
+            ...kitCells,
             csvCell(line.componentSku),
             csvCell(line.componentName),
             csvCell(line.qtyPerKit),
@@ -129,6 +222,23 @@ export function KitBomsPanel({ onError }: { onError: (msg: string) => void }) {
 
   const coverClass = (tone: KitBomListItem["coverTone"]) =>
     tone === "critical" ? "text-rose-700" : tone === "warn" ? "text-amber-700" : "text-zinc-800";
+
+  const columns: Array<{ key: SortKey; label: string }> = [
+    { key: "sku", label: t.labels.sku },
+    { key: "name", label: t.labels.name },
+    { key: "class", label: kb.classCol },
+    { key: "qty", label: kb.qtyCol },
+    { key: "ideal", label: kb.idealCol },
+    { key: "stock", label: kb.stockCol },
+    { key: "canPackNow", label: t.labels.canPackNow },
+    { key: "toWork", label: t.labels.toWork },
+    { key: "maxBuildNow", label: t.labels.maxBuildNow },
+    { key: "weeksOfCover", label: kb.weeksCover },
+    { key: "price", label: kb.priceCol },
+    { key: "revision", label: t.labels.revision },
+    { key: "linesCount", label: kb.linesCount },
+    { key: "effectiveFrom", label: kb.effectiveFrom },
+  ];
 
   return (
     <div className="space-y-3">
@@ -194,25 +304,20 @@ export function KitBomsPanel({ onError }: { onError: (msg: string) => void }) {
         <span className="text-xs text-zinc-500">{board.count(visible.length)}</span>
       </div>
 
-      <div className="overflow-x-auto rounded-xl border border-zinc-200">
+      <div className="overflow-x-auto rounded-xl border border-zinc-200 bg-white shadow-sm">
         <table className="min-w-full divide-y divide-zinc-200 text-sm">
           <thead className="bg-zinc-50">
             <tr>
-              {[
-                t.labels.sku,
-                t.labels.name,
-                kb.classCol,
-                kb.stockFinished,
-                t.labels.maxBuildNow,
-                kb.weeksCover,
-                kb.cycleNeed,
-                kb.priceCol,
-                t.labels.revision,
-                kb.linesCount,
-                kb.effectiveFrom,
-              ].map((h) => (
-                <th key={h} className="whitespace-nowrap px-2 py-2 text-left font-medium text-zinc-600">
-                  {h}
+              {columns.map((col) => (
+                <th key={col.key} className="whitespace-nowrap px-2 py-2 text-left font-medium text-zinc-600">
+                  <button
+                    type="button"
+                    className="inline-flex items-center hover:text-zinc-900"
+                    onClick={() => toggleSort(col.key)}
+                  >
+                    {col.label}
+                    <span className="text-zinc-400">{sortMark(col.key)}</span>
+                  </button>
                 </th>
               ))}
             </tr>
@@ -220,7 +325,7 @@ export function KitBomsPanel({ onError }: { onError: (msg: string) => void }) {
           <tbody className="divide-y divide-zinc-100">
             {visible.length === 0 ? (
               <tr>
-                <td colSpan={11} className="px-3 py-4 text-zinc-500">
+                <td colSpan={columns.length} className="px-3 py-4 text-zinc-500">
                   {busy ? strings.common.loading : t.states.none}
                 </td>
               </tr>
@@ -237,9 +342,7 @@ export function KitBomsPanel({ onError }: { onError: (msg: string) => void }) {
                   <Fragment key={row.kitProductId}>
                     <tr
                       className="cursor-pointer hover:bg-zinc-50"
-                      onClick={() =>
-                        setExpandedId(open ? null : row.kitProductId)
-                      }
+                      onClick={() => setExpandedId(open ? null : row.kitProductId)}
                     >
                       <td className="whitespace-nowrap px-2 py-1.5 font-medium text-zinc-900">
                         <span className="mr-1 text-zinc-400">{open ? "▾" : "▸"}</span>
@@ -253,33 +356,41 @@ export function KitBomsPanel({ onError }: { onError: (msg: string) => void }) {
                           {board.classBadge(row.paretoClass, row.xyzClass)}
                         </span>
                       </td>
+                      <td className="px-2 py-1.5 tabular-nums text-zinc-800">{row.targetStock}</td>
+                      <td className="px-2 py-1.5 tabular-nums text-zinc-800">{row.coverTarget}</td>
                       <td className="px-2 py-1.5 tabular-nums text-zinc-800">{row.stockFinished}</td>
+                      <td
+                        className={`px-2 py-1.5 tabular-nums ${row.canPackNow > 0 ? "font-medium text-cyan-700" : "text-zinc-800"}`}
+                      >
+                        {row.canPackNow}
+                      </td>
+                      <td
+                        className={`px-2 py-1.5 tabular-nums ${row.toWork > 0 ? "font-medium text-rose-700" : "text-zinc-800"}`}
+                      >
+                        {row.toWork}
+                      </td>
                       <td className="px-2 py-1.5 tabular-nums text-zinc-800">{row.maxBuildNow}</td>
                       <td className={`px-2 py-1.5 tabular-nums ${coverClass(row.coverTone)}`}>
                         {row.weeksOfCover == null
                           ? board.weeksUnknown
                           : `${row.weeksOfCover} ${board.weeksUnit}`}
                       </td>
-                      <td className="px-2 py-1.5 tabular-nums text-zinc-800">
-                        {row.weeklyPackNeed}
-                        {row.hardNeed > 0 ? (
-                          <span className="ml-1 text-xs text-zinc-400">
-                            ({t.labels.hardShort}:{row.hardNeed})
-                          </span>
-                        ) : null}
-                      </td>
                       <td className="px-2 py-1.5 tabular-nums text-zinc-700">
                         {row.basePrice.toLocaleString()}
                       </td>
-                      <td className="px-2 py-1.5 tabular-nums text-zinc-700">{row.revision}</td>
+                      <td className="px-2 py-1.5 tabular-nums text-zinc-700">
+                        {row.revision ?? "—"}
+                      </td>
                       <td className="px-2 py-1.5 tabular-nums text-zinc-700">{row.linesCount}</td>
                       <td className="whitespace-nowrap px-2 py-1.5 text-zinc-600">
-                        {new Date(row.effectiveFrom).toLocaleDateString()}
+                        {row.effectiveFrom
+                          ? new Date(row.effectiveFrom).toLocaleDateString()
+                          : "—"}
                       </td>
                     </tr>
                     {open ? (
                       <tr className="bg-zinc-50/80">
-                        <td colSpan={11} className="px-4 py-3">
+                        <td colSpan={columns.length} className="px-4 py-3">
                           {classHint ? (
                             <p className="mb-2 text-xs text-zinc-600">{classHint}</p>
                           ) : null}
@@ -294,39 +405,47 @@ export function KitBomsPanel({ onError }: { onError: (msg: string) => void }) {
                               {board.waiting(row.waitingOrders)}
                             </p>
                           ) : null}
-                          <table className="min-w-full divide-y divide-zinc-200 text-xs">
-                            <thead>
-                              <tr className="text-left text-zinc-500">
-                                <th className="py-1 pr-3 font-medium">{t.labels.component}</th>
-                                <th className="py-1 pr-3 font-medium">{t.labels.qty}</th>
-                                <th className="py-1 pr-3 font-medium">{kb.scrap}</th>
-                                <th className="py-1 pr-3 font-medium">{t.labels.available}</th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-zinc-100">
-                              {row.lines.map((line) => (
-                                <tr
-                                  key={line.componentProductId}
-                                  className={line.isBottleneck ? "bg-amber-50 text-amber-950" : ""}
-                                >
-                                  <td className="py-1 pr-3">
-                                    <span className="font-medium">{line.componentSku}</span>
-                                    <span className="ml-1 text-zinc-500">{line.componentName}</span>
-                                    {line.isBottleneck ? (
-                                      <span className="ml-1 rounded bg-amber-200 px-1 text-[10px] font-semibold uppercase">
-                                        {t.labels.bottleneck}
-                                      </span>
-                                    ) : null}
-                                  </td>
-                                  <td className="py-1 pr-3 tabular-nums">{line.qtyPerKit}</td>
-                                  <td className="py-1 pr-3 tabular-nums">
-                                    {line.scrapPct == null ? "—" : `${line.scrapPct}%`}
-                                  </td>
-                                  <td className="py-1 pr-3 tabular-nums">{line.available}</td>
+                          {row.lines.length === 0 ? (
+                            <p className="text-xs text-zinc-500">{t.states.noBom}</p>
+                          ) : (
+                            <table className="min-w-full divide-y divide-zinc-200 text-xs">
+                              <thead>
+                                <tr className="text-left text-zinc-500">
+                                  <th className="py-1 pr-3 font-medium">{t.labels.component}</th>
+                                  <th className="py-1 pr-3 font-medium">{t.labels.qty}</th>
+                                  <th className="py-1 pr-3 font-medium">{kb.scrap}</th>
+                                  <th className="py-1 pr-3 font-medium">{t.labels.available}</th>
                                 </tr>
-                              ))}
-                            </tbody>
-                          </table>
+                              </thead>
+                              <tbody className="divide-y divide-zinc-100">
+                                {row.lines.map((line) => (
+                                  <tr
+                                    key={line.componentProductId}
+                                    className={
+                                      line.isBottleneck ? "bg-amber-50 text-amber-950" : ""
+                                    }
+                                  >
+                                    <td className="py-1 pr-3">
+                                      <span className="font-medium">{line.componentSku}</span>
+                                      <span className="ml-1 text-zinc-500">
+                                        {line.componentName}
+                                      </span>
+                                      {line.isBottleneck ? (
+                                        <span className="ml-1 rounded bg-amber-200 px-1 text-[10px] font-semibold uppercase">
+                                          {t.labels.bottleneck}
+                                        </span>
+                                      ) : null}
+                                    </td>
+                                    <td className="py-1 pr-3 tabular-nums">{line.qtyPerKit}</td>
+                                    <td className="py-1 pr-3 tabular-nums">
+                                      {line.scrapPct == null ? "—" : `${line.scrapPct}%`}
+                                    </td>
+                                    <td className="py-1 pr-3 tabular-nums">{line.available}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          )}
                         </td>
                       </tr>
                     ) : null}
