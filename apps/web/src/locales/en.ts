@@ -650,6 +650,7 @@ export const en = {
       saveExternalCode: "Save 1C code",
       savePackingLines: "Save request",
       saveDueAt: "Save deadline",
+      saveLineDues: "Save orientative dates",
       rescheduleDue: "Reschedule",
       markFactoryReceived: "Received all (close)",
       saveFactoryReceived: "Save receipts",
@@ -869,7 +870,9 @@ export const en = {
       cycleEnd: "Pack by",
       factoryDueHint: "Expected factory parts delivery date",
       packingDueHint: "Date packing should finish this week's kits",
-      lineDueAt: "Due (factory)",
+      packingLineDue: "Orientative",
+      packingLineDueHint: "Approximate date to pack this item",
+      lineDueAt: "Orientative (factory)",
       lineTrackingStatus: "Delivery status",
       trackingReceived: "Received",
       trackingOnTrack: "On track",
@@ -950,11 +953,20 @@ export const en = {
       sendToShop: "send to shop",
       storyNeed: (gap: number, pack: number, make: number) =>
         `Short ${gap}. Pack ${pack} first — parts are ready. Produce the remaining ${make}.`,
+      storyNeedWithInRequest: (gap: number, inReq: number, pack: number, make: number) =>
+        `Short ${gap}. Already in request: ${inReq}. Still pack ${pack} — parts ready. Produce ${make}.`,
       storyPackOnly: (pack: number) =>
         `Short ${pack}. Everything can be packed now — parts are ready.`,
       storyMakeOnly: (make: number) =>
         `Short ${make}. No parts — need to produce.`,
       storyOk: "Stock is fine — nothing to do.",
+      storyAlreadyInRequest: "Already in the packing request",
+      inPacking: (n: number, due: string | null) =>
+        due ? `In packing request: ${n} · due ~${due}` : `In packing request: ${n}`,
+      waitingFactory: (n: number, due: string | null) =>
+        due ? `Waiting from shop: ${n} · due ~${due}` : `Waiting from shop: ${n}`,
+      clientsWaiting: (n: number) => `Customers waiting: ${n}`,
+      remainingPack: "Still to pack",
       filterNeedAction: "Needs action",
       filterCanPack: "Can pack",
       filterNeedProduce: "Need produce",

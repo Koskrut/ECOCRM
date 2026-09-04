@@ -543,6 +543,7 @@ export function PackingPanel({ onError }: { onError: (msg: string) => void }) {
   const [active, setActive] = useState<PackingList | null>(null);
   const [busy, setBusy] = useState(false);
   const [qtys, setQtys] = useState<Record<string, string>>({});
+  const [lineDues, setLineDues] = useState<Record<string, string>>({});
   const [cycleEndEdit, setCycleEndEdit] = useState("");
   const [filter, setFilter] = useState<PackWeekFilter>("all");
 
@@ -551,6 +552,14 @@ export function PackingPanel({ onError }: { onError: (msg: string) => void }) {
     setCycleEndEdit(toDateInputValue(full.cycleEnd));
     setQtys(
       Object.fromEntries((full.lines ?? []).map((l) => [l.kitProductId, String(l.qtyApproved)])),
+    );
+    setLineDues(
+      Object.fromEntries(
+        (full.lines ?? []).map((l) => [
+          l.kitProductId,
+          toDateInputValue(l.dueAt ?? full.cycleEnd),
+        ]),
+      ),
     );
   }, []);
 
@@ -652,6 +661,7 @@ export function PackingPanel({ onError }: { onError: (msg: string) => void }) {
                     const nextLines = Object.entries(qtys).map(([kitProductId, qty]) => ({
                       kitProductId,
                       qtyApproved: Number(qty) || 0,
+                      dueAt: lineDues[kitProductId] || null,
                     }));
                     const updated = await planningApi.updatePackingLines(active.id, nextLines);
                     applyActive(updated);
@@ -690,6 +700,31 @@ export function PackingPanel({ onError }: { onError: (msg: string) => void }) {
         ) : null}
         {active?.status === "APPROVED" ? (
           <>
+            <button
+              type="button"
+              disabled={busy}
+              className="rounded-lg border border-zinc-200 bg-white px-4 py-2 text-sm"
+              onClick={() => {
+                void (async () => {
+                  setBusy(true);
+                  try {
+                    const nextLines = (active.lines ?? []).map((l) => ({
+                      kitProductId: l.kitProductId,
+                      qtyApproved: l.qtyApproved,
+                      dueAt: lineDues[l.kitProductId] || null,
+                    }));
+                    applyActive(await planningApi.updatePackingLines(active.id, nextLines));
+                    await reloadLists();
+                  } catch (e) {
+                    reportError(e instanceof Error ? e.message : t.errors.packing);
+                  } finally {
+                    setBusy(false);
+                  }
+                })();
+              }}
+            >
+              {t.actions.saveLineDues}
+            </button>
             <button
               type="button"
               disabled={busy}
@@ -837,6 +872,7 @@ export function PackingPanel({ onError }: { onError: (msg: string) => void }) {
               t.labels.canPackNow,
               t.labels.toWork,
               t.labels.weekRequest,
+              t.labels.packingLineDue,
               ...(active.status === "DRAFT" ? [t.labels.actions] : []),
             ]}
             rows={filtered.map((line) => {
@@ -848,6 +884,7 @@ export function PackingPanel({ onError }: { onError: (msg: string) => void }) {
               const targetStock = line.targetStock ?? 0;
               const canPackNow = line.canPackNow ?? line.maxFromParts;
               const toWork = line.toWork ?? 0;
+              const dueEditable = active.status === "DRAFT" || active.status === "APPROVED";
               const baseRow = [
                 <span key={line.id} className={highlighted ? "rounded bg-cyan-50 px-1" : undefined}>
                   <span className={`block font-medium ${blocked ? "text-rose-700" : ""}`}>
@@ -887,6 +924,22 @@ export function PackingPanel({ onError }: { onError: (msg: string) => void }) {
                   />
                 ) : (
                   String(line.qtyApproved)
+                ),
+                dueEditable ? (
+                  <input
+                    key={`${line.id}-due`}
+                    type="date"
+                    className="rounded border border-zinc-200 px-2 py-1 text-sm"
+                    value={lineDues[line.kitProductId] ?? ""}
+                    onChange={(e) =>
+                      setLineDues((prev) => ({
+                        ...prev,
+                        [line.kitProductId]: e.target.value,
+                      }))
+                    }
+                  />
+                ) : (
+                  formatDateTime(line.dueAt ?? active.cycleEnd)
                 ),
               ];
               if (active.status === "DRAFT") {

@@ -310,6 +310,11 @@ export type KitBomListItem = {
   canPackCycle: number;
   toWorkCycle: number;
   alreadyInRequest: number;
+  inPackingStatus: "DRAFT" | "APPROVED" | null;
+  inPackingDueAt: string | null;
+  remainingPackIdeal: number;
+  factoryWaitingQty: number;
+  factoryWaitingDueAt: string | null;
   bottleneckComponentId: string | null;
   bottleneckQtyPerKit: number;
   suggestedFactoryQty: number;
@@ -435,6 +440,8 @@ export type PackingListLine = {
   hardNeed: number;
   forecastNeed: number;
   stockKits: number;
+  /** Orientative pack-ready date; falls back to list.cycleEnd when null. */
+  dueAt?: string | null;
   kitProduct: { id: string; sku: string; name: string; kind?: string };
   /** Live from getKitCapacity when list is loaded. */
   bottleneckSku?: string | null;
@@ -588,6 +595,11 @@ export type KitPortfolioKit = {
   suggestedPackTargetQty: number;
   weeklyPackNeed: number;
   alreadyInRequest: number;
+  inPackingStatus?: "DRAFT" | "APPROVED" | null;
+  inPackingDueAt?: string | null;
+  remainingPackIdeal?: number;
+  factoryWaitingQty?: number;
+  factoryWaitingDueAt?: string | null;
   coverTarget: number;
   targetStock: number;
   stockNow: number;
@@ -988,7 +1000,7 @@ export const planningApi = {
   },
   updatePackingLines: async (
     id: string,
-    lines: Array<{ kitProductId: string; qtyApproved: number }>,
+    lines: Array<{ kitProductId: string; qtyApproved: number; dueAt?: string | null }>,
   ): Promise<PackingList> => {
     const res = await apiHttp.patch(`/planning/packing-lists/${id}/lines`, { lines });
     return res.data;

@@ -343,6 +343,16 @@ export function applyMinProduceLot(toWork: number, minLot: number): number {
   return Math.max(need, Math.max(1, Math.floor(minLot)));
 }
 
+/** Ideal canPack remaining after qty already on the open packing list. */
+export function remainingPackQty(canPackNow: number, alreadyInRequest: number): number {
+  return Math.max(0, Math.floor(canPackNow) - Math.max(0, Math.floor(alreadyInRequest)));
+}
+
+/** Whether packing list status still counts toward "already in request". */
+export function isOpenPackingStatus(status: string | null | undefined): boolean {
+  return status === "DRAFT" || status === "APPROVED";
+}
+
 /** Absolute qty that should be on the draft packing list for this SKU this cycle. */
 export function suggestedPackTargetQty(input: {
   weeklyPackNeed: number;

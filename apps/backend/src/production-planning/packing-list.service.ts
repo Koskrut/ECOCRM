@@ -503,6 +503,7 @@ export class PackingListService {
             hardNeed: l.hardNeed,
             forecastNeed: l.forecastNeed,
             stockKits: l.stockKits,
+            dueAt: cycleEnd,
           })),
         },
       },
@@ -524,28 +525,40 @@ export class PackingListService {
 
   async updateLines(
     id: string,
-    lines: Array<{ kitProductId: string; qtyApproved: number }>,
+    lines: Array<{ kitProductId: string; qtyApproved: number; dueAt?: string | null }>,
   ) {
     const list = await this.get(id);
-    if (list.status !== PackingListStatus.DRAFT) {
-      throw new BadRequestException("Only DRAFT packing lists can be edited");
+    if (list.status !== PackingListStatus.DRAFT && list.status !== PackingListStatus.APPROVED) {
+      throw new BadRequestException("Only DRAFT or APPROVED packing lists can update lines");
     }
+    const qtyEditable = list.status === PackingListStatus.DRAFT;
 
     const nextQty = new Map(list.lines.map((l) => [l.kitProductId, l.qtyApproved]));
+    const nextDue = new Map(list.lines.map((l) => [l.kitProductId, l.dueAt ?? null]));
     for (const line of lines) {
       const existing = list.lines.find((l) => l.kitProductId === line.kitProductId);
       if (!existing) continue;
-      const qty = Math.max(0, Math.round(line.qtyApproved));
-      if (qty > existing.maxFromParts) {
-        throw new BadRequestException(
-          `Qty for ${existing.kitProduct.sku} exceeds parts capacity (${existing.maxFromParts})`,
+      if (qtyEditable && line.qtyApproved != null) {
+        const qty = Math.max(0, Math.round(line.qtyApproved));
+        if (qty > existing.maxFromParts) {
+          throw new BadRequestException(
+            `Qty for ${existing.kitProduct.sku} exceeds parts capacity (${existing.maxFromParts})`,
+          );
+        }
+        nextQty.set(line.kitProductId, qty);
+      }
+      if (line.dueAt !== undefined) {
+        nextDue.set(
+          line.kitProductId,
+          line.dueAt == null || String(line.dueAt).trim() === ""
+            ? null
+            : parseCycleEndDate(String(line.dueAt)),
         );
       }
-      nextQty.set(line.kitProductId, qty);
     }
 
     const capacityUsed = [...nextQty.values()].reduce((a, b) => a + b, 0);
-    if (capacityUsed > list.capacityLimit) {
+    if (qtyEditable && capacityUsed > list.capacityLimit) {
       throw new BadRequestException(
         `Capacity exceeded: ${capacityUsed} > ${list.capacityLimit}`,
       );
@@ -555,14 +568,21 @@ export class PackingListService {
       list.lines.map((existing) =>
         this.prisma.packingListLine.update({
           where: { id: existing.id },
-          data: { qtyApproved: nextQty.get(existing.kitProductId) ?? existing.qtyApproved },
+          data: {
+            ...(qtyEditable
+              ? { qtyApproved: nextQty.get(existing.kitProductId) ?? existing.qtyApproved }
+              : {}),
+            dueAt: nextDue.has(existing.kitProductId)
+              ? (nextDue.get(existing.kitProductId) ?? null)
+              : (existing.dueAt ?? null),
+          },
         }),
       ),
     );
 
     const updated = await this.prisma.packingList.update({
       where: { id },
-      data: { capacityUsed },
+      data: qtyEditable ? { capacityUsed } : {},
       include: {
         lines: {
           include: { kitProduct: { select: { id: true, sku: true, name: true, kind: true } } },
@@ -624,6 +644,7 @@ export class PackingListService {
           hardNeed,
           forecastNeed: 0,
           stockKits: stock.available,
+          dueAt: list.cycleEnd,
         },
       });
     }
@@ -694,16 +715,27 @@ export class PackingListService {
     if (cycleEnd.getTime() < list.cycleStart.getTime()) {
       throw new BadRequestException("cycleEnd must be on or after cycleStart");
     }
-    const updated = await this.prisma.packingList.update({
-      where: { id },
-      data: { cycleEnd },
-      include: {
-        lines: {
-          include: { kitProduct: { select: { id: true, sku: true, name: true, kind: true } } },
-        },
-      },
+    const oldCycleEndMs = list.cycleEnd.getTime();
+    await this.prisma.$transaction(async (tx) => {
+      await tx.packingList.update({
+        where: { id },
+        data: { cycleEnd },
+      });
+      const lines = await tx.packingListLine.findMany({
+        where: { packingListId: id },
+        select: { id: true, dueAt: true },
+      });
+      for (const line of lines) {
+        const dueMs = line.dueAt?.getTime() ?? null;
+        if (dueMs == null || dueMs === oldCycleEndMs) {
+          await tx.packingListLine.update({
+            where: { id: line.id },
+            data: { dueAt: cycleEnd },
+          });
+        }
+      }
     });
-    return { ...updated, lines: await this.enrichLines(updated.lines) };
+    return this.get(id);
   }
 
   async deleteList(id: string) {

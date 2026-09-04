@@ -4,7 +4,28 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.174**.)_
+_(планируемые изменения после **0.2.175**.)_
+
+## [0.2.175] — 2026-09-04
+
+### Summary
+
+Патч **0.2.175**: орієнтир `dueAt` на рядках packing list; remaining pack qty; Kit BOMs / ops UI для заявок і цеху.
+
+### Added
+
+- **PackingListLine.dueAt** (+ backfill з `cycleEnd`); migration `20260904120000_packing_list_line_due_at`.
+- `remainingPackQty` / `isOpenPackingStatus`; packing line due on updateLines + cycleEnd propagate.
+
+### Changed
+
+- Kit portfolio / BOM list: already-in-request, factory waiting, clients waiting; pack remaining after open list.
+- Planning ops: save line dues; KitBomsPanel story + in-packing / waiting-factory copy; locales en/uk.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.175`**.
+- **Миграции:** `20260904120000_packing_list_line_due_at` — **`prisma migrate deploy`**.
 
 ## [0.2.174] — 2026-09-03
 

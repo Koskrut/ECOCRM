@@ -55,14 +55,33 @@ function gapToIdeal(row: KitBomListItem): number {
   return Math.max(0, row.coverTarget - row.stockFinished);
 }
 
+function remainingPack(row: KitBomListItem): number {
+  return row.remainingPackIdeal ?? Math.max(0, row.canPackNow - (row.alreadyInRequest ?? 0));
+}
+
+function shortDue(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleDateString("uk-UA", { day: "2-digit", month: "2-digit" });
+}
+
 function storyFor(row: KitBomListItem, kb: typeof strings.planning.kitBoms): string {
   const gap = gapToIdeal(row);
+  const rem = remainingPack(row);
   if (gap <= 0) return kb.storyOk;
-  if (row.canPackNow > 0 && row.toWorkLot > 0) {
-    return kb.storyNeed(gap, row.canPackNow, row.toWorkLot);
+  if (row.alreadyInRequest > 0 && rem > 0 && row.toWorkLot > 0) {
+    return kb.storyNeedWithInRequest(gap, row.alreadyInRequest, rem, row.toWorkLot);
   }
-  if (row.canPackNow > 0) return kb.storyPackOnly(row.canPackNow);
+  if (row.alreadyInRequest > 0 && rem <= 0 && row.toWorkLot <= 0) {
+    return kb.storyAlreadyInRequest;
+  }
+  if (rem > 0 && row.toWorkLot > 0) {
+    return kb.storyNeed(gap, rem, row.toWorkLot);
+  }
+  if (rem > 0) return kb.storyPackOnly(rem);
   if (row.toWorkLot > 0) return kb.storyMakeOnly(row.toWorkLot);
+  if (row.alreadyInRequest > 0) return kb.storyAlreadyInRequest;
   return kb.storyOk;
 }
 
@@ -283,7 +302,7 @@ export function KitBomsPanel({ onError }: { onError: (msg: string) => void }) {
       if (humanFilter === "needAction") {
         list = list.filter((r) => gapToIdeal(r) > 0);
       } else if (humanFilter === "canPack") {
-        list = list.filter((r) => r.canPackNow > 0);
+        list = list.filter((r) => remainingPack(r) > 0);
       } else if (humanFilter === "needProduce") {
         list = list.filter((r) => r.toWorkLot > 0 || r.toWork > 0);
       }
@@ -626,7 +645,8 @@ export function KitBomsPanel({ onError }: { onError: (msg: string) => void }) {
                   const open = expandedId === row.kitProductId;
                   const gap = gapToIdeal(row);
                   const ok = gap <= 0;
-                  const canPack = row.canPackNow >= row.minPackLot;
+                  const rem = remainingPack(row);
+                  const canPack = rem >= row.minPackLot;
                   const canOrder =
                     row.toWorkLot > 0 &&
                     !!row.bottleneckComponentId &&
@@ -655,6 +675,28 @@ export function KitBomsPanel({ onError }: { onError: (msg: string) => void }) {
                               {storyFor(row, kb)}
                             </p>
                           </button>
+                          {row.alreadyInRequest > 0 ? (
+                            <p className="mt-1 text-xs text-cyan-800">
+                              <Link href="/planning?tab=requests&kind=pack" className="underline">
+                                {kb.inPacking(row.alreadyInRequest, shortDue(row.inPackingDueAt))}
+                              </Link>
+                            </p>
+                          ) : null}
+                          {row.factoryWaitingQty > 0 ? (
+                            <p className="mt-0.5 text-xs text-amber-800">
+                              <Link href="/planning?tab=requests&kind=factory" className="underline">
+                                {kb.waitingFactory(
+                                  row.factoryWaitingQty,
+                                  shortDue(row.factoryWaitingDueAt),
+                                )}
+                              </Link>
+                            </p>
+                          ) : null}
+                          {row.waitingOrders > 0 ? (
+                            <p className="mt-0.5 text-xs text-rose-800">
+                              {kb.clientsWaiting(row.waitingOrders)}
+                            </p>
+                          ) : null}
                         </td>
                         <td className="px-3 py-3">
                           <p className="tabular-nums font-medium text-zinc-900">
@@ -663,13 +705,15 @@ export function KitBomsPanel({ onError }: { onError: (msg: string) => void }) {
                           <StockBar have={row.stockFinished} ideal={row.coverTarget} />
                         </td>
                         <td className="px-3 py-3">
-                          {row.canPackNow > 0 ? (
+                          {rem > 0 ? (
                             <>
                               <p className="text-lg font-semibold tabular-nums text-cyan-700">
-                                {row.canPackNow}
+                                {rem}
                               </p>
                               <p className="text-xs text-zinc-500">{kb.partsReady}</p>
                             </>
+                          ) : row.alreadyInRequest > 0 ? (
+                            <span className="text-xs text-cyan-700">{kb.storyAlreadyInRequest}</span>
                           ) : (
                             <span className="text-zinc-400">—</span>
                           )}
@@ -693,13 +737,17 @@ export function KitBomsPanel({ onError }: { onError: (msg: string) => void }) {
                                 type="button"
                                 disabled={actingId === row.kitProductId}
                                 className="rounded-lg bg-cyan-600 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
-                                onClick={() => void addToPack(row, row.canPackNow)}
+                                onClick={() => void addToPack(row, rem)}
                               >
-                                {kb.packBtn(row.canPackNow)}
+                                {kb.packBtn(rem)}
                               </button>
-                            ) : row.canPackNow > 0 ? (
+                            ) : rem > 0 ? (
                               <span className="text-xs text-zinc-500">
                                 {kb.belowMinPackSimple(row.minPackLot)}
+                              </span>
+                            ) : row.alreadyInRequest > 0 ? (
+                              <span className="text-xs font-medium text-cyan-700">
+                                {kb.storyAlreadyInRequest}
                               </span>
                             ) : null}
                             {canOrder ? (
@@ -811,7 +859,18 @@ export function KitBomsPanel({ onError }: { onError: (msg: string) => void }) {
                         <td className="px-2 py-1.5 tabular-nums text-zinc-800">{row.canPackCycle}</td>
                         <td className="px-2 py-1.5 tabular-nums text-zinc-800">{row.toWorkCycle}</td>
                         <td className="px-2 py-1.5 tabular-nums text-zinc-700">
-                          {row.alreadyInRequest > 0 ? row.alreadyInRequest : "—"}
+                          {row.alreadyInRequest > 0 ? (
+                            <span>
+                              {row.alreadyInRequest}
+                              {shortDue(row.inPackingDueAt) ? (
+                                <span className="ml-1 text-[10px] text-zinc-500">
+                                  · {shortDue(row.inPackingDueAt)}
+                                </span>
+                              ) : null}
+                            </span>
+                          ) : (
+                            "—"
+                          )}
                         </td>
                         <td className="px-2 py-1.5 tabular-nums text-zinc-800">{row.maxBuildNow}</td>
                         <td className={`px-2 py-1.5 tabular-nums ${coverClass(row.coverTone)}`}>

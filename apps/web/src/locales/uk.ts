@@ -651,6 +651,7 @@ export const uk = {
       saveExternalCode: "Зберегти код 1С",
       savePackingLines: "Зберегти заявку",
       saveDueAt: "Зберегти термін",
+      saveLineDues: "Зберегти орієнтири",
       rescheduleDue: "Перенести термін",
       markFactoryReceived: "Отримано все (закрити)",
       saveFactoryReceived: "Зберегти надходження",
@@ -870,7 +871,9 @@ export const uk = {
       cycleEnd: "Здати до",
       factoryDueHint: "Термін надходження деталей з заводу",
       packingDueHint: "До якої дати упаковка має здати комплекти",
-      lineDueAt: "Термін (завод)",
+      packingLineDue: "Орієнтир",
+      packingLineDueHint: "Орієнтовна дата напакувати цю позицію",
+      lineDueAt: "Орієнтир (завод)",
       lineTrackingStatus: "Статус поставки",
       trackingReceived: "Отримано",
       trackingOnTrack: "В графіку",
@@ -951,11 +954,20 @@ export const uk = {
       sendToShop: "замовити в цех",
       storyNeed: (gap: number, pack: number, make: number) =>
         `Не вистачає ${gap}. Спочатку напакуйте ${pack} — деталі є. Решту ${make} треба виробити.`,
+      storyNeedWithInRequest: (gap: number, inReq: number, pack: number, make: number) =>
+        `Не вистачає ${gap}. У заявці вже ${inReq}. Ще напакувати ${pack} — деталі є. Виробити ${make}.`,
       storyPackOnly: (pack: number) =>
         `Не вистачає ${pack}. Усе можна напакувати зараз — деталі є.`,
       storyMakeOnly: (make: number) =>
         `Не вистачає ${make}. Деталей немає — треба виробити.`,
       storyOk: "Запас у нормі — нічого не робити.",
+      storyAlreadyInRequest: "Уже в заявці на упаковку",
+      inPacking: (n: number, due: string | null) =>
+        due ? `У заявці на упаковку: ${n} · орієнтир ${due}` : `У заявці на упаковку: ${n}`,
+      waitingFactory: (n: number, due: string | null) =>
+        due ? `Чекаємо з цеху: ${n} · орієнтир ${due}` : `Чекаємо з цеху: ${n}`,
+      clientsWaiting: (n: number) => `Клієнти чекають: ${n}`,
+      remainingPack: "Ще напакувати",
       filterNeedAction: "Треба діяти",
       filterCanPack: "Можна пакувати",
       filterNeedProduce: "Треба виробляти",

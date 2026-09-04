@@ -622,7 +622,28 @@ function EndingCard({
         </div>
       </button>
       {kit.alreadyInRequest > 0 ? (
-        <p className="mt-2 text-xs text-cyan-800">{kb.inRequest(kit.alreadyInRequest)}</p>
+        <p className="mt-2 text-xs text-cyan-800">
+          {kb.inRequest(kit.alreadyInRequest)}
+          {kit.inPackingDueAt
+            ? ` · ${new Date(kit.inPackingDueAt).toLocaleDateString("uk-UA", {
+                day: "2-digit",
+                month: "2-digit",
+              })}`
+            : ""}
+        </p>
+      ) : null}
+      {(kit.factoryWaitingQty ?? 0) > 0 ? (
+        <p className="mt-1 text-xs text-amber-800">
+          {strings.planning.kitBoms.waitingFactory(
+            kit.factoryWaitingQty ?? 0,
+            kit.factoryWaitingDueAt
+              ? new Date(kit.factoryWaitingDueAt).toLocaleDateString("uk-UA", {
+                  day: "2-digit",
+                  month: "2-digit",
+                })
+              : null,
+          )}
+        </p>
       ) : null}
       {canPack ? (
         <button

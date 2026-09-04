@@ -13,8 +13,10 @@ import {
   coverTone,
   fillPeriodSeries,
   groupSharedBottlenecks,
+  isOpenPackingStatus,
   recentIsoWeekKeys,
   recentYearMonthKeys,
+  remainingPackQty,
   sortEndingKits,
   suggestedPackQty,
   suggestedPackTargetQty,
@@ -338,4 +340,30 @@ test("fillPeriodSeries zero-fills missing keys", () => {
 test("recentIsoWeekKeys returns requested count", () => {
   assert.equal(recentIsoWeekKeys(new Date("2026-09-02T00:00:00Z"), 26).length, 26);
   assert.equal(recentYearMonthKeys(new Date("2026-09-02T00:00:00Z"), 12).length, 12);
+});
+
+test("remainingPackQty subtracts already-in-request from canPack", () => {
+  assert.equal(remainingPackQty(100, 40), 60);
+  assert.equal(remainingPackQty(100, 100), 0);
+  assert.equal(remainingPackQty(100, 150), 0);
+  assert.equal(remainingPackQty(0, 10), 0);
+});
+
+test("isOpenPackingStatus includes DRAFT and APPROVED, not DONE", () => {
+  assert.equal(isOpenPackingStatus("DRAFT"), true);
+  assert.equal(isOpenPackingStatus("APPROVED"), true);
+  assert.equal(isOpenPackingStatus("DONE"), false);
+  assert.equal(isOpenPackingStatus(null), false);
+});
+
+test("ideal pack remaining after approved request still tracks gap", () => {
+  const ideal = computeIdealProducePlan({
+    stockFinished: 12,
+    maxBuildNow: 100,
+    coverTarget: 450,
+  });
+  assert.equal(ideal.canPackNow, 100);
+  assert.equal(ideal.toWork, 338);
+  // After 80 already on APPROVED packing list — still show remaining 20 to pack
+  assert.equal(remainingPackQty(ideal.canPackNow, 80), 20);
 });

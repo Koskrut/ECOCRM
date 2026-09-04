@@ -378,7 +378,9 @@ export class ProductionPlanningController {
   @Roles(UserRole.ADMIN, UserRole.LEAD)
   updatePackingLines(
     @Param("id") id: string,
-    @Body() body: { lines: Array<{ kitProductId: string; qtyApproved: number }> },
+    @Body() body: {
+      lines: Array<{ kitProductId: string; qtyApproved: number; dueAt?: string | null }>;
+    },
   ) {
     if (!Array.isArray(body?.lines)) throw new BadRequestException("lines array is required");
     return this.packingLists.updateLines(id, body.lines);

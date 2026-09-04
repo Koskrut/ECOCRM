@@ -1,6 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import {
   InventorySnapshotStatus,
+  FactoryOrderStatus,
   OrderStage,
   PackingListStatus,
   ProductKind,
@@ -29,9 +30,11 @@ import {
   coverTone,
   effectiveStock,
   fillPeriodSeries,
+  isOpenPackingStatus,
   isoWeekKeyUtc,
   recentIsoWeekKeys,
   recentYearMonthKeys,
+  remainingPackQty,
   weeksOfCover,
   type CoverTone,
   type ParetoClass,
@@ -83,6 +86,11 @@ export type KitBomListItem = {
   canPackCycle: number;
   toWorkCycle: number;
   alreadyInRequest: number;
+  inPackingStatus: "DRAFT" | "APPROVED" | null;
+  inPackingDueAt: string | null;
+  remainingPackIdeal: number;
+  factoryWaitingQty: number;
+  factoryWaitingDueAt: string | null;
   bottleneckComponentId: string | null;
   bottleneckQtyPerKit: number;
   suggestedFactoryQty: number;
@@ -204,6 +212,7 @@ export class KitBomListService {
       waitingRows,
       shippedRows,
       packing,
+      factoryOpenLines,
     ] = await Promise.all([
       postedSnapshot
         ? this.prisma.inventorySnapshotLine.groupBy({
@@ -266,14 +275,69 @@ export class KitBomListService {
       this.prisma.packingList.findFirst({
         where: { status: { in: [PackingListStatus.DRAFT, PackingListStatus.APPROVED] } },
         orderBy: { cycleStart: "desc" },
-        include: { lines: { select: { kitProductId: true, qtyApproved: true } } },
+        include: {
+          lines: { select: { kitProductId: true, qtyApproved: true, dueAt: true } },
+        },
       }),
+      componentIds.length > 0
+        ? this.prisma.factoryOrderLine.findMany({
+            where: {
+              partProductId: { in: componentIds },
+              factoryOrder: {
+                status: {
+                  in: [
+                    FactoryOrderStatus.DRAFT,
+                    FactoryOrderStatus.OPEN,
+                    FactoryOrderStatus.PARTIAL,
+                  ],
+                },
+              },
+            },
+            select: {
+              partProductId: true,
+              qtyOrdered: true,
+              qtyReceived: true,
+              dueAt: true,
+              factoryOrder: { select: { dueAt: true } },
+            },
+          })
+        : Promise.resolve([]),
     ]);
 
-    const packingIsDraft = packing?.status === PackingListStatus.DRAFT;
+    const packingOpen = isOpenPackingStatus(packing?.status);
     const alreadyByKit = new Map(
       (packing?.lines ?? []).map((l) => [l.kitProductId, l.qtyApproved]),
     );
+    const packingDueByKit = new Map(
+      (packing?.lines ?? []).map((l) => [
+        l.kitProductId,
+        (l.dueAt ?? packing?.cycleEnd ?? null) as Date | null,
+      ]),
+    );
+
+    const factoryByPart = new Map<string, { qty: number; dueAt: Date | null }>();
+    for (const line of factoryOpenLines) {
+      const openQty = Math.max(0, line.qtyOrdered - line.qtyReceived);
+      if (openQty <= 0) continue;
+      const due = line.dueAt ?? line.factoryOrder.dueAt;
+      const prev = factoryByPart.get(line.partProductId);
+      if (!prev) {
+        factoryByPart.set(line.partProductId, { qty: openQty, dueAt: due });
+      } else {
+        const nextDue =
+          prev.dueAt == null
+            ? due
+            : due == null
+              ? prev.dueAt
+              : prev.dueAt.getTime() <= due.getTime()
+                ? prev.dueAt
+                : due;
+        factoryByPart.set(line.partProductId, {
+          qty: prev.qty + openQty,
+          dueAt: nextDue,
+        });
+      }
+    }
 
     const stockMap = new Map(
       stockRows.filter((r) => r.productId).map((r) => [r.productId!, r._sum.qty ?? 0]),
@@ -363,7 +427,8 @@ export class KitBomListService {
         demandMix: planningSettings.demandMix,
       });
       const coverTarget = computeCoverTarget({ avgMonthlySold, warnWeeks });
-      const alreadyInRequest = packingIsDraft ? (alreadyByKit.get(kit.id) ?? 0) : 0;
+      const alreadyInRequest = packingOpen ? (alreadyByKit.get(kit.id) ?? 0) : 0;
+      const inPackingDue = packingOpen ? (packingDueByKit.get(kit.id) ?? null) : null;
       const positionPlan = computeKitPositionPlan({
         stockFinished,
         maxBuildNow: build.maxBuildNow,
@@ -376,7 +441,20 @@ export class KitBomListService {
         maxBuildNow: build.maxBuildNow,
         coverTarget,
       });
+      const remainingPackIdeal = remainingPackQty(idealPlan.canPackNow, alreadyInRequest);
       const toWorkLot = applyMinProduceLot(idealPlan.toWork, planningSettings.minProduceLot);
+      let factoryWaitingQty = 0;
+      let factoryWaitingDueAt: Date | null = null;
+      for (const line of bom?.lines ?? []) {
+        const fw = factoryByPart.get(line.componentProductId);
+        if (!fw) continue;
+        factoryWaitingQty += fw.qty;
+        if (fw.dueAt) {
+          if (!factoryWaitingDueAt || fw.dueAt.getTime() < factoryWaitingDueAt.getTime()) {
+            factoryWaitingDueAt = fw.dueAt;
+          }
+        }
+      }
       const weeks = weeksOfCover(effectiveStock(stockFinished, build.maxBuildNow), avgMonthlySold);
       const crmWeeks = crmWeeksByKit.get(kit.id) ?? new Map<string, number>();
       let xyz = assignXyzClass(fillPeriodSeries(crmWeeks, weekKeys), { source: "crm_weeks" });
@@ -418,6 +496,13 @@ export class KitBomListService {
         canPackCycle: positionPlan.canPackNow,
         toWorkCycle: positionPlan.toWork,
         alreadyInRequest,
+        inPackingStatus: packingOpen
+          ? ((packing?.status as "DRAFT" | "APPROVED") ?? null)
+          : null,
+        inPackingDueAt: inPackingDue?.toISOString() ?? null,
+        remainingPackIdeal,
+        factoryWaitingQty,
+        factoryWaitingDueAt: factoryWaitingDueAt?.toISOString() ?? null,
         bottleneckComponentId: build.bottleneckComponentId,
         bottleneckQtyPerKit: build.bottleneckQtyPerKit,
         suggestedFactoryQty:

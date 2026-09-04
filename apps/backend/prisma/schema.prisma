@@ -3150,24 +3150,27 @@ model PackingList {
 }
 
 model PackingListLine {
-  id             String   @id @default(cuid())
+  id             String    @id @default(cuid())
   packingListId  String
   kitProductId   String
   qtySuggested   Int
   qtyApproved    Int
   maxFromParts   Int
-  priority       Int      @default(0)
-  hardNeed       Int      @default(0)
-  forecastNeed   Int      @default(0)
-  stockKits      Int      @default(0)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  priority       Int       @default(0)
+  hardNeed       Int       @default(0)
+  forecastNeed   Int       @default(0)
+  stockKits      Int       @default(0)
+  /// Orientative pack-ready date for this kit line (falls back to packingList.cycleEnd).
+  dueAt          DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   packingList PackingList @relation(fields: [packingListId], references: [id], onDelete: Cascade)
   kitProduct  Product     @relation(fields: [kitProductId], references: [id], onDelete: Restrict)
 
   @@unique([packingListId, kitProductId])
   @@index([kitProductId])
+  @@index([dueAt])
 }
 
 model FactoryOrder {
