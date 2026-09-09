@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/consistent-type-imports -- Nest DI tokens must be value imports */
 import { ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import { UserRole } from "@prisma/client";
 import type { Prisma } from "@prisma/client";
@@ -14,6 +15,7 @@ type QueueItem = {
     id: string;
     fullName: string;
     phone: string | null;
+    email: string | null;
     ownerId: string | null;
     ownerName: string | null;
     companyName: string | null;
@@ -106,6 +108,7 @@ export class ContactsWorkQueueService {
         firstName: true,
         lastName: true,
         phone: true,
+        email: true,
         ownerId: true,
         status: true,
         clientStage: true,
@@ -133,6 +136,7 @@ export class ContactsWorkQueueService {
       const suggestion = this.priority.suggest(signal, pr);
 
       if (!this.matchesPreset(pr.reasons, query.preset)) continue;
+      if (!this.matchesReasonFilters(pr.reasons, query.reason)) continue;
       if (!this.matchesLegacyReasonFilters(pr.reasons, query)) continue;
 
       items.push({
@@ -140,6 +144,7 @@ export class ContactsWorkQueueService {
           id: row.id,
           fullName: `${row.firstName} ${row.lastName}`.trim(),
           phone: row.phone,
+          email: row.email ?? null,
           ownerId: row.ownerId,
           ownerName: row.owner?.fullName ?? null,
           companyName: row.company?.name ?? null,
@@ -191,8 +196,6 @@ export class ContactsWorkQueueService {
         status: true,
         marketingCallOptOut: true,
       },
-      // Phase 1 safety limit to avoid expensive full-table scans in summary endpoint.
-      take: 2000,
     });
     const signalsById = await this.insights.buildSignalsForContacts(
       rows.map((r) => ({ id: r.id, createdAt: r.createdAt })),
@@ -243,7 +246,8 @@ export class ContactsWorkQueueService {
       }
       if (pr.reasons.includes("OVERDUE_FOLLOWUP")) overdueFollowup += 1;
       if (pr.reasons.includes("NEW_LEAD_NO_FIRST_CONTACT")) newNoFirstContact += 1;
-      if (pr.reasons.includes("RETURN_TO_WORK") || pr.reasons.includes("DORMANT")) dormantReturn += 1;
+      if (pr.reasons.includes("RETURN_TO_WORK") || pr.reasons.includes("DORMANT"))
+        dormantReturn += 1;
       if (pr.reasons.includes("AT_RISK")) atRisk += 1;
       if (pr.reasons.includes("HAS_DEBT")) debtControl += 1;
     }
@@ -266,6 +270,14 @@ export class ContactsWorkQueueService {
       presetCounts,
       computedAt: new Date().toISOString(),
     };
+  }
+
+  private matchesReasonFilters(
+    reasons: ContactPriorityReasonCode[],
+    selected?: ContactPriorityReasonCode[],
+  ): boolean {
+    if (!selected || selected.length === 0) return true;
+    return selected.some((code) => reasons.includes(code));
   }
 
   private matchesLegacyReasonFilters(
@@ -322,7 +334,14 @@ export class ContactsWorkQueueService {
         OR: [
           { firstName: { contains: q, mode: "insensitive" } },
           { lastName: { contains: q, mode: "insensitive" } },
+          { middleName: { contains: q, mode: "insensitive" } },
           { phone: { contains: q, mode: "insensitive" } },
+          { email: { contains: q, mode: "insensitive" } },
+          { company: { name: { contains: q, mode: "insensitive" } } },
+          { address: { contains: q, mode: "insensitive" } },
+          { addressInfo: { contains: q, mode: "insensitive" } },
+          { region: { contains: q, mode: "insensitive" } },
+          { city: { contains: q, mode: "insensitive" } },
           ...(digits.length >= 5 ? [{ phoneNormalized: { contains: digits } }] : []),
         ],
       });

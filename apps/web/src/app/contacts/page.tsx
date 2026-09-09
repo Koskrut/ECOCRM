@@ -1,15 +1,13 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Filter, Mail, Pencil, Phone, Search, X } from "lucide-react";
+import { Filter, Inbox, ListChecks, Mail, Pencil, Phone, Search, X } from "lucide-react";
 import { companiesApi, type Company } from "@/lib/api";
 import { apiHttp } from "@/lib/api/client";
 import {
-  CONTACT_WORK_QUEUE_PRESETS,
   contactsApi,
   type Contact,
-  type ContactsResponse,
   type ContactWorkQueueItem,
   type ContactWorkQueuePreset,
   type ContactWorkQueueSummaryResponse,
@@ -25,133 +23,77 @@ import {
 import { formatDate } from "@/lib/crmDatetime";
 import {
   formatContactAddressFromGoogle,
-  formatContactClientStage,
-  formatContactNextActionType,
   formatContactPriorityReasonCompact,
 } from "./contact-formatters";
+import { WorkQueueDesktopRow, WorkQueueMobileCard } from "./WorkQueueList";
+import { shouldActivateRowKey } from "./contacts-a11y";
+import { isCurrentContactsRequest, shouldShowContactsEmpty } from "./contacts-ui-state";
+import {
+  buildContactsSearchParams,
+  clampContactsPage,
+  DEFAULT_CONTACTS_URL,
+  isContactsFilterActive,
+  isContactsPresetMode,
+  parseContactsUrl,
+  resolveQueueEmptyAction,
+  type ContactsSortBy,
+  type ContactsUrlState,
+  type ContactsWorkPreset,
+} from "./contacts-url";
 import { strings } from "@/locales";
 import { HelpHint } from "@/components/help/HelpHint";
+import { EmptyState } from "@/components/feedback";
 import { useListColumns } from "@/lib/lists/useListColumns";
 import { renderCellText } from "@/lib/lists/renderCell";
 import { useEntityModalStack, type EntityModalFrame } from "@/lib/modal/useEntityModalStack";
 import { EntityModalStackLayers } from "@/components/modals/EntityModalStackLayers";
 
 const PAGE_SIZE = 20;
-type ContactsSortBy = "createdAt" | "updatedAt" | "name" | "hasCallToday" | "hasMissedCall";
-type ContactsSortDir = "asc" | "desc";
-type ContactsWorkPreset = "all" | ContactWorkQueuePreset;
 
-const WORK_PRESET_OPTIONS: Array<{ value: ContactsWorkPreset; label: string }> = [
-  { value: "all", label: "Усі контакти" },
-  { value: "attention", label: "Потребують уваги" },
-  { value: "overdue", label: "Прострочені" },
-  { value: "new-no-first-contact", label: "Нові без першого контакту" },
-  { value: "debt-control", label: "Контроль оплати / борг" },
-  { value: "return-to-work", label: "Повернути в роботу" },
-  { value: "risk-or-dormant", label: "Ризик втрати / сплячі" },
+const WORK_PRESET_VALUES: ContactsWorkPreset[] = [
+  "all",
+  "attention",
+  "overdue",
+  "new-no-first-contact",
+  "debt-control",
+  "return-to-work",
+  "risk-or-dormant",
 ];
 
-function scoreTone(score: number) {
-  if (score >= 70) return "border-red-200 bg-red-50 text-red-700";
-  if (score >= 40) return "border-amber-200 bg-amber-50 text-amber-700";
-  return "border-zinc-200 bg-zinc-50 text-zinc-700";
+function presetLabel(preset: ContactsWorkPreset): string {
+  return strings.contacts.presets[preset];
 }
 
-function formatDaysSinceLastContact(value: number | null): string {
-  if (value == null) return "Без контакту";
-  return `${value} дн.`;
-}
-
-function WorkQueueMobileCard({
-  item,
-  openContact,
-}: {
-  item: ContactWorkQueueItem;
-  openContact: (id: string) => void;
-}) {
-  return (
-    <article
-      className="bg-white px-3 py-3 transition-all hover:bg-zinc-50/60"
-      role="button"
-      tabIndex={0}
-      onClick={() => {
-        if (isTextSelected()) return;
-        openContact(item.contact.id);
-      }}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          openContact(item.contact.id);
-        }
-      }}
-    >
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="truncate text-sm font-semibold text-zinc-900">
-              {item.contact.fullName || "Без імені"}
-            </div>
-            <span
-              className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold ${scoreTone(item.priorityScore)}`}
-            >
-              Score {item.priorityScore}
-            </span>
-            {item.metrics.debtAmount > 0 ? (
-              <span className="inline-flex rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
-                Борг {item.metrics.debtAmount}
-              </span>
-            ) : null}
-          </div>
-          <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-zinc-500">
-            <span>Компанія: {item.contact.companyName ?? "—"}</span>
-            <span>Owner: {item.contact.ownerName ?? "—"}</span>
-            <span>Стадия: {formatContactClientStage(item.contact.clientStage)}</span>
-          </div>
-          <div className="mt-2 grid grid-cols-1 gap-1.5 text-xs text-zinc-600">
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-zinc-500">Next action</span>
-              <span className="truncate text-right font-medium text-zinc-800">
-                {formatContactNextActionType(item.contact.nextActionType)}
-              </span>
-            </div>
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-zinc-500">Дата</span>
-              <span className="text-right">
-                {item.contact.nextActionAt ? formatDate(item.contact.nextActionAt) : "—"}
-              </span>
-            </div>
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-zinc-500">Последний контакт</span>
-              <span className="text-right">
-                {formatDaysSinceLastContact(item.metrics.daysSinceLastContact)}
-              </span>
-            </div>
-          </div>
-          <div className="mt-2 flex flex-wrap gap-1">
-            {item.priorityReasons.slice(0, 3).map((reason) => (
-              <span
-                key={reason}
-                className="rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5 text-[10px] font-medium text-zinc-700"
-              >
-                {formatContactPriorityReasonCompact(reason)}
-              </span>
-            ))}
-          </div>
-        </div>
-      </div>
-    </article>
-  );
+function sortLabel(sortBy: ContactsSortBy): string {
+  const f = strings.contacts.filters;
+  switch (sortBy) {
+    case "name":
+      return f.sortName;
+    case "updatedAt":
+      return f.sortUpdatedAt;
+    case "hasMissedCall":
+      return f.sortMissed;
+    case "hasCallToday":
+      return f.sortCallToday;
+    default:
+      return f.sortCreatedAt;
+  }
 }
 
 function ContactsPageContent() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const t = strings.contacts.page;
+  const empty = strings.contacts.empty;
+  const wq = strings.contacts.workQueue;
 
-  const contactId = searchParams.get("contactId");
+  const urlState = useMemo(() => parseContactsUrl(searchParams), [searchParams]);
+  const isPresetMode = isContactsPresetMode(urlState);
+
   const root = useMemo<EntityModalFrame | null>(
-    () => (contactId ? { type: "contact", id: contactId } : null),
-    [contactId],
+    () => (urlState.contactId ? { type: "contact", id: urlState.contactId } : null),
+    [urlState.contactId],
   );
   const stack = useEntityModalStack(root);
 
@@ -159,66 +101,37 @@ function ContactsPageContent() {
   const [workItems, setWorkItems] = useState<ContactWorkQueueItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [page, setPage] = useState(() => {
-    const raw = Number(searchParams.get("page"));
-    return Number.isFinite(raw) && raw > 0 ? raw : 1;
-  });
   const [total, setTotal] = useState(0);
-  const [q, setQ] = useState(() => searchParams.get("q") ?? "");
-  const [qInput, setQInput] = useState(() => searchParams.get("q") ?? "");
-  const [filterCompanyId, setFilterCompanyId] = useState<string | null>(
-    () => searchParams.get("companyId") || null,
-  );
-  const [filterOwnerId, setFilterOwnerId] = useState<string | null>(
-    () => searchParams.get("ownerId") || null,
-  );
-  const [filterHasPhone, setFilterHasPhone] = useState<string>(
-    () => searchParams.get("hasPhone") || "",
-  );
-  const [filterHasEmail, setFilterHasEmail] = useState<string>(
-    () => searchParams.get("hasEmail") || "",
-  );
-  const [filterHasCallToday, setFilterHasCallToday] = useState<string>(
-    () => searchParams.get("hasCallToday") || "",
-  );
-  const [filterHasMissedCall, setFilterHasMissedCall] = useState<string>(
-    () => searchParams.get("hasMissedCall") || "",
-  );
-  const [filterRegions, setFilterRegions] = useState<string[]>(() =>
-    searchParams.getAll("region").map((v) => v.trim()).filter(Boolean),
-  );
-  const [filterCities, setFilterCities] = useState<string[]>(() =>
-    searchParams.getAll("city").map((v) => v.trim()).filter(Boolean),
-  );
-  const [filterClientType, setFilterClientType] = useState<string>(
-    () => searchParams.get("clientType") || "",
-  );
-  const [sortBy, setSortBy] = useState<ContactsSortBy>(() => {
-    const raw = searchParams.get("sortBy");
-    return raw === "updatedAt" ||
-      raw === "name" ||
-      raw === "hasCallToday" ||
-      raw === "hasMissedCall"
-      ? raw
-      : "createdAt";
-  });
-  const [sortDir, setSortDir] = useState<ContactsSortDir>(() =>
-    searchParams.get("sortDir") === "asc" ? "asc" : "desc",
-  );
-  const [workPreset, setWorkPreset] = useState<ContactsWorkPreset>(() => {
-    const raw = searchParams.get("workPreset");
-    return raw === "all" ||
-      raw == null ||
-      !CONTACT_WORK_QUEUE_PRESETS.includes(raw as ContactWorkQueuePreset)
-      ? "all"
-      : (raw as ContactWorkQueuePreset);
-  });
+  const [qInput, setQInput] = useState(urlState.q);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [companyOptions, setCompanyOptions] = useState<{ value: string; label: string }[]>([]);
   const [ownerOptions, setOwnerOptions] = useState<OwnerOption[]>([]);
   const [userRole, setUserRole] = useState<string | null>(null);
   const [workSummary, setWorkSummary] = useState<ContactWorkQueueSummaryResponse | null>(null);
-  const isPresetMode = workPreset !== "all";
+  const requestSeq = useRef(0);
+
+  useEffect(() => {
+    setQInput(urlState.q);
+  }, [urlState.q]);
+
+  const replaceUrl = useCallback(
+    (next: ContactsUrlState) => {
+      const params = buildContactsSearchParams(next, searchParams);
+      const qs = params.toString();
+      const href = qs ? `${pathname}?${qs}` : pathname;
+      if (qs !== searchParams.toString()) {
+        router.replace(href, { scroll: false });
+      }
+    },
+    [pathname, router, searchParams],
+  );
+
+  const patchUrl = useCallback(
+    (patch: Partial<ContactsUrlState>) => {
+      replaceUrl({ ...urlState, ...patch });
+    },
+    [replaceUrl, urlState],
+  );
 
   const totalPages = useMemo(() => Math.max(1, Math.ceil(total / PAGE_SIZE)), [total]);
   const { extraColumns, customValues, loadValuesFor } = useListColumns("CONTACT");
@@ -227,53 +140,6 @@ function ContactsPageContent() {
     if (isPresetMode || items.length === 0) return;
     void loadValuesFor(items.map((c) => c.id));
   }, [isPresetMode, items, loadValuesFor]);
-
-  useEffect(() => {
-    const params = new URLSearchParams();
-    if (contactId) params.set("contactId", contactId);
-    if (page > 1) params.set("page", String(page));
-    if (q) params.set("q", q);
-    if (workPreset !== "all") params.set("workPreset", workPreset);
-    if (filterCompanyId && !isPresetMode) params.set("companyId", filterCompanyId);
-    if (filterOwnerId) params.set("ownerId", filterOwnerId);
-    if (!isPresetMode) {
-      if (filterHasPhone) params.set("hasPhone", filterHasPhone);
-      if (filterHasEmail) params.set("hasEmail", filterHasEmail);
-      if (filterHasCallToday) params.set("hasCallToday", filterHasCallToday);
-      if (filterHasMissedCall) params.set("hasMissedCall", filterHasMissedCall);
-      filterRegions.forEach((region) => params.append("region", region));
-      filterCities.forEach((city) => params.append("city", city));
-      if (filterClientType) params.set("clientType", filterClientType);
-      if (sortBy !== "createdAt") params.set("sortBy", sortBy);
-      if (sortDir !== "desc") params.set("sortDir", sortDir);
-    }
-
-    const next = params.toString();
-    const current = searchParams.toString();
-    if (next !== current) {
-      router.replace(`${pathname}${next ? `?${next}` : ""}`, { scroll: false });
-    }
-  }, [
-    contactId,
-    filterCompanyId,
-    filterOwnerId,
-    filterHasPhone,
-    filterHasEmail,
-    filterHasCallToday,
-    filterHasMissedCall,
-    filterRegions,
-    filterCities,
-    filterClientType,
-    sortBy,
-    sortDir,
-    workPreset,
-    isPresetMode,
-    page,
-    pathname,
-    q,
-    router,
-    searchParams,
-  ]);
 
   useEffect(() => {
     apiHttp
@@ -285,111 +151,18 @@ function ContactsPageContent() {
   useEffect(() => {
     const timer = window.setTimeout(() => {
       const nextQ = qInput.trim();
-      setPage(1);
-      setQ((prev) => (prev === nextQ ? prev : nextQ));
+      if (nextQ === urlState.q) return;
+      patchUrl({ q: nextQ, page: 1 });
     }, 300);
     return () => window.clearTimeout(timer);
-  }, [qInput]);
-
-  const reload = useCallback(
-    async (opts?: { keepPage?: boolean; silent?: boolean }) => {
-      const run = async () => {
-        try {
-          if (!opts?.silent) setLoading(true);
-          setError(null);
-          const effectivePage = opts?.keepPage ? page : 1;
-          if (!opts?.keepPage) setPage(1);
-          if (workPreset === "all") {
-            const res: ContactsResponse = await contactsApi.list({
-              page: effectivePage,
-              pageSize: PAGE_SIZE,
-              q: q.trim() || undefined,
-              companyId: filterCompanyId || undefined,
-              ownerId: filterOwnerId || undefined,
-              hasPhone:
-                filterHasPhone === "yes" || filterHasPhone === "no" ? filterHasPhone : undefined,
-              hasEmail:
-                filterHasEmail === "yes" || filterHasEmail === "no" ? filterHasEmail : undefined,
-              hasCallToday:
-                filterHasCallToday === "yes" || filterHasCallToday === "no"
-                  ? filterHasCallToday
-                  : undefined,
-              hasMissedCall:
-                filterHasMissedCall === "yes" || filterHasMissedCall === "no"
-                  ? filterHasMissedCall
-                  : undefined,
-              regions: filterRegions.length > 0 ? filterRegions : undefined,
-              cities: filterCities.length > 0 ? filterCities : undefined,
-              clientType: filterClientType.trim() || undefined,
-              sortBy,
-              sortDir,
-            });
-            setItems(res.items);
-            setWorkItems([]);
-            setTotal(res.total);
-            setWorkSummary(null);
-          } else {
-            const [queue, summary] = await Promise.all([
-              contactsApi.getWorkQueue({
-                page: effectivePage,
-                pageSize: PAGE_SIZE,
-                q: q.trim() || undefined,
-                ownerId: filterOwnerId || undefined,
-                preset: workPreset,
-              }),
-              contactsApi.getWorkQueueSummary({
-                q: q.trim() || undefined,
-                ownerId: filterOwnerId || undefined,
-              }),
-            ]);
-            setItems([]);
-            setWorkItems(queue.items);
-            setTotal(queue.total);
-            setWorkSummary(summary);
-          }
-        } catch (e) {
-          const msg =
-            (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-            (e instanceof Error ? e.message : "Помилка завантаження контактів");
-          setError(msg);
-          setItems([]);
-          setWorkItems([]);
-          setWorkSummary(null);
-        } finally {
-          setLoading(false);
-        }
-      };
-      if (opts?.silent) await withPreservedScroll(run);
-      else await run();
-    },
-    [
-      page,
-      q,
-      filterCompanyId,
-      filterOwnerId,
-      filterHasPhone,
-      filterHasEmail,
-      filterHasCallToday,
-      filterHasMissedCall,
-      filterRegions,
-      filterCities,
-      filterClientType,
-      sortBy,
-      sortDir,
-      workPreset,
-    ],
-  );
-
-  useEffect(() => {
-    void reload({ keepPage: true });
-  }, [reload]);
+  }, [qInput, urlState.q, patchUrl]);
 
   useEffect(() => {
     companiesApi
       .list()
       .then((r) => {
         setCompanyOptions([
-          { value: "", label: "Усі компанії" },
+          { value: "", label: strings.contacts.filters.any },
           ...r.items.map((c: Company) => ({ value: c.id, label: c.name })),
         ]);
       })
@@ -403,25 +176,120 @@ function ContactsPageContent() {
       .catch(() => {});
   }, []);
 
+  const reload = useCallback(
+    async (opts?: { silent?: boolean }) => {
+      const seq = ++requestSeq.current;
+      const run = async () => {
+        try {
+          if (!opts?.silent) setLoading(true);
+          setError(null);
+
+          const summaryPromise = contactsApi.getWorkQueueSummary({
+            q: urlState.q.trim() || undefined,
+            ownerId: urlState.ownerId || undefined,
+          });
+
+          if (urlState.workPreset === "all") {
+            const [res, summary] = await Promise.all([
+              contactsApi.list({
+                page: urlState.page,
+                pageSize: PAGE_SIZE,
+                q: urlState.q.trim() || undefined,
+                companyId: urlState.companyId || undefined,
+                ownerId: urlState.ownerId || undefined,
+                hasPhone:
+                  urlState.hasPhone === "yes" || urlState.hasPhone === "no"
+                    ? urlState.hasPhone
+                    : undefined,
+                hasEmail:
+                  urlState.hasEmail === "yes" || urlState.hasEmail === "no"
+                    ? urlState.hasEmail
+                    : undefined,
+                hasCallToday:
+                  urlState.hasCallToday === "yes" || urlState.hasCallToday === "no"
+                    ? urlState.hasCallToday
+                    : undefined,
+                hasMissedCall:
+                  urlState.hasMissedCall === "yes" || urlState.hasMissedCall === "no"
+                    ? urlState.hasMissedCall
+                    : undefined,
+                regions: urlState.regions.length > 0 ? urlState.regions : undefined,
+                cities: urlState.cities.length > 0 ? urlState.cities : undefined,
+                clientType: urlState.clientType.trim() || undefined,
+                sortBy: urlState.sortBy,
+                sortDir: urlState.sortDir,
+              }),
+              summaryPromise.catch(() => null),
+            ]);
+            if (!isCurrentContactsRequest(seq, requestSeq.current)) return;
+            setItems(res.items);
+            setWorkItems([]);
+            setTotal(res.total);
+            if (summary) setWorkSummary(summary);
+            const clamped = clampContactsPage(urlState.page, res.total, PAGE_SIZE);
+            if (clamped !== urlState.page) {
+              patchUrl({ page: clamped });
+            }
+          } else {
+            const [queue, summary] = await Promise.all([
+              contactsApi.getWorkQueue({
+                page: urlState.page,
+                pageSize: PAGE_SIZE,
+                q: urlState.q.trim() || undefined,
+                ownerId: urlState.ownerId || undefined,
+                preset: urlState.workPreset,
+                reasons: urlState.reasons.length > 0 ? urlState.reasons : undefined,
+              }),
+              summaryPromise,
+            ]);
+            if (!isCurrentContactsRequest(seq, requestSeq.current)) return;
+            setItems([]);
+            setWorkItems(queue.items);
+            setTotal(queue.total);
+            setWorkSummary(summary);
+            const clamped = clampContactsPage(urlState.page, queue.total, PAGE_SIZE);
+            if (clamped !== urlState.page) {
+              patchUrl({ page: clamped });
+            }
+          }
+        } catch (e) {
+          if (!isCurrentContactsRequest(seq, requestSeq.current)) return;
+          const msg =
+            (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
+            (e instanceof Error ? e.message : strings.contacts.page.loadError);
+          setError(msg);
+          setItems([]);
+          setWorkItems([]);
+        } finally {
+          if (isCurrentContactsRequest(seq, requestSeq.current)) setLoading(false);
+        }
+      };
+      if (opts?.silent) await withPreservedScroll(run);
+      else await run();
+    },
+    [urlState, patchUrl],
+  );
+
+  useEffect(() => {
+    void reload();
+  }, [reload]);
+
   const openContact = (id: string) => {
     stack.closeAll();
-    const params = new URLSearchParams(searchParams.toString());
-    params.set("contactId", id);
-    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+    patchUrl({ contactId: id });
   };
 
   const openCreate = () => {
     stack.closeAll();
-    const params = new URLSearchParams(searchParams.toString());
-    params.set("contactId", "new");
-    if (filterCompanyId) params.set("prefillCompanyId", filterCompanyId);
-    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+    const params = buildContactsSearchParams({ ...urlState, contactId: "new" }, searchParams);
+    if (urlState.companyId) params.set("prefillCompanyId", urlState.companyId);
+    const qs = params.toString();
+    router.replace(`${pathname}?${qs}`, { scroll: false });
   };
 
   const contactCreateInitial = useMemo(() => {
-    if (contactId !== "new") return undefined;
-    const prefillCompanyId =
-      searchParams.get("prefillCompanyId") ?? searchParams.get("companyId");
+    if (urlState.contactId !== "new") return undefined;
+    const prefillCompanyId = searchParams.get("prefillCompanyId") ?? searchParams.get("companyId");
     const phone = searchParams.get("phone") ?? undefined;
     const firstName = searchParams.get("firstName") ?? undefined;
     const lastName = searchParams.get("lastName") ?? undefined;
@@ -432,14 +300,11 @@ function ContactsPageContent() {
       firstName,
       lastName,
     };
-  }, [contactId, searchParams]);
+  }, [urlState.contactId, searchParams]);
 
   const closeModal = () => {
     stack.closeAll();
-    const params = new URLSearchParams(searchParams.toString());
-    params.delete("contactId");
-    const newUrl = params.toString() ? `${pathname}?${params.toString()}` : pathname;
-    router.replace(newUrl, { scroll: false });
+    patchUrl({ contactId: "" });
   };
 
   const closeFrom = (index: number) => {
@@ -452,167 +317,239 @@ function ContactsPageContent() {
 
   const replaceRoot = (frame: EntityModalFrame) => {
     if (frame.type !== "contact") return;
-    const params = new URLSearchParams(searchParams.toString());
-    params.set("contactId", frame.id);
-    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+    patchUrl({ contactId: frame.id });
   };
 
+  const filtersState: ContactsFiltersState = useMemo(
+    () => ({
+      companyId: urlState.companyId,
+      ownerId: urlState.ownerId,
+      hasPhone: urlState.hasPhone,
+      hasEmail: urlState.hasEmail,
+      hasCallToday: urlState.hasCallToday,
+      hasMissedCall: urlState.hasMissedCall,
+      regions: urlState.regions,
+      cities: urlState.cities,
+      clientType: urlState.clientType,
+      sortBy: urlState.sortBy,
+      sortDir: urlState.sortDir,
+      reasons: urlState.reasons,
+    }),
+    [urlState],
+  );
+
   const applyPopoverFilters = (next: ContactsFiltersState) => {
-    setFilterOwnerId(next.ownerId || null);
-    if (!isPresetMode) {
-      setFilterCompanyId(next.companyId || null);
-      setFilterHasPhone(next.hasPhone || "");
-      setFilterHasEmail(next.hasEmail || "");
-      setFilterHasCallToday(next.hasCallToday || "");
-      setFilterHasMissedCall(next.hasMissedCall || "");
-      setFilterRegions(next.regions ?? []);
-      setFilterCities(next.cities ?? []);
-      setFilterClientType(next.clientType || "");
-      setSortBy(
+    if (isPresetMode) {
+      patchUrl({
+        ownerId: next.ownerId || "",
+        reasons: next.reasons ?? [],
+        page: 1,
+      });
+      return;
+    }
+    patchUrl({
+      companyId: next.companyId || "",
+      ownerId: next.ownerId || "",
+      hasPhone: next.hasPhone || "",
+      hasEmail: next.hasEmail || "",
+      hasCallToday: next.hasCallToday || "",
+      hasMissedCall: next.hasMissedCall || "",
+      regions: next.regions ?? [],
+      cities: next.cities ?? [],
+      clientType: next.clientType || "",
+      sortBy:
         next.sortBy === "updatedAt" ||
-          next.sortBy === "name" ||
-          next.sortBy === "hasCallToday" ||
-          next.sortBy === "hasMissedCall"
+        next.sortBy === "name" ||
+        next.sortBy === "hasCallToday" ||
+        next.sortBy === "hasMissedCall"
           ? next.sortBy
           : "createdAt",
-      );
-      setSortDir(next.sortDir === "asc" ? "asc" : "desc");
-    }
-    setPage(1);
+      sortDir: next.sortDir === "asc" ? "asc" : "desc",
+      reasons: [],
+      page: 1,
+    });
   };
 
   const resetAllFilters = () => {
-    setFilterCompanyId(null);
-    setFilterOwnerId(null);
-    setFilterHasPhone("");
-    setFilterHasEmail("");
-    setFilterHasCallToday("");
-    setFilterHasMissedCall("");
-    setFilterRegions([]);
-    setFilterCities([]);
-    setFilterClientType("");
-    setSortBy("createdAt");
-    setSortDir("desc");
+    patchUrl({
+      ...DEFAULT_CONTACTS_URL,
+      workPreset: urlState.workPreset,
+      contactId: urlState.contactId,
+      page: 1,
+    });
     setQInput("");
-    setQ("");
-    setPage(1);
   };
 
-  const filtersState: ContactsFiltersState = {
-    companyId: filterCompanyId ?? "",
-    ownerId: filterOwnerId ?? "",
-    hasPhone: filterHasPhone,
-    hasEmail: filterHasEmail,
-    hasCallToday: filterHasCallToday,
-    hasMissedCall: filterHasMissedCall,
-    regions: filterRegions,
-    cities: filterCities,
-    clientType: filterClientType,
-    sortBy,
-    sortDir,
-  };
+  const activeFiltersCount = useMemo(() => {
+    if (isPresetMode) {
+      return [Boolean(urlState.ownerId), urlState.reasons.length > 0].filter(Boolean).length;
+    }
+    return [
+      Boolean(urlState.companyId),
+      Boolean(urlState.ownerId),
+      Boolean(urlState.hasPhone),
+      Boolean(urlState.hasEmail),
+      Boolean(urlState.hasCallToday),
+      Boolean(urlState.hasMissedCall),
+      urlState.regions.length > 0,
+      urlState.cities.length > 0,
+      Boolean(urlState.clientType.trim()),
+      urlState.sortBy !== "createdAt",
+      urlState.sortDir !== "desc",
+    ].filter(Boolean).length;
+  }, [isPresetMode, urlState]);
 
-  const activeFiltersCount = useMemo(
-    () =>
-      isPresetMode
-        ? [Boolean(filterOwnerId)].filter(Boolean).length
-        : [
-            Boolean(filterCompanyId),
-            Boolean(filterOwnerId),
-            Boolean(filterHasPhone),
-            Boolean(filterHasEmail),
-            Boolean(filterHasCallToday),
-            Boolean(filterHasMissedCall),
-            filterRegions.length > 0,
-            filterCities.length > 0,
-            Boolean(filterClientType.trim()),
-            sortBy !== "createdAt",
-            sortDir !== "desc",
-          ].filter(Boolean).length,
-    [
-      isPresetMode,
-      filterCities,
-      filterClientType,
-      filterCompanyId,
-      filterHasEmail,
-      filterHasCallToday,
-      filterHasPhone,
-      filterHasMissedCall,
-      filterOwnerId,
-      filterRegions,
-      sortBy,
-      sortDir,
-    ],
-  );
+  const filtersActive = isContactsFilterActive(urlState);
 
   const toggleSort = (nextSortBy: ContactsSortBy) => {
-    if (sortBy === nextSortBy) {
-      setSortDir((prev) => (prev === "desc" ? "asc" : "desc"));
+    if (urlState.sortBy === nextSortBy) {
+      patchUrl({ sortDir: urlState.sortDir === "desc" ? "asc" : "desc", page: 1 });
       return;
     }
-    setSortBy(nextSortBy);
-    setSortDir("desc");
-    setPage(1);
+    patchUrl({ sortBy: nextSortBy, sortDir: "desc", page: 1 });
   };
 
   const sortIndicator = (column: ContactsSortBy) =>
-    sortBy === column ? (sortDir === "desc" ? " ↓" : " ↑") : "";
+    urlState.sortBy === column ? (urlState.sortDir === "desc" ? " ↓" : " ↑") : "";
 
   const goToPage = (next: number) => {
-    setPage(next);
-    void reload({ keepPage: true });
+    patchUrl({ page: next });
   };
 
-  const presetCounts = workSummary?.presetCounts;
   const switchPreset = (preset: ContactsWorkPreset) => {
-    setWorkPreset(preset);
-    setPage(1);
-    if (preset !== "all") {
-      setFilterCompanyId(null);
-      setFilterHasPhone("");
-      setFilterHasEmail("");
-      setFilterHasCallToday("");
-      setFilterHasMissedCall("");
-      setFilterRegions([]);
-      setFilterCities([]);
-      setFilterClientType("");
-      setSortBy("createdAt");
-      setSortDir("desc");
+    if (preset === "all") {
+      patchUrl({ workPreset: "all", reasons: [], page: 1 });
+      return;
     }
+    patchUrl({
+      workPreset: preset,
+      companyId: "",
+      hasPhone: "",
+      hasEmail: "",
+      hasCallToday: "",
+      hasMissedCall: "",
+      regions: [],
+      cities: [],
+      clientType: "",
+      sortBy: "createdAt",
+      sortDir: "desc",
+      page: 1,
+    });
   };
+
+  const companyName =
+    companyOptions.find((opt) => opt.value === urlState.companyId)?.label || urlState.companyId;
+  const ownerName =
+    ownerOptions.find((opt) => opt.id === urlState.ownerId)?.fullName || urlState.ownerId;
+
+  const queueActionKind = resolveQueueEmptyAction({
+    ownerId: urlState.ownerId,
+    q: urlState.q,
+    reasons: urlState.reasons,
+  });
+
+  const queueEmptyAction =
+    queueActionKind === "openAll" ? (
+      <button
+        type="button"
+        onClick={() => switchPreset("all")}
+        className="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
+      >
+        {empty.queueCtaAll}
+      </button>
+    ) : queueActionKind === "resetOwner" ? (
+      <button
+        type="button"
+        onClick={() => patchUrl({ ownerId: "", page: 1 })}
+        className="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
+      >
+        {empty.queueCtaResetOwner}
+      </button>
+    ) : (
+      <button
+        type="button"
+        onClick={resetAllFilters}
+        className="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
+      >
+        {empty.resetFilters}
+      </button>
+    );
+
+  const allEmptyAction = filtersActive ? (
+    <button
+      type="button"
+      onClick={resetAllFilters}
+      className="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
+    >
+      {empty.resetFilters}
+    </button>
+  ) : (
+    <button type="button" onClick={openCreate} className="btn-primary">
+      {empty.addContact}
+    </button>
+  );
+
+  const allEmpty = (
+    <EmptyState
+      icon={Inbox}
+      title={filtersActive ? empty.allFilteredTitle : empty.allTitle}
+      description={filtersActive ? empty.allFilteredHint : empty.allHint}
+      action={allEmptyAction}
+    />
+  );
+
+  const queueEmpty = (
+    <EmptyState
+      icon={ListChecks}
+      title={empty.queueTitle}
+      description={empty.queueHint}
+      action={queueEmptyAction}
+    />
+  );
+
+  const presetCounts = workSummary?.presetCounts;
+  const showEmpty = shouldShowContactsEmpty({ loading, error });
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-4">
-        <h1 className="text-2xl font-bold">{strings.nav.contacts}</h1>
+        <div>
+          <h1 className="text-2xl font-bold">{strings.nav.contacts}</h1>
+          {isPresetMode ? (
+            <p className="mt-1 text-sm text-zinc-500">{strings.contacts.presets.subtitle}</p>
+          ) : null}
+        </div>
         <div className="flex items-center gap-2">
           <HelpHint routeKey="contacts" />
           <button type="button" onClick={openCreate} className="btn-primary">
-            + Додати
+            {t.add}
           </button>
         </div>
       </div>
 
       <div className="mb-4">
-        <div className="mb-3 flex flex-wrap gap-2">
-          {WORK_PRESET_OPTIONS.map((preset) => {
-            const isActive = workPreset === preset.value;
+        <div
+          className="mb-3 flex flex-wrap gap-2"
+          role="group"
+          aria-label={strings.contacts.presets.subtitle}
+        >
+          {WORK_PRESET_VALUES.map((preset) => {
+            const isActive = urlState.workPreset === preset;
             const count =
-              preset.value === "all"
-                ? null
-                : presetCounts?.[preset.value as ContactWorkQueuePreset];
+              preset === "all" ? null : presetCounts?.[preset as ContactWorkQueuePreset];
             return (
               <button
-                key={preset.value}
+                key={preset}
                 type="button"
-                onClick={() => switchPreset(preset.value)}
+                aria-pressed={isActive}
+                onClick={() => switchPreset(preset)}
                 className={`rounded-full border px-3 py-1.5 text-sm transition ${
                   isActive
                     ? "border-zinc-900 bg-zinc-900 text-white"
                     : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50"
                 }`}
               >
-                {preset.label}
+                {presetLabel(preset)}
                 {typeof count === "number" ? ` (${count})` : ""}
               </button>
             );
@@ -628,18 +565,18 @@ function ContactsPageContent() {
               <input
                 value={qInput}
                 onChange={(e) => setQInput(e.target.value)}
-                placeholder="імʼя, телефон, email, компанія, адреса, місто"
+                placeholder={t.searchPlaceholder}
                 className="min-w-0 flex-1 bg-transparent text-sm outline-none"
                 type="search"
-                aria-label="Пошук контактів"
+                aria-label={t.searchAria}
               />
               {qInput ? (
                 <button
                   type="button"
                   onClick={() => setQInput("")}
                   className="flex shrink-0 items-center justify-center rounded p-1 text-zinc-500 hover:bg-zinc-200/50 hover:text-zinc-700"
-                  aria-label="Очистить поиск"
-                  title="Очистить"
+                  aria-label={t.clearSearch}
+                  title={t.clearSearch}
                 >
                   <X className="h-4 w-4" />
                 </button>
@@ -648,12 +585,21 @@ function ContactsPageContent() {
                 type="button"
                 onClick={() => setFiltersOpen(true)}
                 className="flex shrink-0 items-center justify-center rounded p-1 text-zinc-500 hover:bg-zinc-200/50 hover:text-zinc-700"
-                aria-label="Відкрити фільтри"
-                title="Фільтри"
+                aria-label={t.openFilters}
+                title={t.filters}
               >
                 <Filter className="h-4 w-4" />
               </button>
             </div>
+            {(urlState.q || activeFiltersCount > 0) && (
+              <button
+                type="button"
+                onClick={resetAllFilters}
+                className="shrink-0 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
+              >
+                {t.resetAll}
+              </button>
+            )}
           </form>
 
           <ContactsFiltersPopover
@@ -667,153 +613,159 @@ function ContactsPageContent() {
             onReset={resetAllFilters}
           />
         </div>
-        {isPresetMode ? (
-          <div className="mt-2 text-xs text-zinc-500">
-            У робочому списку доступні лише пошук, відповідальний, preset і пагінація.
-          </div>
-        ) : null}
+        {isPresetMode ? <div className="mt-2 text-xs text-zinc-500">{t.presetHint}</div> : null}
         <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-zinc-500">
-          Всего: {total} | Страница {page} из {totalPages}
+          {t.totalPage
+            .replace("{total}", String(total))
+            .replace("{page}", String(urlState.page))
+            .replace("{totalPages}", String(totalPages))}
           {activeFiltersCount > 0 ? (
             <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-800">
-              Фильтров: {activeFiltersCount}
+              {t.filtersActiveCount.replace("{count}", String(activeFiltersCount))}
             </span>
           ) : null}
         </div>
-        {(q || activeFiltersCount > 0) && (
+        {(urlState.q || activeFiltersCount > 0) && (
           <div className="mt-2 flex flex-wrap gap-2">
-            {q ? (
+            {urlState.q ? (
               <button
                 type="button"
                 onClick={() => {
                   setQInput("");
-                  setQ("");
-                  setPage(1);
+                  patchUrl({ q: "", page: 1 });
                 }}
                 className="rounded-full border border-zinc-300 bg-white px-2.5 py-1 text-xs text-zinc-700 hover:bg-zinc-100"
               >
-                Пошук: {q} ✕
+                {t.chipSearch.replace("{q}", urlState.q)} ✕
               </button>
             ) : null}
-            {!isPresetMode && filterCompanyId ? (
+            {!isPresetMode && urlState.companyId ? (
               <button
                 type="button"
-                onClick={() => {
-                  setFilterCompanyId(null);
-                  setPage(1);
-                }}
+                onClick={() => patchUrl({ companyId: "", page: 1 })}
                 className="rounded-full border border-zinc-300 bg-white px-2.5 py-1 text-xs text-zinc-700 hover:bg-zinc-100"
               >
-                Компания ✕
+                {t.chipCompany}: {companyName} ✕
               </button>
             ) : null}
-            {filterOwnerId ? (
+            {urlState.ownerId ? (
               <button
                 type="button"
-                onClick={() => {
-                  setFilterOwnerId(null);
-                  setPage(1);
-                }}
+                onClick={() => patchUrl({ ownerId: "", page: 1 })}
                 className="rounded-full border border-zinc-300 bg-white px-2.5 py-1 text-xs text-zinc-700 hover:bg-zinc-100"
               >
-                Відповідальний ✕
+                {t.chipOwner}: {ownerName} ✕
               </button>
             ) : null}
-            {!isPresetMode && filterHasPhone ? (
+            {isPresetMode
+              ? urlState.reasons.map((reason) => (
+                  <button
+                    key={reason}
+                    type="button"
+                    onClick={() =>
+                      patchUrl({
+                        reasons: urlState.reasons.filter((item) => item !== reason),
+                        page: 1,
+                      })
+                    }
+                    className="rounded-full border border-zinc-300 bg-white px-2.5 py-1 text-xs text-zinc-700 hover:bg-zinc-100"
+                  >
+                    {t.chipReason.replace("{value}", formatContactPriorityReasonCompact(reason))} ✕
+                  </button>
+                ))
+              : null}
+            {!isPresetMode && urlState.hasPhone ? (
               <button
                 type="button"
-                onClick={() => {
-                  setFilterHasPhone("");
-                  setPage(1);
-                }}
+                onClick={() => patchUrl({ hasPhone: "", page: 1 })}
                 className="rounded-full border border-zinc-300 bg-white px-2.5 py-1 text-xs text-zinc-700 hover:bg-zinc-100"
               >
-                Телефон: {filterHasPhone === "yes" ? "є" : "ні"} ✕
+                {urlState.hasPhone === "yes" ? t.chipPhoneYes : t.chipPhoneNo} ✕
               </button>
             ) : null}
-            {!isPresetMode && filterHasEmail ? (
+            {!isPresetMode && urlState.hasEmail ? (
               <button
                 type="button"
-                onClick={() => {
-                  setFilterHasEmail("");
-                  setPage(1);
-                }}
+                onClick={() => patchUrl({ hasEmail: "", page: 1 })}
                 className="rounded-full border border-zinc-300 bg-white px-2.5 py-1 text-xs text-zinc-700 hover:bg-zinc-100"
               >
-                Email: {filterHasEmail === "yes" ? "є" : "ні"} ✕
+                {urlState.hasEmail === "yes" ? t.chipEmailYes : t.chipEmailNo} ✕
               </button>
             ) : null}
-            {!isPresetMode && filterHasCallToday ? (
+            {!isPresetMode && urlState.hasCallToday ? (
               <button
                 type="button"
-                onClick={() => {
-                  setFilterHasCallToday("");
-                  setPage(1);
-                }}
+                onClick={() => patchUrl({ hasCallToday: "", page: 1 })}
                 className="rounded-full border border-zinc-300 bg-white px-2.5 py-1 text-xs text-zinc-700 hover:bg-zinc-100"
               >
-                Дзвінок сьогодні: {filterHasCallToday === "yes" ? "так" : "ні"} ✕
+                {urlState.hasCallToday === "yes" ? t.chipCallTodayYes : t.chipCallTodayNo} ✕
               </button>
             ) : null}
-            {!isPresetMode && filterHasMissedCall ? (
+            {!isPresetMode && urlState.hasMissedCall ? (
               <button
                 type="button"
-                onClick={() => {
-                  setFilterHasMissedCall("");
-                  setPage(1);
-                }}
+                onClick={() => patchUrl({ hasMissedCall: "", page: 1 })}
                 className="rounded-full border border-zinc-300 bg-white px-2.5 py-1 text-xs text-zinc-700 hover:bg-zinc-100"
               >
-                Пропущені: {filterHasMissedCall === "yes" ? "так" : "ні"} ✕
+                {urlState.hasMissedCall === "yes" ? t.chipMissedYes : t.chipMissedNo} ✕
               </button>
             ) : null}
             {!isPresetMode &&
-              filterRegions.map((region) => (
+              urlState.regions.map((region) => (
                 <button
                   key={region}
                   type="button"
-                  onClick={() => {
-                    setFilterRegions((prev) => prev.filter((item) => item !== region));
-                    setPage(1);
-                  }}
+                  onClick={() =>
+                    patchUrl({
+                      regions: urlState.regions.filter((item) => item !== region),
+                      page: 1,
+                    })
+                  }
                   className="rounded-full border border-zinc-300 bg-white px-2.5 py-1 text-xs text-zinc-700 hover:bg-zinc-100"
                 >
-                  Область: {region} ✕
+                  {t.chipRegion.replace("{value}", region)} ✕
                 </button>
               ))}
             {!isPresetMode &&
-              filterCities.map((city) => (
+              urlState.cities.map((city) => (
                 <button
                   key={city}
                   type="button"
-                  onClick={() => {
-                    setFilterCities((prev) => prev.filter((item) => item !== city));
-                    setPage(1);
-                  }}
+                  onClick={() =>
+                    patchUrl({
+                      cities: urlState.cities.filter((item) => item !== city),
+                      page: 1,
+                    })
+                  }
                   className="rounded-full border border-zinc-300 bg-white px-2.5 py-1 text-xs text-zinc-700 hover:bg-zinc-100"
                 >
-                  Місто: {city} ✕
+                  {t.chipCity.replace("{value}", city)} ✕
                 </button>
               ))}
-            {!isPresetMode && filterClientType.trim() ? (
+            {!isPresetMode && urlState.clientType.trim() ? (
               <button
                 type="button"
-                onClick={() => {
-                  setFilterClientType("");
-                  setPage(1);
-                }}
+                onClick={() => patchUrl({ clientType: "", page: 1 })}
                 className="rounded-full border border-zinc-300 bg-white px-2.5 py-1 text-xs text-zinc-700 hover:bg-zinc-100"
               >
-                Тип: {filterClientType} ✕
+                {t.chipType.replace("{value}", urlState.clientType)} ✕
               </button>
             ) : null}
-            <button
-              type="button"
-              onClick={resetAllFilters}
-              className="rounded-full border border-zinc-300 bg-zinc-50 px-2.5 py-1 text-xs font-medium text-zinc-800 hover:bg-zinc-100"
-            >
-              Скинути все
-            </button>
+            {!isPresetMode && (urlState.sortBy !== "createdAt" || urlState.sortDir !== "desc") ? (
+              <button
+                type="button"
+                onClick={() => patchUrl({ sortBy: "createdAt", sortDir: "desc", page: 1 })}
+                className="rounded-full border border-zinc-300 bg-white px-2.5 py-1 text-xs text-zinc-700 hover:bg-zinc-100"
+              >
+                {t.chipSort.replace(
+                  "{value}",
+                  `${sortLabel(urlState.sortBy)} · ${
+                    urlState.sortDir === "asc" ? t.chipSortDirAsc : t.chipSortDirDesc
+                  }`,
+                )}{" "}
+                ✕
+              </button>
+            ) : null}
           </div>
         )}
       </div>
@@ -821,19 +773,15 @@ function ContactsPageContent() {
       {error && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 shadow-sm">
           <div className="space-y-1">
-            <div className="font-medium">
-              {isPresetMode
-                ? "Не вдалося завантажити робочий список"
-                : "Не вдалося завантажити контакти"}
-            </div>
+            <div className="font-medium">{isPresetMode ? t.loadQueueError : t.loadError}</div>
             <div>{error}</div>
           </div>
           <button
             type="button"
-            onClick={() => void reload({ keepPage: true })}
+            onClick={() => void reload()}
             className="rounded border border-red-300 bg-white px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100"
           >
-            Повторить
+            {t.retry}
           </button>
         </div>
       )}
@@ -842,39 +790,30 @@ function ContactsPageContent() {
         <div className="divide-y divide-zinc-100 md:hidden">
           {loading ? (
             <div className="px-4 py-8 text-center text-zinc-500">
-              {isPresetMode ? "Формуємо робочий список…" : "Завантаження…"}
+              {isPresetMode ? t.loadingQueue : t.loading}
             </div>
-          ) : isPresetMode ? (
+          ) : error ? null : isPresetMode ? (
             workItems.length === 0 ? (
-              <div className="px-4 py-10 text-center">
-                <div className="text-sm font-medium text-zinc-700">У цьому списку зараз порожньо</div>
-                <div className="mt-1 text-xs text-zinc-500">
-                  Спробуйте інший preset або зніміть пошук/фільтр за відповідальним.
-                </div>
-              </div>
+              showEmpty ? (
+                <div className="px-4 py-6">{queueEmpty}</div>
+              ) : null
             ) : (
               workItems.map((item) => (
                 <WorkQueueMobileCard key={item.contact.id} item={item} openContact={openContact} />
               ))
             )
           ) : items.length === 0 ? (
-            <div className="px-4 py-8 text-center text-zinc-500">Немає контактів</div>
+            showEmpty ? (
+              <div className="px-4 py-6">{allEmpty}</div>
+            ) : null
           ) : (
             items.map((c) => (
               <article
                 key={c.id}
                 className="bg-white px-3 py-3 transition-all"
-                role="button"
-                tabIndex={0}
                 onClick={() => {
                   if (isTextSelected()) return;
                   openContact(c.id);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault();
-                    openContact(c.id);
-                  }
                 }}
               >
                 <div className="flex items-start justify-between gap-3">
@@ -886,7 +825,7 @@ function ContactsPageContent() {
                     {c.hasDebt && (
                       <div className="mt-1">
                         <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-800">
-                          Борг
+                          {t.debt}
                         </span>
                       </div>
                     )}
@@ -901,12 +840,12 @@ function ContactsPageContent() {
                     <div className="mt-2 flex flex-wrap gap-1">
                       {c.hasCallToday && (
                         <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
-                          Call today
+                          {t.callToday}
                         </span>
                       )}
                       {c.hasMissedCall && (
                         <span className="rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-700">
-                          Missed
+                          {t.missed}
                         </span>
                       )}
                     </div>
@@ -914,6 +853,7 @@ function ContactsPageContent() {
                   <div
                     className="flex shrink-0 flex-col items-end gap-1"
                     onClick={(e) => e.stopPropagation()}
+                    onKeyDown={(e) => e.stopPropagation()}
                   >
                     <a
                       href={
@@ -923,10 +863,9 @@ function ContactsPageContent() {
                       }
                       target="_blank"
                       rel="noopener noreferrer"
-                      onClick={(e) => e.stopPropagation()}
                       className={`rounded p-2.5 transition-colors ${c.phone ? "text-zinc-600 hover:bg-emerald-100 hover:text-emerald-700" : "cursor-not-allowed text-zinc-300"}`}
-                      title="Позвонить"
-                      aria-label="Позвонить"
+                      title={t.call}
+                      aria-label={t.call}
                     >
                       <Phone className="h-5 w-5" />
                     </a>
@@ -934,13 +873,21 @@ function ContactsPageContent() {
                       href={c.email ? `mailto:${c.email}` : undefined}
                       target="_blank"
                       rel="noopener noreferrer"
-                      onClick={(e) => e.stopPropagation()}
                       className={`rounded p-2.5 transition-colors ${c.email ? "text-zinc-600 hover:bg-blue-100 hover:text-blue-700" : "cursor-not-allowed text-zinc-300"}`}
-                      title="Написать"
-                      aria-label="Написать"
+                      title={t.write}
+                      aria-label={t.write}
                     >
                       <Mail className="h-5 w-5" />
                     </a>
+                    <button
+                      type="button"
+                      onClick={() => openContact(c.id)}
+                      className="rounded p-2.5 text-zinc-600 transition-colors hover:bg-zinc-200 hover:text-zinc-900"
+                      title={t.open}
+                      aria-label={t.open}
+                    >
+                      <Pencil className="h-5 w-5" />
+                    </button>
                   </div>
                 </div>
               </article>
@@ -950,113 +897,43 @@ function ContactsPageContent() {
 
         <div className="hidden overflow-x-auto md:block">
           {isPresetMode ? (
-            <table className="w-full min-w-[1120px] text-left text-sm">
+            <table className="w-full min-w-[1080px] text-left text-sm">
               <thead className="sticky top-0 z-10 bg-zinc-100/95 text-xs font-medium uppercase text-zinc-500 backdrop-blur supports-[backdrop-filter]:bg-zinc-100/80">
                 <tr>
-                  <th className="w-[18%] px-3 py-3">Імʼя</th>
-                  <th className="w-[14%] px-3 py-3">Компания</th>
-                  <th className="w-[12%] px-3 py-3">Owner</th>
-                  <th className="w-[8%] px-3 py-3 text-right">Score</th>
-                  <th className="w-[18%] px-3 py-3">Причини</th>
-                  <th className="w-[12%] px-3 py-3">Stage</th>
-                  <th className="w-[10%] px-3 py-3">Action</th>
-                  <th className="w-[10%] px-3 py-3">Дата</th>
-                  <th className="w-[10%] px-3 py-3">Контакт</th>
-                  <th className="w-[8%] px-3 py-3 text-right">Борг</th>
+                  <th className="w-[18%] px-3 py-3">{wq.colName}</th>
+                  <th className="w-[12%] px-3 py-3">{wq.colOwner}</th>
+                  <th className="w-[8%] px-3 py-3 text-right">{wq.colScore}</th>
+                  <th className="w-[16%] px-3 py-3">{wq.colReasons}</th>
+                  <th className="w-[12%] px-3 py-3">{wq.colStage}</th>
+                  <th className="w-[10%] px-3 py-3">{wq.colAction}</th>
+                  <th className="w-[10%] px-3 py-3">{wq.colDate}</th>
+                  <th className="w-[10%] px-3 py-3">{wq.colLastContact}</th>
+                  <th className="w-[8%] px-3 py-3 text-right">{wq.colDebt}</th>
+                  <th className="w-[8%] px-2 py-3 text-right">{wq.colActions}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-100">
                 {loading ? (
                   <tr>
                     <td colSpan={10} className="px-4 py-8 text-center text-zinc-500">
-                      Формуємо робочий список…
+                      {t.loadingQueue}
                     </td>
                   </tr>
-                ) : workItems.length === 0 ? (
-                  <tr>
-                    <td colSpan={10} className="px-4 py-10 text-center">
-                      <div className="text-sm font-medium text-zinc-700">
-                        У цьому списку зараз порожньо
-                      </div>
-                      <div className="mt-1 text-xs text-zinc-500">
-                        Спробуйте інший preset або зніміть пошук/фільтр за відповідальним.
-                      </div>
-                    </td>
-                  </tr>
-                ) : (
-                  workItems.map((item) => (
-                    <tr
-                      key={item.contact.id}
-                      className="cursor-pointer align-top transition-colors hover:bg-zinc-50 focus-within:bg-zinc-50"
-                      onClick={() => {
-                        if (isTextSelected()) return;
-                        openContact(item.contact.id);
-                      }}
-                      tabIndex={0}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" || e.key === " ") {
-                          e.preventDefault();
-                          openContact(item.contact.id);
-                        }
-                      }}
-                    >
-                      <td className="px-3 py-3.5">
-                        <div className="font-medium text-zinc-900">
-                          {item.contact.fullName || "Без імені"}
-                        </div>
-                        <div className="mt-1 text-xs text-zinc-500">
-                          {item.contact.companyName ?? "Без компанії"}
-                        </div>
-                      </td>
-                      <td className="px-3 py-3.5 text-sm text-zinc-600">
-                        {item.contact.companyName ?? "—"}
-                      </td>
-                      <td className="px-3 py-3.5 text-sm text-zinc-600">
-                        {item.contact.ownerName ?? "—"}
-                      </td>
-                      <td className="px-3 py-3.5 text-right">
-                        <span
-                          className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-semibold ${scoreTone(item.priorityScore)}`}
-                        >
-                          {item.priorityScore}
-                        </span>
-                      </td>
-                      <td className="px-3 py-3.5">
-                        <div className="flex flex-wrap gap-1">
-                          {item.priorityReasons.slice(0, 3).map((reason) => (
-                            <span
-                              key={reason}
-                              className="rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5 text-[10px] font-medium leading-none text-zinc-700"
-                            >
-                              {formatContactPriorityReasonCompact(reason)}
-                            </span>
-                          ))}
-                        </div>
-                      </td>
-                      <td className="px-3 py-3.5 text-sm text-zinc-600">
-                        {formatContactClientStage(item.contact.clientStage)}
-                      </td>
-                      <td className="px-3 py-3.5 text-sm text-zinc-800">
-                        <span className="font-medium">
-                          {formatContactNextActionType(item.contact.nextActionType)}
-                        </span>
-                      </td>
-                      <td className="px-3 py-3.5 text-sm text-zinc-600">
-                        {item.contact.nextActionAt ? formatDate(item.contact.nextActionAt) : "—"}
-                      </td>
-                      <td className="px-3 py-3.5 text-sm text-zinc-600">
-                        {formatDaysSinceLastContact(item.metrics.daysSinceLastContact)}
-                      </td>
-                      <td className="px-3 py-3.5 text-right text-sm text-zinc-600">
-                        {item.metrics.debtAmount > 0 ? (
-                          <span className="font-medium text-amber-700">
-                            {item.metrics.debtAmount}
-                          </span>
-                        ) : (
-                          "—"
-                        )}
+                ) : error ? null : workItems.length === 0 ? (
+                  showEmpty ? (
+                    <tr>
+                      <td colSpan={10} className="px-4 py-10">
+                        {queueEmpty}
                       </td>
                     </tr>
+                  ) : null
+                ) : (
+                  workItems.map((item) => (
+                    <WorkQueueDesktopRow
+                      key={item.contact.id}
+                      item={item}
+                      openContact={openContact}
+                    />
                   ))
                 )}
               </tbody>
@@ -1071,19 +948,21 @@ function ContactsPageContent() {
                       onClick={() => toggleSort("name")}
                       className="inline-flex items-center gap-1 hover:text-zinc-700"
                     >
-                      Імʼя{sortIndicator("name")}
+                      {t.colName}
+                      {sortIndicator("name")}
                     </button>
                   </th>
-                  <th className="px-4 py-3">Телефон</th>
-                  <th className="hidden px-4 py-3 md:table-cell">Email</th>
-                  <th className="hidden px-4 py-3 md:table-cell">Адрес</th>
+                  <th className="px-4 py-3">{t.colPhone}</th>
+                  <th className="hidden px-4 py-3 md:table-cell">{t.colEmail}</th>
+                  <th className="hidden px-4 py-3 md:table-cell">{t.colAddress}</th>
                   <th className="hidden px-4 py-3 text-right lg:table-cell">
                     <button
                       type="button"
                       onClick={() => toggleSort("hasMissedCall")}
                       className="inline-flex items-center gap-1 hover:text-zinc-700"
                     >
-                      Пропущені{sortIndicator("hasMissedCall")}
+                      {t.colMissed}
+                      {sortIndicator("hasMissedCall")}
                     </button>
                   </th>
                   <th className="hidden px-4 py-3 text-right lg:table-cell">
@@ -1092,7 +971,8 @@ function ContactsPageContent() {
                       onClick={() => toggleSort("hasCallToday")}
                       className="inline-flex items-center gap-1 hover:text-zinc-700"
                     >
-                      Дзвінок сьогодні{sortIndicator("hasCallToday")}
+                      {t.colCallToday}
+                      {sortIndicator("hasCallToday")}
                     </button>
                   </th>
                   <th className="hidden px-4 py-3 lg:table-cell">
@@ -1101,7 +981,8 @@ function ContactsPageContent() {
                       onClick={() => toggleSort("updatedAt")}
                       className="inline-flex items-center gap-1 hover:text-zinc-700"
                     >
-                      Обновлен{sortIndicator("updatedAt")}
+                      {t.colUpdated}
+                      {sortIndicator("updatedAt")}
                     </button>
                   </th>
                   {extraColumns.map((col) => (
@@ -1109,22 +990,27 @@ function ContactsPageContent() {
                       {col.label}
                     </th>
                   ))}
-                  <th className="w-28 px-2 py-3 text-right">Действия</th>
+                  <th className="w-28 px-2 py-3 text-right">{t.colActions}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-100">
                 {loading ? (
                   <tr>
-                    <td colSpan={8 + extraColumns.length} className="px-4 py-8 text-center text-zinc-500">
-                      Завантаження…
+                    <td
+                      colSpan={8 + extraColumns.length}
+                      className="px-4 py-8 text-center text-zinc-500"
+                    >
+                      {t.loading}
                     </td>
                   </tr>
-                ) : items.length === 0 ? (
-                  <tr>
-                    <td colSpan={8 + extraColumns.length} className="px-4 py-8 text-center text-zinc-500">
-                      Немає контактів
-                    </td>
-                  </tr>
+                ) : error ? null : items.length === 0 ? (
+                  showEmpty ? (
+                    <tr>
+                      <td colSpan={8 + extraColumns.length} className="px-4 py-10">
+                        {allEmpty}
+                      </td>
+                    </tr>
+                  ) : null
                 ) : (
                   items.map((c) => (
                     <tr
@@ -1136,41 +1022,42 @@ function ContactsPageContent() {
                       }}
                       tabIndex={0}
                       onKeyDown={(e) => {
-                        if (e.key === "Enter" || e.key === " ") {
-                          e.preventDefault();
-                          openContact(c.id);
-                        }
+                        if (!shouldActivateRowKey(e)) return;
+                        e.preventDefault();
+                        openContact(c.id);
                       }}
                     >
                       <td className="px-4 py-4 font-medium text-zinc-900">
                         {c.lastName} {c.firstName}
                         {c.hasDebt && (
                           <span className="ml-2 inline-flex rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-800">
-                            Debt
+                            {t.debt}
                           </span>
                         )}
                       </td>
                       <td className="px-4 py-4 text-zinc-600">{formatPhoneDisplay(c.phone)}</td>
-                      <td className="hidden px-4 py-4 text-zinc-600 md:table-cell">{c.email || "—"}</td>
+                      <td className="hidden px-4 py-4 text-zinc-600 md:table-cell">
+                        {c.email || "—"}
+                      </td>
                       <td className="hidden max-w-[220px] truncate px-4 py-4 text-zinc-600 md:table-cell">
                         {formatContactAddressFromGoogle(c.address)}
                       </td>
                       <td className="hidden px-4 py-4 text-right lg:table-cell">
                         {c.hasMissedCall ? (
                           <span className="rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-700">
-                            Yes
+                            {t.yes}
                           </span>
                         ) : (
-                          <span className="text-xs text-zinc-400">No</span>
+                          <span className="text-xs text-zinc-400">{t.no}</span>
                         )}
                       </td>
                       <td className="hidden px-4 py-4 text-right lg:table-cell">
                         {c.hasCallToday ? (
                           <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
-                            Yes
+                            {t.yes}
                           </span>
                         ) : (
-                          <span className="text-xs text-zinc-400">No</span>
+                          <span className="text-xs text-zinc-400">{t.no}</span>
                         )}
                       </td>
                       <td className="hidden px-4 py-4 text-zinc-600 lg:table-cell">
@@ -1178,10 +1065,18 @@ function ContactsPageContent() {
                       </td>
                       {extraColumns.map((col) => (
                         <td key={col.fieldId} className="px-4 py-4 text-zinc-600">
-                          {renderCellText(col, c as unknown as Record<string, unknown>, customValues)}
+                          {renderCellText(
+                            col,
+                            c as unknown as Record<string, unknown>,
+                            customValues,
+                          )}
                         </td>
                       ))}
-                      <td className="px-2 py-4 text-right" onClick={(e) => e.stopPropagation()}>
+                      <td
+                        className="px-2 py-4 text-right"
+                        onClick={(e) => e.stopPropagation()}
+                        onKeyDown={(e) => e.stopPropagation()}
+                      >
                         <div className="flex justify-end gap-1">
                           <a
                             href={
@@ -1191,10 +1086,9 @@ function ContactsPageContent() {
                             }
                             target="_blank"
                             rel="noopener noreferrer"
-                            onClick={(e) => e.stopPropagation()}
                             className={`rounded p-2 transition-colors ${c.phone ? "text-zinc-600 hover:bg-emerald-100 hover:text-emerald-700" : "cursor-not-allowed text-zinc-300"}`}
-                            title="Позвонить"
-                            aria-label="Позвонить"
+                            title={t.call}
+                            aria-label={t.call}
                           >
                             <Phone className="h-5 w-5 sm:h-4 sm:w-4" />
                           </a>
@@ -1202,22 +1096,18 @@ function ContactsPageContent() {
                             href={c.email ? `mailto:${c.email}` : undefined}
                             target="_blank"
                             rel="noopener noreferrer"
-                            onClick={(e) => e.stopPropagation()}
                             className={`rounded p-2 transition-colors ${c.email ? "text-zinc-600 hover:bg-blue-100 hover:text-blue-700" : "cursor-not-allowed text-zinc-300"}`}
-                            title="Написать"
-                            aria-label="Написать"
+                            title={t.write}
+                            aria-label={t.write}
                           >
                             <Mail className="h-5 w-5 sm:h-4 sm:w-4" />
                           </a>
                           <button
                             type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              openContact(c.id);
-                            }}
+                            onClick={() => openContact(c.id)}
                             className="rounded p-2 text-zinc-600 transition-colors hover:bg-zinc-200 hover:text-zinc-900"
-                            title="Відкрити"
-                            aria-label="Відкрити"
+                            title={t.open}
+                            aria-label={t.open}
                           >
                             <Pencil className="h-5 w-5 sm:h-4 sm:w-4" />
                           </button>
@@ -1233,24 +1123,27 @@ function ContactsPageContent() {
 
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-zinc-200 bg-zinc-50 px-4 py-4">
           <span className="text-xs text-zinc-500">
-            Страница {page} из {totalPages} • Всего {total}
+            {t.pagination
+              .replace("{page}", String(urlState.page))
+              .replace("{totalPages}", String(totalPages))
+              .replace("{total}", String(total))}
           </span>
           <div className="flex gap-2">
             <button
               type="button"
-              disabled={page <= 1 || loading}
-              onClick={() => goToPage(page - 1)}
+              disabled={urlState.page <= 1 || loading}
+              onClick={() => goToPage(urlState.page - 1)}
               className="rounded border border-zinc-300 px-3 py-1 text-xs hover:bg-white disabled:opacity-50"
             >
-              Назад
+              {t.prev}
             </button>
             <button
               type="button"
-              disabled={page >= totalPages || loading}
-              onClick={() => goToPage(page + 1)}
+              disabled={urlState.page >= totalPages || loading}
+              onClick={() => goToPage(urlState.page + 1)}
               className="rounded border border-zinc-300 px-3 py-1 text-xs hover:bg-white disabled:opacity-50"
             >
-              Далі
+              {t.next}
             </button>
           </div>
         </div>
@@ -1265,7 +1158,7 @@ function ContactsPageContent() {
           onCloseFrom={closeFrom}
           onReplace={stack.replace}
           onReplaceRoot={replaceRoot}
-          onUpdate={() => void reload({ keepPage: true, silent: true })}
+          onUpdate={() => void reload({ silent: true })}
           contactInitialCreate={contactCreateInitial}
         />
       ) : null}
@@ -1275,7 +1168,9 @@ function ContactsPageContent() {
 
 export default function ContactsPage() {
   return (
-    <Suspense fallback={<div className="p-6 text-sm text-zinc-600">Завантаження…</div>}>
+    <Suspense
+      fallback={<div className="p-6 text-sm text-zinc-600">{strings.contacts.page.loading}</div>}
+    >
       <ContactsPageContent />
     </Suspense>
   );

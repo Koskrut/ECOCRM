@@ -27,6 +27,20 @@ export const CONTACT_WORK_QUEUE_PRESETS = [
   "risk-or-dormant",
 ] as const;
 
+export const CONTACT_PRIORITY_REASON_CODES = [
+  "OVERDUE_FOLLOWUP",
+  "NEW_LEAD_NO_FIRST_CONTACT",
+  "NO_CONTACT_14_DAYS",
+  "NO_ORDER_30_DAYS",
+  "HAS_DEBT",
+  "HIGH_VALUE_CLIENT",
+  "RETURN_TO_WORK",
+  "AT_RISK",
+  "DORMANT",
+] as const;
+
+export type ContactPriorityReasonCode = (typeof CONTACT_PRIORITY_REASON_CODES)[number];
+
 export type Contact = {
   id: string;
   companyId?: string;
@@ -83,21 +97,7 @@ export type ContactsListParams = {
   sortDir?: "asc" | "desc";
 };
 
-export type ContactExclusionCode =
-  | "DO_NOT_DISTURB"
-  | "NON_TARGET_STATUS"
-  | "DUPLICATE_MARKED";
-
-export type ContactPriorityReasonCode =
-  | "OVERDUE_FOLLOWUP"
-  | "NEW_LEAD_NO_FIRST_CONTACT"
-  | "NO_CONTACT_14_DAYS"
-  | "NO_ORDER_30_DAYS"
-  | "HAS_DEBT"
-  | "HIGH_VALUE_CLIENT"
-  | "RETURN_TO_WORK"
-  | "AT_RISK"
-  | "DORMANT";
+export type ContactExclusionCode = "DO_NOT_DISTURB" | "NON_TARGET_STATUS" | "DUPLICATE_MARKED";
 
 export type ContactWorkQueuePreset = (typeof CONTACT_WORK_QUEUE_PRESETS)[number];
 
@@ -106,6 +106,7 @@ export type ContactWorkQueueFilters = {
   pageSize?: number;
   ownerId?: string;
   preset?: ContactWorkQueuePreset;
+  reasons?: ContactPriorityReasonCode[];
   onlyOverdue?: boolean;
   onlyDebt?: boolean;
   onlyNoContact?: boolean;
@@ -188,6 +189,7 @@ export type ContactWorkQueueItem = {
     id: string;
     fullName: string;
     phone: string | null;
+    email: string | null;
     ownerId: string | null;
     ownerName: string | null;
     companyName: string | null;
@@ -302,6 +304,7 @@ export const contactsApi = {
     if (params?.pageSize != null) searchParams.set("pageSize", String(params.pageSize));
     if (params?.ownerId) searchParams.set("ownerId", params.ownerId);
     if (params?.preset) searchParams.set("preset", params.preset);
+    for (const reason of params?.reasons ?? []) searchParams.append("reason", reason);
     if (params?.onlyOverdue != null) searchParams.set("onlyOverdue", String(params.onlyOverdue));
     if (params?.onlyDebt != null) searchParams.set("onlyDebt", String(params.onlyDebt));
     if (params?.onlyNoContact != null) {
@@ -312,7 +315,9 @@ export const contactsApi = {
     }
     if (params?.q?.trim()) searchParams.set("q", params.q.trim());
     const qs = searchParams.toString();
-    const res = await apiHttp.get<ContactWorkQueueResponse>(`/contacts/work-queue${qs ? `?${qs}` : ""}`);
+    const res = await apiHttp.get<ContactWorkQueueResponse>(
+      `/contacts/work-queue${qs ? `?${qs}` : ""}`,
+    );
     return res.data;
   },
 
@@ -338,10 +343,7 @@ export const contactsApi = {
     return res.data;
   },
 
-  updateStage: async (
-    id: string,
-    payload: UpdateContactStagePayload,
-  ): Promise<Contact> => {
+  updateStage: async (id: string, payload: UpdateContactStagePayload): Promise<Contact> => {
     const res = await apiHttp.patch<Contact>(`/contacts/${id}/stage`, payload);
     return res.data;
   },

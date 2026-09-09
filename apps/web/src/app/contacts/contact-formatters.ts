@@ -4,77 +4,45 @@ import type {
   ContactNextActionType,
   ContactPriorityReasonCode,
 } from "@/lib/api/resources/contacts";
-
-const PRIORITY_REASON_LABELS: Record<ContactPriorityReasonCode, string> = {
-  OVERDUE_FOLLOWUP: "Прострочений фоллоуап",
-  NEW_LEAD_NO_FIRST_CONTACT: "Новий клієнт без першого контакту",
-  NO_CONTACT_14_DAYS: "Не було контакту 14+ днів",
-  NO_ORDER_30_DAYS: "Немає замовлень 30+ днів",
-  HAS_DEBT: "Є заборгованість",
-  HIGH_VALUE_CLIENT: "Цінний клієнт",
-  RETURN_TO_WORK: "Повернути в роботу",
-  AT_RISK: "Під ризиком втрати",
-  DORMANT: "Сплячий клієнт",
-};
-
-const NEXT_ACTION_LABELS: Record<ContactNextActionType, string> = {
-  CALL: "Дзвінок",
-  MESSAGE: "Повідомлення",
-  SEND_OFFER: "Надіслати пропозицію",
-  CONTROL_PAYMENT: "Контроль оплати",
-  MEETING: "Зустріч",
-  NO_ACTION: "Без дії",
-};
-
-const CLIENT_STAGE_LABELS: Record<ContactClientStage, string> = {
-  NEW_LEAD: "Новий лід",
-  IN_PROGRESS: "В роботі",
-  WAITING_DECISION: "Очікує рішення",
-  ACTIVE_CLIENT: "Активний клієнт",
-  DORMANT_CLIENT: "Сплячий клієнт",
-  AT_RISK: "У зоні ризику",
-  PROBLEM_DEBT: "Проблемна заборгованість",
-  LOST_CLIENT: "Втрачений клієнт",
-};
-
-const EXCLUSION_LABELS: Record<ContactExclusionCode, string> = {
-  DO_NOT_DISTURB: "Не турбувати",
-  NON_TARGET_STATUS: "Нецільовий контакт",
-  DUPLICATE_MARKED: "Позначено як дублікат",
-};
-
-const PRIORITY_REASON_COMPACT_LABELS: Record<ContactPriorityReasonCode, string> = {
-  OVERDUE_FOLLOWUP: "Прострочений",
-  NEW_LEAD_NO_FIRST_CONTACT: "Без 1-го контакту",
-  NO_CONTACT_14_DAYS: "Немає контакту 14+",
-  NO_ORDER_30_DAYS: "Немає замовлення 30+",
-  HAS_DEBT: "Борг",
-  HIGH_VALUE_CLIENT: "VIP",
-  RETURN_TO_WORK: "Повернути",
-  AT_RISK: "Ризик",
-  DORMANT: "Сплячий",
-};
+import { strings } from "@/locales";
 
 export function formatContactPriorityReason(reason: ContactPriorityReasonCode): string {
-  return PRIORITY_REASON_LABELS[reason] ?? reason;
+  return strings.contacts.labels.priorityReasons[reason] ?? reason;
 }
 
 export function formatContactPriorityReasonCompact(reason: ContactPriorityReasonCode): string {
-  return PRIORITY_REASON_COMPACT_LABELS[reason] ?? formatContactPriorityReason(reason);
+  return (
+    strings.contacts.labels.priorityReasonsCompact[reason] ?? formatContactPriorityReason(reason)
+  );
 }
 
-export function formatContactNextActionType(action: ContactNextActionType | null | undefined): string {
-  if (!action) return "Без дії";
-  return NEXT_ACTION_LABELS[action] ?? "Без дії";
+export function formatContactNextActionType(
+  action: ContactNextActionType | null | undefined,
+): string {
+  if (!action) return strings.contacts.card.nextActionOptions.none;
+  return (
+    strings.contacts.card.nextActionOptions[action] ?? strings.contacts.card.nextActionOptions.none
+  );
 }
 
 export function formatContactClientStage(stage: ContactClientStage | null | undefined): string {
-  if (!stage) return "Без ручної стадії";
-  return CLIENT_STAGE_LABELS[stage] ?? "Без ручної стадії";
+  if (!stage) return strings.contacts.card.stageOptions.none;
+  return strings.contacts.card.stageOptions[stage] ?? strings.contacts.card.stageOptions.none;
 }
 
 export function formatContactExclusionReason(reason: ContactExclusionCode): string {
-  return EXCLUSION_LABELS[reason] ?? reason;
+  return strings.contacts.labels.exclusions[reason] ?? reason;
+}
+
+export function formatDaysSinceLastContact(value: number | null): string {
+  if (value == null) return strings.contacts.workQueue.noContactYet;
+  return strings.contacts.workQueue.daysSince.replace("{n}", String(value));
+}
+
+export function scoreTone(score: number): string {
+  if (score >= 70) return "border-red-200 bg-red-50 text-red-700";
+  if (score >= 40) return "border-amber-200 bg-amber-50 text-amber-700";
+  return "border-zinc-200 bg-zinc-50 text-zinc-700";
 }
 
 export { formatContactAddressFromGoogle } from "@/lib/contact-address.util";

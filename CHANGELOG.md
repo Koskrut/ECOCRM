@@ -4,7 +4,28 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.176**.)_
+_(планируемые изменения после **0.2.177**.)_
+
+## [0.2.177] — 2026-09-09
+
+### Summary
+
+Патч **0.2.177**: contacts work-queue UX — URL state, reason filters, WorkQueueList; richer search.
+
+### Added
+
+- Contacts URL helpers + tests; `WorkQueueList`; `contacts-ui-state` / a11y helpers.
+- Work-queue `reason` query (OR / comma); email on queue items; summary without 2000 take cap.
+
+### Changed
+
+- Contacts page / filters popover refactor; search by middleName, email, company, address/region/city.
+- Locales en/uk for contacts work presets and reasons.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.177`**.
+- **Миграций нет.**
 
 ## [0.2.176] — 2026-09-09
 

@@ -370,7 +370,8 @@ export const en = {
       },
       fields: {
         pageId: "Facebook Page ID",
-        pageIdHint: "The Page linked to your Instagram Business account. Used for Graph API send endpoint.",
+        pageIdHint:
+          "The Page linked to your Instagram Business account. Used for Graph API send endpoint.",
         pageToken: "Page access token",
         pageTokenHint:
           "Token with pages_messaging and instagram_manage_messages. Leave empty to keep the saved token.",
@@ -379,9 +380,11 @@ export const en = {
         verifyToken: "Webhook verify token",
         verifyTokenHint: "Same value as in Meta App → Webhooks → Verify token.",
         publicUrl: "Public API base URL",
-        publicUrlHint: "Your backend URL (e.g. https://api.example.com). Used to build the webhook callback.",
+        publicUrlHint:
+          "Your backend URL (e.g. https://api.example.com). Used to build the webhook callback.",
         leadCompanyId: "Default company for new DM leads",
-        leadCompanyIdHint: "When a customer writes for the first time, CRM creates a lead in this company. Empty = first company or META_MESSAGING_LEAD_COMPANY_ID.",
+        leadCompanyIdHint:
+          "When a customer writes for the first time, CRM creates a lead in this company. Empty = first company or META_MESSAGING_LEAD_COMPANY_ID.",
         graphVersion: "Graph API version",
         graphVersionHint: "Default v21.0. Change only if Meta requires a newer version.",
       },
@@ -419,7 +422,8 @@ export const en = {
     },
     exchangeRatesPage: {
       title: "Exchange rates",
-      subtitle: "Base currency, UAH and EUR rates. Used for new orders, payment conversion and analytics.",
+      subtitle:
+        "Base currency, UAH and EUR rates. Used for new orders, payment conversion and analytics.",
       baseCurrency: "Base currency",
       baseCurrencyHint: "Currency for new orders and base currency in analytics and dashboard.",
       uahPerUsd: "1 USD ($) = … UAH (₴)",
@@ -499,7 +503,8 @@ export const en = {
       paymentNonCash: "Non-cash",
       declaredCostTitle: "Declared value",
       declaredCostMinHint: "Fixed 200 UAH when creating a waybill (unless overridden).",
-      declaredCostOrderHint: "Order total converted to UAH at CRM exchange rate when creating a waybill.",
+      declaredCostOrderHint:
+        "Order total converted to UAH at CRM exchange rate when creating a waybill.",
       codEnabledTitle: "Cash on delivery",
       codEnabledHint:
         "Allows specifying a COD amount when creating a waybill. When off, the field is hidden in orders.",
@@ -697,8 +702,7 @@ export const en = {
       awaitingHint: (gapSku: number, gapQty: number, coveredSku: number) =>
         `Finished gap: ${gapSku} SKU · ${gapQty} pcs · stock covers: ${coveredSku} SKU`,
       draftsTitle: "Draft requests",
-      draftsHint: (pack: number, factory: number) =>
-        `Pack ${pack} · Factory ${factory}`,
+      draftsHint: (pack: number, factory: number) => `Pack ${pack} · Factory ${factory}`,
       draftsDetail: (total: number) =>
         total === 0 ? "No open drafts" : `${total} draft document(s) need review`,
       openPackDrafts: (n: number) => `Packing drafts (${n}) →`,
@@ -957,8 +961,7 @@ export const en = {
         `Short ${gap}. Already in request: ${inReq}. Still pack ${pack} — parts ready. Produce ${make}.`,
       storyPackOnly: (pack: number) =>
         `Short ${pack}. Everything can be packed now — parts are ready.`,
-      storyMakeOnly: (make: number) =>
-        `Short ${make}. No parts — need to produce.`,
+      storyMakeOnly: (make: number) => `Short ${make}. No parts — need to produce.`,
       storyOk: "Stock is fine — nothing to do.",
       storyAlreadyInRequest: "Already in the packing request",
       inPacking: (n: number, due: string | null) =>
@@ -1042,20 +1045,21 @@ export const en = {
         "Upload the full 1C stock file (all warehouses). CRM unpivots warehouses, skips totals, and keeps only kit SKUs and BOM component (semi-finished) SKUs; unrelated lines are skipped. Then publish as the physical baseline.",
       stockSourceHint:
         "Planning uses stock from the latest published 1C snapshot. Store checkout uses CRM warehouse stock.",
-      dataJobsHint: "Weekly WIP refresh and full MRP recalculation — run after updating snapshots or sales.",
-      snapshotFilterSummary: (rowsInFile: number, kept: number, skipped: number, relevant: number) =>
+      dataJobsHint:
+        "Weekly WIP refresh and full MRP recalculation — run after updating snapshots or sales.",
+      snapshotFilterSummary: (
+        rowsInFile: number,
+        kept: number,
+        skipped: number,
+        relevant: number,
+      ) =>
         `File rows: ${rowsInFile}. Kept: ${kept} (of ${relevant} planning SKUs). Skipped irrelevant: ${skipped}.`,
       publishSnapshotConfirm: (snapshotDate: string) =>
         `Publish snapshot from ${snapshotDate}? This replaces the current planning baseline.`,
       bomHint: "Each new save creates a fresh active BOM revision for the selected kit.",
       bomUploadHint:
         "Supports the Suprex specification workbook (all kit sheets) or a flat Excel/CSV with kitSku, componentSku and qtyPerKit. Kits resolve from the catalog; components/packaging are stored separately as PART (not in the sales catalog).",
-      bomImportSummary: (
-        format: string,
-        parsed: number,
-        sheets: number,
-        skipped: number,
-      ) =>
+      bomImportSummary: (format: string, parsed: number, sheets: number, skipped: number) =>
         `Format: ${format}. Rows parsed: ${parsed}. Sheets processed: ${sheets}. Skipped: ${skipped}.`,
       batchesHint:
         "Internal WIP batches (MECH/QC/PACK). Primary packing and factory flows use the Packing and Factory tabs.",
@@ -1063,7 +1067,8 @@ export const en = {
         "Legacy WIP queues. Packing for stock is the Friday week on the Pack tab (2000 kits).",
       dashboardHint:
         "Coverage of finished kits, packing load vs capacity, bottleneck risk, and projection after approved pack + open factory PO.",
-      capacityHint: "Capacity is calculated from available component stock in the active BOM (posted 1C snapshot).",
+      capacityHint:
+        "Capacity is calculated from available component stock in the active BOM (posted 1C snapshot).",
       forecastHint:
         "MRP forecast from posted sales XLS (SKU × month): average sales over lookback × cover horizon.",
       packingHint:
@@ -1094,8 +1099,7 @@ export const en = {
         `Live capacity is ${liveQuota} but this MRP run used ${runQuota}. Save capacity/horizon again or re-run MRP.`,
       mrpReranAfterConfig: (runId: string) =>
         `Settings saved and FULL MRP re-run (${runId.slice(0, 8)}…).`,
-      mrpStaleWarn:
-        "MRP is older than the latest snapshot or sales upload. Click Recalculate MRP.",
+      mrpStaleWarn: "MRP is older than the latest snapshot or sales upload. Click Recalculate MRP.",
       mrpRecalculated: "MRP recalculated.",
       packListHint:
         "Demand from forecast and orders — kits and parts. Can pack now = min(need, available): kits from BOM parts, parts from WIP at QC/pack. Blocked = need exists but resources are missing.",
@@ -1358,8 +1362,7 @@ export const en = {
     editSearchOrderByNumber: "Or find order by number",
     noOrdersForContactEdit: "No orders for this contact",
     unallocateHint: "Return transaction to “Needs allocation”",
-    editPaymentHint: (kind: string) =>
-      `${kind} · move to another order or cancel bank allocation`,
+    editPaymentHint: (kind: string) => `${kind} · move to another order or cancel bank allocation`,
     cashKind: "Cash",
     bankKind: "Bank",
     ordersLabel: "Orders",
@@ -1470,8 +1473,7 @@ export const en = {
     promiseBrokenOnly: "Broken promise",
     todayQueueTitle: "Collect today",
     todayQueueEmpty: "No overdue debt that needs a call right now.",
-    todayQueuePareto: (n: number, pct: number) =>
-      `These ${n} clients = ${pct}% of overdue`,
+    todayQueuePareto: (n: number, pct: number) => `These ${n} clients = ${pct}% of overdue`,
     kpiPromisedToday: "Promised today",
     kpiCollectedToday: "Collected today",
     promiseDate: "Promised pay date",
@@ -1582,7 +1584,8 @@ export const en = {
         today: "Actions, risks, and your day — without extra analytics.",
         team: "Daily activity and team results for the period.",
         sales: "Full KPIs and charts for the selected period.",
-        activity: "What each person did in CRM for the selected day: payments, orders, tasks, visits.",
+        activity:
+          "What each person did in CRM for the selected day: payments, orders, tasks, visits.",
       },
       heroKpis: {
         title: "Period pulse",
@@ -2006,7 +2009,8 @@ export const en = {
       clearDue: "No due date",
       clearLink: "Remove link",
       confirmCancelTitle: "Cancel this task?",
-      confirmCancelMessage: "The task will be marked as canceled. You can change the status later via edit.",
+      confirmCancelMessage:
+        "The task will be marked as canceled. You can change the status later via edit.",
       discardEditTitle: "Discard changes?",
       discardEditMessage: "Unsaved changes will be lost.",
       loadMore: "Load more",
@@ -2107,6 +2111,179 @@ export const en = {
     detailTitle: "Task",
   },
   contacts: {
+    page: {
+      add: "+ Add",
+      searchPlaceholder: "name, phone, email, company, address, city",
+      searchAria: "Search contacts",
+      clearSearch: "Clear search",
+      openFilters: "Open filters",
+      filters: "Filters",
+      totalPage: "Total: {total} | Page {page} of {totalPages}",
+      filtersActiveCount: "Filters: {count}",
+      presetHint:
+        "In the work queue you can use search, owner, priority reason filter, preset, and pagination.",
+      loading: "Loading…",
+      loadingQueue: "Building work queue…",
+      loadError: "Failed to load contacts",
+      loadQueueError: "Failed to load work queue",
+      retry: "Retry",
+      pagination: "Page {page} of {totalPages} • Total {total}",
+      prev: "Back",
+      next: "Next",
+      resetAll: "Reset all",
+      chipSearch: "Search: {q}",
+      chipCompany: "Company",
+      chipOwner: "Owner",
+      chipReason: "Reason: {value}",
+      chipPhoneYes: "Phone: yes",
+      chipPhoneNo: "Phone: no",
+      chipEmailYes: "Email: yes",
+      chipEmailNo: "Email: no",
+      chipCallTodayYes: "Call today: yes",
+      chipCallTodayNo: "Call today: no",
+      chipMissedYes: "Missed: yes",
+      chipMissedNo: "Missed: no",
+      chipRegion: "Region: {value}",
+      chipCity: "City: {value}",
+      chipType: "Type: {value}",
+      chipSort: "Sort: {value}",
+      chipSortDirAsc: "Ascending",
+      chipSortDirDesc: "Descending",
+      callToday: "Call today",
+      missed: "Missed",
+      debt: "Debt",
+      yes: "Yes",
+      no: "No",
+      call: "Call",
+      write: "Email",
+      open: "Open",
+      colName: "Name",
+      colPhone: "Phone",
+      colEmail: "Email",
+      colAddress: "Address",
+      colMissed: "Missed",
+      colCallToday: "Call today",
+      colUpdated: "Updated",
+      colActions: "Actions",
+    },
+    presets: {
+      all: "All contacts",
+      attention: "Need attention",
+      overdue: "Overdue",
+      "new-no-first-contact": "New without first contact",
+      "debt-control": "Payment / debt control",
+      "return-to-work": "Return to work",
+      "risk-or-dormant": "At risk / dormant",
+      subtitle: "Who to work with now",
+    },
+    filters: {
+      title: "Contact filters",
+      close: "Close",
+      apply: "Apply",
+      reset: "Reset",
+      active: "Filters active",
+      none: "No filters",
+      presetNote:
+        "In work queues you can filter by owner and priority reason. Other filters and sorting work in “All contacts”.",
+      groupContact: "Contact",
+      groupGeo: "Location",
+      groupActivity: "Activity",
+      groupSort: "Sorting",
+      company: "Company",
+      owner: "Owner",
+      reason: "Priority reason",
+      allOwners: "All",
+      phone: "Phone",
+      email: "Email",
+      callToday: "Call today",
+      missed: "Has missed calls",
+      region: "Region",
+      addRegion: "Add region…",
+      city: "City",
+      addCity: "Add city…",
+      clientType: "Client type",
+      clientTypePlaceholder: "Doctor, technician, etc.",
+      sortBy: "Sort by",
+      sortDir: "Direction",
+      sortDesc: "Descending",
+      sortAsc: "Ascending",
+      any: "Any",
+      hasPhone: "Has phone",
+      noPhone: "No phone",
+      hasEmail: "Has email",
+      noEmail: "No email",
+      yes: "Yes",
+      no: "No",
+      sortCreatedAt: "By created date",
+      sortName: "By name",
+      sortUpdatedAt: "By updated date",
+      sortMissed: "By missed calls",
+      sortCallToday: "By call today",
+      removeValue: "Remove {value}",
+    },
+    workQueue: {
+      colName: "Name",
+      colOwner: "Owner",
+      colScore: "Priority",
+      colReasons: "Reasons",
+      colStage: "Stage",
+      colAction: "Action",
+      colDate: "Date",
+      colLastContact: "Last contact",
+      colDebt: "Debt",
+      colActions: "Actions",
+      noName: "No name",
+      score: "Priority {score}",
+      nextAction: "Next action",
+      lastContact: "Last contact",
+      daysSince: "{n} d",
+      noContactYet: "No contact yet",
+      stage: "Stage",
+      owner: "Owner",
+      company: "Company",
+      debt: "Debt {amount}",
+    },
+    empty: {
+      queueTitle: "This queue is empty",
+      queueHint: "Try another preset, or clear search / owner filter.",
+      queueCtaAll: "Open all contacts",
+      queueCtaResetOwner: "Clear owner filter",
+      allTitle: "No contacts yet",
+      allHint: "Create the first contact to start working the base.",
+      allFilteredTitle: "Nothing matches filters",
+      allFilteredHint: "Clear search or filters to see more contacts.",
+      addContact: "Add contact",
+      resetFilters: "Reset filters",
+    },
+    labels: {
+      priorityReasons: {
+        OVERDUE_FOLLOWUP: "Overdue follow-up",
+        NEW_LEAD_NO_FIRST_CONTACT: "New client without first contact",
+        NO_CONTACT_14_DAYS: "No contact for 14+ days",
+        NO_ORDER_30_DAYS: "No orders for 30+ days",
+        HAS_DEBT: "Has debt",
+        HIGH_VALUE_CLIENT: "High-value client",
+        RETURN_TO_WORK: "Return to work",
+        AT_RISK: "At risk of churn",
+        DORMANT: "Dormant client",
+      },
+      priorityReasonsCompact: {
+        OVERDUE_FOLLOWUP: "Overdue",
+        NEW_LEAD_NO_FIRST_CONTACT: "No 1st contact",
+        NO_CONTACT_14_DAYS: "No contact 14+",
+        NO_ORDER_30_DAYS: "No order 30+",
+        HAS_DEBT: "Debt",
+        HIGH_VALUE_CLIENT: "VIP",
+        RETURN_TO_WORK: "Return",
+        AT_RISK: "At risk",
+        DORMANT: "Dormant",
+      },
+      exclusions: {
+        DO_NOT_DISTURB: "Do not disturb",
+        NON_TARGET_STATUS: "Non-target contact",
+        DUPLICATE_MARKED: "Marked as duplicate",
+      },
+    },
     create: {
       title: "New contact",
       saved: "Contact saved",
@@ -2224,7 +2401,8 @@ export const en = {
         noVisits: "No visits",
         scheduleDated: "Schedule for date",
         addToBacklog: "Add to backlog",
-        backlogHint: "If no date is set, the visit is created without a time and appears in the visits backlog.",
+        backlogHint:
+          "If no date is set, the visit is created without a time and appears in the visits backlog.",
       },
       identity: {
         sectionTitle: "Contact",
@@ -2395,7 +2573,8 @@ export const en = {
       roleManager: "Manager",
       roleAdmin: "Administrator",
       routeTitle: "Visit route",
-      routeHint: "Start and end points for Google Maps route planning. Addresses are geocoded automatically.",
+      routeHint:
+        "Start and end points for Google Maps route planning. Addresses are geocoded automatically.",
       routeStart: "Route start",
       routeStartPlaceholder: "Office, home… start typing an address",
       routeEnd: "Route end",
@@ -2517,7 +2696,8 @@ export const en = {
       colItem: "Item",
       colPlan: "Plan",
       colWeight: "Weight %",
-      globalBaseHint: (plan: string | number, weight: number) => `Global: plan ${plan}, weight ${weight}%`,
+      globalBaseHint: (plan: string | number, weight: number) =>
+        `Global: plan ${plan}, weight ${weight}%`,
       auto: "Auto",
       weightSumLabel: "Sum of enabled item weights:",
     },
@@ -2728,8 +2908,7 @@ export const en = {
       itemReturnedTitle: (qty: number) => `Returned ${qty} pcs`,
       splitByStock: "Split by stock (child order)",
       splitting: "Splitting…",
-      splitHint:
-        "Lines with stock shortage stay here; the rest goes to a new linked child order.",
+      splitHint: "Lines with stock shortage stay here; the rest goes to a new linked child order.",
       productPlaceholder: "Product…",
       qtyPlaceholder: "Qty",
       pricePlaceholder: "Price",
@@ -2804,8 +2983,7 @@ export const en = {
     financialLoadingBoard: "Loading finance board…",
     financialHint:
       "Finance kanban is a control screen. Status comes from order and payment data — no dragging.",
-    invalidTransition: (from: string, to: string) =>
-      `Invalid transition: ${from} → ${to}`,
+    invalidTransition: (from: string, to: string) => `Invalid transition: ${from} → ${to}`,
     returnsInvalidTransition: (from: string, to: string) =>
       `Cannot change status from “${from}” to “${to}”`,
     returnsCloseBlockedItems: "Cannot close a return without line items",
@@ -2814,8 +2992,7 @@ export const en = {
     returnsHint: "Drag a card to the next allowed status",
     loadingColumn: "Loading…",
     itemsPendingBreakdown: "Items not broken down yet",
-    positionsUnits: (positions: number, units: number) =>
-      `${positions} lines · ${units} units`,
+    positionsUnits: (positions: number, units: number) => `${positions} lines · ${units} units`,
     ttnPrefix: "TTN",
     returnsOrderStage: (stage: string) => `Order: ${stage}`,
   },
@@ -2874,10 +3051,10 @@ export const en = {
     incompleteTourFootnoteTruncatedTrack:
       "GPS track incomplete — recording stopped before the route ended",
     deviationHiddenIncompleteOpenShift: "deviation vs plan hidden — shift still open",
-    deviationHiddenIncompleteTruncatedTrack:
-      "deviation vs plan hidden — GPS track incomplete",
+    deviationHiddenIncompleteTruncatedTrack: "deviation vs plan hidden — GPS track incomplete",
     deviationHiddenScheduledPlan: "deviation vs plan unreliable — plan includes open stops",
-    planIncludesScheduledFootnote: "Plan includes scheduled stops — compare km after the tour closes.",
+    planIncludesScheduledFootnote:
+      "Plan includes scheduled stops — compare km after the tour closes.",
     plannedOrderInefficient:
       "Plan route is much longer than the same stops in visit order — reorder before comparing km.",
     pathDistanceMismatch: "GPS map line hidden — polyline did not match snapped km.",
@@ -2911,8 +3088,7 @@ export const en = {
     mobilityWalkTransit: "Walk / public transit",
     mobilityNotePlaceholder: "e.g. vehicle at service",
     mobilitySave: "Save mode",
-    mobilityBanner:
-      "Non-vehicle day (walk / transit) — fuel compensation is not paid.",
+    mobilityBanner: "Non-vehicle day (walk / transit) — fuel compensation is not paid.",
     mobilityNoShift: "No shift for this day — the employee must start a shift first.",
     mobilityPaidLocked: "Mode cannot be changed after the report is paid.",
     warnings: {
@@ -3047,8 +3223,7 @@ export const en = {
     markerTitle: "{name} · {app} · {gps}",
     routeGpsFallback: "Route from GPS points, not matched to roads",
     shiftOnlyTrack: "Current shift only (debug)",
-    gpsWarningRegion:
-      "Track has points outside Ukraine (mock/emulator) — map shows UA points only",
+    gpsWarningRegion: "Track has points outside Ukraine (mock/emulator) — map shows UA points only",
     gpsWarningEmpty: "No valid GPS points left after track sanitize",
   },
   returns: {
@@ -3085,8 +3260,7 @@ export const en = {
     openReplacementOrder: "Open replacement order",
     waiveLeg: "Waive",
     waiveReasonPlaceholder: "Reason for waiving…",
-    closeBlockedMisPick:
-      "Complete wrong-item return and replacement shipment before closing",
+    closeBlockedMisPick: "Complete wrong-item return and replacement shipment before closing",
     returnReasonLabel: "Return reason",
     replacementModeLabel: "Workflow",
     returnWarehouseLabel: "Receiving warehouse",

@@ -371,7 +371,8 @@ export const uk = {
       },
       fields: {
         pageId: "Facebook Page ID",
-        pageIdHint: "Сторінка, привʼязана до Instagram Business. Використовується для відправки через Graph API.",
+        pageIdHint:
+          "Сторінка, привʼязана до Instagram Business. Використовується для відправки через Graph API.",
         pageToken: "Page access token",
         pageTokenHint:
           "Токен з pages_messaging та instagram_manage_messages. Залиште порожнім, щоб не змінювати збережений.",
@@ -380,9 +381,11 @@ export const uk = {
         verifyToken: "Webhook verify token",
         verifyTokenHint: "Той самий рядок, що в Meta App → Webhooks → Verify token.",
         publicUrl: "Публічний URL API",
-        publicUrlHint: "URL бекенду (напр. https://api.example.com). З нього збирається callback webhook.",
+        publicUrlHint:
+          "URL бекенду (напр. https://api.example.com). З нього збирається callback webhook.",
         leadCompanyId: "Компанія для нових лідів з DM",
-        leadCompanyIdHint: "При першому повідомленні клієнта CRM створить лід у цій компанії. Порожньо = перша компанія або META_MESSAGING_LEAD_COMPANY_ID.",
+        leadCompanyIdHint:
+          "При першому повідомленні клієнта CRM створить лід у цій компанії. Порожньо = перша компанія або META_MESSAGING_LEAD_COMPANY_ID.",
         graphVersion: "Версія Graph API",
         graphVersionHint: "За замовчуванням v21.0. Змінюйте лише якщо Meta вимагає новішу версію.",
       },
@@ -420,7 +423,8 @@ export const uk = {
     },
     exchangeRatesPage: {
       title: "Курси валют",
-      subtitle: "Основна валюта, курси UAH та EUR. Використовується для нових замовлень, перерахунку платежів і аналітики.",
+      subtitle:
+        "Основна валюта, курси UAH та EUR. Використовується для нових замовлень, перерахунку платежів і аналітики.",
       baseCurrency: "Основна валюта",
       baseCurrencyHint: "Валюта нових замовлень і базова валюта в аналітиці та на дашборді.",
       uahPerUsd: "1 USD ($) = … UAH (₴)",
@@ -466,7 +470,8 @@ export const uk = {
       sectionApi: "Підключення API",
       apiKeyLabel: "API key",
       apiKeySaved: "Збережено в CRM: {masked}",
-      apiKeyEnv: "У CRM немає ключа — використовується NP_API_KEY на сервері або введіть ключ нижче",
+      apiKeyEnv:
+        "У CRM немає ключа — використовується NP_API_KEY на сервері або введіть ключ нижче",
       apiKeyPlaceholder: "Новий ключ (залиште порожнім, щоб не змінювати)",
       apiAdvanced: "Додаткові налаштування API",
       apiAdvancedHint:
@@ -491,7 +496,8 @@ export const uk = {
       senderPhone: "Телефон відправника",
       senderPhonePlaceholder: "380XXXXXXXXX",
       sectionTtnDefaults: "За замовчуванням для ТТН",
-      sectionTtnDefaultsHint: "Застосовуються при створенні ТТН, якщо в замовленні не вказано інше.",
+      sectionTtnDefaultsHint:
+        "Застосовуються при створенні ТТН, якщо в замовленні не вказано інше.",
       payerLabel: "Платник",
       paymentLabel: "Спосіб оплати",
       payerRecipient: "Отримувач",
@@ -698,8 +704,7 @@ export const uk = {
       awaitingHint: (gapSku: number, gapQty: number, coveredSku: number) =>
         `Брак готових: ${gapSku} SKU · ${gapQty} шт · готове є: ${coveredSku} SKU`,
       draftsTitle: "Чернетки заявок",
-      draftsHint: (pack: number, factory: number) =>
-        `Упаковка ${pack} · Завод ${factory}`,
+      draftsHint: (pack: number, factory: number) => `Упаковка ${pack} · Завод ${factory}`,
       draftsDetail: (total: number) =>
         total === 0 ? "Немає відкритих чернеток" : `${total} чернеток потребують перегляду`,
       openPackDrafts: (n: number) => `Чернетки упаковки (${n}) →`,
@@ -958,8 +963,7 @@ export const uk = {
         `Не вистачає ${gap}. У заявці вже ${inReq}. Ще напакувати ${pack} — деталі є. Виробити ${make}.`,
       storyPackOnly: (pack: number) =>
         `Не вистачає ${pack}. Усе можна напакувати зараз — деталі є.`,
-      storyMakeOnly: (make: number) =>
-        `Не вистачає ${make}. Деталей немає — треба виробити.`,
+      storyMakeOnly: (make: number) => `Не вистачає ${make}. Деталей немає — треба виробити.`,
       storyOk: "Запас у нормі — нічого не робити.",
       storyAlreadyInRequest: "Уже в заявці на упаковку",
       inPacking: (n: number, due: string | null) =>
@@ -1043,20 +1047,21 @@ export const uk = {
         "Завантажуйте повний файл залишків 1С (усі склади). CRM розгортає склади в рядки, ігнорує «Підсумок», залишає лише SKU комплектів і напівфабрикатів з активних BOM; зайве відкидає. Потім опублікуйте як актуальну фізику.",
       stockSourceHint:
         "Планування рахує залишки з останнього опублікованого знімка 1С. Checkout магазину використовує CRM-склад.",
-      dataJobsHint: "Тижневе оновлення WIP і повний перерахунок MRP — після оновлення снапшотів або продажів.",
-      snapshotFilterSummary: (rowsInFile: number, kept: number, skipped: number, relevant: number) =>
+      dataJobsHint:
+        "Тижневе оновлення WIP і повний перерахунок MRP — після оновлення снапшотів або продажів.",
+      snapshotFilterSummary: (
+        rowsInFile: number,
+        kept: number,
+        skipped: number,
+        relevant: number,
+      ) =>
         `Рядків у файлі: ${rowsInFile}. Залишено: ${kept} (з ${relevant} planning SKU). Відкинуто зайвих: ${skipped}.`,
       publishSnapshotConfirm: (snapshotDate: string) =>
         `Опублікувати знімок від ${snapshotDate}? Це замінить поточний baseline планування.`,
       bomHint: "Кожне збереження створює нову активну ревізію BOM для обраного комплекту.",
       bomUploadHint:
         "Підтримується файл специфікації Suprex (усі вкладки з комплектами) або плоский Excel/CSV: kitSku, componentSku, qtyPerKit. Комплекти шукаються в каталозі; комплектуючі/упаковка створюються окремо як PART (не в каталозі продажів).",
-      bomImportSummary: (
-        format: string,
-        parsed: number,
-        sheets: number,
-        skipped: number,
-      ) =>
+      bomImportSummary: (format: string, parsed: number, sheets: number, skipped: number) =>
         `Формат: ${format}. Рядків у файлі: ${parsed}. Вкладок оброблено: ${sheets}. Пропущено: ${skipped}.`,
       batchesHint:
         "Внутрішні WIP-партії (MECH/QC/PACK). Основні контури — вкладки Упаковка та Завод.",
@@ -1097,8 +1102,7 @@ export const uk = {
         `Жива квота ${liveQuota}, а цей MRP-прогін рахувався з ${runQuota}. Збережіть квоту/горизонт знову або перезапустіть MRP.`,
       mrpReranAfterConfig: (runId: string) =>
         `Налаштування збережено, FULL MRP перераховано (${runId.slice(0, 8)}…).`,
-      mrpStaleWarn:
-        "MRP старіший за останній снапшот або продажі. Натисніть «Перерахувати MRP».",
+      mrpStaleWarn: "MRP старіший за останній снапшот або продажі. Натисніть «Перерахувати MRP».",
       mrpRecalculated: "MRP перераховано.",
       packListHint:
         "Потреба з прогнозу та замовлень — комплекти й деталі. Можна зараз — min(потреба, доступно): для комплектів з BOM-деталей, для деталей з WIP на QC/упаковці. Заблоковано — потреба є, але ресурсу не вистачає.",
@@ -1478,8 +1482,7 @@ export const uk = {
     promiseBrokenOnly: "Обіцянку зірвано",
     todayQueueTitle: "Сьогодні зібрати",
     todayQueueEmpty: "Немає прострочки, яку треба тиснути зараз.",
-    todayQueuePareto: (n: number, pct: number) =>
-      `Ці ${n} клієнтів = ${pct}% прострочки`,
+    todayQueuePareto: (n: number, pct: number) => `Ці ${n} клієнтів = ${pct}% прострочки`,
     kpiPromisedToday: "Обіцяли сьогодні",
     kpiCollectedToday: "Вже прийшло сьогодні",
     promiseDate: "Обіцяна дата оплати",
@@ -1708,7 +1711,8 @@ export const uk = {
       scorecard: {
         title: "Деталізація активності",
         activityDetailTitle: "Активність за період",
-        activityHint: "Пульс місяця завжди з 1-го числа. Тут — rolling тиждень/30 днів для дзвінків, візитів і лідів.",
+        activityHint:
+          "Пульс місяця завжди з 1-го числа. Тут — rolling тиждень/30 днів для дзвінків, візитів і лідів.",
         activityPeriodLabel: "Період активності",
         rollingWeek: "Останні 7 днів",
         rollingMonth: "Останні 30 днів",
@@ -1946,7 +1950,8 @@ export const uk = {
     addTask: "+ Завдання",
     cancelAdd: "Скасувати",
     newTask: "Нове завдання",
-    searchPlaceholder: "Пошук за назвою, описом, виконавцем, контактом, компанією, лідом, замовленням…",
+    searchPlaceholder:
+      "Пошук за назвою, описом, виконавцем, контактом, компанією, лідом, замовленням…",
     searchAriaLabel: "Пошук завдань",
     status: {
       active: "Активні",
@@ -2013,7 +2018,8 @@ export const uk = {
       clearDue: "Без терміну",
       clearLink: "Прибрати прив'язку",
       confirmCancelTitle: "Скасувати завдання?",
-      confirmCancelMessage: "Завдання буде позначено як скасоване. Цю дію можна змінити пізніше через редагування статусу.",
+      confirmCancelMessage:
+        "Завдання буде позначено як скасоване. Цю дію можна змінити пізніше через редагування статусу.",
       discardEditTitle: "Відхилити зміни?",
       discardEditMessage: "Незбережені зміни буде втрачено.",
       loadMore: "Показати ще",
@@ -2114,6 +2120,179 @@ export const uk = {
     detailTitle: "Завдання",
   },
   contacts: {
+    page: {
+      add: "+ Додати",
+      searchPlaceholder: "імʼя, телефон, email, компанія, адреса, місто",
+      searchAria: "Пошук контактів",
+      clearSearch: "Очистити пошук",
+      openFilters: "Відкрити фільтри",
+      filters: "Фільтри",
+      totalPage: "Всього: {total} | Сторінка {page} з {totalPages}",
+      filtersActiveCount: "Фільтрів: {count}",
+      presetHint:
+        "У робочому списку доступні пошук, відповідальний, фільтр за причиною пріоритету, пресет і пагінація.",
+      loading: "Завантаження…",
+      loadingQueue: "Формуємо робочий список…",
+      loadError: "Не вдалося завантажити контакти",
+      loadQueueError: "Не вдалося завантажити робочий список",
+      retry: "Повторити",
+      pagination: "Сторінка {page} з {totalPages} • Всього {total}",
+      prev: "Назад",
+      next: "Далі",
+      resetAll: "Скинути все",
+      chipSearch: "Пошук: {q}",
+      chipCompany: "Компанія",
+      chipOwner: "Відповідальний",
+      chipReason: "Причина: {value}",
+      chipPhoneYes: "Телефон: є",
+      chipPhoneNo: "Телефон: ні",
+      chipEmailYes: "Email: є",
+      chipEmailNo: "Email: ні",
+      chipCallTodayYes: "Дзвінок сьогодні: так",
+      chipCallTodayNo: "Дзвінок сьогодні: ні",
+      chipMissedYes: "Пропущені: так",
+      chipMissedNo: "Пропущені: ні",
+      chipRegion: "Область: {value}",
+      chipCity: "Місто: {value}",
+      chipType: "Тип: {value}",
+      chipSort: "Сортування: {value}",
+      chipSortDirAsc: "За зростанням",
+      chipSortDirDesc: "За спаданням",
+      callToday: "Дзвінок сьогодні",
+      missed: "Пропущені",
+      debt: "Борг",
+      yes: "Так",
+      no: "Ні",
+      call: "Зателефонувати",
+      write: "Написати",
+      open: "Відкрити",
+      colName: "Імʼя",
+      colPhone: "Телефон",
+      colEmail: "Email",
+      colAddress: "Адреса",
+      colMissed: "Пропущені",
+      colCallToday: "Дзвінок сьогодні",
+      colUpdated: "Оновлено",
+      colActions: "Дії",
+    },
+    presets: {
+      all: "Усі контакти",
+      attention: "Потребують уваги",
+      overdue: "Прострочені",
+      "new-no-first-contact": "Нові без першого контакту",
+      "debt-control": "Контроль оплати / борг",
+      "return-to-work": "Повернути в роботу",
+      "risk-or-dormant": "Ризик втрати / сплячі",
+      subtitle: "Кого опрацювати зараз",
+    },
+    filters: {
+      title: "Фільтр контактів",
+      close: "Закрити",
+      apply: "Застосувати",
+      reset: "Скинути",
+      active: "Фільтри активні",
+      none: "Без фільтрів",
+      presetNote:
+        "У робочих списках можна фільтрувати за відповідальним і причиною пріоритету. Інші фільтри та сортування працюють лише в режимі «Усі контакти».",
+      groupContact: "Контакт",
+      groupGeo: "Гео",
+      groupActivity: "Активність",
+      groupSort: "Сортування",
+      company: "Компанія",
+      owner: "Відповідальний",
+      reason: "Причина пріоритету",
+      allOwners: "Усі",
+      phone: "Телефон",
+      email: "Email",
+      callToday: "Дзвінок сьогодні",
+      missed: "Є пропущені",
+      region: "Область",
+      addRegion: "Додати область…",
+      city: "Місто",
+      addCity: "Додати місто…",
+      clientType: "Тип клієнта",
+      clientTypePlaceholder: "Лікар, технік тощо",
+      sortBy: "Сортування",
+      sortDir: "Напрямок",
+      sortDesc: "За спаданням",
+      sortAsc: "За зростанням",
+      any: "Будь-який",
+      hasPhone: "Є телефон",
+      noPhone: "Немає телефону",
+      hasEmail: "Є email",
+      noEmail: "Немає email",
+      yes: "Так",
+      no: "Ні",
+      sortCreatedAt: "За датою створення",
+      sortName: "За іменем",
+      sortUpdatedAt: "За оновленням",
+      sortMissed: "За пропущеними",
+      sortCallToday: "За дзвінком сьогодні",
+      removeValue: "Видалити {value}",
+    },
+    workQueue: {
+      colName: "Імʼя",
+      colOwner: "Відповідальний",
+      colScore: "Пріоритет",
+      colReasons: "Причини",
+      colStage: "Стадія",
+      colAction: "Дія",
+      colDate: "Дата",
+      colLastContact: "Останній контакт",
+      colDebt: "Борг",
+      colActions: "Дії",
+      noName: "Без імені",
+      score: "Пріоритет {score}",
+      nextAction: "Наступна дія",
+      lastContact: "Останній контакт",
+      daysSince: "{n} дн.",
+      noContactYet: "Без контакту",
+      stage: "Стадія",
+      owner: "Відповідальний",
+      company: "Компанія",
+      debt: "Борг {amount}",
+    },
+    empty: {
+      queueTitle: "У цьому списку зараз порожньо",
+      queueHint: "Спробуйте інший пресет або зніміть пошук / фільтр за відповідальним.",
+      queueCtaAll: "Відкрити всі контакти",
+      queueCtaResetOwner: "Скинути відповідального",
+      allTitle: "Поки немає контактів",
+      allHint: "Створіть перший контакт, щоб почати роботу з базою.",
+      allFilteredTitle: "Нічого не знайдено",
+      allFilteredHint: "Очистіть пошук або фільтри, щоб побачити більше контактів.",
+      addContact: "Додати контакт",
+      resetFilters: "Скинути фільтри",
+    },
+    labels: {
+      priorityReasons: {
+        OVERDUE_FOLLOWUP: "Прострочений фоллоуап",
+        NEW_LEAD_NO_FIRST_CONTACT: "Новий клієнт без першого контакту",
+        NO_CONTACT_14_DAYS: "Не було контакту 14+ днів",
+        NO_ORDER_30_DAYS: "Немає замовлень 30+ днів",
+        HAS_DEBT: "Є заборгованість",
+        HIGH_VALUE_CLIENT: "Цінний клієнт",
+        RETURN_TO_WORK: "Повернути в роботу",
+        AT_RISK: "Під ризиком втрати",
+        DORMANT: "Сплячий клієнт",
+      },
+      priorityReasonsCompact: {
+        OVERDUE_FOLLOWUP: "Прострочений",
+        NEW_LEAD_NO_FIRST_CONTACT: "Без 1-го контакту",
+        NO_CONTACT_14_DAYS: "Немає контакту 14+",
+        NO_ORDER_30_DAYS: "Немає замовлення 30+",
+        HAS_DEBT: "Борг",
+        HIGH_VALUE_CLIENT: "VIP",
+        RETURN_TO_WORK: "Повернути",
+        AT_RISK: "Ризик",
+        DORMANT: "Сплячий",
+      },
+      exclusions: {
+        DO_NOT_DISTURB: "Не турбувати",
+        NON_TARGET_STATUS: "Нецільовий контакт",
+        DUPLICATE_MARKED: "Позначено як дублікат",
+      },
+    },
     create: {
       title: "Новий контакт",
       saved: "Контакт збережено",
@@ -2231,7 +2410,8 @@ export const uk = {
         noVisits: "Немає візитів",
         scheduleDated: "Запланувати на дату",
         addToBacklog: "Додати в backlog",
-        backlogHint: "Якщо дату не вказати, зустріч створиться без часу і з'явиться в backlog візитів.",
+        backlogHint:
+          "Якщо дату не вказати, зустріч створиться без часу і з'явиться в backlog візитів.",
       },
       identity: {
         sectionTitle: "Контакт",
@@ -2487,7 +2667,8 @@ export const uk = {
       pageSubtitle:
         "Денні норми активності: глобальні шаблони та індивідуальні налаштування співробітників.",
       globalSection: "Загальні шаблони",
-      globalSectionDesc: "Застосовуються до всіх співробітників відповідного профілю (офіс / поле).",
+      globalSectionDesc:
+        "Застосовуються до всіх співробітників відповідного профілю (офіс / поле).",
       globalReadOnlyHint:
         "Загальні шаблони змінює лише адміністратор. Нижче ви можете налаштувати індивідуальні норми для своєї команди.",
       individualSection: "Індивідуальні норми",
@@ -2526,7 +2707,8 @@ export const uk = {
       colItem: "Пункт",
       colPlan: "План",
       colWeight: "Вага %",
-      globalBaseHint: (plan: string | number, weight: number) => `Загальне: план ${plan}, вага ${weight}%`,
+      globalBaseHint: (plan: string | number, weight: number) =>
+        `Загальне: план ${plan}, вага ${weight}%`,
       auto: "Авто",
       weightSumLabel: "Сума ваг увімкнених пунктів:",
     },
@@ -2808,13 +2990,13 @@ export const uk = {
       "Неможливо завершити замовлення: оплата не закрита. Спочатку оплатіть або застосуйте залік.",
     awaitingPaymentPrepay: "Стадія «Очікує оплату» лише для замовлень з передоплатою.",
     prepayMustAwaitPayment: "Замовлення з передоплатою спочатку переведіть у «Очікує оплату».",
-    deferredNoAwaitingPayment: "Для відтермінування використовуйте «Очікує на склад», не «Очікує оплату».",
+    deferredNoAwaitingPayment:
+      "Для відтермінування використовуйте «Очікує на склад», не «Очікує оплату».",
     loadedCardsHint: "Сума по завантажених картках",
     financialLoadingBoard: "Завантаження фін. дошки…",
     financialHint:
       "Фінансовий канбан — контрольний екран. Статус визначається з даних замовлення та оплат, без перетягування.",
-    invalidTransition: (from: string, to: string) =>
-      `Недопустимий перехід: ${from} → ${to}`,
+    invalidTransition: (from: string, to: string) => `Недопустимий перехід: ${from} → ${to}`,
     returnsInvalidTransition: (from: string, to: string) =>
       `Не можна змінити статус з «${from}» на «${to}»`,
     returnsCloseBlockedItems: "Не можна закрити повернення без позицій",
@@ -2823,8 +3005,7 @@ export const uk = {
     returnsHint: "Перетягніть картку в наступний дозволений статус",
     loadingColumn: "Завантаження…",
     itemsPendingBreakdown: "Позиції ще не розкладені",
-    positionsUnits: (positions: number, units: number) =>
-      `${positions} поз. · ${units} од.`,
+    positionsUnits: (positions: number, units: number) => `${positions} поз. · ${units} од.`,
     ttnPrefix: "ТТН",
     returnsOrderStage: (stage: string) => `Замовлення: ${stage}`,
   },
@@ -2880,13 +3061,12 @@ export const uk = {
     deviation: "відхил.",
     noData: "Немає даних маршруту",
     incompleteTourFootnoteOpenShift: "Маршрут незавершений — зміна ще відкрита",
-    incompleteTourFootnoteTruncatedTrack:
-      "GPS-трек неповний — запис обірвався до кінця маршруту",
+    incompleteTourFootnoteTruncatedTrack: "GPS-трек неповний — запис обірвався до кінця маршруту",
     deviationHiddenIncompleteOpenShift: "відхилення від плану приховано — зміна ще відкрита",
-    deviationHiddenIncompleteTruncatedTrack:
-      "відхилення від плану приховано — GPS-трек неповний",
+    deviationHiddenIncompleteTruncatedTrack: "відхилення від плану приховано — GPS-трек неповний",
     deviationHiddenScheduledPlan: "відхилення від плану ненадійне — у плані є відкриті зупинки",
-    planIncludesScheduledFootnote: "У плані є заплановані зупинки — порівнюйте km після закриття туру.",
+    planIncludesScheduledFootnote:
+      "У плані є заплановані зупинки — порівнюйте km після закриття туру.",
     plannedOrderInefficient:
       "План довший за той самий набір зупинок у порядку візитів — спочатку оптимізуйте план.",
     pathDistanceMismatch: "Лінію GPS на карті приховано — polyline не збігалась зі snap km.",
@@ -2920,8 +3100,7 @@ export const uk = {
     mobilityWalkTransit: "Пішки / громадський транспорт",
     mobilityNotePlaceholder: "напр. авто на СТО",
     mobilitySave: "Зберегти режим",
-    mobilityBanner:
-      "День без авто (пішки / ОТ) — компенсація палива не нараховується.",
+    mobilityBanner: "День без авто (пішки / ОТ) — компенсація палива не нараховується.",
     mobilityNoShift: "Немає зміни за цей день — спочатку співробітник має почати зміну.",
     mobilityPaidLocked: "Режим не можна змінити після оплати звіту.",
     warnings: {
@@ -3056,8 +3235,7 @@ export const uk = {
     markerTitle: "{name} · {app} · {gps}",
     routeGpsFallback: "Маршрут по GPS, не по дорогах",
     shiftOnlyTrack: "Лише поточна зміна (діагностика)",
-    gpsWarningRegion:
-      "У треку є точки поза Україною (mock/емулятор) — на карті лише UA-точки",
+    gpsWarningRegion: "У треку є точки поза Україною (mock/емулятор) — на карті лише UA-точки",
     gpsWarningEmpty: "Після очищення треку не залишилось валідних GPS-точок",
   },
   returns: {
@@ -3094,8 +3272,7 @@ export const uk = {
     openReplacementOrder: "Відкрити замовлення-заміну",
     waiveLeg: "Зняти",
     waiveReasonPlaceholder: "Причина зняття…",
-    closeBlockedMisPick:
-      "Спочатку закрийте повернення невірного та відправку заміни",
+    closeBlockedMisPick: "Спочатку закрийте повернення невірного та відправку заміни",
     returnReasonLabel: "Причина повернення",
     replacementModeLabel: "Режим",
     returnWarehouseLabel: "Склад прийому",
