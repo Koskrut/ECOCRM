@@ -172,6 +172,89 @@ export type ManagerActivityMetrics = {
   paymentsAmount: number;
 };
 
+export type ManagerMonthCoverage = {
+  shippedClients: number;
+  clientBase: number;
+  coveragePercent: number;
+  unshippedClients: number;
+  previousMonthFull: number;
+  previousMonthPace: number;
+};
+
+export type ManagerMonthMoney = {
+  bookedRevenue: number;
+  collectedPayments: number;
+  ordersCount: number;
+  avgCheck: number;
+  forecastBookedRevenue: number | null;
+  previousMonthFull: {
+    bookedRevenue: number;
+    collectedPayments: number;
+    ordersCount: number;
+    avgCheck: number;
+  };
+  previousMonthPace: {
+    bookedRevenue: number;
+    collectedPayments: number;
+    ordersCount: number;
+    avgCheck: number;
+  };
+};
+
+export type ManagerMonthPulse = {
+  period: { from: string; to: string };
+  previousMonthFull: { from: string; to: string };
+  previousMonthPace: { from: string; to: string };
+  daysElapsed: number;
+  daysInMonth: number;
+  daysRemaining: number;
+  coverage: ManagerMonthCoverage;
+  money: ManagerMonthMoney;
+  conversion: {
+    exactConversion: number | null;
+    wonShare: number;
+    leadsCreated: number;
+    leadsWon: number;
+    previousMonthPace: {
+      exactConversion: number | null;
+      wonShare: number;
+      leadsCreated: number;
+      leadsWon: number;
+    };
+  };
+};
+
+export type ManagerGrowthLever = {
+  key: string;
+  status: "good" | "watch" | "critical";
+  priority: number;
+  currentValue: number;
+  compareValue: number | null;
+  unit: "count" | "percent" | "money" | "ratio";
+  href: string;
+};
+
+export type ManagerTrendPoint = {
+  date: string;
+  bookedRevenue: number;
+  collectedPayments: number;
+  shippedClients: number;
+};
+
+export type ManagerTrend = {
+  current: ManagerTrendPoint[];
+  previousMonth: ManagerTrendPoint[];
+};
+
+export type ManagerPotential = {
+  unshippedClients: number;
+  overdueFollowupContacts: number;
+  hotLeadsCount: number;
+  openPipelineOrders: number;
+  openPipelineAmount: number;
+  pipelineByStage: { stage: string; count: number }[];
+};
+
 export type ManagerScorecardResponse = {
   currency: string;
   period: { from: string; to: string };
@@ -201,6 +284,10 @@ export type ManagerScorecardResponse = {
       avgCheck: number;
     };
   };
+  monthPulse: ManagerMonthPulse;
+  growthLevers: ManagerGrowthLever[];
+  trend: ManagerTrend;
+  potential: ManagerPotential;
 };
 
 export type EmployeeDailyActivitySort = "activeTime" | "payments" | "actions";
@@ -306,11 +393,13 @@ export const dashboardApi = {
     if (query.compare) params.compare = "true";
     return apiGet<ManagerScorecardResponse>("/dashboard/manager-scorecard", params);
   },
-  getEmployeeDailyActivity(query: {
-    date?: string;
-    leadId?: string;
-    sort?: EmployeeDailyActivitySort;
-  } = {}) {
+  getEmployeeDailyActivity(
+    query: {
+      date?: string;
+      leadId?: string;
+      sort?: EmployeeDailyActivitySort;
+    } = {},
+  ) {
     const params: Record<string, string> = {};
     if (query.date) params.date = query.date;
     if (query.leadId) params.leadId = query.leadId;

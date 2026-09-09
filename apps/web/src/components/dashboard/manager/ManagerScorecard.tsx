@@ -3,7 +3,12 @@
 import type { ReactNode } from "react";
 import { Activity, BarChart3, Trophy } from "lucide-react";
 import { deltaCountLine, deltaMoneyLine, deltaPctPoints } from "@/app/analytics/analytics-delta";
-import { formatMoneyBase, formatNumber, formatPercent, KpiDeltaCard } from "@/app/analytics/analytics-ui";
+import {
+  formatMoneyBase,
+  formatNumber,
+  formatPercent,
+  KpiDeltaCard,
+} from "@/app/analytics/analytics-ui";
 import type { ManagerScorecardResponse } from "@/lib/api/resources/dashboard";
 import type { BaseCurrency } from "@/lib/base-currency";
 import { strings } from "@/locales";
@@ -15,6 +20,8 @@ type Props = {
   periodLabel?: string;
   controls?: ReactNode;
   hideHeader?: boolean;
+  /** When MonthPulse already shows money/conversion, hide those duplicates. */
+  compact?: boolean;
 };
 
 export function ManagerScorecard({
@@ -24,6 +31,7 @@ export function ManagerScorecard({
   periodLabel,
   controls,
   hideHeader,
+  compact = true,
 }: Props) {
   const t = strings.dashboard.manager.scorecard;
   const m = t.metrics;
@@ -34,7 +42,9 @@ export function ManagerScorecard({
   return (
     <section className="min-w-0 space-y-4">
       {hideHeader ? (
-        controls ? <div className="flex flex-wrap justify-end">{controls}</div> : null
+        controls ? (
+          <div className="flex flex-wrap justify-end">{controls}</div>
+        ) : null
       ) : (
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -43,6 +53,7 @@ export function ManagerScorecard({
               {t.title}
             </h2>
             {periodLabel ? <p className="mt-1 text-sm text-zinc-500">{periodLabel}</p> : null}
+            {t.activityHint ? <p className="mt-1 text-xs text-zinc-400">{t.activityHint}</p> : null}
           </div>
           {controls}
         </div>
@@ -53,7 +64,7 @@ export function ManagerScorecard({
           <Activity className="h-3.5 w-3.5" />
           {t.activityTitle}
         </div>
-        <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <KpiDeltaCard
             title={m.callsOutbound}
             value={formatNumber(activity.period.callsOutbound)}
@@ -82,18 +93,30 @@ export function ManagerScorecard({
             variant="count"
             deltaLabel={deltaCountLine(activity.period.ordersCount, cmp?.ordersCount)}
           />
-          <KpiDeltaCard
-            title={m.ordersAmount}
-            value={formatMoneyBase(activity.period.ordersAmount, currency)}
-            variant="money"
-            deltaLabel={deltaMoneyLine(activity.period.ordersAmount, cmp?.ordersAmount)}
-          />
-          <KpiDeltaCard
-            title={m.paymentsAmount}
-            value={formatMoneyBase(activity.period.paymentsAmount, currency)}
-            variant="money"
-            deltaLabel={deltaMoneyLine(activity.period.paymentsAmount, cmp?.paymentsAmount)}
-          />
+          {!compact ? (
+            <>
+              <KpiDeltaCard
+                title={m.ordersAmount}
+                value={formatMoneyBase(activity.period.ordersAmount, currency)}
+                variant="money"
+                deltaLabel={deltaMoneyLine(
+                  activity.period.ordersAmount,
+                  cmp?.ordersAmount,
+                  currency,
+                )}
+              />
+              <KpiDeltaCard
+                title={m.paymentsAmount}
+                value={formatMoneyBase(activity.period.paymentsAmount, currency)}
+                variant="money"
+                deltaLabel={deltaMoneyLine(
+                  activity.period.paymentsAmount,
+                  cmp?.paymentsAmount,
+                  currency,
+                )}
+              />
+            </>
+          ) : null}
         </div>
       </div>
 
@@ -112,38 +135,52 @@ export function ManagerScorecard({
           <KpiDeltaCard
             title={m.leadsWon}
             value={formatNumber(outcomes.leadsWon)}
-            subtitle={`Програні: ${formatNumber(outcomes.leadsLost)}`}
+            subtitle={`${m.leadsLost}: ${formatNumber(outcomes.leadsLost)}`}
             variant="count"
             deltaLabel={deltaCountLine(outcomes.leadsWon, outCmp?.leadsWon)}
           />
           <KpiDeltaCard
             title={m.wonShare}
             value={formatPercent(outcomes.wonShare)}
+            tooltip={t.tooltips?.wonShare}
             variant="percent"
             deltaLabel={deltaPctPoints(outcomes.wonShare, outCmp?.wonShare)}
           />
-          <KpiDeltaCard
-            title={m.exactConversion}
-            value={outcomes.exactConversion == null ? "—" : formatPercent(outcomes.exactConversion)}
-            variant="percent"
-          />
-          <KpiDeltaCard
-            title={m.bookedRevenue}
-            value={formatMoneyBase(outcomes.bookedRevenue, currency)}
-            variant="money"
-            deltaLabel={deltaMoneyLine(outcomes.bookedRevenue, outCmp?.bookedRevenue)}
-          />
-          <KpiDeltaCard
-            title={m.collectedPayments}
-            value={formatMoneyBase(outcomes.collectedPayments, currency)}
-            variant="money"
-            deltaLabel={deltaMoneyLine(outcomes.collectedPayments, outCmp?.collectedPayments)}
-          />
+          {!compact ? (
+            <KpiDeltaCard
+              title={m.exactConversion}
+              value={
+                outcomes.exactConversion == null ? "—" : formatPercent(outcomes.exactConversion)
+              }
+              tooltip={t.tooltips?.exactConversion}
+              variant="percent"
+            />
+          ) : null}
+          {!compact ? (
+            <>
+              <KpiDeltaCard
+                title={m.bookedRevenue}
+                value={formatMoneyBase(outcomes.bookedRevenue, currency)}
+                variant="money"
+                deltaLabel={deltaMoneyLine(outcomes.bookedRevenue, outCmp?.bookedRevenue, currency)}
+              />
+              <KpiDeltaCard
+                title={m.collectedPayments}
+                value={formatMoneyBase(outcomes.collectedPayments, currency)}
+                variant="money"
+                deltaLabel={deltaMoneyLine(
+                  outcomes.collectedPayments,
+                  outCmp?.collectedPayments,
+                  currency,
+                )}
+              />
+            </>
+          ) : null}
           <KpiDeltaCard
             title={m.avgCheck}
             value={formatMoneyBase(outcomes.avgCheck, currency)}
             variant="money"
-            deltaLabel={deltaMoneyLine(outcomes.avgCheck, outCmp?.avgCheck)}
+            deltaLabel={deltaMoneyLine(outcomes.avgCheck, outCmp?.avgCheck, currency)}
           />
           <KpiDeltaCard
             title={m.activeClientsInQueue}

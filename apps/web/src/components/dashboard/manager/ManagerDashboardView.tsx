@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { DateTime } from "luxon";
-import { ChevronDown, ChevronUp } from "lucide-react";
 import { CreateLeadModal } from "@/app/leads/CreateLeadModal";
 import { LeadModal } from "@/app/leads/LeadModal";
 import { ContactModal } from "@/app/contacts/ContactModal";
@@ -35,6 +34,10 @@ import { ManagerWorkQueueTeaser } from "./ManagerWorkQueueTeaser";
 import { ManagerScorecard } from "./ManagerScorecard";
 import { ManagerLeadPipeline } from "./ManagerLeadPipeline";
 import { ManagerTasksPanel } from "./ManagerTasksPanel";
+import { ManagerMonthPulse } from "./ManagerMonthPulse";
+import { ManagerGrowthLevers } from "./ManagerGrowthLevers";
+import { ManagerPerformanceTrend } from "./ManagerPerformanceTrend";
+import { ManagerPotentialPanel } from "./ManagerPotentialPanel";
 
 type Props = {
   userName: string | null;
@@ -44,15 +47,19 @@ type Props = {
 const QUEUE_SIZE = 7;
 
 function formatPeriodLabel(period: { from: string; to: string }): string {
-  const from = DateTime.fromISO(period.from, { setZone: true }).setZone(CRM_TIME_ZONE).setLocale(CRM_LOCALE);
-  const to = DateTime.fromISO(period.to, { setZone: true }).setZone(CRM_TIME_ZONE).setLocale(CRM_LOCALE);
+  const from = DateTime.fromISO(period.from, { setZone: true })
+    .setZone(CRM_TIME_ZONE)
+    .setLocale(CRM_LOCALE);
+  const to = DateTime.fromISO(period.to, { setZone: true })
+    .setZone(CRM_TIME_ZONE)
+    .setLocale(CRM_LOCALE);
   if (!from.isValid || !to.isValid) return "";
   return `${from.toLocaleString({ day: "numeric", month: "short" })} – ${to.toLocaleString({ day: "numeric", month: "short" })}`;
 }
 
 export function ManagerDashboardView({ userName, userRole }: Props) {
-  const [period, setPeriod] = useState<"week" | "month">("week");
-  const [compare, setCompare] = useState(false);
+  const [period, setPeriod] = useState<"week" | "month">("month");
+  const [compare, setCompare] = useState(true);
   const activityDate = useMemo(() => todayYmdInKyiv(), []);
 
   const [inbox, setInbox] = useState<ManagerInboxResponse | null>(null);
@@ -65,12 +72,12 @@ export function ManagerDashboardView({ userName, userRole }: Props) {
   const [scorecardLoading, setScorecardLoading] = useState(true);
   const [queueLoading, setQueueLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [scorecardError, setScorecardError] = useState<string | null>(null);
   const [morningOpen, setMorningOpen] = useState(false);
 
   const [createLeadOpen, setCreateLeadOpen] = useState(false);
   const [openContactId, setOpenContactId] = useState<string | null>(null);
   const [openLeadId, setOpenLeadId] = useState<string | null>(null);
-  const [scorecardExpanded, setScorecardExpanded] = useState(false);
   const [receivables, setReceivables] = useState<DashboardReceivablesData | null>(null);
   const [receivablesLoading, setReceivablesLoading] = useState(false);
 
@@ -83,7 +90,7 @@ export function ManagerDashboardView({ userName, userRole }: Props) {
     setError(null);
     try {
       const [inboxRes, dayPlanRes, agendaRes] = await Promise.all([
-        dashboardApi.getManagerInbox({ period }),
+        dashboardApi.getManagerInbox(),
         dayPlanApi.get({ date: activityDate }).catch(() => null),
         dailyAgendaApi.get({ date: activityDate }).catch(() => null),
       ]);
@@ -95,14 +102,16 @@ export function ManagerDashboardView({ userName, userRole }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [period, activityDate]);
+  }, [activityDate]);
 
   const loadScorecard = useCallback(async () => {
     setScorecardLoading(true);
+    setScorecardError(null);
     try {
       setScorecard(await dashboardApi.getManagerScorecard({ period, compare }));
-    } catch {
+    } catch (e) {
       setScorecard(null);
+      setScorecardError(e instanceof Error ? e.message : String(e));
     } finally {
       setScorecardLoading(false);
     }
@@ -168,10 +177,7 @@ export function ManagerDashboardView({ userName, userRole }: Props) {
         pushToast(strings.dashboard.manager.tasks.completedToast, "success");
         void loadCore();
       } catch (e) {
-        pushToast(
-          e instanceof Error ? e.message : strings.tasks.errors.completeFailed,
-          "error",
-        );
+        pushToast(e instanceof Error ? e.message : strings.tasks.errors.completeFailed, "error");
       }
     },
     [loadCore, pushToast],
@@ -179,6 +185,13 @@ export function ManagerDashboardView({ userName, userRole }: Props) {
 
   const currency = (scorecard?.currency === "EUR" ? "EUR" : "USD") as BaseCurrency;
   const periodLabel = scorecard ? formatPeriodLabel(scorecard.period) : "";
+  const compareLabel =
+    compare && scorecard?.comparePeriod ? formatPeriodLabel(scorecard.comparePeriod) : "";
+
+  const hasMonthPulse = Boolean(scorecard?.monthPulse);
+  const hasGrowthLevers = Array.isArray(scorecard?.growthLevers);
+  const hasTrend = Boolean(scorecard?.trend);
+  const hasPotential = Boolean(scorecard?.potential);
 
   const scorecardControls = (
     <div className="flex flex-wrap items-center gap-2">
@@ -186,9 +199,10 @@ export function ManagerDashboardView({ userName, userRole }: Props) {
         value={period}
         onChange={(e) => setPeriod(e.target.value as "week" | "month")}
         className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-700 shadow-sm focus:border-zinc-400 focus:outline-none focus:ring-1 focus:ring-zinc-400"
+        aria-label={strings.dashboard.manager.scorecard.activityPeriodLabel}
       >
-        <option value="week">{strings.tasks.period.thisWeek}</option>
-        <option value="month">{strings.dashboard.leadership.periodMonth}</option>
+        <option value="week">{strings.dashboard.manager.scorecard.rollingWeek}</option>
+        <option value="month">{strings.dashboard.manager.scorecard.rollingMonth}</option>
       </select>
       <label className="flex items-center gap-2 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-700">
         <input
@@ -211,22 +225,54 @@ export function ManagerDashboardView({ userName, userRole }: Props) {
   }
 
   if (!inbox) {
-    return <ErrorPanel message="Немає даних" onRetry={() => void loadCore()} />;
+    return (
+      <ErrorPanel message={strings.dashboard.manager.noData} onRetry={() => void loadCore()} />
+    );
   }
+
+  const activityPeriodLabel = [
+    periodLabel
+      ? `${strings.dashboard.manager.scorecard.activityDetailTitle}: ${periodLabel}`
+      : strings.dashboard.manager.scorecard.activityDetailTitle,
+    compareLabel ? `${strings.dashboard.manager.scorecard.compareLabel}: ${compareLabel}` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
 
   return (
     <div className="space-y-6">
       <ManagerDashboardHeader userName={userName} onNewLead={() => setCreateLeadOpen(true)} />
 
-      <ManagerInboxPanel tiles={inbox.tiles} />
-
-      {financeEnabled ? (
-        <DashboardReceivablesPanel
-          data={receivables}
-          loading={receivablesLoading}
-          currency={currency}
-        />
+      {scorecardLoading && !scorecard ? (
+        <PulseSkeleton />
+      ) : scorecard && hasMonthPulse ? (
+        <div className={scorecardLoading ? "opacity-60 transition-opacity" : "transition-opacity"}>
+          <div className="space-y-6">
+            <ManagerMonthPulse pulse={scorecard.monthPulse} currency={currency} />
+            {hasGrowthLevers && hasPotential ? (
+              <div className="grid gap-6 lg:grid-cols-2">
+                <ManagerGrowthLevers
+                  levers={scorecard.growthLevers}
+                  currency={currency}
+                  financeEnabled={financeEnabled}
+                />
+                <ManagerPotentialPanel
+                  potential={scorecard.potential}
+                  currency={currency}
+                  financeEnabled={financeEnabled}
+                />
+              </div>
+            ) : null}
+            {hasTrend ? (
+              <ManagerPerformanceTrend trend={scorecard.trend} currency={currency} />
+            ) : null}
+          </div>
+        </div>
+      ) : scorecardError ? (
+        <ErrorPanel message={scorecardError} onRetry={() => void loadScorecard()} />
       ) : null}
+
+      <ManagerInboxPanel tiles={inbox.tiles} financeEnabled={financeEnabled} />
 
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="lg:col-span-2">
@@ -247,51 +293,7 @@ export function ManagerDashboardView({ userName, userRole }: Props) {
         </div>
       </div>
 
-      {scorecardLoading && !scorecard ? (
-        <ScorecardSkeleton />
-      ) : scorecard ? (
-        <section className="rounded-xl border border-zinc-200 bg-white shadow-sm">
-          <button
-            type="button"
-            onClick={() => setScorecardExpanded((open) => !open)}
-            className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
-          >
-            <div>
-              <h2 className="text-base font-semibold text-zinc-900">
-                {strings.dashboard.manager.scorecard.title}
-              </h2>
-              {periodLabel ? (
-                <p className="mt-0.5 text-sm text-zinc-500">{periodLabel}</p>
-              ) : null}
-            </div>
-            <span className="inline-flex items-center gap-1 text-sm font-medium text-zinc-600">
-              {scorecardExpanded
-                ? strings.dashboard.manager.scorecard.collapse
-                : strings.dashboard.manager.scorecard.expand}
-              {scorecardExpanded ? (
-                <ChevronUp className="h-4 w-4" />
-              ) : (
-                <ChevronDown className="h-4 w-4" />
-              )}
-            </span>
-          </button>
-          {scorecardExpanded ? (
-            <div
-              className={`border-t border-zinc-100 px-4 pb-4 pt-2 ${
-                scorecardLoading ? "opacity-60 transition-opacity" : "transition-opacity"
-              }`}
-            >
-              <ManagerScorecard
-                scorecard={scorecard}
-                currency={currency}
-                compareEnabled={compare}
-                controls={scorecardControls}
-                hideHeader
-              />
-            </div>
-          ) : null}
-        </section>
-      ) : null}
+      <ManagerTasksPanel tasks={inbox.tasks} onComplete={completeTask} />
 
       <ManagerLeadPipeline
         pipelineCounts={inbox.pipelineCounts}
@@ -299,7 +301,30 @@ export function ManagerDashboardView({ userName, userRole }: Props) {
         onOpenLead={setOpenLeadId}
       />
 
-      <ManagerTasksPanel tasks={inbox.tasks} onComplete={completeTask} />
+      {financeEnabled ? (
+        <DashboardReceivablesPanel
+          data={receivables}
+          loading={receivablesLoading}
+          currency={currency}
+        />
+      ) : null}
+
+      {scorecard ? (
+        <section
+          className={`rounded-xl border border-zinc-200 bg-white p-4 shadow-sm sm:p-5 ${
+            scorecardLoading ? "opacity-60 transition-opacity" : "transition-opacity"
+          }`}
+        >
+          <ManagerScorecard
+            scorecard={scorecard}
+            currency={currency}
+            compareEnabled={compare}
+            periodLabel={activityPeriodLabel}
+            controls={scorecardControls}
+            compact={hasMonthPulse}
+          />
+        </section>
+      ) : null}
 
       {morningOpen && agenda ? (
         <MorningPlanModal
@@ -349,20 +374,15 @@ export function ManagerDashboardView({ userName, userRole }: Props) {
   );
 }
 
-function ScorecardSkeleton() {
+function PulseSkeleton() {
   return (
     <div className="space-y-4">
-      <div className="h-6 w-40 animate-pulse rounded bg-zinc-100" />
-      {Array.from({ length: 2 }).map((_, group) => (
-        <div key={group} className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm">
-          <div className="h-3 w-24 animate-pulse rounded bg-zinc-100" />
-          <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            {Array.from({ length: 4 }).map((_, i) => (
-              <div key={i} className="h-24 animate-pulse rounded-xl bg-zinc-100" />
-            ))}
-          </div>
-        </div>
-      ))}
+      <div className="h-40 animate-pulse rounded-xl bg-zinc-100" />
+      <div className="grid gap-4 lg:grid-cols-2">
+        <div className="h-56 animate-pulse rounded-xl bg-zinc-100" />
+        <div className="h-56 animate-pulse rounded-xl bg-zinc-100" />
+      </div>
+      <div className="h-64 animate-pulse rounded-xl bg-zinc-100" />
     </div>
   );
 }

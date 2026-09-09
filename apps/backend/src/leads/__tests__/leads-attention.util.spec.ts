@@ -15,9 +15,21 @@ describe("leads-attention.util", () => {
     assert.equal(where.OR?.length, 2);
   });
 
-  it("stale-in-progress filters IN_PROGRESS without recent activity", () => {
+  it("stale-in-progress filters IN_PROGRESS without recent activity and no rolling lower bound", () => {
     const where = buildLeadAttentionWhere("stale-in-progress", "month");
     assert.equal(where.status, "IN_PROGRESS");
     assert.ok(where.NOT);
+    assert.ok(where.createdAt && typeof where.createdAt === "object" && "lte" in where.createdAt);
+    assert.equal(
+      where.createdAt && typeof where.createdAt === "object" && "gte" in where.createdAt
+        ? true
+        : false,
+      false,
+    );
+  });
+
+  it("never-contacted-new has no createdAt rolling window", () => {
+    const where = buildLeadAttentionWhere("never-contacted-new");
+    assert.equal(where.createdAt, undefined);
   });
 });

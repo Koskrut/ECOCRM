@@ -4,7 +4,28 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.175**.)_
+_(планируемые изменения после **0.2.176**.)_
+
+## [0.2.176] — 2026-09-09
+
+### Summary
+
+Патч **0.2.176**: manager desk — пульс місяця, growth levers, trend/potential; lead attention без rolling createdAt lower bound.
+
+### Added
+
+- **Manager calendar util** + scorecard `monthPulse` / `growthLevers` / `trend` / `potential`.
+- Web: `ManagerMonthPulse`, `ManagerGrowthLevers`, `ManagerPerformanceTrend`, `ManagerPotentialPanel`.
+
+### Changed
+
+- Manager dashboard/inbox/scorecard layout; analytics-delta helpers; locales en/uk.
+- **Lead attention**: stuck leads stay visible (no month createdAt floor).
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.176`**.
+- **Миграций нет.**
 
 ## [0.2.175] — 2026-09-04
 

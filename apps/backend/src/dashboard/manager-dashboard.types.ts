@@ -70,6 +70,92 @@ export type ManagerOutcomeMetrics = {
   activeClientsInQueue: number;
 };
 
+export type ManagerMonthCoverage = {
+  shippedClients: number;
+  clientBase: number;
+  coveragePercent: number;
+  unshippedClients: number;
+  previousMonthFull: number;
+  previousMonthPace: number;
+};
+
+export type ManagerMonthMoney = {
+  bookedRevenue: number;
+  collectedPayments: number;
+  ordersCount: number;
+  avgCheck: number;
+  forecastBookedRevenue: number | null;
+  previousMonthFull: {
+    bookedRevenue: number;
+    collectedPayments: number;
+    ordersCount: number;
+    avgCheck: number;
+  };
+  previousMonthPace: {
+    bookedRevenue: number;
+    collectedPayments: number;
+    ordersCount: number;
+    avgCheck: number;
+  };
+};
+
+export type ManagerMonthPulse = {
+  /** Calendar MTD in Europe/Kyiv. */
+  period: { from: string; to: string };
+  previousMonthFull: { from: string; to: string };
+  previousMonthPace: { from: string; to: string };
+  daysElapsed: number;
+  daysInMonth: number;
+  daysRemaining: number;
+  coverage: ManagerMonthCoverage;
+  money: ManagerMonthMoney;
+  conversion: {
+    exactConversion: number | null;
+    wonShare: number;
+    leadsCreated: number;
+    leadsWon: number;
+    previousMonthPace: {
+      exactConversion: number | null;
+      wonShare: number;
+      leadsCreated: number;
+      leadsWon: number;
+    };
+  };
+};
+
+export type ManagerGrowthLeverStatus = "good" | "watch" | "critical";
+
+export type ManagerGrowthLever = {
+  key: "coverage" | "conversion" | "avgCheck" | "collection" | "overdue" | string;
+  status: ManagerGrowthLeverStatus;
+  priority: number;
+  currentValue: number;
+  compareValue: number | null;
+  unit: "count" | "percent" | "money" | "ratio";
+  href: string;
+};
+
+export type ManagerTrendPoint = {
+  date: string;
+  bookedRevenue: number;
+  collectedPayments: number;
+  shippedClients: number;
+};
+
+export type ManagerTrend = {
+  current: ManagerTrendPoint[];
+  previousMonth: ManagerTrendPoint[];
+};
+
+export type ManagerPotential = {
+  unshippedClients: number;
+  overdueFollowupContacts: number;
+  hotLeadsCount: number;
+  openPipelineOrders: number;
+  openPipelineAmount: number;
+  pipelineByStage: { stage: string; count: number }[];
+};
+
 export type ManagerScorecardResponse = {
   currency: string;
   period: { from: string; to: string };
@@ -82,4 +168,9 @@ export type ManagerScorecardResponse = {
   outcomes: ManagerOutcomeMetrics & {
     compare?: Omit<ManagerOutcomeMetrics, "activeClientsInQueue" | "exactConversion">;
   };
+  /** Always calendar-month diagnostics for the manager desk. */
+  monthPulse: ManagerMonthPulse;
+  growthLevers: ManagerGrowthLever[];
+  trend: ManagerTrend;
+  potential: ManagerPotential;
 };
