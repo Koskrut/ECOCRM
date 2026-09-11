@@ -25,7 +25,7 @@ test("CRM wins over XLS sales history", () => {
   assert.equal(velocitySource, "crm_orders");
 });
 
-test("XLS fallback when no CRM shipments", () => {
+test("XLS fallback when no CRM committed orders", () => {
   const { avgMonthlySold, velocitySource } = computeProductVelocity({
     totalSoldInLookback: 30,
     totalOrderQtyInLookback: 0,

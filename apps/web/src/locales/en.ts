@@ -36,7 +36,7 @@ export const en = {
     settings: "Settings",
     payments: "Payments",
     receivables: "Receivables",
-    planning: "Planning",
+    planning: "Production",
     warehouseWork: "Warehouse",
     warehouseReturns: "Returns",
     monitoring: "Monitoring",
@@ -598,11 +598,13 @@ export const en = {
     pageSubtitleDynamic: (packCycleDays: number, packCapacity: number) =>
       `Friday packing (${packCapacity} kits / ${packCycleDays} days), 3-month MRP, and factory part orders.`,
     tabs: {
-      overview: "Overview",
-      requests: "Requests",
+      overview: "Cycle",
+      factory: "Parts orders",
+      kits: "Catalog & BOM",
+      risks: "MRP risks",
       data: "Data",
+      requests: "Requests",
       today: "Today",
-      kits: "Kits",
       pack: "Pack",
       make: "Make / order",
       dashboard: "Dashboard",
@@ -616,7 +618,6 @@ export const en = {
       bom: "BOM",
       forecast: "Forecast",
       packing: "Packing",
-      factory: "Factory",
       batches: "WIP",
       queues: "WIP queues",
       settings: "Settings",
@@ -898,6 +899,7 @@ export const en = {
       makeNowCard: "Make / order",
       positionsAndQty: "positions / qty",
       snapshot1C: "1C snapshot",
+      demandSource: "Demand",
       sales18m: "18mo sales",
       partsGap: "Parts gap",
       weekNeed: "How many we need",
@@ -1046,7 +1048,9 @@ export const en = {
       stockSourceHint:
         "Planning uses stock from the latest published 1C snapshot. Store checkout uses CRM warehouse stock.",
       dataJobsHint:
-        "Weekly WIP refresh and full MRP recalculation — run after updating snapshots or sales.",
+        "MRP recalculates automatically after publishing a snapshot, sales history, or settings changes.",
+      risksHorizonHint:
+        "The ~90-day horizon is a stock-out warning. It is not the Friday packing request quantity.",
       snapshotFilterSummary: (
         rowsInFile: number,
         kept: number,
@@ -1087,8 +1091,9 @@ export const en = {
         "1C sales report (SKU × months), flat SKU + YYYY-MM columns, or sku/date/qty. Upload (STAGED) then Post for MRP.",
       freshnessOk: "Stock snapshot is fresh.",
       freshnessWarn: "Refresh the 1C snapshot before packing or factory planning.",
-      salesFreshnessOk: "Sales history is fresh.",
-      salesFreshnessWarn: "Post a fresh sales XLS before running MRP.",
+      salesFreshnessOk: "CRM order demand coverage is fresh.",
+      salesFreshnessWarn:
+        "CRM demand history is incomplete. Upload 1C monthly sales for the missing months.",
       salesStagedResult: (imported: number, resolved: number, unresolved: number) =>
         `Uploaded ${imported} rows (${resolved} resolved, ${unresolved} unresolved SKU). Click Post.`,
       salesPostedOk: "Sales posted — MRP uses this file.",

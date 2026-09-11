@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
 import { ProductKind, SalesHistoryUploadStatus } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
+import { VELOCITY_ORDER_STAGES } from "./crm-demand-velocity.util";
 import { DemandForecastService } from "./demand-forecast.service";
 import { mergeMonthlySalesHistory } from "./forecast-history-merge.util";
 
@@ -78,19 +79,22 @@ export class ForecastService {
       this.prisma.orderItem.findMany({
         where: {
           productId: { in: kits.map((k) => k.id) },
-          qtyShipped: { gt: 0 },
-          order: { createdAt: { gte: historyFrom }, orderStage: { notIn: ["CANCELED", "REFUSED"] } },
+          qty: { gt: 0 },
+          order: {
+            createdAt: { gte: historyFrom },
+            orderStage: { in: [...VELOCITY_ORDER_STAGES] },
+          },
         },
         select: {
           productId: true,
-          qtyShipped: true,
+          qty: true,
           order: { select: { createdAt: true } },
         },
       }),
     ]);
 
-    // Prefer imported sales history for months that already have Excel data; CRM fills gaps only.
-    // Net ≤0 Excel months still block CRM (returns / cancellations).
+    // CRM-first monthly merge (Excel fills gaps only). See forecast-history-merge.util.
+    // Net ≤0 Excel months still mark a covered empty month when used as gap-fill.
     const monthly = mergeMonthlySalesHistory({
       excelRows: historyAgg
         .filter((row): row is typeof row & { productId: string } => Boolean(row.productId))
@@ -104,7 +108,7 @@ export class ForecastService {
         .map((row) => ({
           productId: row.productId,
           soldAt: row.order.createdAt,
-          qty: row.qtyShipped,
+          qty: row.qty,
         })),
     });
 

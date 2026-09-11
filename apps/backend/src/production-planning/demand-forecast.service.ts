@@ -1,7 +1,12 @@
 import { forwardRef, Inject, Injectable } from "@nestjs/common";
-import { OrderStage, ProductKind, SalesHistoryUploadStatus } from "@prisma/client";
+import { ProductKind, SalesHistoryUploadStatus } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
+import {
+  crmVelocityQty,
+  VELOCITY_ORDER_STAGES,
+} from "./crm-demand-velocity.util";
 import { computeProductVelocity, type VelocitySource } from "./demand-velocity.util";
+import { monthKeyUtc } from "./forecast-history-merge.util";
 import { MrpConfigService } from "./mrp-config.service";
 import { PlanningCalculationService } from "./planning-calculation.service";
 import { PlanningSettingsService } from "./planning-settings.service";
@@ -44,8 +49,6 @@ export type MrpForecastRow = {
   breakdown: ForecastBreakdown;
 };
 
-const EXCLUDED_ORDER_STAGES: OrderStage[] = [OrderStage.CANCELED, OrderStage.REFUSED];
-
 @Injectable()
 export class DemandForecastService {
   constructor(
@@ -57,7 +60,48 @@ export class DemandForecastService {
     private readonly salesHistory: SalesHistoryService,
   ) {}
 
-  async countDistinctSalesMonths(lookbackMonths: number): Promise<number> {
+  /** Distinct CRM velocity months in lookback (committed order stages). */
+  async countDistinctCrmDemandMonths(lookbackMonths: number): Promise<number> {
+    const since = monthsAgoUtc(lookbackMonths);
+    const rows = await this.prisma.orderItem.findMany({
+      where: {
+        productId: { not: null },
+        qty: { gt: 0 },
+        order: {
+          createdAt: { gte: since },
+          orderStage: { in: [...VELOCITY_ORDER_STAGES] },
+        },
+      },
+      select: { order: { select: { createdAt: true } } },
+    });
+    const months = new Set<string>();
+    for (const row of rows) {
+      months.add(monthKeyUtc(row.order.createdAt));
+    }
+    return months.size;
+  }
+
+  async listCrmDemandMonthKeys(lookbackMonths: number): Promise<Set<string>> {
+    const since = monthsAgoUtc(lookbackMonths);
+    const rows = await this.prisma.orderItem.findMany({
+      where: {
+        productId: { not: null },
+        qty: { gt: 0 },
+        order: {
+          createdAt: { gte: since },
+          orderStage: { in: [...VELOCITY_ORDER_STAGES] },
+        },
+      },
+      select: { order: { select: { createdAt: true } } },
+    });
+    const months = new Set<string>();
+    for (const row of rows) {
+      months.add(monthKeyUtc(row.order.createdAt));
+    }
+    return months;
+  }
+
+  async listSalesHistoryMonthKeys(lookbackMonths: number): Promise<Set<string>> {
     const since = monthsAgoUtc(lookbackMonths);
     const rows = await this.prisma.salesHistoryLine.findMany({
       where: {
@@ -74,7 +118,11 @@ export class DemandForecastService {
         `${row.soldAt.getUTCFullYear()}-${String(row.soldAt.getUTCMonth() + 1).padStart(2, "0")}`;
       months.add(ym);
     }
-    return months.size;
+    return months;
+  }
+
+  async countDistinctSalesMonths(lookbackMonths: number): Promise<number> {
+    return (await this.listSalesHistoryMonthKeys(lookbackMonths)).size;
   }
 
   async evaluateSalesFreshnessWithCoverage() {
@@ -83,20 +131,37 @@ export class DemandForecastService {
       this.mrpConfig.getHorizon(),
       this.salesHistory.latestPosted(),
     ]);
+    const [crmMonths, xlsMonths] = await Promise.all([
+      this.listCrmDemandMonthKeys(horizon.velocityLookbackMonths),
+      this.listSalesHistoryMonthKeys(horizon.velocityLookbackMonths),
+    ]);
     const requiredMonths = Math.min(
       settings.salesMinCoverageMonths,
       horizon.velocityLookbackMonths,
       18,
     );
-    const distinctMonths = await this.countDistinctSalesMonths(horizon.velocityLookbackMonths);
+    const union = new Set<string>([...crmMonths, ...xlsMonths]);
+    const demandSource =
+      crmMonths.size > 0 && xlsMonths.size > 0
+        ? ("mixed" as const)
+        : crmMonths.size > 0
+          ? ("crm_orders" as const)
+          : xlsMonths.size > 0
+            ? ("sales_history" as const)
+            : ("none" as const);
+    // Adequacy judged primarily by CRM; union months allow gap-filled portfolios to pass.
+    const distinctForFreshness =
+      crmMonths.size >= requiredMonths ? crmMonths.size : union.size;
     return evaluateSalesFreshness(latestPosted, settings.snapshotMaxAgeDays, new Date(), {
-      distinctMonths,
+      distinctMonths: distinctForFreshness,
       requiredMonths,
+      demandSource,
+      gapSkuMonths: Math.max(0, requiredMonths - crmMonths.size),
     });
   }
 
   /**
-   * Velocity: override → CRM shipped qty → POSTED sales XLS fallback.
+   * Velocity: override → CRM committed order qty → POSTED sales XLS gap-fill.
    */
   async getDemandForecastMap(productIds?: string[]): Promise<Map<string, ProductDemandForecast>> {
     const horizon = await this.mrpConfig.getHorizon();
@@ -133,13 +198,13 @@ export class DemandForecastService {
     const orderItems = await this.prisma.orderItem.findMany({
       where: {
         productId: productIds?.length ? { in: productIds } : { not: null },
-        qtyShipped: { gt: 0 },
+        qty: { gt: 0 },
         order: {
           createdAt: { gte: since },
-          orderStage: { notIn: EXCLUDED_ORDER_STAGES },
+          orderStage: { in: [...VELOCITY_ORDER_STAGES] },
         },
       },
-      select: { productId: true, qtyShipped: true },
+      select: { productId: true, qty: true },
     });
 
     const orderQtyByProduct = new Map<string, number>();
@@ -147,7 +212,7 @@ export class DemandForecastService {
       if (!row.productId) continue;
       orderQtyByProduct.set(
         row.productId,
-        (orderQtyByProduct.get(row.productId) ?? 0) + (row.qtyShipped ?? 0),
+        (orderQtyByProduct.get(row.productId) ?? 0) + crmVelocityQty(row.qty),
       );
     }
 
@@ -190,7 +255,7 @@ export class DemandForecastService {
     return out;
   }
 
-  /** Forecast qty map from posted sales velocity (replaces legacy KitDemandForecast reads). */
+  /** Forecast qty map from CRM/XLS velocity (replaces legacy KitDemandForecast reads). */
   async getForecastQtyMap(horizonDays: number, productIds?: string[]): Promise<Map<string, number>> {
     const map = await this.getDemandForecastMap(productIds);
     const out = new Map<string, number>();
@@ -252,7 +317,7 @@ export class DemandForecastService {
     const rows: MrpForecastRow[] = products.map((product) => {
       const forecast = forecastMap.get(product.id);
       const avgMonthlySold = forecast?.avgMonthlySold ?? 0;
-      const velocitySource = forecast?.velocitySource ?? "sales_history";
+      const velocitySource = forecast?.velocitySource ?? "crm_orders";
       const hardNeed = forecast?.hardNeed ?? 0;
       const softNeed = forecast?.softNeed ?? 0;
       const forecastDemand =

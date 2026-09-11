@@ -4,7 +4,28 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.177**.)_
+_(планируемые изменения после **0.2.178**.)_
+
+## [0.2.178] — 2026-09-11
+
+### Summary
+
+Патч **0.2.178**: CRM-first demand velocity / freshness; planning workplace IA (Цикл / Завод / Каталог / MRP-ризики); nav «Виробництво».
+
+### Added
+
+- `crm-demand-velocity.util` (committed stages + ordered qty); CRM month coverage for sales freshness (`demandSource`, gap-fill XLS).
+
+### Changed
+
+- Demand forecast / forecast-history merge: CRM months primary, XLS gap-fill; MRP guide seed.
+- Planning tabs IA + Overview slim-down; Sidebar label; locales en/uk.
+- Data tab keeps BOM upload section.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.178`**.
+- **Миграций нет.**
 
 ## [0.2.177] — 2026-09-09
 

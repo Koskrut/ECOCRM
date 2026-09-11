@@ -1,79 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { strings } from "@/locales";
 import {
   planningApi,
   type KitPortfolioView,
   type PlanningTodayView,
-  type StockoutRow,
 } from "@/lib/api/resources/planning";
 import { KitPortfolioPanel } from "./KitPortfolioPanel";
-
-type KpiDrilldown = "zero" | "paretoZero" | "packable" | "awaiting" | "drafts" | null;
-
-function KpiCard({
-  title,
-  value,
-  subtitle,
-  active,
-  onClick,
-}: {
-  title: string;
-  value: string;
-  subtitle?: string;
-  active: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`rounded-2xl border p-5 text-left shadow-sm transition hover:border-cyan-300 ${
-        active ? "border-cyan-500 bg-cyan-50/50" : "border-zinc-200 bg-white"
-      }`}
-    >
-      <p className="text-sm text-zinc-500">{title}</p>
-      <p className="mt-2 text-2xl font-semibold text-zinc-900">{value}</p>
-      {subtitle ? <p className="mt-1 text-xs text-zinc-500">{subtitle}</p> : null}
-    </button>
-  );
-}
-
-function StockoutTable({ rows, noDataLabel }: { rows: StockoutRow[]; noDataLabel: string }) {
-  const t = strings.planning;
-  if (rows.length === 0) {
-    return <p className="text-sm text-zinc-500">{noDataLabel}</p>;
-  }
-  return (
-    <div className="overflow-x-auto">
-      <table className="min-w-full divide-y divide-zinc-200 text-sm">
-        <thead>
-          <tr className="bg-zinc-50">
-            {[t.labels.sku, t.labels.name, t.labels.kind, t.overview.paretoCol].map((h) => (
-              <th key={h} className="px-3 py-2 text-left font-medium text-zinc-600">
-                {h}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-zinc-100">
-          {rows.map((row) => (
-            <tr key={row.productId}>
-              <td className="px-3 py-2 text-zinc-900">{row.sku}</td>
-              <td className="px-3 py-2 text-zinc-900">{row.name}</td>
-              <td className="px-3 py-2 text-zinc-700">{row.kind === "KIT" ? t.overview.kindKit : t.overview.kindPart}</td>
-              <td className="px-3 py-2 text-zinc-700">
-                {row.inPareto80 ? t.overview.inPareto80 : "—"}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
 
 export function OverviewPanel({ onError }: { onError: (msg: string) => void }) {
   const t = strings.planning;
@@ -81,7 +16,6 @@ export function OverviewPanel({ onError }: { onError: (msg: string) => void }) {
   const [portfolio, setPortfolio] = useState<KitPortfolioView | null>(null);
   const [today, setToday] = useState<PlanningTodayView | null>(null);
   const [busy, setBusy] = useState(false);
-  const [drilldown, setDrilldown] = useState<KpiDrilldown>(null);
 
   const load = useCallback(async () => {
     setBusy(true);
@@ -105,26 +39,15 @@ export function OverviewPanel({ onError }: { onError: (msg: string) => void }) {
 
   const snap = portfolio?.freshness ?? today?.freshness.snapshot;
   const sales = portfolio?.salesFreshness ?? today?.freshness.sales;
-
-  const paretoZeroRows = useMemo(() => {
-    if (!portfolio) return [];
-    return [
-      ...portfolio.stockouts.zeroKits.filter((k) => k.inPareto80),
-      ...portfolio.stockouts.zeroParts.filter((p) => p.inPareto80),
-    ];
-  }, [portfolio]);
-
   const draftTotal =
     (portfolio?.draftRequests.packing ?? 0) + (portfolio?.draftRequests.factory ?? 0);
-
-  const toggleDrill = (key: KpiDrilldown) => {
-    setDrilldown((prev) => (prev === key ? null : key));
-  };
+  const awaitingGap = today?.awaitingStock.summary.gapSkuCount ?? 0;
+  const mrpAt = today?.mrpComputedAt ?? null;
 
   return (
     <div className="space-y-4">
       <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 text-sm">
           <span
             className={`rounded-full px-3 py-1 text-xs font-medium ${
               snap?.isFresh ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-900"
@@ -138,13 +61,34 @@ export function OverviewPanel({ onError }: { onError: (msg: string) => void }) {
               sales?.isFresh ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-900"
             }`}
           >
-            {t.labels.sales18m}:{" "}
-            {!sales?.uploadId
-              ? t.states.noSales
+            {t.labels.demandSource}:{" "}
+            {!sales
+              ? t.states.none
               : sales.isFresh
                 ? t.states.ok
-                : t.states.stale}
+                : (sales.warning ?? t.states.stale)}
           </span>
+          {mrpAt ? (
+            <span className="rounded-full bg-zinc-100 px-3 py-1 text-xs text-zinc-700">
+              {t.labels.lastMrpRun}: {new Date(mrpAt).toLocaleString("uk-UA")}
+            </span>
+          ) : null}
+          {awaitingGap > 0 ? (
+            <span className="rounded-full bg-amber-100 px-3 py-1 text-xs text-amber-900">
+              {ov.awaitingTitle}: {awaitingGap}
+            </span>
+          ) : null}
+          {draftTotal > 0 ? (
+            <Link
+              href="/planning?tab=factory"
+              className="rounded-full bg-cyan-50 px-3 py-1 text-xs font-medium text-cyan-800 underline"
+            >
+              {ov.draftsHint(
+                portfolio?.draftRequests.packing ?? 0,
+                portfolio?.draftRequests.factory ?? 0,
+              )}
+            </Link>
+          ) : null}
           <button
             type="button"
             disabled={busy}
@@ -154,182 +98,16 @@ export function OverviewPanel({ onError }: { onError: (msg: string) => void }) {
             {t.actions.refresh}
           </button>
         </div>
+        {(today?.dueReminders?.length ?? 0) > 0 ? (
+          <div className="mt-3 space-y-1 border-t border-zinc-100 pt-3">
+            {(today?.dueReminders ?? []).slice(0, 5).map((item) => (
+              <p key={item.id} className="text-sm text-amber-900">
+                {item.label}
+              </p>
+            ))}
+          </div>
+        ) : null}
       </div>
-
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
-        <KpiCard
-          title={ov.zeroStockTitle}
-          value={String(portfolio?.stockouts.zeroCount ?? "—")}
-          subtitle={ov.zeroStockHint}
-          active={drilldown === "zero"}
-          onClick={() => toggleDrill("zero")}
-        />
-        <KpiCard
-          title={ov.paretoZeroTitle}
-          value={String(portfolio?.stockouts.paretoZeroCount ?? "—")}
-          subtitle={ov.paretoZeroHint}
-          active={drilldown === "paretoZero"}
-          onClick={() => toggleDrill("paretoZero")}
-        />
-        <KpiCard
-          title={ov.packableTitle}
-          value={String(portfolio?.summary.packableToday ?? "—")}
-          subtitle={ov.packableHint(
-            portfolio?.summary.blocked ?? 0,
-            portfolio?.summary.packableAllKits,
-          )}
-          active={drilldown === "packable"}
-          onClick={() => toggleDrill("packable")}
-        />
-        <KpiCard
-          title={ov.awaitingTitle}
-          value={String(today?.awaitingStock.summary.gapSkuCount ?? "—")}
-          subtitle={ov.awaitingHint(
-            today?.awaitingStock.summary.gapSkuCount ?? 0,
-            today?.awaitingStock.summary.gapQty ?? 0,
-            today?.awaitingStock.summary.coveredSkuCount ?? 0,
-          )}
-          active={drilldown === "awaiting"}
-          onClick={() => toggleDrill("awaiting")}
-        />
-        <KpiCard
-          title={ov.draftsTitle}
-          value={String(draftTotal || "—")}
-          subtitle={ov.draftsHint(
-            portfolio?.draftRequests.packing ?? 0,
-            portfolio?.draftRequests.factory ?? 0,
-          )}
-          active={drilldown === "drafts"}
-          onClick={() => toggleDrill("drafts")}
-        />
-      </div>
-
-      {drilldown === "zero" ? (
-        <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm space-y-4">
-          <h3 className="text-sm font-semibold text-zinc-900">{ov.zeroStockTitle}</h3>
-          <div>
-            <h4 className="mb-2 text-xs font-medium uppercase text-zinc-500">
-              {ov.zeroFinishedBlockedTitle} ({portfolio?.stockouts.zeroFinishedBlocked.length ?? 0})
-            </h4>
-            <StockoutTable
-              rows={portfolio?.stockouts.zeroFinishedBlocked ?? []}
-              noDataLabel={ov.noZeroStock}
-            />
-          </div>
-          <div>
-            <h4 className="mb-2 text-xs font-medium uppercase text-zinc-500">
-              {ov.zeroFinishedBuildableTitle} ({portfolio?.stockouts.zeroFinishedBuildable.length ?? 0})
-            </h4>
-            <StockoutTable
-              rows={portfolio?.stockouts.zeroFinishedBuildable ?? []}
-              noDataLabel={ov.noZeroStock}
-            />
-          </div>
-          <div>
-            <h4 className="mb-2 text-xs font-medium uppercase text-zinc-500">
-              {t.overview.kindPart} ({portfolio?.stockouts.zeroParts.length ?? 0})
-            </h4>
-            <StockoutTable rows={portfolio?.stockouts.zeroParts ?? []} noDataLabel={ov.noZeroStock} />
-          </div>
-        </div>
-      ) : null}
-
-      {drilldown === "paretoZero" ? (
-        <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
-          <h3 className="mb-3 text-sm font-semibold text-zinc-900">{ov.paretoZeroTitle}</h3>
-          <StockoutTable rows={paretoZeroRows} noDataLabel={ov.noParetoZero} />
-        </div>
-      ) : null}
-
-      {drilldown === "packable" ? (
-        <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
-          <p className="text-sm text-zinc-700">
-            {ov.packableDetail(
-              portfolio?.summary.packableToday ?? 0,
-              portfolio?.summary.blocked ?? 0,
-              portfolio?.summary.packableAllKits,
-            )}
-          </p>
-          <Link
-            href="/planning?tab=requests&kind=pack"
-            className="mt-2 inline-block text-sm text-cyan-700 underline"
-          >
-            {ov.openPackRequests}
-          </Link>
-        </div>
-      ) : null}
-
-      {drilldown === "awaiting" ? (
-        <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
-          <p className="mb-3 text-sm text-zinc-600">
-            {ov.awaitingHint(
-              today?.awaitingStock.summary.gapSkuCount ?? 0,
-              today?.awaitingStock.summary.gapQty ?? 0,
-              today?.awaitingStock.summary.coveredSkuCount ?? 0,
-            )}
-          </p>
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-zinc-200 text-sm">
-              <thead>
-                <tr className="bg-zinc-50">
-                  {[t.labels.sku, t.labels.name, t.labels.packNeed, t.labels.finishedGap].map(
-                    (h) => (
-                      <th key={h} className="px-3 py-2 text-left font-medium text-zinc-600">
-                        {h}
-                      </th>
-                    ),
-                  )}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-zinc-100">
-                {(today?.awaitingStock.groups ?? []).length === 0 ? (
-                  <tr>
-                    <td colSpan={4} className="px-3 py-4 text-zinc-500">
-                      {t.states.none}
-                    </td>
-                  </tr>
-                ) : (
-                  (today?.awaitingStock.groups ?? []).map((g) => (
-                    <tr key={g.groupKey}>
-                      <td className="px-3 py-2">{g.sku}</td>
-                      <td className="px-3 py-2">{g.name}</td>
-                      <td className="px-3 py-2">{g.totalQtyRemaining}</td>
-                      <td className="px-3 py-2">{g.stockGap}</td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      ) : null}
-
-      {drilldown === "drafts" ? (
-        <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
-          <p className="text-sm text-zinc-700">{ov.draftsDetail(draftTotal)}</p>
-          <div className="mt-3 flex flex-wrap gap-3">
-            {(portfolio?.draftRequests.packing ?? 0) > 0 ? (
-              <Link
-                href="/planning?tab=requests&kind=pack"
-                className="text-sm text-cyan-700 underline"
-              >
-                {ov.openPackDrafts(portfolio?.draftRequests.packing ?? 0)}
-              </Link>
-            ) : null}
-            {(portfolio?.draftRequests.factory ?? 0) > 0 ? (
-              <Link
-                href="/planning?tab=requests&kind=factory"
-                className="text-sm text-cyan-700 underline"
-              >
-                {ov.openFactoryDrafts(portfolio?.draftRequests.factory ?? 0)}
-              </Link>
-            ) : null}
-            {draftTotal === 0 ? (
-              <p className="text-sm text-zinc-500">{t.states.none}</p>
-            ) : null}
-          </div>
-        </div>
-      ) : null}
 
       <KitPortfolioPanel
         onError={onError}

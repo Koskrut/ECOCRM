@@ -37,7 +37,7 @@ export const uk = {
     settings: "Налаштування",
     payments: "Оплати",
     receivables: "Дебіторка",
-    planning: "Планування",
+    planning: "Виробництво",
     warehouseWork: "Склад",
     warehouseReturns: "Повернення",
     monitoring: "Моніторинг",
@@ -600,11 +600,13 @@ export const uk = {
     pageSubtitleDynamic: (packCycleDays: number, packCapacity: number) =>
       `П’ятнична заявка на упаковку (${packCapacity} комплектів / ${packCycleDays} дн.), MRP на 3 місяці та замовлення деталей.`,
     tabs: {
-      overview: "Огляд",
-      requests: "Заявки",
+      overview: "Цикл",
+      factory: "Замовлення деталей",
+      kits: "Каталог і BOM",
+      risks: "MRP-ризики",
       data: "Дані",
+      requests: "Заявки",
       today: "Сьогодні",
-      kits: "Комплекти",
       pack: "Напакувати",
       make: "Зробити / замовити",
       dashboard: "Дашборд",
@@ -618,7 +620,6 @@ export const uk = {
       bom: "Специфікації",
       forecast: "Прогноз",
       packing: "Упаковка",
-      factory: "Завод",
       batches: "WIP",
       queues: "WIP-черги",
       settings: "Налаштування",
@@ -900,6 +901,7 @@ export const uk = {
       makeNowCard: "Зробити / замовити",
       positionsAndQty: "позицій / шт",
       snapshot1C: "Снапшот 1С",
+      demandSource: "Попит",
       sales18m: "Продажі 18 міс",
       partsGap: "Брак деталей",
       weekNeed: "Скільки треба",
@@ -1048,7 +1050,9 @@ export const uk = {
       stockSourceHint:
         "Планування рахує залишки з останнього опублікованого знімка 1С. Checkout магазину використовує CRM-склад.",
       dataJobsHint:
-        "Тижневе оновлення WIP і повний перерахунок MRP — після оновлення снапшотів або продажів.",
+        "MRP перераховується сам після публікації снапшота, продажів і змін налаштувань.",
+      risksHorizonHint:
+        "Горизонт ~90 днів — попередження про вигорання запасу. Це не кількість для п’ятничної заявки на упаковку.",
       snapshotFilterSummary: (
         rowsInFile: number,
         kept: number,
@@ -1089,8 +1093,9 @@ export const uk = {
         "Звіт 1С «Продажі» (артикул × місяці), flat SKU + колонки YYYY-MM або sku/date/qty. Спочатку завантаження (STAGED), потім Опублікувати для MRP.",
       freshnessOk: "Снапшот залишків актуальний.",
       freshnessWarn: "Оновіть снапшот з 1С перед упаковкою або замовленням на завод.",
-      salesFreshnessOk: "Історія продажів актуальна.",
-      salesFreshnessWarn: "Опублікуйте свіжий XLS продажів перед запуском MRP.",
+      salesFreshnessOk: "Попит з CRM-замовлень актуальний.",
+      salesFreshnessWarn:
+        "Недостатньо історії попиту з CRM. Довантажте місячні продажі з 1С для прогалин.",
       salesStagedResult: (imported: number, resolved: number, unresolved: number) =>
         `Завантажено ${imported} рядків (${resolved} прив’язано, ${unresolved} нерозпізнаних SKU). Натисніть Опублікувати.`,
       salesPostedOk: "Продажі опубліковано — MRP використовує цей файл.",

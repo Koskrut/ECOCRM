@@ -383,8 +383,7 @@ export function ForecastPanel({ onError }: { onError: (msg: string) => void }) {
                     setUploadInfo(t.messages.salesPostedOk);
                     setStagedUploadId(null);
                     await load();
-                    await planningApi.runMrp("FULL");
-                    setUploadInfo(t.messages.salesPostedOk + " " + t.messages.mrpRecalculated);
+                    setUploadInfo(t.messages.salesPostedOk);
                   } catch (e) {
                     reportError(e instanceof Error ? e.message : t.errors.forecast);
                   } finally {
@@ -396,27 +395,6 @@ export function ForecastPanel({ onError }: { onError: (msg: string) => void }) {
               {t.actions.postSalesHistory}
             </button>
           ) : null}
-          <button
-            type="button"
-            disabled={busy}
-            className="rounded-lg border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-zinc-700 disabled:opacity-50"
-            onClick={() => {
-              void (async () => {
-                setBusy(true);
-                try {
-                  await planningApi.runMrp("FULL");
-                  setUploadInfo(t.messages.mrpRecalculated);
-                  await load();
-                } catch (e) {
-                  reportError(e instanceof Error ? e.message : t.errors.loadMrp);
-                } finally {
-                  setBusy(false);
-                }
-              })();
-            }}
-          >
-            {t.actions.recalculateMrp}
-          </button>
           <button
             type="button"
             disabled={busy}
@@ -2001,25 +1979,6 @@ export function MrpDashboardPanel({ onError }: { onError: (msg: string) => void 
     <div className="space-y-4">
       {run?.salesFreshness ? <SalesFreshnessBanner freshness={run.salesFreshness} /> : null}
       <div className="flex flex-wrap items-center gap-2">
-        <button
-          type="button"
-          disabled={busy}
-          className="rounded-lg bg-cyan-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-          onClick={() => {
-            void (async () => {
-              setBusy(true);
-              try {
-                setRun(await planningApi.runMrp("FULL"));
-              } catch (e) {
-                reportError(e instanceof Error ? e.message : t.errors.runMrp);
-              } finally {
-                setBusy(false);
-              }
-            })();
-          }}
-        >
-          {t.actions.runMrp}
-        </button>
         <button
           type="button"
           disabled={busy}

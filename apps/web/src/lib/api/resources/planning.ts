@@ -131,6 +131,8 @@ export type SalesFreshness = {
   warning: string | null;
   coverageMonths?: number | null;
   requiredCoverageMonths?: number | null;
+  demandSource?: "crm_orders" | "sales_history" | "mixed" | "none";
+  gapSkuMonths?: number | null;
 };
 
 export type PlanningFreshness = {

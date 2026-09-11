@@ -24,6 +24,7 @@ import {
   Receipt,
   ShieldAlert,
   BookOpen,
+  Factory,
   type LucideIcon,
 } from "lucide-react";
 import { apiHttp } from "../lib/api/client";
@@ -75,7 +76,7 @@ function buildMenuItems() {
     { label: t.catalog, icon: LayoutGrid, href: "/catalog" },
     { label: t.risk, icon: ShieldAlert, href: "/risk" },
     { label: t.help, icon: BookOpen, href: "/help" },
-    { label: t.planning, icon: BarChart3, href: "/planning" },
+    { label: t.planning, icon: Factory, href: "/planning" },
     { label: t.visits, icon: MapPin, href: "/visits", exact: true },
     { label: t.visitsHistory, icon: History, href: "/visits/history" },
     { label: t.aiCalls, icon: PhoneCall, href: "/outbound/campaigns" },

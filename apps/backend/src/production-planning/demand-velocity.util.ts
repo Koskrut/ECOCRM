@@ -1,7 +1,7 @@
 export type VelocitySource = "sales_history" | "crm_orders" | "override";
 
 /**
- * CRM-first velocity: override → CRM shipped qty → XLS sales history fallback.
+ * CRM-first velocity: override → CRM committed order qty → XLS sales history gap-fill.
  */
 export function computeProductVelocity(input: {
   totalSoldInLookback: number;

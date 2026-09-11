@@ -29,15 +29,17 @@ import {
   ForecastPanel,
   PlanningFreshnessBanners,
   MrpConfigPanel,
-  PlanningHowToPanel,
+  MrpCriticalPanel,
+  MrpDashboardPanel,
+  FactoryPanel,
+  PackingPanel,
   PlanningSettingsPanel,
 } from "./PlanningOpsPanels";
 import { OverviewPanel } from "./OverviewPanel";
-import { RequestsPanel } from "./RequestsPanel";
 import { ProductParamsPanel } from "./ProductParamsPanel";
 import { KitBomsPanel } from "./KitBomsPanel";
 
-type PlanningScreen = "overview" | "kits" | "requests" | "data";
+type PlanningScreen = "overview" | "factory" | "kits" | "risks" | "data";
 type BomEditorLine = {
   id: string;
   componentProductId: string;
@@ -46,29 +48,30 @@ type BomEditorLine = {
   sortOrder: number;
 };
 
-/** Legacy ?tab= keys → new IA (soft redirect). `kits` is a first-class screen. */
+/** Legacy ?tab= keys → workplace IA (soft redirect). */
 const LEGACY_TAB_MAP: Record<string, PlanningScreen> = {
   today: "overview",
   dashboard: "overview",
-  mrp: "overview",
-  mrpCritical: "overview",
-  pack: "requests",
-  make: "requests",
-  mrpPack: "requests",
-  mrpProduction: "requests",
-  mrpSemi: "requests",
-  factory: "requests",
-  packing: "requests",
+  requests: "overview",
+  pack: "overview",
+  packing: "overview",
+  mrp: "risks",
+  mrpCritical: "risks",
+  mrpPack: "risks",
+  mrpProduction: "risks",
+  mrpSemi: "risks",
+  make: "factory",
+  factory: "factory",
   inventory: "data",
   snapshots: "data",
-  bom: "data",
+  bom: "kits",
   forecast: "data",
   settings: "data",
   batches: "data",
   queues: "data",
 };
 
-const PLANNING_SCREENS: PlanningScreen[] = ["overview", "kits", "requests", "data"];
+const PLANNING_SCREENS: PlanningScreen[] = ["overview", "factory", "kits", "risks", "data"];
 
 function resolveScreen(tab: string | null): PlanningScreen {
   if (!tab) return "overview";
@@ -122,7 +125,7 @@ function PlanningPageInner() {
     (screen: PlanningScreen) => {
       const params = new URLSearchParams(searchParams.toString());
       params.set("tab", screen);
-      if (screen !== "requests") {
+      if (screen !== "overview" && screen !== "factory") {
         params.delete("sku");
         params.delete("kind");
       }
@@ -137,13 +140,6 @@ function PlanningPageInner() {
     if (legacyTarget && legacyTarget !== tabParam) {
       const params = new URLSearchParams(searchParams.toString());
       params.set("tab", legacyTarget);
-      if (legacyTarget === "requests") {
-        const kind =
-          tabParam === "make" || tabParam === "factory" || tabParam === "mrpProduction" || tabParam === "mrpSemi"
-            ? "factory"
-            : "pack";
-        params.set("kind", kind);
-      }
       router.replace(`/planning?${params.toString()}`, { scroll: false });
     }
   }, [tabParam, router, searchParams]);
@@ -158,7 +154,6 @@ function PlanningPageInner() {
   useEffect(() => {
     setProductSearch("");
   }, [dataSection]);
-  const [howToOpen, setHowToOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
@@ -215,7 +210,6 @@ function PlanningPageInner() {
   const [mrpStaleWarning, setMrpStaleWarning] = useState<string | null>(null);
   const [planningSettings, setPlanningSettings] = useState<PlanningSettings | null>(null);
   const [savingRules, setSavingRules] = useState(false);
-  const [runningWeekly, setRunningWeekly] = useState(false);
   const [creatingBatch, setCreatingBatch] = useState(false);
   const [movingBatchId, setMovingBatchId] = useState<string | null>(null);
   const [savingBom, setSavingBom] = useState(false);
@@ -481,7 +475,6 @@ function PlanningPageInner() {
     if (!window.confirm(t.messages.publishSnapshotConfirm(importedDate))) return;
     try {
       await planningApi.postSnapshot(snapshotId);
-      await planningApi.runMrp("FULL");
       await handleRefresh();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : t.errors.publishSnapshot);
@@ -595,22 +588,6 @@ function PlanningPageInner() {
     }
   };
 
-  const handleRunWeekly = async () => {
-    setRunningWeekly(true);
-    setInfo(null);
-    try {
-      const res = await planningApi.runWeeklyPlan();
-      setInfo(
-        `Weekly refresh: QC ${res.qcQueue}, PACK ${res.packQueue}, launch ${res.launch}.`,
-      );
-      await handleRefresh();
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : t.errors.runWeeklyPlan);
-    } finally {
-      setRunningWeekly(false);
-    }
-  };
-
   return (
     <div className="space-y-4 p-4 md:p-6">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
@@ -626,20 +603,13 @@ function PlanningPageInner() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setHowToOpen((v) => !v)}
-            className="rounded-lg border border-cyan-200 bg-cyan-50 px-4 py-2 text-sm font-medium text-cyan-900 hover:bg-cyan-100"
-          >
-            {t.actions.toggleHowTo}
-          </button>
+          <HelpHint routeKey="planning" />
           <Link
             href="/help/planning-mrp-guide"
             className="rounded-lg border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
           >
             {t.actions.openFullGuide}
           </Link>
-          <HelpHint routeKey="planning" />
           <button
             type="button"
             onClick={() => void handleRefresh()}
@@ -650,8 +620,6 @@ function PlanningPageInner() {
         </div>
       </div>
 
-      <PlanningHowToPanel open={howToOpen} />
-
       {activeScreen !== "overview" ? (
         <PlanningFreshnessBanners
           snapshot={freshness}
@@ -660,9 +628,6 @@ function PlanningPageInner() {
           mrpStaleWarning={mrpStaleWarning}
         />
       ) : null}
-      <div className="rounded-lg border border-cyan-200 bg-cyan-50 p-3 text-sm text-cyan-900">
-        {t.messages.stockSourceHint}
-      </div>
 
       <div className="flex flex-wrap gap-2">
         {PLANNING_SCREENS.map((tab) => (
@@ -714,46 +679,28 @@ function PlanningPageInner() {
       )}
 
       <>
-        {activeScreen === "overview" && <OverviewPanel onError={handleOpsError} />}
+        {activeScreen === "overview" && (
+          <div className="space-y-4">
+            <OverviewPanel onError={handleOpsError} />
+            <PackingPanel onError={handleOpsError} />
+          </div>
+        )}
+
+        {activeScreen === "factory" && <FactoryPanel onError={handleOpsError} />}
 
         {activeScreen === "kits" && <KitBomsPanel onError={handleOpsError} />}
 
-        {activeScreen === "requests" && <RequestsPanel onError={handleOpsError} />}
+        {activeScreen === "risks" && (
+          <div className="space-y-4">
+            <p className="text-sm text-zinc-600">{t.messages.risksHorizonHint}</p>
+            <MrpDashboardPanel onError={handleOpsError} />
+            <MrpCriticalPanel onError={handleOpsError} />
+            <MrpConfigPanel onError={handleOpsError} />
+          </div>
+        )}
 
         {activeScreen === "data" && (
           <div className="space-y-3">
-            <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
-              <h2 className="text-sm font-semibold text-zinc-900">{t.dataSections.jobs}</h2>
-              <p className="mt-1 text-sm text-zinc-600">{t.messages.dataJobsHint}</p>
-              <div className="mt-3 flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={() => void handleRunWeekly()}
-                  disabled={runningWeekly || !canManagePlanning}
-                  className="rounded-lg bg-cyan-600 px-4 py-2 text-sm font-medium text-white hover:bg-cyan-700 disabled:opacity-50"
-                >
-                  {runningWeekly ? strings.common.loading : t.actions.runWeeklyPlan}
-                </button>
-                <button
-                  type="button"
-                  disabled={!canManagePlanning}
-                  className="rounded-lg border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
-                  onClick={() => {
-                    void (async () => {
-                      try {
-                        await planningApi.runMrp("FULL");
-                        setInfo(t.messages.mrpRecalculated);
-                        await handleRefresh();
-                      } catch (e: unknown) {
-                        setError(e instanceof Error ? e.message : t.errors.runMrp);
-                      }
-                    })();
-                  }}
-                >
-                  {t.actions.recalculateMrp}
-                </button>
-              </div>
-            </div>
             {(
               [
                 ["snapshots", t.dataSections.snapshots],

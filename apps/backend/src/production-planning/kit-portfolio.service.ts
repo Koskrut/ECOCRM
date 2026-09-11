@@ -13,6 +13,7 @@ import { SettingsService } from "../settings/settings.service";
 import { getBaseCurrency, toBaseCurrency } from "../common/currency.util";
 import { ANALYTICS_EXCLUDED_ORDER_STAGES } from "../analytics/analytics.constants";
 import { DemandForecastService } from "./demand-forecast.service";
+import { VELOCITY_ORDER_STAGES } from "./crm-demand-velocity.util";
 import { MrpConfigService } from "./mrp-config.service";
 import { PlanningCalculationService } from "./planning-calculation.service";
 import { PlanningSettingsService } from "./planning-settings.service";
@@ -353,15 +354,15 @@ export class KitPortfolioService {
       this.prisma.orderItem.findMany({
         where: {
           productId: { in: kitIds },
-          qtyShipped: { gt: 0 },
+          qty: { gt: 0 },
           order: {
             createdAt: { gte: xyzSince },
-            orderStage: { notIn: [OrderStage.CANCELED, OrderStage.REFUSED] },
+            orderStage: { in: [...VELOCITY_ORDER_STAGES] },
           },
         },
         select: {
           productId: true,
-          qtyShipped: true,
+          qty: true,
           order: { select: { createdAt: true } },
         },
       }),
@@ -387,7 +388,7 @@ export class KitPortfolioService {
       if (!row.productId) continue;
       const wk = isoWeekKeyUtc(row.order.createdAt);
       const byWeek = crmWeeksByKit.get(row.productId) ?? new Map<string, number>();
-      byWeek.set(wk, (byWeek.get(wk) ?? 0) + row.qtyShipped);
+      byWeek.set(wk, (byWeek.get(wk) ?? 0) + row.qty);
       crmWeeksByKit.set(row.productId, byWeek);
     }
 

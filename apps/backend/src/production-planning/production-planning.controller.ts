@@ -264,10 +264,17 @@ export class ProductionPlanningController {
 
   @Post("inventory-snapshots/:id/post")
   @Roles(UserRole.ADMIN, UserRole.LEAD)
-  postSnapshot(@Param("id") id: string, @Req() req: Request & { user?: AuthUser }) {
+  async postSnapshot(@Param("id") id: string, @Req() req: Request & { user?: AuthUser }) {
     const userId = req.user?.id;
     if (!userId) throw new BadRequestException("User not found in request");
-    return this.snapshots.postSnapshot(id, userId);
+    const snapshot = await this.snapshots.postSnapshot(id, userId);
+    // Self-cycle: posting fresh 1C stock always refreshes MRP so the desk stays consistent.
+    const mrpRun = await this.planningRuns.runAndPersist(PlanningRunMode.FULL);
+    return {
+      ...snapshot,
+      mrpRunId: mrpRun.id,
+      mrpSummary: mrpRun.summary,
+    };
   }
 
   @Get("availability/:productId")
@@ -352,10 +359,16 @@ export class ProductionPlanningController {
 
   @Post("sales-history/:id/post")
   @Roles(UserRole.ADMIN, UserRole.LEAD)
-  postSalesHistory(@Param("id") id: string, @Req() req: Request & { user?: AuthUser }) {
+  async postSalesHistory(@Param("id") id: string, @Req() req: Request & { user?: AuthUser }) {
     const userId = req.user?.id;
     if (!userId) throw new BadRequestException("User not found in request");
-    return this.salesHistory.post(id, userId);
+    const upload = await this.salesHistory.post(id, userId);
+    const mrpRun = await this.planningRuns.runAndPersist(PlanningRunMode.FULL);
+    return {
+      ...upload,
+      mrpRunId: mrpRun.id,
+      mrpSummary: mrpRun.summary,
+    };
   }
 
   @Get("packing-lists")
