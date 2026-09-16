@@ -99,6 +99,7 @@ import {
   displayPendingSamples,
   deriveNativeHealthKind,
   isNativeAcceptTimestampStale,
+  nativeFgsNeedsRestart,
   resolveNativeRuntimeAcceptHealth,
 } from "./native-tracking-gates";
 import { sendGpsZombieDetectedEvent, sendTrackingRestartEvent } from "./tracking-telemetry";
@@ -502,7 +503,6 @@ async function flushNativeBeforePurge(context: string): Promise<void> {
     const message = e instanceof Error ? e.message : String(e);
     void appendErrorLog(`${context}: native pre-purge flush failed (${message})`, "warn");
   }
-  await purgeNativePendingSamples();
 }
 
 async function resolvePermissionsForTrackingStart(): Promise<TrackingPermissionStatus> {
@@ -521,7 +521,6 @@ export async function startLocationTracking(shiftId: string): Promise<TrackingMo
     if (shouldUseNativeTracking()) {
       // Drop legacy Expo buffer — native FGS owns capture + upload.
       await purgePendingSamples();
-      await purgeNativePendingSamples();
 
       // Never leave Expo FGS running alongside native (dual writers).
       await stopExpoLocationWriters();
@@ -717,7 +716,7 @@ export async function restartTrackingPipeline(): Promise<RestartTrackingResult> 
       };
     }
 
-    const attempt = await recordRestartAttempt("os_kill", Date.now(), { bypassCooldown: true });
+    const attempt = await recordRestartAttempt("manual", Date.now(), { bypassCooldown: true });
     if (!attempt.allowed) {
       void appendErrorLog("manualRestart(native): skipped (cooldown)", "info");
     }
@@ -751,7 +750,7 @@ export async function restartTrackingPipeline(): Promise<RestartTrackingResult> 
     }
 
     await AsyncStorage.setItem(STORAGE_KEYS.TRACKING_MODE, "background");
-    void sendTrackingRestartEvent(shiftId, "os_kill");
+    void sendTrackingRestartEvent(shiftId, "manual");
     await flushNativePendingSamples();
 
     const nativeHealth = await getNativeTrackingHealth();
@@ -922,6 +921,27 @@ export async function stopLocationTracking(): Promise<void> {
   }
 }
 
+/** Server closed the shift (23:59 / stale) — stop capture without another flush round-trip. */
+export async function haltTrackingBecauseShiftClosed(): Promise<void> {
+  try {
+    if (shouldUseNativeTracking()) {
+      await stopNativeTracking();
+    }
+    await stopExpoLocationWriters();
+    await AsyncStorage.multiRemove([
+      STORAGE_KEYS.ACTIVE_SHIFT_ID,
+      STORAGE_KEYS.ACTIVE_SHIFT_DAY_KEY,
+      STORAGE_KEYS.TRACKING_MODE,
+    ]);
+    await clearFieldShiftSnapshot();
+    await clearRecoveryState();
+    await resetLocationProcessorState();
+    await resetTrackingRestartDiagnostics();
+  } catch {
+    /* best-effort halt */
+  }
+}
+
 /**
  * Stop native GPS on session expiry without wiping buffer / shift id.
  * After re-login, flushPendingSamples can still target the same shift.
@@ -982,13 +1002,13 @@ export async function resumeTrackingIfNeeded(
         await syncNativeTrackingSession();
         const health = await getNativeTrackingHealth();
         const inWarmup = await isTrackingWarmupActive();
-        const pipelineHealthy =
-          health != null &&
-          health.serviceRunning === true &&
-          mapNativeHealthStateToHealthy(health.trackingHealthState);
-        const gpsStale =
-          !inWarmup && isTimestampStale(health?.lastGpsCapturedAt ?? null, LAST_POINT_STALE_MS);
-        if (!pipelineHealthy || gpsStale) {
+        const needsRestart =
+          !inWarmup &&
+          nativeFgsNeedsRestart({
+            serviceRunning: health?.serviceRunning,
+            lastGpsCapturedAt: health?.lastGpsCapturedAt,
+          });
+        if (needsRestart) {
           await startNativeTracking(shift.id);
         }
         return "background";
@@ -1197,7 +1217,10 @@ async function ensureBackgroundTaskRunning(
   if (shouldUseNativeTracking()) {
     await syncNativeTrackingSession();
     const health = await getNativeTrackingHealth();
-    if (health?.serviceRunning && !opts?.forceRecreate) {
+    if (health && !opts?.forceRecreate && !nativeFgsNeedsRestart({
+      serviceRunning: health.serviceRunning,
+      lastGpsCapturedAt: health.lastGpsCapturedAt,
+    })) {
       return "background";
     }
     if (!canStartLocationForegroundService(AppState.currentState)) {
@@ -1209,6 +1232,7 @@ async function ensureBackgroundTaskRunning(
     });
     if (!attempt.allowed) {
       void appendErrorLog(`${context}(native): restart skipped (cooldown)`, "info");
+      return health?.serviceRunning ? "background" : "none";
     }
     await stopExpoLocationWriters();
     await stopNativeTracking();
@@ -1292,8 +1316,11 @@ export async function ensureTrackingContinuity(opts?: {
     await syncNativeTrackingSession();
     const health = await getNativeTrackingHealth();
     if (
-      health?.serviceRunning &&
-      mapNativeHealthStateToHealthy(health.trackingHealthState) &&
+      health &&
+      !nativeFgsNeedsRestart({
+        serviceRunning: health.serviceRunning,
+        lastGpsCapturedAt: health.lastGpsCapturedAt,
+      }) &&
       !opts?.bypassCooldown
     ) {
       void flushNativePendingSamples().catch(() => undefined);
@@ -1435,6 +1462,10 @@ export async function runBackgroundTrackingWatchdog(): Promise<void> {
 
   if (shouldUseNativeTracking()) {
     void flushNativePendingSamples().catch(() => undefined);
+    const health = await getNativeTrackingHealth();
+    if (health?.authRequired) {
+      await syncNativeTrackingSession();
+    }
     return;
   }
 
@@ -1455,20 +1486,20 @@ export async function recoverDeadBackgroundTaskOnForeground(): Promise<TrackingM
     await syncNativeTrackingSession();
     const health = await getNativeTrackingHealth();
     const inWarmup = await isTrackingWarmupActive();
-    const nativeHealthy =
-      health?.serviceRunning === true &&
-      mapNativeHealthStateToHealthy(health.trackingHealthState) &&
-      (inWarmup || !isTimestampStale(health.lastGpsCapturedAt, LAST_POINT_STALE_MS)) &&
-      !isNativeAcceptTimestampStale(health.lastServerAcceptAt);
-    if (nativeHealthy) {
+    const needsRestart =
+      !inWarmup &&
+      nativeFgsNeedsRestart({
+        serviceRunning: health?.serviceRunning,
+        lastGpsCapturedAt: health?.lastGpsCapturedAt,
+      });
+    if (!needsRestart) {
       void flushNativePendingSamples().catch(() => undefined);
       return "background";
     }
-    const attempt = await recordRestartAttempt("watchdog", Date.now(), {
-      bypassCooldown: true,
-    });
+    const attempt = await recordRestartAttempt("watchdog", Date.now());
     if (!attempt.allowed) {
       void appendErrorLog("foregroundRecover(native): restart skipped (cooldown)", "info");
+      return health?.serviceRunning ? "background" : "none";
     }
     await flushNativeBeforePurge("foregroundRecover(native)");
     await stopNativeTracking();

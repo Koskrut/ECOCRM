@@ -49,6 +49,8 @@ export type RouteGeometryResult = {
   durationMin: number | null;
   /** Decoded path for map rendering (always present when source !== none). */
   path: LatLng[];
+  /** Separate polylines after GPS reanchor (do not stitch Kyiv→Odessa). */
+  paths?: LatLng[][];
   /** Legacy Google encoded polyline — unused with OSRM (path is always decoded). */
   encodedPolyline: string | null;
   waypoints: RouteGeometryWaypoint[];

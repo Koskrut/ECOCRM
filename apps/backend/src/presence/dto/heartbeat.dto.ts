@@ -1,5 +1,5 @@
 import { ClientPlatform } from "@prisma/client";
-import { IsEnum, IsIn, IsNumber, IsOptional } from "class-validator";
+import { IsEnum, IsIn, IsNumber, IsOptional, IsString } from "class-validator";
 
 export class HeartbeatDto {
   @IsEnum(ClientPlatform)
@@ -20,6 +20,14 @@ export class HeartbeatDto {
   @IsOptional()
   @IsIn(["background", "foreground", "none"])
   trackingMode?: string;
+
+  @IsOptional()
+  @IsString()
+  appVersion?: string;
+
+  @IsOptional()
+  @IsString()
+  trackingSource?: string;
 }
 
 export class EndPresenceDto {

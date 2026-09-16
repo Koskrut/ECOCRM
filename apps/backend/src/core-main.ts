@@ -3,6 +3,7 @@ import { ValidationPipe } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { AppModuleCore } from "./app.module.core";
 import { UnauthorizedExceptionFilter } from "./common/unauthorized-exception.filter";
+import { installProcessSafetyHandlers } from "./common/process-safety";
 import { mountModuleUpstreamProxies } from "./proxy/module-upstream-proxy.setup";
 
 // Same pg deprecation suppression as main.ts (see main.ts).
@@ -28,6 +29,8 @@ type EmitWarningFn = (warning: string | Error, ...args: unknown[]) => void;
   }
   return (origEmitWarning as EmitWarningFn).apply(process, [warning, ...args]);
 };
+
+installProcessSafetyHandlers();
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModuleCore, {

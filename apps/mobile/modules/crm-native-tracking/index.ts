@@ -21,6 +21,7 @@ export type NativeTrackingHealth = {
   serviceRunning: boolean;
   activeShiftId: string | null;
   recoveryState: string | null;
+  authRequired?: boolean;
 };
 
 type CrmNativeTrackingModule = {
@@ -31,6 +32,7 @@ type CrmNativeTrackingModule = {
   purgePendingSamples(): Promise<number>;
   isNativeTrackingAvailable(): Promise<boolean>;
   syncSession(authToken: string, apiBaseUrl: string): Promise<boolean>;
+  setDeviceId(deviceId: string): Promise<boolean>;
   clearSession(): Promise<boolean>;
 };
 
@@ -74,6 +76,18 @@ export async function syncNativeTrackingCredentials(
   if (!authToken || !base) return false;
   try {
     return await mod.syncSession(authToken, base);
+  } catch {
+    nativeModule = null;
+    return false;
+  }
+}
+
+export async function setNativeDeviceId(deviceId: string): Promise<boolean> {
+  const mod = getNativeModule();
+  if (!mod || Platform.OS !== "android") return false;
+  if (!deviceId.trim()) return false;
+  try {
+    return await mod.setDeviceId(deviceId.trim());
   } catch {
     nativeModule = null;
     return false;
@@ -145,6 +159,7 @@ function normalizeNativeHealth(
     serviceRunning: serviceRunning === true,
     activeShiftId: typeof activeShiftId === "string" ? activeShiftId : null,
     recoveryState: typeof raw.recoveryState === "string" ? raw.recoveryState : null,
+    authRequired: raw.authRequired === true,
   };
 }
 

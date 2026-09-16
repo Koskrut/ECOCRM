@@ -5,6 +5,7 @@ import "dotenv/config";
 import { Module, ValidationPipe } from "@nestjs/common";
 import { APP_GUARD } from "@nestjs/core";
 import { NestFactory } from "@nestjs/core";
+import { ScheduleModule } from "@nestjs/schedule";
 import { AuthModule } from "./auth/auth.module";
 import { JwtAuthGuard } from "./auth/jwt-auth.guard";
 import { RolesGuard } from "./auth/roles.guard";
@@ -19,7 +20,16 @@ import { ModuleAccessGuard } from "./modules/gating/module-access.guard";
 import { UnauthorizedExceptionFilter } from "./common/unauthorized-exception.filter";
 
 @Module({
-  imports: [PrismaModule, AuditContextModule, IntegrationPortsModule, AuthModule, RbacModule, SystemModule, GoogleSheetModule],
+  imports: [
+    PrismaModule,
+    AuditContextModule,
+    IntegrationPortsModule,
+    ScheduleModule.forRoot(),
+    AuthModule,
+    RbacModule,
+    SystemModule,
+    GoogleSheetModule,
+  ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },

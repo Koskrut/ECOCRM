@@ -18,6 +18,10 @@ export async function getAuthToken(): Promise<string | null> {
   return token && token.length > 0 ? token : null;
 }
 
+export async function setAuthToken(token: string): Promise<void> {
+  await SecureStore.setItemAsync(TOKEN_KEY, token);
+}
+
 export type { GetAuthTokenWithRetryOptions };
 
 /** Retry SecureStore JWT read with short backoff (headless / cold-wake race). */

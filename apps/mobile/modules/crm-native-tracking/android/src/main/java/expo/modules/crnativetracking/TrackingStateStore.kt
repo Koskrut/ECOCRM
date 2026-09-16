@@ -26,6 +26,8 @@ class TrackingStateStore(private val context: Context) {
     private val KEY_DEVICE_ID = stringPreferencesKey("device_id")
     private val KEY_LAST_FLUSH = stringPreferencesKey("last_flush_at")
     private val KEY_LAST_REJECT = stringPreferencesKey("last_reject_reasons")
+    private val KEY_SHIFT_DATE = stringPreferencesKey("active_shift_date_ymd")
+    private val KEY_AUTH_REQUIRED = stringPreferencesKey("auth_required")
   }
 
   /** Stable install id for sample idempotency / backend deviceId field. */
@@ -42,6 +44,14 @@ class TrackingStateStore(private val context: Context) {
   }
 
   fun getDeviceIdBlocking(): String = runBlocking { getDeviceId() }
+
+  suspend fun setJsDeviceId(deviceId: String) {
+    val id = deviceId.trim()
+    if (id.isBlank()) return
+    context.trackingDataStore.edit { it[KEY_DEVICE_ID] = id }
+  }
+
+  fun setJsDeviceIdBlocking(deviceId: String) = runBlocking { setJsDeviceId(deviceId) }
 
   suspend fun setActiveShift(shiftId: String) {
     context.trackingDataStore.edit { it[KEY_SHIFT] = shiftId }
@@ -64,8 +74,11 @@ class TrackingStateStore(private val context: Context) {
     val prefs = context.trackingDataStore.data.first()
     val previous = prefs[KEY_SHIFT]
     val changed = !previous.isNullOrBlank() && previous != shiftId
+    val kyiv = java.time.ZoneId.of("Europe/Kyiv")
+    val today = java.time.ZonedDateTime.now(kyiv).toLocalDate().toString()
     context.trackingDataStore.edit {
       it[KEY_SHIFT] = shiftId
+      it[KEY_SHIFT_DATE] = today
       if (changed) {
         it.remove(KEY_LAST_ACCEPT)
         it.remove(KEY_LAST_REJECT)
@@ -80,11 +93,28 @@ class TrackingStateStore(private val context: Context) {
   fun setActiveShiftBlocking(shiftId: String) = runBlocking { setActiveShift(shiftId) }
 
   suspend fun clearActiveShift() {
-    context.trackingDataStore.edit { it.remove(KEY_SHIFT) }
+    context.trackingDataStore.edit {
+      it.remove(KEY_SHIFT)
+      it.remove(KEY_SHIFT_DATE)
+    }
   }
 
   fun getActiveShiftBlocking(): String? = runBlocking {
     context.trackingDataStore.data.first()[KEY_SHIFT]
+  }
+
+  fun ensureShiftDateYmdBlocking() = runBlocking {
+    val kyiv = java.time.ZoneId.of("Europe/Kyiv")
+    val today = java.time.ZonedDateTime.now(kyiv).toLocalDate().toString()
+    context.trackingDataStore.edit { prefs ->
+      if (prefs[KEY_SHIFT_DATE].isNullOrBlank()) {
+        prefs[KEY_SHIFT_DATE] = today
+      }
+    }
+  }
+
+  fun getShiftDateYmdBlocking(): String? = runBlocking {
+    context.trackingDataStore.data.first()[KEY_SHIFT_DATE]
   }
 
   suspend fun setLastGpsCapturedAt(iso: String) {
@@ -128,8 +158,17 @@ class TrackingStateStore(private val context: Context) {
     context.trackingDataStore.edit {
       it[KEY_AUTH] = authToken
       it[KEY_API] = apiBaseUrl.trimEnd('/')
+      it.remove(KEY_AUTH_REQUIRED)
     }
   }
+
+  suspend fun setAuthRequired(required: Boolean) {
+    context.trackingDataStore.edit {
+      if (required) it[KEY_AUTH_REQUIRED] = "1" else it.remove(KEY_AUTH_REQUIRED)
+    }
+  }
+
+  fun setAuthRequiredBlocking(required: Boolean) = runBlocking { setAuthRequired(required) }
 
   suspend fun clearSessionCredentials() {
     context.trackingDataStore.edit {
@@ -150,6 +189,7 @@ class TrackingStateStore(private val context: Context) {
       "recoveryState" to prefs[KEY_RECOVERY],
       "authToken" to prefs[KEY_AUTH],
       "apiBaseUrl" to prefs[KEY_API],
+      "authRequired" to prefs[KEY_AUTH_REQUIRED],
     )
   }
 }

@@ -18,6 +18,8 @@ type RequestMeta = {
 type HeartbeatTelemetry = {
   appState?: string;
   trackingMode?: string;
+  appVersion?: string;
+  trackingSource?: string;
 };
 
 @Injectable()
@@ -36,6 +38,8 @@ export class PresenceService {
     const userAgent = meta.userAgent ?? null;
     const appState = telemetry?.appState ?? null;
     const trackingMode = telemetry?.trackingMode ?? null;
+    const appVersion = telemetry?.appVersion?.trim().slice(0, 32) || null;
+    const trackingSource = telemetry?.trackingSource?.trim().slice(0, 32) || null;
     const countsAsActive = !appState || appState === "ACTIVE";
 
     const recent = await this.prisma.userActivitySession.findFirst({
@@ -72,6 +76,8 @@ export class PresenceService {
           ...(userAgent ? { userAgent } : {}),
           ...(appState ? { appState } : {}),
           ...(trackingMode ? { trackingMode } : {}),
+          ...(appVersion ? { appVersion } : {}),
+          ...(trackingSource ? { trackingSource } : {}),
         },
       });
       return { sessionId: updated.id, activeSeconds: updated.activeSeconds };
@@ -95,6 +101,8 @@ export class PresenceService {
         activeSeconds: 0,
         appState,
         trackingMode,
+        appVersion,
+        trackingSource,
       },
     });
     return { sessionId: created.id, activeSeconds: created.activeSeconds };

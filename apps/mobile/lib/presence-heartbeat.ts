@@ -1,9 +1,11 @@
 import * as Location from "expo-location";
+import Constants from "expo-constants";
 import { AppState, type AppStateStatus } from "react-native";
 
 import { apiFetch } from "@/lib/api";
 import { getAuthToken } from "@/lib/auth-token";
 import { getTrackingState } from "@/lib/location-tracking";
+import { getFieldTrackingMode } from "@/lib/tracking-feature-flag";
 
 const HEARTBEAT_INTERVAL_ACTIVE_MS = 60_000;
 const HEARTBEAT_INTERVAL_BACKGROUND_MS = 60_000;
@@ -62,6 +64,8 @@ async function postHeartbeat(
     token,
     body: JSON.stringify({
       platform: "MOBILE",
+      appVersion: Constants.expoConfig?.version ?? undefined,
+      trackingSource: getFieldTrackingMode(),
       ...body,
     }),
   });

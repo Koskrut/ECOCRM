@@ -51,12 +51,22 @@ interface TrackingSampleDao {
   @Query("UPDATE tracking_samples SET uploadState = 'PENDING' WHERE sampleId IN (:sampleIds)")
   suspend fun restorePending(sampleIds: List<String>)
 
+  @Query(
+    "UPDATE tracking_samples SET sampleId = :newId, uploadState = 'PENDING', attemptCount = 0 WHERE sampleId = :oldId",
+  )
+  suspend fun reissueSampleId(oldId: String, newId: String)
+
+  @Query("UPDATE tracking_samples SET uploadState = 'PENDING' WHERE uploadState = 'IN_FLIGHT'")
+  suspend fun restoreInFlight(): Int
+
   @Query("SELECT COUNT(*) FROM tracking_samples WHERE uploadState = 'PENDING'")
   suspend fun pendingCount(): Int
 
-  /** Drop stuck / rejected samples so fresh points can upload (matches JS buffer purge). */
   @Query("DELETE FROM tracking_samples WHERE uploadState = 'PENDING'")
   suspend fun deleteAllPending()
+
+  @Query("DELETE FROM tracking_samples WHERE uploadState = 'UPLOADED' AND clientRecordedAt < :beforeIso")
+  suspend fun deleteUploadedOlderThan(beforeIso: String): Int
 }
 
 @Database(entities = [TrackingSampleEntity::class], version = 1, exportSchema = false)

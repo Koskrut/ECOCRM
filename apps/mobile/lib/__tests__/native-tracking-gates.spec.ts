@@ -174,3 +174,52 @@ describe("native-tracking-gates", () => {
     );
   });
 });
+
+describe("nativeFgsNeedsRestart", () => {
+  const { nativeFgsNeedsRestart } = require("../native-tracking-gates-core");
+  const now = Date.parse("2026-08-10T18:00:00.000Z");
+
+  it("does not restart a live FGS with fresh GPS even if server accept is stale", () => {
+    assert.equal(
+      nativeFgsNeedsRestart({
+        serviceRunning: true,
+        lastGpsCapturedAt: new Date(now - 30_000).toISOString(),
+        nowMs: now,
+      }),
+      false,
+    );
+  });
+
+  it("restarts when the service is dead", () => {
+    assert.equal(
+      nativeFgsNeedsRestart({
+        serviceRunning: false,
+        lastGpsCapturedAt: new Date(now - 30_000).toISOString(),
+        nowMs: now,
+      }),
+      true,
+    );
+  });
+
+  it("does not restart a live FGS waiting for the first GPS fix", () => {
+    assert.equal(
+      nativeFgsNeedsRestart({
+        serviceRunning: true,
+        lastGpsCapturedAt: null,
+        nowMs: now,
+      }),
+      false,
+    );
+  });
+
+  it("restarts a live FGS whose last GPS capture is older than 10 min", () => {
+    assert.equal(
+      nativeFgsNeedsRestart({
+        serviceRunning: true,
+        lastGpsCapturedAt: new Date(now - 11 * 60_000).toISOString(),
+        nowMs: now,
+      }),
+      true,
+    );
+  });
+});

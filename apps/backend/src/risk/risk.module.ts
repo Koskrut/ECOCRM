@@ -1,5 +1,4 @@
 import { Module } from "@nestjs/common";
-import { ScheduleModule } from "@nestjs/schedule";
 import { NotificationsModule } from "../notifications/notifications.module";
 import { PrismaModule } from "../prisma/prisma.module";
 import { RbacModule } from "../rbac/rbac.module";
@@ -16,7 +15,7 @@ import { RiskScorecardService } from "./risk-scorecard.service";
 import { RiskService } from "./risk.service";
 
 @Module({
-  imports: [PrismaModule, RbacModule, SystemModule, NotificationsModule, ScheduleModule.forRoot()],
+  imports: [PrismaModule, RbacModule, SystemModule, NotificationsModule],
   controllers: [RiskController],
   providers: [
     RiskService,

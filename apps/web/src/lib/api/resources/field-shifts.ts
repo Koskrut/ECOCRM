@@ -46,7 +46,8 @@ export type FieldTeamTrackingRestartReason =
   | "os_kill"
   | "tier_change"
   | "appstate"
-  | "watchdog";
+  | "watchdog"
+  | "manual";
 
 export type FieldTeamTrackingRestart = {
   lastRestartAt: string | null;
@@ -74,6 +75,9 @@ export type FieldShiftTeamItem = {
   gpsWarning?: FieldTeamGpsWarning;
   trackingRestart: FieldTeamTrackingRestart | null;
   trackingTelemetry?: FieldTeamTrackingTelemetry | null;
+  appVersion?: string | null;
+  trackingSource?: string | null;
+  manufacturer?: string | null;
   /** @deprecated use trackingTelemetry */
   telemetry?: FieldTeamTrackingTelemetry | null;
 };
@@ -104,6 +108,8 @@ export type FieldLocationSampleRow = {
 export type FieldTrackGeometry = {
   sampleCount: number;
   path: Array<{ lat: number; lng: number }>;
+  /** Separate polylines after GPS reanchor — do not stitch jumps. */
+  paths?: Array<Array<{ lat: number; lng: number }>>;
   source: "osrm" | "fallback" | "none";
   distanceKm: number | null;
   droppedReasons?: Record<string, number>;

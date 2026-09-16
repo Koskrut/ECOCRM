@@ -3,15 +3,18 @@ import { Platform } from "react-native";
 import {
   clearNativeTrackingCredentials,
   isNativeTrackingModuleLoaded,
+  setNativeDeviceId,
   syncNativeTrackingCredentials,
 } from "../modules/crm-native-tracking";
 import { getAuthTokenWithRetry } from "./auth-token";
+import { refreshAuthToken } from "./auth-refresh";
 import { hydrateApiBaseUrl } from "./config";
 import {
   runNativeSyncWithRetry,
   type NativeSyncResult,
 } from "./native-tracking-session-core";
 import { shouldUseNativeTracking } from "./tracking-feature-flag";
+import { getTrackingDeviceId } from "./tracking-device-id";
 
 export type {
   NativeSyncFailureReason,
@@ -25,12 +28,16 @@ async function syncNativeTrackingSessionOnce(): Promise<NativeSyncResult> {
 
   const token = await getAuthTokenWithRetry();
   if (!token) return { ok: false, reason: "no_auth_token" };
+  const refreshed = await refreshAuthToken(token);
+  const sessionToken = refreshed ?? token;
 
   const apiBase = await hydrateApiBaseUrl();
   if (!apiBase) return { ok: false, reason: "no_api_url" };
 
-  const synced = await syncNativeTrackingCredentials(token, apiBase);
+  const synced = await syncNativeTrackingCredentials(sessionToken, apiBase);
   if (!synced) return { ok: false, reason: "native_sync_rejected" };
+  const deviceId = await getTrackingDeviceId();
+  await setNativeDeviceId(deviceId);
   return { ok: true };
 }
 

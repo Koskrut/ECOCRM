@@ -22,6 +22,7 @@ type TeamFieldMapProps = {
     fact_gps?: RouteGeometryLayer | null;
   };
   shiftOnlyPath?: Array<{ lat: number; lng: number }> | null;
+  shiftOnlyPaths?: Array<Array<{ lat: number; lng: number }>> | null;
   routeLoading?: boolean;
   distanceKm?: number | null;
   onToggleLayer?: (key: RouteLayerKey) => void;
@@ -34,6 +35,7 @@ export function TeamFieldMap({
   layers,
   geometries,
   shiftOnlyPath,
+  shiftOnlyPaths,
   routeLoading,
   distanceKm,
   onToggleLayer,
@@ -62,30 +64,35 @@ export function TeamFieldMap({
   }, [geometries.fact_gps, overlayMarkers]);
 
   const extraPaths = useMemo(() => {
-    if (!shiftOnlyPath || shiftOnlyPath.length < 2) return [];
-    return [
-      {
-        path: shiftOnlyPath,
-        options: {
-          strokeColor: "#7c3aed",
-          strokeOpacity: 0.85,
-          strokeWeight: 3,
-          icons: [
-            {
-              icon: { path: "M 0,-1 0,1", strokeOpacity: 1, scale: 2 },
-              offset: "0",
-              repeat: "10px",
-            },
-          ],
-        },
+    const segments =
+      shiftOnlyPaths && shiftOnlyPaths.some((p) => p.length >= 2)
+        ? shiftOnlyPaths.filter((p) => p.length >= 2)
+        : shiftOnlyPath && shiftOnlyPath.length >= 2
+          ? [shiftOnlyPath]
+          : [];
+    return segments.map((path) => ({
+      path,
+      options: {
+        strokeColor: "#7c3aed",
+        strokeOpacity: 0.85,
+        strokeWeight: 3,
+        icons: [
+          {
+            icon: { path: "M 0,-1 0,1", strokeOpacity: 1, scale: 2 },
+            offset: "0",
+            repeat: "10px",
+          },
+        ],
       },
-    ];
-  }, [shiftOnlyPath]);
+    }));
+  }, [shiftOnlyPath, shiftOnlyPaths]);
 
   const factGpsSource = geometries.fact_gps?.source;
   const showFallbackBanner = shouldShowGpsFallbackBanner(
     factGpsSource,
-    geometries.fact_gps?.path?.length ?? 0,
+    geometries.fact_gps?.paths?.reduce((n, p) => n + p.length, 0) ||
+      geometries.fact_gps?.path?.length ||
+      0,
     layers.fact_gps,
   );
 
@@ -93,10 +100,12 @@ export function TeamFieldMap({
     const selected = overlayMarkers.find((m) => m.selected);
     return collectTeamFitBoundsPoints({
       trackPath: geometries.fact_gps?.path,
+      trackPaths: geometries.fact_gps?.paths,
       shiftOnlyPath,
+      shiftOnlyPaths,
       selectedMarker: selected ? { lat: selected.lat, lng: selected.lng } : null,
     });
-  }, [geometries.fact_gps, shiftOnlyPath, overlayMarkers]);
+  }, [geometries.fact_gps, shiftOnlyPath, shiftOnlyPaths, overlayMarkers]);
 
   return (
     <div className="relative flex h-full flex-col">

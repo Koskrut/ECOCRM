@@ -13,7 +13,7 @@ import type { User } from "@prisma/client";
 import { UserRole } from "@prisma/client";
 import type { LoginDto } from "./dto/login.dto";
 import type { RegisterDto } from "./dto/register.dto";
-import { signJwt } from "./jwt";
+import { signJwt, verifyJwtAllowExpired } from "./jwt";
 import { hashPassword, verifyPassword, needsRehash } from "./password";
 import { isTelegramAuthDateValid, verifyTelegramLoginHash } from "./telegram-widget";
 import {
@@ -100,6 +100,37 @@ export class AuthService {
       });
     }
 
+    return this.buildAuthResponse(user);
+  }
+
+  /**
+   * Issue a new 12h access token from a still-signed JWT, even if it expired
+   * within the last 7 days. Used by the field app on long shifts.
+   */
+  public async refresh(token: string): Promise<AuthResponse> {
+    const raw = token.trim();
+    if (!raw) {
+      throw new UnauthorizedException("Token is required");
+    }
+    let payload: { sub?: string };
+    try {
+      payload = verifyJwtAllowExpired<{ sub?: string }>(
+        raw,
+        this.getJwtSecret(),
+        60 * 60 * 24 * 7,
+      );
+    } catch {
+      throw new UnauthorizedException("Invalid or expired token");
+    }
+    if (!payload.sub) {
+      throw new UnauthorizedException("Invalid token");
+    }
+    const user = await this.prisma.user.findFirst({
+      where: { id: payload.sub, isActive: true },
+    });
+    if (!user) {
+      throw new UnauthorizedException("User not found");
+    }
     return this.buildAuthResponse(user);
   }
 

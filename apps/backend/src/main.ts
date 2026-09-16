@@ -3,6 +3,7 @@ import { ValidationPipe } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { AppModule } from "./app.module";
 import { UnauthorizedExceptionFilter } from "./common/unauthorized-exception.filter";
+import { installProcessSafetyHandlers } from "./common/process-safety";
 import { mountModuleUpstreamProxies } from "./proxy/module-upstream-proxy.setup";
 
 // Suppress pg deprecation from @prisma/adapter-pg: transaction runs multiple queries on one
@@ -29,6 +30,8 @@ type EmitWarningFn = (warning: string | Error, ...args: unknown[]) => void;
   }
   return (origEmitWarning as EmitWarningFn).apply(process, [warning, ...args]);
 };
+
+installProcessSafetyHandlers();
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {

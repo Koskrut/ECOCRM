@@ -7,10 +7,10 @@ import {
   shouldSkipSettlementPreviewOnClose,
 } from "../return-transitions";
 
-test("regular INSPECTION only moves to refund/adjustment", () => {
+test("regular INSPECTION can move to refund or close", () => {
   assert.deepEqual(
     getAllowedReturnStatusTransitions("INSPECTION", { reason: "DEFECT" }),
-    ["REFUND_OR_ADJUSTMENT"],
+    ["REFUND_OR_ADJUSTMENT", "CLOSED"],
   );
 });
 
@@ -34,10 +34,18 @@ test("mis-pick INSPECTION with outbound waived goes to refund", () => {
   assert.ok(!allowed.includes("CLOSED"));
 });
 
-test("warehouse cannot close or refund from the board", () => {
+test("warehouse can close but not refund from the board", () => {
   assert.equal(
     isReturnDropAllowed({ reason: "DEFECT" }, "INSPECTION", "REFUND_OR_ADJUSTMENT", true),
     false,
+  );
+  assert.equal(
+    isReturnDropAllowed({ reason: "DEFECT" }, "INSPECTION", "CLOSED", true),
+    true,
+  );
+  assert.equal(
+    isReturnDropAllowed({ reason: "DEFECT" }, "RECEIVED_BY_WAREHOUSE", "CLOSED", true),
+    true,
   );
   assert.equal(
     isReturnDropAllowed({ reason: "DEFECT" }, "RECEIVED_BY_WAREHOUSE", "INSPECTION", true),

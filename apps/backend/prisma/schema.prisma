@@ -163,6 +163,8 @@ enum FieldShiftMobilityMode {
 
 enum FieldTrackingEventType {
   TRACKING_TASK_RESTARTED
+  SHIFT_ENDED
+  SAMPLES_BATCH_ANOMALY
 }
 
 enum FieldTrackingRestartReason {
@@ -170,6 +172,7 @@ enum FieldTrackingRestartReason {
   TIER_CHANGE
   APPSTATE
   WATCHDOG
+  MANUAL
 }
 
 /// Client-reported native tracking pipeline health (supervisor dashboard).
@@ -1267,6 +1270,13 @@ model UserActivitySession {
   lastServerAcceptAt DateTime?
   trackingHealthState FieldTrackingHealthState?
   deviceId      String?
+  /// Mobile app semver (e.g. 1.4.0) from heartbeat / GPS telemetry.
+  appVersion    String?
+  /// Native versionCode when reported.
+  appVersionCode String?
+  manufacturer  String?
+  /// native_android | expo | legacy
+  trackingSource String?
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
 

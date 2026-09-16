@@ -7,8 +7,9 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
 import android.content.pm.ServiceInfo
-import android.os.IBinder
+import android.location.Location
 import android.os.Build
+import android.os.IBinder
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
@@ -18,18 +19,26 @@ import com.google.android.gms.location.LocationRequest
 import com.google.android.gms.location.LocationResult
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
+import java.time.Instant
+import java.time.LocalTime
+import java.time.ZoneId
+import java.util.UUID
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
-import java.util.UUID
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import org.json.JSONObject
 
 /**
  * Native Android FGS — survives JS death / minimize.
- * Phase 4: persist ACTIVE shift; onStartCommand(null) re-reads DataStore and restarts FusedLocation.
- * Recovery chain: SERVICE_DEAD → RESTART_REQUESTED → TASK_RECREATED → ACCEPT_RECEIVED → RECOVERY_CONFIRMED
+ * Capture is filtered (mock / accuracy / UA bbox / dedup) before Room.
+ * Upload is batched (5 points or 60s), not per sample.
  */
 class LocationForegroundService : Service() {
   companion object {
@@ -37,8 +46,16 @@ class LocationForegroundService : Service() {
     private const val CHANNEL_ID = "crm_field_tracking_native"
     private const val NOTIFICATION_ID = 61001
     private const val TAG = "CrmNativeTracking"
+    private const val TRACK_MAX_ACCURACY_M = 150.0
+    private const val UA_LAT_MIN = 44.0
+    private const val UA_LAT_MAX = 53.0
+    private const val UA_LNG_MIN = 22.0
+    private const val UA_LNG_MAX = 41.0
+    private const val DEDUP_M = 15.0
+    private const val KEEPALIVE_MS = 3 * 60_000L
+    private const val FLUSH_COUNT = 5
+    private const val FLUSH_DELAY_MS = 60_000L
 
-    /** True while FGS is alive — used by getTrackingHealth (not DataStore alone). */
     @Volatile
     var isForegroundRunning: Boolean = false
       private set
@@ -49,18 +66,31 @@ class LocationForegroundService : Service() {
   }
 
   private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+  private val captureMutex = Mutex()
   private lateinit var fusedClient: FusedLocationProviderClient
   private lateinit var stateStore: TrackingStateStore
   private lateinit var database: TrackingDatabase
   private var activeShiftId: String? = null
   private var locationUpdatesStarted = false
+  private var lastAcceptedLat = Double.NaN
+  private var lastAcceptedLng = Double.NaN
+  private var lastAcceptedAtMs = 0L
+  private var flushJob: Job? = null
 
   private val locationCallback = object : LocationCallback() {
     override fun onLocationResult(result: LocationResult) {
       val shiftId = activeShiftId ?: return
-      for (location in result.locations) {
-        scope.launch {
-          captureSample(shiftId, location.latitude, location.longitude, location.accuracy.toDouble())
+      val locations = result.locations.sortedBy { it.time }
+      scope.launch {
+        captureMutex.withLock {
+          if (shouldStopForDayBoundary()) {
+            Log.i(TAG, "day boundary — stopping FGS")
+            stopSelf()
+            return@withLock
+          }
+          for (location in locations) {
+            captureSample(shiftId, location)
+          }
         }
       }
     }
@@ -72,10 +102,10 @@ class LocationForegroundService : Service() {
     stateStore = TrackingStateStore(this)
     database = TrackingDatabase.get(this)
     createNotificationChannel()
+    TrackingWatchdogWorker.schedulePeriodic(this)
   }
 
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-    // Phase 4: null intent after OS kill — recover from persisted ACTIVE shift
     val shiftId = intent?.getStringExtra(EXTRA_SHIFT_ID) ?: stateStore.getActiveShiftBlocking()
     if (shiftId.isNullOrBlank()) {
       stopSelf()
@@ -87,13 +117,16 @@ class LocationForegroundService : Service() {
     if (shiftChanged) {
       runBlocking { database.sampleDao().deleteAllPending() }
     }
+    stateStore.ensureShiftDateYmdBlocking()
     stateStore.recordRecoveryEventBlocking("TASK_RECREATED")
 
     promoteToForeground()
     isForegroundRunning = true
     startLocationUpdates()
     scope.launch {
-      NativeSampleUploader(this@LocationForegroundService).flushPending()
+      database.sampleDao().restoreInFlight()
+      database.sampleDao().deleteUploadedOlderThan(TrackingHealthEvaluator.pastIso(7L * 24 * 60 * 60 * 1000))
+      NativeSampleUploader(this@LocationForegroundService).flushPending("interval")
     }
 
     return START_STICKY
@@ -102,7 +135,6 @@ class LocationForegroundService : Service() {
   override fun onBind(intent: Intent?): IBinder? = null
 
   override fun onTaskRemoved(rootIntent: Intent?) {
-    // Keep FGS alive when user swipes CRM from recents (Test B / OEM minimize).
     stateStore.recordRecoveryEventBlocking("TASK_REMOVED")
     super.onTaskRemoved(rootIntent)
   }
@@ -110,6 +142,7 @@ class LocationForegroundService : Service() {
   override fun onDestroy() {
     locationUpdatesStarted = false
     isForegroundRunning = false
+    flushJob?.cancel()
     try {
       fusedClient.removeLocationUpdates(locationCallback)
     } catch (_: Exception) {
@@ -154,35 +187,106 @@ class LocationForegroundService : Service() {
     }
   }
 
-  /** B1 capture → B2 Room INSERT → async upload (B3 confirmed in NativeSampleUploader). */
-  private suspend fun captureSample(
-    shiftId: String,
-    lat: Double,
-    lng: Double,
-    accuracyM: Double,
-  ) {
+  private suspend fun captureSample(shiftId: String, location: Location) {
+    val reject = classifyLocation(location)
+    if (reject != null) {
+      stateStore.recordRejectReasons(JSONObject().put(reject, 1).toString())
+      Log.i(TAG, "capture skipped reason=$reject acc=${location.accuracy} lat=${location.latitude} lng=${location.longitude}")
+      return
+    }
+
+    val recordedAtMs = if (location.time > 0L) location.time else System.currentTimeMillis()
+    val lat = location.latitude
+    val lng = location.longitude
+    if (shouldDedup(lat, lng, recordedAtMs)) {
+      stateStore.recordRejectReasons(JSONObject().put("duplicate", 1).toString())
+      return
+    }
+
     val sampleId = UUID.randomUUID().toString()
+    val recordedIso = Instant.ofEpochMilli(recordedAtMs).toString()
     val nowIso = TrackingHealthEvaluator.nowIso()
-    // B1 — GPS fix delivered by FusedLocationProvider
     stateStore.setLastGpsCapturedAtBlocking(nowIso)
     stateStore.setNativeLastSeenBlocking(nowIso)
 
-    // B2 — persist before network
     database.sampleDao().insert(
       TrackingSampleEntity(
         sampleId = sampleId,
         shiftId = shiftId,
         lat = lat,
         lng = lng,
-        accuracyM = accuracyM,
-        clientRecordedAt = nowIso,
+        accuracyM = location.accuracy.toDouble(),
+        clientRecordedAt = recordedIso,
         uploadState = "PENDING",
         attemptCount = 0,
         nextRetryAt = nowIso,
       ),
     )
+    lastAcceptedLat = lat
+    lastAcceptedLng = lng
+    lastAcceptedAtMs = recordedAtMs
 
-    NativeSampleUploader(this).flushPending()
+    val pending = database.sampleDao().pendingCount()
+    if (pending >= FLUSH_COUNT) {
+      flushJob?.cancel()
+      NativeSampleUploader(this).flushPending("threshold")
+    } else {
+      scheduleFlush("interval")
+    }
+  }
+
+  private fun scheduleFlush(reason: String) {
+    flushJob?.cancel()
+    flushJob = scope.launch {
+      delay(FLUSH_DELAY_MS)
+      NativeSampleUploader(this@LocationForegroundService).flushPending(reason)
+    }
+  }
+
+  private fun classifyLocation(location: Location): String? {
+    if (isMockLocation(location)) return "mock"
+    if (location.accuracy > TRACK_MAX_ACCURACY_M) return "bad_accuracy"
+    val lat = location.latitude
+    val lng = location.longitude
+    if (lat < UA_LAT_MIN || lat > UA_LAT_MAX || lng < UA_LNG_MIN || lng > UA_LNG_MAX) {
+      return "out_of_region"
+    }
+    return null
+  }
+
+  private fun isMockLocation(location: Location): Boolean {
+    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+      location.isMock
+    } else {
+      @Suppress("DEPRECATION")
+      location.isFromMockProvider
+    }
+  }
+
+  private fun shouldDedup(lat: Double, lng: Double, atMs: Long): Boolean {
+    if (lastAcceptedAtMs <= 0L || lastAcceptedLat.isNaN()) return false
+    val dist = haversineM(lastAcceptedLat, lastAcceptedLng, lat, lng)
+    if (dist >= DEDUP_M) return false
+    return atMs - lastAcceptedAtMs < KEEPALIVE_MS
+  }
+
+  private fun haversineM(lat1: Double, lng1: Double, lat2: Double, lng2: Double): Double {
+    val r = 6371000.0
+    val dLat = Math.toRadians(lat2 - lat1)
+    val dLng = Math.toRadians(lng2 - lng1)
+    val a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2)) *
+          Math.sin(dLng / 2) * Math.sin(dLng / 2)
+    return 2 * r * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+  }
+
+  private fun shouldStopForDayBoundary(): Boolean {
+    val shiftDate = stateStore.getShiftDateYmdBlocking() ?: return false
+    val kyiv = ZoneId.of("Europe/Kyiv")
+    val now = java.time.ZonedDateTime.now(kyiv)
+    if (now.toLocalDate().toString() != shiftDate) return true
+    return now.toLocalTime() >= LocalTime.of(23, 59)
   }
 
   private fun createNotificationChannel() {

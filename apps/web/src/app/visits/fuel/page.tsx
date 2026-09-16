@@ -440,7 +440,10 @@ function DayDetailPanel({
                     if (data.compensationFactKind === "none") {
                       return strings.visitsFuelPage.compensationReview;
                     }
-                    return strings.visitsFuelPage.compensationVisits;
+                    return data.snappedTrackDistanceKm == null &&
+                      data.factGpsMetrics?.distanceKm == null
+                      ? strings.visitsFuelPage.gpsSnapFailed
+                      : strings.visitsFuelPage.compensationVisits;
                   })()}
                   {data.snapFailureReason === "gps_snap_loop_collapse"
                     ? strings.visitsFuelPage.loopCollapseBadge
@@ -478,7 +481,9 @@ function DayDetailPanel({
                 <div className="mt-1 flex flex-col gap-1 text-sm text-zinc-700">
                   <span>
                     {strings.visitsFuelPage.trackSnapKm}:{" "}
-                    {data.snappedTrackDistanceKm ?? data.factGpsMetrics?.distanceKm ?? "—"} км
+                    {data.snappedTrackDistanceKm != null || data.factGpsMetrics?.distanceKm != null
+                      ? `${data.snappedTrackDistanceKm ?? data.factGpsMetrics?.distanceKm} км`
+                      : strings.visitsFuelPage.gpsSnapFailed}
                     {data.rawPolylineDistanceKm != null
                       ? ` · ${strings.visitsFuelPage.trackRawKm} ${data.rawPolylineDistanceKm} км`
                       : ""}
@@ -914,7 +919,15 @@ export default function VisitsFuelPage() {
                     ) : null}
                   </td>
                   <td className="px-3 py-2">{d.report.visitCount ?? "—"}</td>
-                  <td className="px-3 py-2">{d.report.compensationKm ?? "—"}</td>
+                  <td
+                    className="px-3 py-2"
+                    title={
+                      d.report.compensationKm == null
+                        ? strings.visitsFuelPage.gpsSnapFailed
+                        : undefined
+                    }>
+                    {d.report.compensationKm ?? "—"}
+                  </td>
                   <td className="px-3 py-2">{d.report.litersEstimated ?? "—"}</td>
                   <td className="px-3 py-2">{formatMoney(d.report.amountEstimated)}</td>
                   <td className="px-3 py-2 text-xs text-zinc-600">

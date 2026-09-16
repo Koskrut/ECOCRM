@@ -71,6 +71,8 @@ describe("FieldShiftsService.getActive stale shifts", () => {
         },
         findFirst: async () => null,
       },
+      user: { findUnique: async () => null },
+      fieldLocationSample: { findFirst: async () => null },
     };
     const routePlans = { snapGpsPathToRoads: async () => ({ path: [], source: "none" as const, distanceKm: null }) };
     const emitted: unknown[] = [];

@@ -16,6 +16,7 @@ export {
   displayPendingSamples,
   isNativeAcceptTimestampStale,
   isNativeTrackingPipelineHealthy,
+  nativeFgsNeedsRestart,
   resolveNativeRuntimeAcceptHealth,
   shouldShowJsPendingQueue,
   shouldSuppressNativeAcceptStaleAlert,

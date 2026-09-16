@@ -21,8 +21,8 @@ describe("classifyFlushHttpStatus", () => {
     assert.equal(classifyFlushHttpStatus(404), "discard_all");
   });
 
-  it("discards batch on 400 (dead shift)", () => {
-    assert.equal(classifyFlushHttpStatus(400), "discard_batch");
+  it("retries on 400 (late flush / per-sample reject — do not wipe queue)", () => {
+    assert.equal(classifyFlushHttpStatus(400), "retry");
   });
 
   it("enqueues offline on other 4xx", () => {

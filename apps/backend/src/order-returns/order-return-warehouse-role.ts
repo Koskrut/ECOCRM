@@ -6,11 +6,11 @@ import type { AuthUser } from "../auth/auth.types";
 const WAREHOUSE_ALLOWED_RETURN_STATUSES: ReturnStatus[] = [
   "RECEIVED_BY_WAREHOUSE",
   "INSPECTION",
+  "CLOSED",
 ];
 
 const WAREHOUSE_FORBIDDEN_RETURN_STATUSES: ReturnStatus[] = [
   "REFUND_OR_ADJUSTMENT",
-  "CLOSED",
 ];
 
 export function isWarehouseRole(actor: AuthUser | undefined): boolean {
@@ -23,7 +23,7 @@ export function assertWarehouseReturnStatusUpdate(
 ): void {
   if (!isWarehouseRole(actor)) return;
   if (WAREHOUSE_FORBIDDEN_RETURN_STATUSES.includes(toStatus)) {
-    throw new ForbiddenException("Кладовщик не може закривати повернення або проводити розрахунок");
+    throw new ForbiddenException("Кладовщик не може проводити розрахунок повернення");
   }
   if (!WAREHOUSE_ALLOWED_RETURN_STATUSES.includes(toStatus)) {
     throw new ForbiddenException(`Кладовщик не може перевести повернення у статус ${toStatus}`);

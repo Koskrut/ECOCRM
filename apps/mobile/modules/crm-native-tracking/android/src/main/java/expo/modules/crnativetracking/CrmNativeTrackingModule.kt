@@ -41,8 +41,17 @@ class CrmNativeTrackingModule : Module() {
       runBlocking {
         val store = TrackingStateStore(context)
         store.setSessionCredentials(authToken, apiBaseUrl)
-        // Seed stable deviceId before FGS uploads.
         store.getDeviceId()
+      }
+      TrackingWatchdogWorker.schedulePeriodic(context)
+      true
+    }
+
+    AsyncFunction("setDeviceId") { deviceId: String ->
+      val context = resolveAppContext() ?: return@AsyncFunction false
+      if (deviceId.isBlank()) return@AsyncFunction false
+      runBlocking {
+        TrackingStateStore(context).setJsDeviceId(deviceId)
       }
       true
     }
@@ -73,7 +82,6 @@ class CrmNativeTrackingModule : Module() {
         store.recordRecoveryEvent("RESTART_REQUESTED")
       }
       startForegroundService(context, shiftId)
-      true
     }
 
     AsyncFunction("stopTracking") {
@@ -121,14 +129,30 @@ class CrmNativeTrackingModule : Module() {
     return null
   }
 
-  private fun startForegroundService(context: Context, shiftId: String) {
+  private fun startForegroundService(context: Context, shiftId: String): Boolean {
     val intent = Intent(context, LocationForegroundService::class.java).apply {
       putExtra(LocationForegroundService.EXTRA_SHIFT_ID, shiftId)
     }
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-      context.startForegroundService(intent)
-    } else {
-      context.startService(intent)
+    return try {
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        context.startForegroundService(intent)
+      } else {
+        context.startService(intent)
+      }
+      true
+    } catch (e: Exception) {
+      val blocked =
+        e.javaClass.simpleName.contains("ForegroundServiceStartNotAllowed") ||
+          (e.message?.contains("ForegroundServiceStartNotAllowed") == true)
+      if (blocked) {
+        Log.w(TAG, "startForegroundService not allowed: ${e.message}")
+        TrackingStateStore(context).recordRecoveryEventBlocking("RECOVERY_FAILED")
+        TrackingWatchdogWorker.notifyGpsStopped(context)
+        false
+      } else {
+        Log.e(TAG, "startForegroundService failed", e)
+        false
+      }
     }
   }
 }

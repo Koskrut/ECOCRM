@@ -32,16 +32,24 @@ export function isDashedFallbackLine(source: string | null | undefined): boolean
  */
 export function collectTeamFitBoundsPoints(opts: {
   trackPath?: Array<{ lat: number; lng: number }> | null;
+  trackPaths?: Array<Array<{ lat: number; lng: number }>> | null;
   shiftOnlyPath?: Array<{ lat: number; lng: number }> | null;
+  shiftOnlyPaths?: Array<Array<{ lat: number; lng: number }>> | null;
   selectedMarker?: { lat: number; lng: number } | null;
 }): Array<{ lat: number; lng: number }> {
   const pts: Array<{ lat: number; lng: number }> = [];
-  if (opts.trackPath) {
-    for (const p of opts.trackPath) pts.push({ lat: p.lat, lng: p.lng });
-  }
-  if (opts.shiftOnlyPath) {
-    for (const p of opts.shiftOnlyPath) pts.push({ lat: p.lat, lng: p.lng });
-  }
+  const pushAll = (path?: Array<{ lat: number; lng: number }> | null) => {
+    if (!path) return;
+    for (const p of path) pts.push({ lat: p.lat, lng: p.lng });
+  };
+  const pushPaths = (paths?: Array<Array<{ lat: number; lng: number }>> | null) => {
+    if (!paths) return;
+    for (const path of paths) pushAll(path);
+  };
+  pushPaths(opts.trackPaths);
+  if (!opts.trackPaths?.length) pushAll(opts.trackPath);
+  pushPaths(opts.shiftOnlyPaths);
+  if (!opts.shiftOnlyPaths?.length) pushAll(opts.shiftOnlyPath);
   if (opts.selectedMarker) pts.push(opts.selectedMarker);
   return pts;
 }

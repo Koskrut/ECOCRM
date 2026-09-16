@@ -109,7 +109,8 @@ describe("mapRestartContextToReason", () => {
     assert.equal(mapRestartContextToReason("backgroundWatchdog"), "watchdog");
     assert.equal(mapRestartContextToReason("maintainBackgroundTracking"), "appstate");
     assert.equal(mapRestartContextToReason("resumeTrackingIfNeeded"), "os_kill");
-    assert.equal(mapRestartContextToReason("foregroundRecover"), "os_kill");
+    assert.equal(mapRestartContextToReason("foregroundRecover"), "manual");
+    assert.equal(mapRestartContextToReason("manualRestart"), "manual");
   });
 });
 

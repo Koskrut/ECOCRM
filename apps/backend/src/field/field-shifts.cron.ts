@@ -70,8 +70,8 @@ export class FieldShiftsCron {
     );
   }
 
-  /** Close stale field shifts once a day (Kyiv calendar). */
-  @Cron("5 0 * * *", { timeZone: "Europe/Kyiv" })
+  /** Close stale field shifts at 23:59 Kyiv (before midnight wrong_day / home track). */
+  @Cron("59 23 * * *", { timeZone: "Europe/Kyiv" })
   async closeStaleNightly() {
     if (process.env.CRON_ENABLED !== "true") return;
     if (process.env.MODULE_GATING_ENABLED === "true") {
@@ -83,7 +83,7 @@ export class FieldShiftsCron {
       "cron:field-shifts-close-stale",
       async () => {
         try {
-          const r = await this.shifts.closeStaleActiveShifts();
+          const r = await this.shifts.closeStaleActiveShifts({ includeToday: true });
           if (r.closed > 0) {
             this.logger.log(`Closed stale shifts: ${r.closed}`);
           }
@@ -93,6 +93,30 @@ export class FieldShiftsCron {
         }
       },
       { job: "field-shifts-close-stale" },
+    );
+  }
+
+  /** Structured per-owner GPS quality snapshot for docker-log audits. */
+  @Cron("50 23 * * *", { timeZone: "Europe/Kyiv" })
+  async logDailyGpsQuality() {
+    if (process.env.CRON_ENABLED !== "true") return;
+    if (process.env.MODULE_GATING_ENABLED === "true") {
+      const ok = await this.modules.isEffective(ModuleIds.Visits);
+      if (!ok) return;
+    }
+    return withAuditSource(
+      "cron",
+      "cron:field-gps-daily-quality",
+      async () => {
+        try {
+          const r = await this.shifts.logDailyGpsQuality();
+          this.logger.log(`GPS daily quality owners=${r.owners}`);
+        } catch (e: unknown) {
+          const msg = e instanceof Error ? e.message : String(e);
+          this.logger.error(`Failed to log GPS daily quality: ${msg}`);
+        }
+      },
+      { job: "field-gps-daily-quality" },
     );
   }
 }

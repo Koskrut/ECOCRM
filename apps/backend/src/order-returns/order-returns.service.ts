@@ -33,6 +33,7 @@ import {
   assertWarehouseReturnExternalCodeUpdate,
   assertWarehouseReturnSettlement,
   assertWarehouseReturnStatusUpdate,
+  isWarehouseRole,
 } from "./order-return-warehouse-role";
 import { normalizeTtnNumber } from "./return-package-np-status.utils";
 import { ReturnPackagesService } from "./return-packages.service";
@@ -579,18 +580,25 @@ export class OrderReturnsService {
 
       if (preview.requiresSettlement && !preview.alreadySettled) {
         if (!settlement) {
-          throw new BadRequestException(
-            `Return closure created overpayment (max ${preview.maxSettleAmount ?? 0}). Provide settlement (credit/refund).`,
-          );
+          // Warehouse closes after physical breakdown; manager settles credit/refund later.
+          if (!isWarehouseRole(actor)) {
+            throw new BadRequestException(
+              `Return closure created overpayment (max ${preview.maxSettleAmount ?? 0}). Provide settlement (credit/refund).`,
+            );
+          }
+        } else {
+          settlementToApply = settlement;
         }
-        settlementToApply = settlement;
       } else if (settlement) {
         settlementToApply = settlement;
       }
     }
 
-    const updates: { status: ReturnStatus; closedAt?: Date } = { status };
-    if (status === CLOSED_RETURN_STATUS) updates.closedAt = new Date();
+    const updates: { status: ReturnStatus; closedAt?: Date; itemsPending?: boolean } = { status };
+    if (status === CLOSED_RETURN_STATUS) {
+      updates.closedAt = new Date();
+      updates.itemsPending = false;
+    }
 
     const updated = await this.prisma.orderReturn.update({
       where: { id },

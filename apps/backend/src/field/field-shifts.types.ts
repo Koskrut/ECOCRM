@@ -25,7 +25,8 @@ export type FieldTeamTrackingRestartReason =
   | "os_kill"
   | "tier_change"
   | "appstate"
-  | "watchdog";
+  | "watchdog"
+  | "manual";
 
 export type FieldTeamTrackingRestart = {
   lastRestartAt: string | null;
@@ -64,8 +65,10 @@ export type FieldShiftTeamItem = {
   /** Dirty abroad/mock samples or nothing left after sanitize. */
   gpsWarning: FieldTeamGpsWarning;
   trackingRestart: FieldTeamTrackingRestart | null;
-  /** Split telemetry — supervisors must not infer GPS from device.lastSeenAt alone. */
   trackingTelemetry: FieldTeamTrackingTelemetry | null;
+  appVersion?: string | null;
+  trackingSource?: string | null;
+  manufacturer?: string | null;
   /** @deprecated use trackingTelemetry — alias for clients expecting `telemetry` (0.2.150) */
   telemetry?: FieldTeamTrackingTelemetry | null;
 };

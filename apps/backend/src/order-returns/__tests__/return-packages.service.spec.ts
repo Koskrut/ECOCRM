@@ -29,6 +29,9 @@ describe("ReturnPackagesService", () => {
       orderReturnItem: { groupBy: async () => [] },
       $transaction: async (
         cb: (tx: {
+          order: {
+            findUnique: (args: unknown) => Promise<{ warehouseId: string | null }>;
+          };
           orderReturn: {
             create: (args: { data: Record<string, unknown> }) => Promise<{ id: string }>;
             update: (args: unknown) => Promise<unknown>;
@@ -40,6 +43,9 @@ describe("ReturnPackagesService", () => {
         }) => Promise<unknown>,
       ) =>
         cb({
+          order: {
+            findUnique: async () => ({ warehouseId: null }),
+          },
           orderReturn: {
             create: async (args: { data: Record<string, unknown> }) => {
               createdOrderReturnId = "or1";

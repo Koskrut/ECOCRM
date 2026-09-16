@@ -8,10 +8,13 @@ import {
   REANCHOR_GAP_MS,
   REANCHOR_MIN_CLUSTER,
   TRACK_MAX_ACCURACY_M,
+  TELEPORT_MIN_DT_S,
+  accuracyEnvelopeM,
   classifyUaFieldCoords,
   coerceLatLng,
   filterGpsSample,
   filterGpsTrack,
+  gpsTrackPathDistanceKm,
   isInUaFieldRegion,
   lastInRegionSample,
   sanitizeGpsTrack,
@@ -112,12 +115,23 @@ describe("filterGpsSample", () => {
     assert.equal(result.reason, "teleport");
   });
 
-  it("rejects older-timestamp jump beyond dedup distance (out-of-order)", () => {
+  it("rejects older-timestamp jump beyond accuracy envelope (out-of-order)", () => {
     const prev = sample(50.45, 30.52, 60, 20);
     const next = sample(50.46, 30.53, 0, 20);
     const result = filterGpsSample(prev, next);
     assert.equal(result.accept, false);
     assert.equal(result.reason, "teleport");
+  });
+
+  it("accepts same-timestamp nearby jump inside accuracy envelope", () => {
+    assert.equal(TELEPORT_MIN_DT_S, 2);
+    const prev = sample(50.45, 30.52, 0, 20);
+    // ~25 m east — beyond 15 m dedup, inside 2*(20+20)+50 = 130 m envelope
+    const next = sample(50.45022, 30.52, 0, 20);
+    const distEnvelope = accuracyEnvelopeM(20, 20);
+    assert.equal(distEnvelope, 130);
+    const result = filterGpsSample(prev, next);
+    assert.equal(result.accept, true);
   });
 
   it("accepts plausible movement", () => {
@@ -225,7 +239,7 @@ describe("Gumenyuk Lima→Odessa", () => {
     assert.equal(next.accept, true);
   });
 
-  it("sanitize after reanchor drops pre-jump segment (no 400km path)", () => {
+  it("sanitize after reanchor keeps both segments without stitching the jump", () => {
     const chain = [
       sample(50.45, 30.52, 0, 20),
       sample(50.4503, 30.5203, 60, 20),
@@ -236,24 +250,11 @@ describe("Gumenyuk Lima→Odessa", () => {
     ];
     const sanitized = sanitizeGpsTrack(chain);
     assert.equal(sanitized.reanchorUsed, true);
-    assert.ok((sanitized.droppedReasons.reanchor_trim ?? 0) >= 1);
-    assert.ok(sanitized.samples.every((s) => s.lat < 47));
-    assert.ok(sanitized.samples.every((s) => s.lat > 46));
-    // Path must stay Odessa-local, not Kyiv→Odessa cosmic km.
-    let km = 0;
-    for (let i = 0; i < sanitized.samples.length - 1; i++) {
-      const a = sanitized.samples[i]!;
-      const b = sanitized.samples[i + 1]!;
-      const R = 6371;
-      const toRad = (d: number) => (d * Math.PI) / 180;
-      const dLat = toRad(b.lat - a.lat);
-      const dLon = toRad(b.lng - a.lng);
-      const x =
-        Math.sin(dLat / 2) ** 2 +
-        Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLon / 2) ** 2;
-      km += 2 * R * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
-    }
-    assert.ok(km < 5, `expected local km, got ${km}`);
+    assert.equal(sanitized.segments.length, 2);
+    assert.ok(sanitized.segments[0]!.every((s) => s.lat > 50));
+    assert.ok(sanitized.segments[1]!.every((s) => s.lat < 47 && s.lat > 46));
+    const km = gpsTrackPathDistanceKm(sanitized.segments);
+    assert.ok(km != null && km < 5, `expected local km, got ${km}`);
   });
 });
 

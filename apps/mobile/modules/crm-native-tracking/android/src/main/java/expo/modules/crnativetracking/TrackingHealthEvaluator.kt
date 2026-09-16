@@ -49,6 +49,7 @@ class TrackingHealthEvaluator(private val context: Context) {
       "serviceRunning" to serviceRunning,
       "activeShiftId" to snap["activeShiftId"],
       "recoveryState" to snap["recoveryState"],
+      "authRequired" to (snap["authRequired"] == "1"),
     )
   }
 
@@ -56,6 +57,8 @@ class TrackingHealthEvaluator(private val context: Context) {
     fun nowIso(): String = Instant.now().toString()
 
     fun futureIso(delayMs: Long): String = Instant.now().plusMillis(delayMs).toString()
+
+    fun pastIso(agoMs: Long): String = Instant.now().minusMillis(agoMs).toString()
 
     /** Spatial dedup / keepalive rejects — pipeline alive, not a GPS failure. */
     fun isSoftRejectOnly(json: String?): Boolean {

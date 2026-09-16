@@ -2,7 +2,7 @@
 
 import { GoogleMap, Marker, Polyline, useLoadScript } from "@react-google-maps/api";
 import { useCallback, useEffect, useMemo, useRef } from "react";
-import type { RouteGeometryLayer, RouteGeometryResult } from "@/lib/api/resources/visits";
+import type { RouteGeometryLayer } from "@/lib/api/resources/visits";
 import { routePolylineOptions, type RouteLayerKey } from "./RouteLayerControls";
 
 export type VisitsRouteMapOverlayMarker = {
@@ -39,9 +39,15 @@ export type VisitsRouteMapProps = {
   fitBoundsPoints?: Array<{ lat: number; lng: number }>;
 };
 
-function layerPath(geom: RouteGeometryLayer | null | undefined): google.maps.LatLngLiteral[] {
+function layerPaths(geom: RouteGeometryLayer | null | undefined): google.maps.LatLngLiteral[][] {
+  if (geom?.paths && geom.paths.some((p) => p.length >= 2)) {
+    return geom.paths
+      .filter((p) => p.length >= 2)
+      .map((p) => p.map((pt) => ({ lat: pt.lat, lng: pt.lng })));
+  }
   if (!geom?.path?.length) return [];
-  return geom.path.map((p) => ({ lat: p.lat, lng: p.lng }));
+  const single = geom.path.map((p) => ({ lat: p.lat, lng: p.lng }));
+  return single.length >= 2 ? [single] : [];
 }
 
 const LAYER_DRAW_ORDER: RouteLayerKey[] = [
@@ -77,7 +83,9 @@ export function VisitsRouteMap({
     for (const key of LAYER_DRAW_ORDER) {
       if (!layers[key]) continue;
       const g = geometries[key];
-      if (g?.path) pts.push(...g.path.map((p) => ({ lat: p.lat, lng: p.lng })));
+      for (const path of layerPaths(g)) {
+        pts.push(...path);
+      }
     }
     for (const m of markers) pts.push({ lat: m.lat, lng: m.lng });
     for (const m of overlayMarkers) pts.push({ lat: m.lat, lng: m.lng });
@@ -139,18 +147,18 @@ export function VisitsRouteMap({
         <Marker position={routeAnchors.end} label="B" />
       ) : null}
 
-      {LAYER_DRAW_ORDER.map((key) => {
-        if (!layers[key]) return null;
+      {LAYER_DRAW_ORDER.flatMap((key) => {
+        if (!layers[key]) return [];
         const geom = geometries[key];
-        const path = layerPath(geom);
-        if (path.length < 2) return null;
-        return (
+        const paths = layerPaths(geom);
+        const options = routePolylineOptions(geom, key);
+        return paths.map((path, idx) => (
           <Polyline
-            key={key}
+            key={`${key}-${idx}`}
             path={path}
-            options={routePolylineOptions(geom, key)}
+            options={options}
           />
-        );
+        ));
       })}
 
       {extraPaths.map((extra, idx) =>

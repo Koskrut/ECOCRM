@@ -2192,13 +2192,16 @@ export class OrdersService {
     }
 
     if (toStage === "READY_TO_SHIP") {
-      this.settings.getGoogleSheetSecrets().then(({ sendOnReadyToShip }) => {
-        if (sendOnReadyToShip) {
-          this.integrations.sendOrderToSheet(id, { exportDate: new Date() }).catch((err) => {
-            if (err instanceof Error) this.logger.error(`Send to sheet failed: ${err.message}`);
-          });
-        }
-      });
+      this.settings
+        .getGoogleSheetSecrets()
+        .then(({ sendOnReadyToShip }) => {
+          if (sendOnReadyToShip) {
+            return this.integrations.sendOrderToSheet(id, { exportDate: new Date() });
+          }
+        })
+        .catch((err) => {
+          if (err instanceof Error) this.logger.error(`Send to sheet failed: ${err.message}`);
+        });
     }
 
     void this.warehouseNotifier.notifyStageChanged({

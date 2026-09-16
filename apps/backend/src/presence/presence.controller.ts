@@ -33,7 +33,7 @@ export class PresenceController {
       body.platform,
       { lat: body.lat, lng: body.lng },
       { ip, userAgent },
-      { appState: body.appState, trackingMode: body.trackingMode },
+      { appState: body.appState, trackingMode: body.trackingMode, appVersion: body.appVersion, trackingSource: body.trackingSource },
     );
   }
 

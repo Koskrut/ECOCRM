@@ -34,8 +34,8 @@ export function getAllowedReturnStatusTransitions(
     REQUESTED: ["APPROVED"],
     APPROVED: ["IN_TRANSIT_BACK"],
     IN_TRANSIT_BACK: ["RECEIVED_BY_WAREHOUSE"],
-    RECEIVED_BY_WAREHOUSE: ["INSPECTION"],
-    INSPECTION: ["REFUND_OR_ADJUSTMENT"],
+    RECEIVED_BY_WAREHOUSE: ["INSPECTION", "CLOSED"],
+    INSPECTION: ["REFUND_OR_ADJUSTMENT", "CLOSED"],
     REFUND_OR_ADJUSTMENT: ["CLOSED"],
     CLOSED: [],
   };
@@ -66,18 +66,19 @@ export const WAREHOUSE_RETURN_COLUMNS: ReturnStatusCode[] = [
   "IN_TRANSIT_BACK",
   "RECEIVED_BY_WAREHOUSE",
   "INSPECTION",
+  "CLOSED",
 ];
 
 export const WAREHOUSE_FORBIDDEN_RETURN_STATUSES: ReturnStatusCode[] = [
   "REFUND_OR_ADJUSTMENT",
-  "CLOSED",
 ];
 
 export const WAREHOUSE_RETURN_TRANSITIONS: Partial<
   Record<ReturnStatusCode, ReturnStatusCode[]>
 > = {
   IN_TRANSIT_BACK: ["RECEIVED_BY_WAREHOUSE"],
-  RECEIVED_BY_WAREHOUSE: ["INSPECTION"],
+  RECEIVED_BY_WAREHOUSE: ["INSPECTION", "CLOSED"],
+  INSPECTION: ["CLOSED"],
 };
 
 export function isWarehouseReturnTransitionAllowed(

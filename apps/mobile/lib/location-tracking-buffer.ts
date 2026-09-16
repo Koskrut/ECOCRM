@@ -1,6 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import { getAuthToken, getAuthTokenWithRetry } from "./auth-token";
+import { refreshAuthToken } from "./auth-refresh";
 import { FLUSH_INTERVAL_MS, FLUSH_WHEN_PENDING_GTE } from "./location-tracking-config";
 import { getApiBaseUrl, hydrateApiBaseUrl } from "./config";
 import { appendErrorLog } from "./error-log";
@@ -370,6 +371,7 @@ export async function flushPendingSamples(
 
     let uploaded = 0;
     let authRetryAttempted = false;
+    let shiftClosed = false;
 
     while (true) {
       const pending = sortSamplesByTime(await readPending());
@@ -445,13 +447,22 @@ export async function flushPendingSamples(
           const action = classifyFlushHttpStatus(res.status);
 
           if (action === "auth_required") {
-            // Re-validate session once, then retry this batch. Fail → re-login UI, keep buffer.
+            // Refresh JWT once, then retry this batch. Fail → re-login UI, keep buffer.
             if (!authRetryAttempted) {
               authRetryAttempted = true;
+              const refreshed = await refreshAuthToken(token);
+              if (refreshed) {
+                token = refreshed;
+                void appendErrorLog(
+                  `flush samples 401 → token refreshed, retry once (buffer kept)`,
+                  "warn",
+                );
+                continue;
+              }
               const stillValid = await validateAuthToken(token, getApiBaseUrl());
               if (stillValid) {
-                const refreshed = await getAuthToken();
-                if (refreshed) token = refreshed;
+                const next = await getAuthToken();
+                if (next) token = next;
                 void appendErrorLog(
                   `flush samples 401 → session ok, retry once (buffer kept)`,
                   "warn",
@@ -484,6 +495,7 @@ export async function flushPendingSamples(
             rejected?: number;
             rejectReasons?: SampleRejectReasons;
             ghostDuplicate?: boolean;
+            shiftClosed?: boolean;
           };
           if (typeof body.created === "number" && Number.isFinite(body.created)) {
             created = body.created;
@@ -506,6 +518,9 @@ export async function flushPendingSamples(
             await AsyncStorage.setItem(STORAGE_KEYS.LAST_FLUSH_AT, new Date().toISOString());
             if (rest.length === 0) break;
             continue;
+          }
+          if (body.shiftClosed === true) {
+            shiftClosed = true;
           }
         } catch {
           /* non-JSON body — treat as full batch accepted */
@@ -574,6 +589,12 @@ export async function flushPendingSamples(
         await applyFlushFailure(classifyFlushThrownError(), pending, batch, sid, message);
         break;
       }
+    }
+
+    if (shiftClosed) {
+      void appendErrorLog(`flush shiftClosed shiftId=${sid} — stopping capture`, "info");
+      const { haltTrackingBecauseShiftClosed } = await import("./location-tracking");
+      await haltTrackingBecauseShiftClosed();
     }
 
     return uploaded;

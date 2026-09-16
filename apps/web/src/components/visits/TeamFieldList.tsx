@@ -73,6 +73,8 @@ function restartReasonLabel(reason: string | null | undefined): string {
       return t.restartReasonAppstate;
     case "watchdog":
       return t.restartReasonWatchdog;
+    case "manual":
+      return t.restartReasonManual;
     default:
       return t.restartReasonUnknown;
   }
@@ -136,6 +138,34 @@ export function teamMarkerTitle(item: FieldShiftTeamItem): string {
     .replace("{gps}", gpsStatusLabel(item.gpsStatus));
 }
 
+function trackingSourceLabel(source: string | null | undefined): { label: string; legacy: boolean } {
+  const raw = source?.trim() ?? "";
+  if (!raw) return { label: t.trackingSourceUnknown, legacy: true };
+  if (raw === "native_android" || raw === "native") {
+    return { label: t.trackingSourceNative, legacy: false };
+  }
+  if (raw === "legacy_expo" || raw === "expo") {
+    return { label: t.trackingSourceExpo, legacy: false };
+  }
+  if (raw === "legacy") {
+    return { label: t.trackingSourceLegacy, legacy: true };
+  }
+  return { label: raw, legacy: false };
+}
+
+function trackingBuildLabel(item: FieldShiftTeamItem): { text: string; legacy: boolean } {
+  const source = trackingSourceLabel(item.trackingSource);
+  const version = item.appVersion?.trim() || t.appVersionUnknown;
+  const manufacturer = item.manufacturer?.trim();
+  const text = manufacturer
+    ? t.trackingBuildDetailWithDevice
+        .replace("{version}", version)
+        .replace("{source}", source.label)
+        .replace("{device}", manufacturer)
+    : t.trackingBuildDetail.replace("{version}", version).replace("{source}", source.label);
+  return { text, legacy: source.legacy };
+}
+
 function gpsStatusSortRank(status: FieldTeamGpsStatus): number {
   switch (status) {
     case "none":
@@ -190,6 +220,7 @@ export function TeamFieldList({ items, selectedOwnerId, onSelect }: TeamFieldLis
         );
         const healthState = resolveTeamTrackingHealthState(item);
         const healthLabel = trackingHealthLabel(healthState);
+        const build = trackingBuildLabel(item);
         const restartDetail =
           item.trackingRestart && item.trackingRestart.restartCountToday > 0
             ? t.trackingRestartDetail
@@ -259,6 +290,10 @@ export function TeamFieldList({ items, selectedOwnerId, onSelect }: TeamFieldLis
                 {nativeAgo !== t.gpsNoSignal ? (
                   <p className="text-zinc-500">Native: {nativeAgo}</p>
                 ) : null}
+                <p className={build.legacy ? "text-amber-800" : "text-zinc-500"}>
+                  {build.text}
+                  {build.legacy ? ` · ${t.trackingLegacyAlert}` : ""}
+                </p>
                 {healthLabel ? (
                   <p>
                     <span

@@ -1,5 +1,4 @@
 import { Module } from "@nestjs/common";
-import { ScheduleModule } from "@nestjs/schedule";
 import { EnabledModulesProvider } from "../modules/enabled/enabled-modules.provider";
 import { SystemSettingEnabledModulesProvider } from "../modules/enabled/system-setting-enabled-modules.provider";
 import { FileLicenseStateProvider } from "../modules/license/file-license-state.provider";
@@ -17,7 +16,7 @@ import { SystemVersionService } from "./system-version.service";
 const activeLicenseProviderClass = FileLicenseStateProvider;
 
 @Module({
-  imports: [ScheduleModule.forRoot(), RoutingModule],
+  imports: [RoutingModule],
   controllers: [SystemController],
   providers: [
     ModuleHealthService,

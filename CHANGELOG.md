@@ -4,7 +4,32 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.178**.)_
+_(планируемые изменения после **0.2.179**.)_
+
+## [0.2.179] — 2026-09-16
+
+### Summary
+
+Патч **0.2.179**: GPS telemetry + JWT refresh для довгих змін; shift reopen / late flush; Android watchdog; warehouse returns UX; route GPS sanitize.
+
+### Added
+
+- **GPS tracking telemetry**: `UserActivitySession` appVersion / manufacturer / trackingSource; events `SHIFT_ENDED`, `SAMPLES_BATCH_ANOMALY`; restart reason `MANUAL`. Migration `20260916120000_gps_tracking_telemetry`.
+- **Auth refresh**: `POST /auth/refresh` (JWT allow-expired ≤7d); mobile `auth-refresh` for field app.
+- Field shift end util (reopen window, late flush); Android `TrackingWatchdogWorker`, `BootCompletedReceiver`, `DeviceTelemetry`.
+- Return-package dispositions BFF; process-safety hooks on Nest entrypoints.
+
+### Changed
+
+- Field shifts cron/service reopen recently ended; GPS sample sanitize used in route-plans geometry.
+- Mobile native tracking upload/gates/health; presence heartbeat telemetry.
+- Warehouse returns page + transitions; team map/fuel GPS snap labels; updater Dockerfile.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.179`**.
+- **Миграции:** `20260916120000_gps_tracking_telemetry` — **`prisma migrate deploy`**.
+- **Mobile:** новий **EAS** бажаний (JWT refresh, watchdog, telemetry).
 
 ## [0.2.178] — 2026-09-11
 

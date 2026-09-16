@@ -11,7 +11,7 @@ export type FlushErrorAction =
  * Classify HTTP status from POST /field/shifts/:id/samples.
  * - 401: keep pending, do NOT wipe / do NOT silent discard — force re-auth
  * - 404: shift gone → discard all
- * - 400: usually "shift not active" → discard this batch, clear local shift id
+ * - 400: keep pending (late flush / per-sample reject) — do not wipe the queue
  */
 export function classifyFlushHttpStatus(status: number): FlushErrorAction {
   if (status === 401) {
@@ -21,7 +21,7 @@ export function classifyFlushHttpStatus(status: number): FlushErrorAction {
     return "discard_all";
   }
   if (status === 400) {
-    return "discard_batch";
+    return "retry";
   }
   if (status >= 500 || status === 408 || status === 429) {
     return "retry";

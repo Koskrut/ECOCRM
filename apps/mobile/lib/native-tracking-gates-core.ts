@@ -11,6 +11,18 @@ export function isNativeAcceptTimestampStale(
   return isAcceptStale(iso, nowMs);
 }
 
+/** Restart FGS only when the service is dead or GPS capture itself is stale — not when the server rejects points. */
+export function nativeFgsNeedsRestart(input: {
+  serviceRunning: boolean | null | undefined;
+  lastGpsCapturedAt: string | null | undefined;
+  nowMs?: number;
+}): boolean {
+  if (input.serviceRunning !== true) return true;
+  // Live FGS waiting for the first fix must not be bounced (restart storm).
+  if (!input.lastGpsCapturedAt) return false;
+  return isAcceptStale(input.lastGpsCapturedAt, input.nowMs ?? Date.now());
+}
+
 function isAcceptStale(iso: string | null | undefined, nowMs = Date.now()): boolean {
   if (!iso) return true;
   const t = new Date(iso).getTime();

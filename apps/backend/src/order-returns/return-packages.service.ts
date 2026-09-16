@@ -404,7 +404,13 @@ export class ReturnPackagesService {
       include: this.packageInclude(),
     });
 
-    return { items };
+    // Hide packages whose linked returns are all closed (warehouse work finished).
+    const openItems = items.filter((pkg) => {
+      if (pkg.returns.length === 0) return true;
+      return pkg.returns.some((r) => r.status !== "CLOSED");
+    });
+
+    return { items: openItems };
   }
 
   async getById(id: string, actor?: AuthUser) {
@@ -566,22 +572,23 @@ export class ReturnPackagesService {
       }
     }
 
-    await this.prisma.$transaction(async (tx) => {
-      for (const ret of activeReturns) {
-        if (ret.status === "RECEIVED_BY_WAREHOUSE") {
-          if (ret.reason === "WRONG_ITEM") {
-            await this.orderReturns.finalizeMisPickInbound(ret.id, tx);
-          }
-          await tx.orderReturn.update({
-            where: { id: ret.id },
-            data: { status: "INSPECTION", itemsPending: false },
-          });
-        }
-      }
-    });
-
     for (const ret of activeReturns) {
-      await this.orderReturns.syncOrderStateFromReturns(ret.orderId);
+      if (ret.status === "RECEIVED_BY_WAREHOUSE" && ret.reason === "WRONG_ITEM") {
+        await this.orderReturns.finalizeMisPickInbound(ret.id);
+      }
+
+      if (
+        ret.status === "RECEIVED_BY_WAREHOUSE" ||
+        ret.status === "INSPECTION" ||
+        ret.status === "REFUND_OR_ADJUSTMENT"
+      ) {
+        // Warehouse closes after physical breakdown; settlement (if required) stays manager-only.
+        await this.orderReturns.updateStatus(ret.id, "CLOSED", actor);
+      } else {
+        throw new BadRequestException(
+          `Cannot close return for order ${ret.orderId} from status ${ret.status}`,
+        );
+      }
     }
 
     return this.getById(id, actor);

@@ -118,6 +118,8 @@ export type RouteGeometryLayer = {
   distanceKm: number | null;
   durationMin: number | null;
   path: RouteGeometryPoint[];
+  /** Separate polylines after GPS reanchor (do not stitch Kyiv→Odessa). */
+  paths?: RouteGeometryPoint[][];
   encodedPolyline?: string | null;
   waypoints?: Array<{ lat: number; lng: number; label?: string | null; visitId?: string | null }>;
   quality?: {

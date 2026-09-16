@@ -6,8 +6,11 @@ const { describe, it } = require("node:test");
  * JS flush drops every HTTP-200 batch even when created=0; native must match or Room poisons.
  */
 describe("native upload batch disposition (spec mirror)", () => {
-  function shouldDropBatch(httpCode, created, duplicate, rejected) {
-    if (httpCode === 400 || httpCode === 404) return true;
+  function shouldDropBatch(httpCode, created, duplicate, rejected, errorCode) {
+    if (httpCode === 404) return true;
+    if (httpCode === 400 && (errorCode === "SHIFT_GONE" || errorCode === "TRACKING_DISABLED")) {
+      return true;
+    }
     if (httpCode >= 200 && httpCode < 300) return true;
     return false;
   }
@@ -17,7 +20,7 @@ describe("native upload batch disposition (spec mirror)", () => {
   }
 
   it("drops HTTP 200 all-rejected batch so queue advances", () => {
-    assert.equal(shouldDropBatch(200, 0, 0, 3), true);
+    assert.equal(shouldDropBatch(200, 0, 0, 3, ""), true);
     assert.equal(shouldMarkServerAccept(200, 0, 0), false);
   });
 
@@ -26,11 +29,16 @@ describe("native upload batch disposition (spec mirror)", () => {
     assert.equal(shouldMarkServerAccept(200, 0, 2), true);
   });
 
-  it("discards dead-shift HTTP 400", () => {
-    assert.equal(shouldDropBatch(400, 0, 0, 0), true);
+  it("discards dead-shift HTTP 404 / SHIFT_GONE", () => {
+    assert.equal(shouldDropBatch(404, 0, 0, 0, ""), true);
+    assert.equal(shouldDropBatch(400, 0, 0, 0, "SHIFT_GONE"), true);
+  });
+
+  it("keeps generic HTTP 400 so late-flush / per-sample errors are retried", () => {
+    assert.equal(shouldDropBatch(400, 0, 0, 0, ""), false);
   });
 
   it("keeps batch on HTTP 401", () => {
-    assert.equal(shouldDropBatch(401, 0, 0, 0), false);
+    assert.equal(shouldDropBatch(401, 0, 0, 0, ""), false);
   });
 });

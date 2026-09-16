@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
 import { APP_GUARD } from "@nestjs/core";
+import { ScheduleModule } from "@nestjs/schedule";
 import { ActivitiesModule } from "./activities/activities.module";
 import { AuthModule } from "./auth/auth.module";
 import { JwtAuthGuard } from "./auth/jwt-auth.guard";
@@ -62,6 +63,7 @@ import { RiskModule } from "./risk/risk.module";
 
 @Module({
   imports: [
+    ScheduleModule.forRoot(),
     IntegrationPortsModule,
     PrismaModule,
     FinanceIdempotencyModule,

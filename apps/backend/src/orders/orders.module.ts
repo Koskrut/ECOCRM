@@ -1,5 +1,4 @@
 import { Module } from "@nestjs/common";
-import { ScheduleModule } from "@nestjs/schedule";
 import { AuditModule } from "../audit/audit.module";
 import { IntegrationPortsModule } from "../integration-ports/integration-ports.module";
 import { NotificationsModule } from "../notifications/notifications.module";
@@ -34,7 +33,6 @@ import { OrderStatusService } from "./order-status.service";
     RiskModule,
     SystemModule,
     OrderMaterialReservationModule,
-    ScheduleModule.forRoot(),
   ],
   controllers: [OrdersController],
   providers: [

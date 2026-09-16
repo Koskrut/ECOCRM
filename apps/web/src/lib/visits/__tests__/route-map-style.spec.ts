@@ -67,6 +67,13 @@ describe("collectTeamFitBoundsPoints", () => {
     assert.equal(pts.length, 4);
   });
 
+  it("includes disjoint trackPaths without requiring a stitched path", () => {
+    const pts = collectTeamFitBoundsPoints({
+      trackPaths: [track, shiftOnly],
+    });
+    assert.equal(pts.length, 4);
+  });
+
   it("includes selected marker", () => {
     const pts = collectTeamFitBoundsPoints({ trackPath: track, selectedMarker: marker });
     assert.equal(pts.length, 3);

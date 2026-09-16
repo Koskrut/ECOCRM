@@ -42,6 +42,15 @@ export class AuthController {
   }
 
   @Public()
+  @Post("/refresh")
+  public async refresh(@Body() body: { token?: string }, @Req() req: Request) {
+    const fromBody = typeof body?.token === "string" ? body.token : "";
+    const header = req.headers.authorization ?? "";
+    const fromHeader = header.startsWith("Bearer ") ? header.slice(7) : "";
+    return this.authService.refresh(fromBody || fromHeader);
+  }
+
+  @Public()
   @Post("/password-reset/request")
   public async requestPasswordReset(@Body() body: { email?: string }) {
     const email = typeof body?.email === "string" ? body.email.trim() : "";

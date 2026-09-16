@@ -9,6 +9,13 @@ export const TRACK_MAX_ACCURACY_M = VISIT_GPS_MAX_ACCURACY_M;
 /** Reject jumps implying faster travel than this (km/h). */
 export const MAX_IMPLAUSIBLE_SPEED_KMH = 150;
 
+/**
+ * Speed-based teleport only when dt is at least this many seconds.
+ * Shorter gaps (FusedLocation batch with identical now() / location.time) use
+ * the accuracy envelope instead of infinite km/h.
+ */
+export const TELEPORT_MIN_DT_S = 2;
+
 /** Skip consecutive samples closer than this (metres). */
 export const MIN_DISTANCE_DEDUP_M = 15;
 
@@ -59,6 +66,8 @@ export type FilterGpsSampleResult = {
 
 export type SanitizeGpsTrackResult<T extends GpsSamplePoint> = {
   samples: T[];
+  /** Contiguous in-region segments; reanchor starts a new segment (no Kyiv→Odessa stitch). */
+  segments: T[][];
   droppedReasons: Record<string, number>;
   reanchorUsed: boolean;
   filteredSampleCount: number;
@@ -123,6 +132,18 @@ function bumpReason(reasons: Record<string, number>, reason: string): void {
   reasons[reason] = (reasons[reason] ?? 0) + 1;
 }
 
+/** Envelope around two GPS fixes: 2*(accPrev+accNext)+50m. Missing accuracy → 0. */
+export function accuracyEnvelopeM(
+  prevAcc?: number | null,
+  nextAcc?: number | null,
+): number {
+  const a =
+    prevAcc != null && Number.isFinite(prevAcc) && prevAcc >= 0 ? prevAcc : 0;
+  const b =
+    nextAcc != null && Number.isFinite(nextAcc) && nextAcc >= 0 ? nextAcc : 0;
+  return 2 * (a + b) + 50;
+}
+
 function clusterIsConsistent(cluster: GpsSamplePoint[]): boolean {
   if (cluster.length < REANCHOR_MIN_CLUSTER) return false;
   const window = cluster.slice(-REANCHOR_MIN_CLUSTER);
@@ -180,14 +201,18 @@ export function filterGpsSampleRelative(
 
   if (Number.isFinite(prevAt) && Number.isFinite(nextAt)) {
     const dtS = gapMs / 1000;
-    if (dtS > 0) {
+    if (dtS >= TELEPORT_MIN_DT_S) {
       const speedKmh = (distM / 1000 / dtS) * 3600;
       if (speedKmh > MAX_IMPLAUSIBLE_SPEED_KMH) {
         return { accept: false, reason: "teleport" };
       }
     } else {
-      // Same-ts / older-ts jump would otherwise skip the speed check and inflate km.
-      return { accept: false, reason: "teleport" };
+      // Same-ts / sub-2s / out-of-order: infinite km/h would false-positive.
+      // Accept only when the jump fits the accuracy envelope.
+      const envelope = accuracyEnvelopeM(prev.accuracyM, next.accuracyM);
+      if (distM > envelope) {
+        return { accept: false, reason: "teleport" };
+      }
     }
   }
 
@@ -303,30 +328,52 @@ export function sortGpsSamplesByTime<T extends GpsSamplePoint>(items: T[]): T[] 
   );
 }
 
-/** Sanitize track for display / fuel: geo drop + relative filter + reanchor. */
+/** Sanitize track for display / fuel: geo drop + relative filter + reanchor segments. */
 export function sanitizeGpsTrack<T extends GpsSamplePoint>(
   samples: T[],
 ): SanitizeGpsTrackResult<T> {
   const session = new GpsTrackFilterSession(null);
-  const out: T[] = [];
+  const segments: T[][] = [];
+  let current: T[] = [];
   for (const s of sortGpsSamplesByTime(samples)) {
     const result = session.consider(s);
     if (result.accept) {
-      // Reanchor starts a new segment — drop pre-jump points so path/fuel
-      // don't draw Kyiv→Odessa (~400+ km) or stitch across the country.
-      if (result.reanchor && out.length > 0) {
-        session.noteReanchorTrim(out.length);
-        out.length = 0;
+      if (result.reanchor && current.length > 0) {
+        segments.push(current);
+        current = [];
       }
-      out.push(s);
+      current.push(s);
     }
   }
+  if (current.length > 0) {
+    segments.push(current);
+  }
+  const out = segments.flat();
   return {
     samples: out,
+    segments,
     droppedReasons: session.getDroppedReasons(),
     reanchorUsed: session.reanchorUsed,
     filteredSampleCount: out.length,
   };
+}
+
+/** Haversine km summed inside each segment (gaps between segments are not counted). */
+export function gpsTrackPathDistanceKm<T extends { lat: number; lng: number }>(
+  segments: T[][],
+): number | null {
+  let total = 0;
+  let hasPair = false;
+  for (const seg of segments) {
+    for (let i = 0; i < seg.length - 1; i++) {
+      const a = seg[i]!;
+      const b = seg[i + 1]!;
+      total += haversineDistanceM(a.lat, a.lng, b.lat, b.lng) / 1000;
+      hasPair = true;
+    }
+  }
+  if (!hasPair) return null;
+  return Math.round(total * 10) / 10;
 }
 
 /** Back-compat: filtered samples only (geo + reanchor + relative). */

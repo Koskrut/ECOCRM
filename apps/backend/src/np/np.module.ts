@@ -1,6 +1,5 @@
 // src/np/np.module.ts
 import { forwardRef, Module } from "@nestjs/common";
-import { ScheduleModule } from "@nestjs/schedule";
 import { IntegrationPortsModule } from "../integration-ports/integration-ports.module";
 import { OrderMaterialReservationModule } from "../orders/order-material-reservation.module";
 import { OrderReturnsModule } from "../order-returns/order-returns.module";
@@ -23,7 +22,6 @@ import { StoreNpController } from "../store/np/store-np.controller";
     PrismaModule,
     IntegrationPortsModule,
     SystemModule,
-    ScheduleModule.forRoot(),
     SettingsServiceModule,
     OrderMaterialReservationModule,
     forwardRef(() => OrderReturnsModule),

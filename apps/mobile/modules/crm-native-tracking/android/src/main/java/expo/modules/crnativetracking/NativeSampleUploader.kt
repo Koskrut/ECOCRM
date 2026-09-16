@@ -31,6 +31,7 @@ class NativeSampleUploader(private val context: Context) {
   suspend fun flushPending(reason: String = "watchdog"): Int {
     return flushMutex.withLock {
       val nowIso = TrackingHealthEvaluator.nowIso()
+      db.sampleDao().restoreInFlight()
       val batch = db.sampleDao().pendingReady(nowIso)
       if (batch.isEmpty()) return@withLock 0
       val sampleIds = batch.map { it.sampleId }
@@ -86,6 +87,7 @@ class NativeSampleUploader(private val context: Context) {
             put("lastGpsCapturedAt", snap["lastGpsCapturedAt"])
             put("trackingHealthState", healthState)
             put("deviceId", deviceId)
+            DeviceTelemetry.addTo(context, this)
           },
         )
       }
@@ -110,26 +112,42 @@ class NativeSampleUploader(private val context: Context) {
       val result = postSamples(apiBase, token, shiftId, payload.toString())
         when {
           result.httpCode in 200..299 -> {
-          dropBatch(items)
-          uploaded += result.created + result.duplicate
           state.setLastFlushAt(nowIso)
-          if (result.created > 0 || result.duplicate > 0) {
-            state.setLastServerAcceptAt(nowIso)
-            state.setNativeLastSeen(nowIso)
-            state.recordRecoveryEvent("ACCEPT_RECEIVED")
-            state.recordRecoveryEvent("RECOVERY_CONFIRMED")
-          } else if (result.rejected > 0) {
-            state.recordRejectReasons(result.rejectReasons)
-            Log.i(
-              TAG,
-              "flush dropped rejected batch shift=$shiftId rejected=${result.rejected} reasons=${result.rejectReasons}",
-            )
+          if (result.ghostDuplicate) {
+            for (sample in items) {
+              val freshId = java.util.UUID.randomUUID().toString()
+              db.sampleDao().reissueSampleId(sample.sampleId, freshId)
+            }
+            Log.w(TAG, "flush ghostDuplicate — reissued sampleIds shift=$shiftId")
+            TrackingFlushWorker.schedule(context)
+          } else {
+            dropBatch(items)
+            uploaded += result.created + result.duplicate
+            if (result.created > 0 || result.duplicate > 0) {
+              state.setLastServerAcceptAt(nowIso)
+              state.setNativeLastSeen(nowIso)
+              state.recordRecoveryEvent("ACCEPT_RECEIVED")
+              state.recordRecoveryEvent("RECOVERY_CONFIRMED")
+            } else if (result.rejected > 0) {
+              state.recordRejectReasons(result.rejectReasons)
+              Log.i(
+                TAG,
+                "flush dropped rejected batch shift=$shiftId rejected=${result.rejected} reasons=${result.rejectReasons}",
+              )
+            }
+          }
+          if (result.shiftClosed) {
+            Log.i(TAG, "flush shiftClosed — stopping FGS shift=$shiftId")
+            LocationForegroundService.markStopped()
+            context.stopService(android.content.Intent(context, LocationForegroundService::class.java))
+            state.clearActiveShift()
+            TrackingFlushWorker.schedule(context, 5)
           }
         }
           result.discardBatch -> {
             dropBatch(items)
             state.setLastFlushAt(nowIso)
-            Log.w(TAG, "flush discarded batch HTTP ${result.httpCode} shift=$shiftId")
+            Log.w(TAG, "flush discarded batch HTTP ${result.httpCode} shift=$shiftId code=${result.errorCode}")
           }
           result.retryable -> {
             val backoffMs = min(300_000L, 5_000L * (items.first().attemptCount + 1))
@@ -140,9 +158,13 @@ class NativeSampleUploader(private val context: Context) {
             TrackingFlushWorker.schedule(context)
           }
           else -> {
-            // 401/403 — keep batch until JS syncSession refreshes token
             db.sampleDao().restorePending(items.map { it.sampleId })
-            Log.w(TAG, "flush blocked HTTP ${result.httpCode} shift=$shiftId (batch kept)")
+            if (result.authBlocked) {
+              state.setAuthRequired(true)
+              Log.w(TAG, "flush auth HTTP ${result.httpCode} shift=$shiftId (batch kept, waiting for JS refresh)")
+            } else {
+              Log.w(TAG, "flush blocked HTTP ${result.httpCode} shift=$shiftId (batch kept)")
+            }
             TrackingFlushWorker.schedule(context)
           }
         }
@@ -164,12 +186,21 @@ class NativeSampleUploader(private val context: Context) {
     val rejected: Int,
     val rejectReasons: String?,
     val httpCode: Int,
+    val ghostDuplicate: Boolean = false,
+    val shiftClosed: Boolean = false,
+    val errorCode: String = "",
   ) {
     val retryable: Boolean
       get() = httpCode >= 500 || httpCode == 408 || httpCode == 429 || httpCode <= 0
 
     val discardBatch: Boolean
-      get() = httpCode == 400 || httpCode == 404
+      get() =
+        httpCode == 404 ||
+          errorCode == "SHIFT_GONE" ||
+          (httpCode == 400 && (errorCode == "SHIFT_GONE" || errorCode == "TRACKING_DISABLED"))
+
+    val authBlocked: Boolean
+      get() = httpCode == 401 || httpCode == 403
   }
 
   private fun postSamples(
@@ -193,18 +224,33 @@ class NativeSampleUploader(private val context: Context) {
       val text =
         (if (code in 200..299) conn.inputStream else conn.errorStream)
           ?.bufferedReader()?.readText() ?: ""
+      val json = try {
+        if (text.isNotBlank()) JSONObject(text) else JSONObject()
+      } catch (_: Exception) {
+        JSONObject()
+      }
       if (code !in 200..299) {
         Log.w(TAG, "upload HTTP $code for shift=$shiftId")
-        return UploadResult(0, 0, 0, null, code)
+        return UploadResult(
+          created = 0,
+          duplicate = 0,
+          rejected = 0,
+          rejectReasons = null,
+          httpCode = code,
+          shiftClosed = json.optBoolean("shiftClosed", false),
+          errorCode = json.optString("code", ""),
+        )
       }
-      val json = JSONObject(text)
       val reasons = json.optJSONObject("rejectReasons")
-      UploadResult(
+      return UploadResult(
         created = json.optInt("created", 0),
         duplicate = json.optInt("duplicate", 0),
         rejected = json.optInt("rejected", 0),
         rejectReasons = reasons?.toString(),
         httpCode = code,
+        ghostDuplicate = json.optBoolean("ghostDuplicate", false),
+        shiftClosed = json.optBoolean("shiftClosed", false),
+        errorCode = json.optString("code", ""),
       )
     } catch (e: Exception) {
       Log.w(TAG, "upload failed for shift=$shiftId: ${e.message}")

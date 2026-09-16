@@ -100,6 +100,7 @@ export class FieldController {
       destinationKind?: string | null;
       destinationLat?: number | null;
       destinationLng?: number | null;
+      reason?: string | null;
     },
     @Req() req: Request & { user?: AuthUser },
   ) {
@@ -107,6 +108,7 @@ export class FieldController {
       destinationKind: body?.destinationKind ?? null,
       destinationLat: body?.destinationLat != null ? Number(body.destinationLat) : null,
       destinationLng: body?.destinationLng != null ? Number(body.destinationLng) : null,
+      reason: body?.reason ?? null,
     });
     return { shift };
   }
@@ -158,6 +160,10 @@ export class FieldController {
         lastGpsCapturedAt?: string;
         trackingHealthState?: string;
         deviceId?: string;
+        appVersion?: string;
+        appVersionCode?: string;
+        manufacturer?: string;
+        trackingSource?: string;
       };
     },
     @Req() req: Request & { user?: AuthUser },

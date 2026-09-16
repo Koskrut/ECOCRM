@@ -35,6 +35,9 @@ export default function VisitsTeamPage() {
   const [shiftOnlyPath, setShiftOnlyPath] = useState<Array<{ lat: number; lng: number }> | null>(
     null,
   );
+  const [shiftOnlyPaths, setShiftOnlyPaths] = useState<Array<Array<{ lat: number; lng: number }>> | null>(
+    null,
+  );
   const [layers, setLayers] = useState<Record<RouteLayerKey, boolean>>({
     planned: false,
     fact_visits: false,
@@ -150,14 +153,17 @@ export default function VisitsTeamPage() {
   const loadShiftOnlyTrack = useCallback(async () => {
     if (!shiftOnly || !selectedItem) {
       setShiftOnlyPath(null);
+      setShiftOnlyPaths(null);
       return;
     }
     try {
       const res = await fieldShiftsApi.getTrackGeometry(selectedItem.shift.id);
-      // Backend sanitizes (UA geo + reanchor). Show osrm/fallback; hide empty/none.
+      const segments = (res.paths ?? []).filter((p) => p.length >= 2);
+      setShiftOnlyPaths(segments.length > 0 ? segments : null);
       setShiftOnlyPath(res.path.length >= 2 ? res.path : null);
     } catch {
       setShiftOnlyPath(null);
+      setShiftOnlyPaths(null);
     }
   }, [shiftOnly, selectedItem]);
 
@@ -285,6 +291,7 @@ export default function VisitsTeamPage() {
                 fact_gps: routeBundle?.factGps ?? null,
               }}
               shiftOnlyPath={shiftOnly ? shiftOnlyPath : null}
+              shiftOnlyPaths={shiftOnly ? shiftOnlyPaths : null}
               routeLoading={routeLoading}
               distanceKm={routeBundle?.factGps.distanceKm ?? null}
               onToggleLayer={(key) => setLayers((prev) => ({ ...prev, [key]: !prev[key] }))}

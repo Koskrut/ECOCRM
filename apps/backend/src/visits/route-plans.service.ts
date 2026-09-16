@@ -42,6 +42,7 @@ import {
   collectFuelGpsWarnings,
   selectCompensationPayout,
 } from "../field/field-fuel.payout.util";
+import { sanitizeGpsTrack } from "../field/gps-sample-filter";
 import type {
   RouteGeometryBundle,
   RouteGeometryKind,
@@ -55,7 +56,7 @@ import {
   routePlanConfirmBlockReason,
 } from "./route-plan-confirm.util";
 import { resolveSingleOwnerId } from "./visits-owner-scope";
-import { sanitizeGpsTrack } from "../field/gps-sample-filter";
+import { gpsTrackPathDistanceKm } from "../field/gps-sample-filter";
 import { kyivDayBounds } from "../crm-timezone";
 
 export type RoutePlanScopeOpts = {
@@ -813,6 +814,7 @@ export class RoutePlansService {
       distanceKm: null,
       durationMin: null,
       path: [],
+      paths: [],
       encodedPolyline: null,
       waypoints: [],
       quality: {
@@ -1833,6 +1835,9 @@ export class RoutePlansService {
           lng: number;
           clientRecordedAt: Date;
         }>,
+        trackedSampleSegments: [] as Array<
+          Array<{ lat: number; lng: number; clientRecordedAt: Date }>
+        >,
         distanceKm: null as number | null,
         sampleCount: 0,
         coverageRatio: null as number | null,
@@ -1841,6 +1846,7 @@ export class RoutePlansService {
         lastSampleAt: null as Date | null,
         droppedReasons: {} as Record<string, number>,
         reanchorUsed: false,
+        paths: [] as LatLng[][],
       };
     }
 
@@ -1854,6 +1860,9 @@ export class RoutePlansService {
     const sanitized = sanitizeGpsTrack(samples);
     const filtered = sanitized.samples;
     const fullPath: LatLng[] = filtered.map((s) => ({ lat: s.lat, lng: s.lng }));
+    const paths: LatLng[][] = sanitized.segments.map((seg) =>
+      seg.map((s) => ({ lat: s.lat, lng: s.lng })),
+    );
     const firstShift = trackingShifts[0]!;
     const lastShift = trackingShifts[trackingShifts.length - 1]!;
     const spanStart = firstShift.startedAt.getTime();
@@ -1886,8 +1895,16 @@ export class RoutePlansService {
     return {
       path: this.downsamplePath(fullPath),
       fullPath,
+      paths,
       trackedSamples: filtered,
-      distanceKm: this.pathDistanceKm(fullPath),
+      trackedSampleSegments: sanitized.segments.map((seg) =>
+        seg.map((s) => ({
+          lat: s.lat,
+          lng: s.lng,
+          clientRecordedAt: s.clientRecordedAt,
+        })),
+      ),
+      distanceKm: gpsTrackPathDistanceKm(sanitized.segments),
       sampleCount: filtered.length,
       coverageRatio,
       shiftDurationMin,
@@ -1989,44 +2006,79 @@ export class RoutePlansService {
     let pathDistanceMismatch = false;
     let displayPathPolylineKm: number | null = null;
 
-    if (!fallbackOnly) {
-      const snapped = await this.snapGpsPathToRoads(
-        gps.trackedSamples.map((s) => ({
-          lat: s.lat,
-          lng: s.lng,
-          clientRecordedAt: s.clientRecordedAt,
-        })),
-      );
-      snapFailureReason = snapped.snapFailureReason;
-      snappedDistanceKm = snapped.distanceKm;
-      maxStitchGapKm = snapped.maxStitchGapKm;
-      hasUnfilledGaps = snapped.hasUnfilledGaps;
-      pathDistanceMismatch = snapped.pathDistanceMismatch;
+    let displayPaths: LatLng[][] = gps.paths.length > 0 ? gps.paths : [path];
 
-      if (snapFailureReason === "gps_snap_loop_collapse") {
+    if (!fallbackOnly) {
+      const sampleSegments =
+        gps.trackedSampleSegments.length > 0
+          ? gps.trackedSampleSegments
+          : [gps.trackedSamples];
+      const snappedPieces: LatLng[][] = [];
+      let snapKmSum = 0;
+      let anyOsrm = false;
+      let anyMismatch = false;
+      let maxGap: number | null = null;
+      let unfilled = false;
+      let lastFail: string | null = null;
+
+      for (const seg of sampleSegments) {
+        if (seg.length < 2) continue;
+        const snapped = await this.snapGpsPathToRoads(
+          seg.map((s) => ({
+            lat: s.lat,
+            lng: s.lng,
+            clientRecordedAt: s.clientRecordedAt,
+          })),
+        );
+        lastFail = snapped.snapFailureReason ?? lastFail;
+        if (snapped.pathDistanceMismatch) anyMismatch = true;
+        if (snapped.hasUnfilledGaps) unfilled = true;
+        if (snapped.maxStitchGapKm != null) {
+          maxGap = maxGap == null ? snapped.maxStitchGapKm : Math.max(maxGap, snapped.maxStitchGapKm);
+        }
+        if (snapped.path.length >= 2) {
+          snappedPieces.push(snapped.path);
+        } else {
+          snappedPieces.push(seg.map((s) => ({ lat: s.lat, lng: s.lng })));
+        }
+        if (snapped.source === "osrm" && snapped.distanceKm != null) {
+          snapKmSum += snapped.distanceKm;
+          anyOsrm = true;
+        }
+      }
+
+      snapFailureReason = lastFail;
+      snappedDistanceKm = anyOsrm ? Math.round(snapKmSum * 10) / 10 : null;
+      maxStitchGapKm = maxGap;
+      hasUnfilledGaps = unfilled;
+      pathDistanceMismatch = anyMismatch;
+
+      if (snapFailureReason === "gps_snap_loop_collapse" && snappedPieces.length === 0) {
         degraded = true;
         degradedReason = "gps_snap_loop_collapse";
         source = "none";
         distanceKm = null;
         path = gps.fullPath.length >= 2 ? gps.fullPath : gps.path;
-      } else if (snapped.source === "osrm" && snapped.distanceKm != null) {
-        distanceKm = snapped.distanceKm;
-        if (snapped.path.length >= 2) {
-          path = snapped.path;
+        displayPaths = gps.paths.length > 0 ? gps.paths : [path];
+      } else if (anyOsrm && snappedDistanceKm != null) {
+        distanceKm = snappedDistanceKm;
+        if (snappedPieces.length > 0) {
+          path = snappedPieces[0]!;
+          displayPaths = snappedPieces;
         }
         source = "osrm";
-      } else if (snapped.path.length >= 2) {
-        path = snapped.path;
+      } else if (snappedPieces.some((p) => p.length >= 2)) {
+        path = snappedPieces.find((p) => p.length >= 2) ?? gps.path;
+        displayPaths = snappedPieces.filter((p) => p.length >= 2);
         source = "raw_gps";
         distanceKm = null;
       }
 
-      displayPathPolylineKm = this.pathDistanceKm(path);
+      displayPathPolylineKm = gpsTrackPathDistanceKm(displayPaths);
 
       if (pathDistanceMismatch) {
         degraded = true;
         degradedReason = "gps_path_distance_mismatch";
-        path = [];
       }
 
       if (hasUnfilledGaps || (maxStitchGapKm != null && maxStitchGapKm > 1)) {
@@ -2035,6 +2087,7 @@ export class RoutePlansService {
       }
     } else {
       path = gps.fullPath.length >= 2 ? gps.fullPath : gps.path;
+      displayPaths = gps.paths.length > 0 ? gps.paths : [path];
       source = "raw_gps";
       distanceKm = null;
     }
@@ -2045,6 +2098,7 @@ export class RoutePlansService {
       distanceKm,
       durationMin: null,
       path,
+      paths: displayPaths,
       encodedPolyline: null,
       waypoints: [],
       quality: {

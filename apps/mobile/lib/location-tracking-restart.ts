@@ -4,7 +4,7 @@ import type { SamplingTier } from "./location-tracking-config";
 
 export const RESTART_COOLDOWN_MS = 30_000;
 
-export type TrackingRestartReason = "os_kill" | "tier_change" | "appstate" | "watchdog";
+export type TrackingRestartReason = "os_kill" | "tier_change" | "appstate" | "watchdog" | "manual";
 
 export type BatteryOptimizationStatus = "restricted" | "unrestricted" | "unknown" | "module_unavailable";
 
@@ -110,7 +110,7 @@ export function mapRestartContextToReason(context: string): TrackingRestartReaso
   const normalized = context.toLowerCase();
   if (normalized.includes("watchdog")) return "watchdog";
   if (normalized.includes("tier")) return "tier_change";
-  if (normalized.includes("manual") || normalized.includes("foregroundrecover")) return "os_kill";
+  if (normalized.includes("manual") || normalized.includes("foregroundrecover")) return "manual";
   if (normalized.includes("maintainbackgroundtracking") || normalized.includes("appstate")) {
     return "appstate";
   }

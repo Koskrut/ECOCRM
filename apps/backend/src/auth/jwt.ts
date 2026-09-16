@@ -69,3 +69,37 @@ export const verifyJwt = <T>(token: string, secret: string): T => {
 
   return payload;
 };
+
+/** Verify HMAC and allow tokens expired for at most `maxExpiredAgeSeconds`. */
+export const verifyJwtAllowExpired = <T>(
+  token: string,
+  secret: string,
+  maxExpiredAgeSeconds: number,
+): T => {
+  const [headerPart, payloadPart, signature] = token.split(".");
+  if (!headerPart || !payloadPart || !signature) {
+    throw new Error("Invalid token format");
+  }
+
+  const expectedSignature = signData(`${headerPart}.${payloadPart}`, secret);
+  const signatureBuffer = Buffer.from(signature);
+  const expectedBuffer = Buffer.from(expectedSignature);
+
+  if (
+    signatureBuffer.length !== expectedBuffer.length ||
+    !timingSafeEqual(signatureBuffer, expectedBuffer)
+  ) {
+    throw new Error("Invalid token signature");
+  }
+
+  const payload = JSON.parse(base64UrlDecode(payloadPart)) as T & {
+    exp?: number;
+  };
+
+  const now = Math.floor(Date.now() / 1000);
+  if (payload.exp && now > payload.exp + maxExpiredAgeSeconds) {
+    throw new Error("Token expired beyond refresh window");
+  }
+
+  return payload;
+};

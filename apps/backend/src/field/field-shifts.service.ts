@@ -26,6 +26,7 @@ import {
 } from "../visits/visits-owner-scope";
 import {
   classifyUaFieldCoords,
+  gpsTrackPathDistanceKm,
   GpsTrackFilterSession,
   isInUaFieldRegion,
   lastInRegionSample,
@@ -33,6 +34,12 @@ import {
   sortGpsSamplesByTime,
 } from "./gps-sample-filter";
 import { SHIFT_ENDED_EVENT } from "./field.events";
+import {
+  LATE_FLUSH_AFTER_END_MS,
+  SHIFT_REOPEN_WINDOW_MS,
+  parseShiftEndReason,
+  type ShiftEndReason,
+} from "./field-shift-end.util";
 import {
   type FieldShiftAnchorKindValue,
   type LatLng,
@@ -119,7 +126,11 @@ export class FieldShiftsService {
     start: LatLng | null;
     end: LatLng | null;
   }> {
-    const u = await this.prisma.user.findUnique({
+    const findUnique = this.prisma.user?.findUnique;
+    if (typeof findUnique !== "function") {
+      return { start: null, end: null };
+    }
+    const u = await findUnique({
       where: { id: ownerId },
       select: {
         routeStartLat: true,
@@ -140,7 +151,9 @@ export class FieldShiftsService {
   }
 
   private async loadLastSampleLatLng(shiftId: string): Promise<LatLng | null> {
-    const last = await this.prisma.fieldLocationSample.findFirst({
+    const findFirst = this.prisma.fieldLocationSample?.findFirst;
+    if (typeof findFirst !== "function") return null;
+    const last = await findFirst({
       where: { shiftId },
       orderBy: { clientRecordedAt: "desc" },
       select: { lat: true, lng: true },
@@ -223,6 +236,7 @@ export class FieldShiftsService {
     ownerId: string,
     endedAt = new Date(),
     destination?: { kind: FieldShiftAnchorKind; lat: number; lng: number } | null,
+    endReason: ShiftEndReason = "cron",
   ) {
     const dest =
       destination !== undefined ? destination : await this.resolveStaleDestination(shiftId, ownerId);
@@ -245,10 +259,40 @@ export class FieldShiftsService {
       ownerId,
       dateStr,
     });
+    await this.recordShiftLifecycleEvent(shiftId, ownerId, "SHIFT_ENDED", {
+      endReason,
+    });
     return updated;
   }
 
-  async closeStaleActiveShifts(opts: { ownerId?: string } = {}) {
+  private async recordShiftLifecycleEvent(
+    shiftId: string,
+    ownerId: string,
+    type: "SHIFT_ENDED" | "SAMPLES_BATCH_ANOMALY",
+    metadata: Record<string, unknown>,
+  ): Promise<void> {
+    const create = this.prisma.fieldTrackingEvent?.create;
+    if (typeof create !== "function") return;
+    try {
+      await create({
+        data: {
+          shiftId,
+          ownerId,
+          type:
+            type === "SHIFT_ENDED"
+              ? FieldTrackingEventType.SHIFT_ENDED
+              : FieldTrackingEventType.SAMPLES_BATCH_ANOMALY,
+          clientRecordedAt: new Date(),
+          metadata: metadata as Prisma.InputJsonValue,
+        },
+      });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      this.logger.warn(`fieldTrackingEvent ${type} failed shiftId=${shiftId}: ${msg}`);
+    }
+  }
+
+  async closeStaleActiveShifts(opts: { ownerId?: string; includeToday?: boolean } = {}) {
     const todayKey = this.calendarDateKey(todayYmdKyiv());
     const ownerFilter: Prisma.FieldShiftWhereInput["ownerId"] =
       opts.ownerId != null ? opts.ownerId : undefined;
@@ -257,7 +301,7 @@ export class FieldShiftsService {
       where: {
         status: FieldShiftStatus.ACTIVE,
         ...(ownerFilter ? { ownerId: ownerFilter } : {}),
-        date: { lt: todayKey },
+        date: opts.includeToday ? { lte: todayKey } : { lt: todayKey },
       },
       select: { id: true, ownerId: true },
       orderBy: { startedAt: "asc" },
@@ -266,7 +310,15 @@ export class FieldShiftsService {
     if (stale.length === 0) return { closed: 0 };
 
     await Promise.all(
-      stale.map((s) => this.closeShift(s.id, s.ownerId)),
+      stale.map((s) =>
+        this.closeShift(
+          s.id,
+          s.ownerId,
+          new Date(),
+          undefined,
+          opts.includeToday ? "cron" : "auto_stale_day",
+        ),
+      ),
     );
 
     return { closed: stale.length };
@@ -445,13 +497,42 @@ export class FieldShiftsService {
       });
     }
 
+    const recentlyEnded = await this.prisma.fieldShift.findFirst({
+      where: {
+        ownerId,
+        date,
+        status: FieldShiftStatus.ENDED,
+        endedAt: { gte: new Date(Date.now() - SHIFT_REOPEN_WINDOW_MS) },
+      },
+      orderBy: [{ endedAt: "desc" }],
+    });
+    if (recentlyEnded) {
+      this.logger.log(
+        `start reopen shiftId=${recentlyEnded.id} ownerId=${ownerId} endedAt=${recentlyEnded.endedAt?.toISOString() ?? "null"}`,
+      );
+      return this.prisma.fieldShift.update({
+        where: { id: recentlyEnded.id },
+        data: {
+          status: FieldShiftStatus.ACTIVE,
+          endedAt: null,
+          destinationKind: null,
+          destinationLat: null,
+          destinationLng: null,
+          plannedDistanceKm:
+            input.plannedDistanceKm != null ? input.plannedDistanceKm : recentlyEnded.plannedDistanceKm,
+          trackingEnabled:
+            input.trackingEnabled !== undefined ? input.trackingEnabled : recentlyEnded.trackingEnabled,
+        },
+      });
+    }
+
     const otherActive = await this.prisma.fieldShift.findMany({
       where: { ownerId, status: FieldShiftStatus.ACTIVE },
       select: { id: true, ownerId: true },
       orderBy: { startedAt: "asc" },
     });
     for (const s of otherActive) {
-      await this.closeShift(s.id, s.ownerId);
+      await this.closeShift(s.id, s.ownerId, new Date(), undefined, "auto_stale_day");
     }
 
     const garage = await this.loadOwnerGarage(ownerId);
@@ -564,6 +645,7 @@ export class FieldShiftsService {
       destinationKind?: string | null;
       destinationLat?: number | null;
       destinationLng?: number | null;
+      reason?: string | null;
     },
   ) {
     if (!actor) {
@@ -591,7 +673,8 @@ export class FieldShiftsService {
       garageEnd: garage.end,
     });
 
-    return this.closeShift(shiftId, shift.ownerId, new Date(), destination);
+    const endReason = parseShiftEndReason(input?.reason) ?? "user";
+    return this.closeShift(shiftId, shift.ownerId, new Date(), destination, endReason);
   }
 
   async appendSamples(
@@ -614,6 +697,10 @@ export class FieldShiftsService {
       lastGpsCapturedAt?: string;
       trackingHealthState?: string;
       deviceId?: string;
+      appVersion?: string;
+      appVersionCode?: string;
+      manufacturer?: string;
+      trackingSource?: string;
     },
     ingestMeta?: {
       batchId?: string;
@@ -635,8 +722,33 @@ export class FieldShiftsService {
     if (!shift) {
       throw new NotFoundException("Shift not found");
     }
-    if (shift.status !== FieldShiftStatus.ACTIVE) {
-      throw new BadRequestException("Shift is not active");
+    const shiftDayYmd = instantToKyivYmd(shift.date);
+    let shiftClosed = false;
+    let lateFlushUntil: Date | null = null;
+
+    if (shift.status === FieldShiftStatus.ENDED) {
+      const endedAt = shift.endedAt;
+      if (endedAt && instantToKyivYmd(endedAt) === shiftDayYmd) {
+        lateFlushUntil = new Date(endedAt.getTime() + LATE_FLUSH_AFTER_END_MS);
+      } else {
+        return {
+          created: 0,
+          duplicate: 0,
+          rejected: items.length,
+          rejectReasons: { shift_closed: items.length },
+          ghostDuplicate: false,
+          shiftClosed: true,
+        };
+      }
+    } else if (shift.status !== FieldShiftStatus.ACTIVE) {
+      return {
+        created: 0,
+        duplicate: 0,
+        rejected: items.length,
+        rejectReasons: { shift_not_active: items.length },
+        ghostDuplicate: false,
+        shiftClosed: true,
+      };
     }
     if (!shift.trackingEnabled) {
       throw new BadRequestException("Tracking is disabled for this shift");
@@ -667,7 +779,6 @@ export class FieldShiftsService {
     const rejectReasons: Record<string, number> = {};
     let reanchorCount = 0;
     const duplicateSampleIds: string[] = [];
-    const shiftDayYmd = instantToKyivYmd(shift.date);
     const sortedItems = sortGpsSamplesByTime(items);
 
     const sampleIds = collectSampleIds(sortedItems);
@@ -685,7 +796,9 @@ export class FieldShiftsService {
     for (const it of sortedItems) {
       const clientRecordedAt = new Date(it.clientRecordedAt);
       if (Number.isNaN(clientRecordedAt.getTime())) {
-        throw new BadRequestException("Invalid clientRecordedAt");
+        rejected += 1;
+        rejectReasons.invalid_timestamp = (rejectReasons.invalid_timestamp ?? 0) + 1;
+        continue;
       }
 
       const sampleId = normalizeSampleId(it.sampleId);
@@ -696,9 +809,17 @@ export class FieldShiftsService {
         continue;
       }
 
+      if (lateFlushUntil && clientRecordedAt.getTime() > lateFlushUntil.getTime()) {
+        rejected += 1;
+        rejectReasons.late_after_end = (rejectReasons.late_after_end ?? 0) + 1;
+        shiftClosed = true;
+        continue;
+      }
+
       if (instantToKyivYmd(clientRecordedAt) !== shiftDayYmd) {
         rejected += 1;
         rejectReasons.wrong_day = (rejectReasons.wrong_day ?? 0) + 1;
+        shiftClosed = true;
         continue;
       }
 
@@ -812,6 +933,11 @@ export class FieldShiftsService {
         appLastSeenAt: telemetry?.appLastSeenAt,
         lastGpsCapturedAt: telemetry?.lastGpsCapturedAt,
         trackingHealthState: parseTrackingHealthState(telemetry?.trackingHealthState),
+        deviceId: telemetry?.deviceId,
+        appVersion: telemetry?.appVersion,
+        appVersionCode: telemetry?.appVersionCode,
+        manufacturer: telemetry?.manufacturer,
+        trackingSource: telemetry?.trackingSource,
       });
     } else if (telemetry) {
       await this.touchTrackingTelemetry(actor.id, {
@@ -819,6 +945,11 @@ export class FieldShiftsService {
         appLastSeenAt: telemetry.appLastSeenAt,
         lastGpsCapturedAt: telemetry.lastGpsCapturedAt,
         trackingHealthState: parseTrackingHealthState(telemetry.trackingHealthState),
+        deviceId: telemetry.deviceId,
+        appVersion: telemetry.appVersion,
+        appVersionCode: telemetry.appVersionCode,
+        manufacturer: telemetry.manufacturer,
+        trackingSource: telemetry.trackingSource,
       });
     }
 
@@ -848,7 +979,24 @@ export class FieldShiftsService {
       `appendSamples batchId=${ingestMeta?.batchId ?? "none"} reason=${ingestMeta?.reason ?? "unknown"} shiftId=${shiftId} ownerId=${actor.id} created=${created} duplicate=${duplicate} rejected=${rejected} ghostDuplicate=${ghostDuplicate} rejectReasons=${JSON.stringify(rejectReasons)} reanchor=${reanchorCount} count=${sortedItems.length} ${sampleSummary}`,
     );
 
-    return { created, duplicate, rejected, rejectReasons, ghostDuplicate };
+    const anomalyReasons = ["teleport", "out_of_region", "invalid_timestamp", "wrong_day"];
+    if (anomalyReasons.some((r) => (rejectReasons[r] ?? 0) > 0) || (sortedItems.length === 1 && created === 0 && rejected > 0)) {
+      await this.recordShiftLifecycleEvent(shiftId, actor.id, "SAMPLES_BATCH_ANOMALY", {
+        count: sortedItems.length,
+        created,
+        duplicate,
+        rejected,
+        rejectReasons,
+        reason: ingestMeta?.reason ?? null,
+        batchId: ingestMeta?.batchId ?? null,
+      });
+    }
+
+    if (shiftClosed && shift.status === FieldShiftStatus.ACTIVE) {
+      await this.closeShift(shiftId, actor.id, new Date(), undefined, "auto_stale_day");
+    }
+
+    return { created, duplicate, rejected, rejectReasons, ghostDuplicate, shiftClosed };
   }
 
   /** Heartbeat-only telemetry update (no GPS samples). */
@@ -897,6 +1045,10 @@ export class FieldShiftsService {
       trackingHealthState?: FieldTrackingHealthState;
       appLastSeenAt?: string;
       deviceId?: string;
+      appVersion?: string;
+      appVersionCode?: string;
+      manufacturer?: string;
+      trackingSource?: string;
     },
   ) {
     const session = await this.prisma.userActivitySession.findFirst({
@@ -926,6 +1078,18 @@ export class FieldShiftsService {
     }
     if (patch.deviceId?.trim()) {
       data.deviceId = patch.deviceId.trim();
+    }
+    if (patch.appVersion?.trim()) {
+      data.appVersion = patch.appVersion.trim().slice(0, 32);
+    }
+    if (patch.appVersionCode?.trim()) {
+      data.appVersionCode = patch.appVersionCode.trim().slice(0, 16);
+    }
+    if (patch.manufacturer?.trim()) {
+      data.manufacturer = patch.manufacturer.trim().slice(0, 64);
+    }
+    if (patch.trackingSource?.trim()) {
+      data.trackingSource = patch.trackingSource.trim().slice(0, 32);
     }
     if (Object.keys(data).length === 0) return;
 
@@ -1013,6 +1177,9 @@ export class FieldShiftsService {
           trackingHealthState: true,
           appState: true,
           trackingMode: true,
+          appVersion: true,
+          trackingSource: true,
+          manufacturer: true,
         },
       }),
       this.prisma.fieldTrackingEvent.findMany({
@@ -1196,6 +1363,9 @@ export class FieldShiftsService {
           lastSampleAt: last?.clientRecordedAt ?? null,
           nowMs,
         }),
+        appVersion: presence?.appVersion ?? null,
+        trackingSource: presence?.trackingSource ?? null,
+        manufacturer: presence?.manufacturer ?? null,
       };
     });
 
@@ -1206,6 +1376,46 @@ export class FieldShiftsService {
         telemetry: item.trackingTelemetry,
       })),
     };
+  }
+
+  async logDailyGpsQuality(): Promise<{ owners: number }> {
+    const dateYmd = todayYmdKyiv();
+    const todayKey = this.calendarDateKey(dateYmd);
+    const shifts = await this.prisma.fieldShift.findMany({
+      where: { date: todayKey },
+      select: { id: true, ownerId: true, status: true, startedAt: true, endedAt: true },
+    });
+    if (shifts.length === 0) return { owners: 0 };
+
+    const ownerIds = [...new Set(shifts.map((s) => s.ownerId))];
+    for (const ownerId of ownerIds) {
+      const ownerShifts = shifts.filter((s) => s.ownerId === ownerId);
+      const shiftIds = ownerShifts.map((s) => s.id);
+      const [sampleCount, events, lastTwo] = await Promise.all([
+        this.prisma.fieldLocationSample.count({ where: { shiftId: { in: shiftIds } } }),
+        this.prisma.fieldTrackingEvent.groupBy({
+          by: ["type", "reason"],
+          where: { shiftId: { in: shiftIds } },
+          _count: { _all: true },
+        }),
+        this.prisma.fieldLocationSample.findMany({
+          where: { shiftId: { in: shiftIds } },
+          orderBy: { clientRecordedAt: "asc" },
+          select: { clientRecordedAt: true },
+        }),
+      ]);
+      let maxGapMin = 0;
+      for (let i = 1; i < lastTwo.length; i++) {
+        const gap =
+          (lastTwo[i]!.clientRecordedAt.getTime() - lastTwo[i - 1]!.clientRecordedAt.getTime()) /
+          60_000;
+        if (gap > maxGapMin) maxGapMin = gap;
+      }
+      this.logger.log(
+        `gpsDailyQuality date=${dateYmd} ownerId=${ownerId} shifts=${ownerShifts.length} samples=${sampleCount} maxGapMin=${maxGapMin.toFixed(1)} events=${JSON.stringify(events)} statuses=${ownerShifts.map((s) => s.status).join(",")}`,
+      );
+    }
+    return { owners: ownerIds.length };
   }
 
   private toApiRestartReason(
@@ -1220,6 +1430,8 @@ export class FieldShiftsService {
         return "appstate";
       case FieldTrackingRestartReason.WATCHDOG:
         return "watchdog";
+      case FieldTrackingRestartReason.MANUAL:
+        return "manual";
       default:
         return null;
     }
@@ -1237,6 +1449,8 @@ export class FieldShiftsService {
         return FieldTrackingRestartReason.APPSTATE;
       case "watchdog":
         return FieldTrackingRestartReason.WATCHDOG;
+      case "manual":
+        return FieldTrackingRestartReason.MANUAL;
       default:
         return null;
     }
@@ -1354,7 +1568,7 @@ export class FieldShiftsService {
   async getTrackGeometry(
     actor: AuthUser | undefined,
     shiftId: string,
-    opts?: { traffic?: boolean },
+    _opts?: { traffic?: boolean },
   ) {
     if (!actor) {
       throw new BadRequestException("User is required");
@@ -1387,39 +1601,60 @@ export class FieldShiftsService {
       })),
     );
     const rawPath = sanitized.samples.map((s) => ({ lat: s.lat, lng: s.lng }));
+    const rawPaths = sanitized.segments.map((seg) => seg.map((s) => ({ lat: s.lat, lng: s.lng })));
+    const meta = {
+      droppedReasons: sanitized.droppedReasons,
+      reanchorUsed: sanitized.reanchorUsed,
+    };
     if (sanitized.samples.length < 2) {
       return {
         sampleCount: sanitized.samples.length,
         path: rawPath,
+        paths: rawPaths,
         source: "none" as const,
         distanceKm: null,
-        droppedReasons: sanitized.droppedReasons,
-        reanchorUsed: sanitized.reanchorUsed,
+        ...meta,
       };
     }
-    const geometry = await this.routePlans.snapGpsPathToRoads(
-      sanitized.samples.map((s) => ({
-        lat: s.lat,
-        lng: s.lng,
-        clientRecordedAt: s.clientRecordedAt,
-      })),
-    );
-    // Never hide a clean UA track when OSRM/match fails — show sanitized polyline.
-    if (geometry.source === "none" || geometry.path.length < 2) {
-      return {
-        sampleCount: sanitized.samples.length,
-        path: rawPath,
-        source: "fallback" as const,
-        distanceKm: geometry.distanceKm,
-        droppedReasons: sanitized.droppedReasons,
-        reanchorUsed: sanitized.reanchorUsed,
-      };
+
+    const snappedPaths: Array<{ lat: number; lng: number }[]> = [];
+    let kmSum = 0;
+    let hasKm = false;
+    let anyOsrm = false;
+    for (const seg of sanitized.segments) {
+      if (seg.length < 2) continue;
+      const geometry = await this.routePlans.snapGpsPathToRoads(
+        seg.map((s) => ({
+          lat: s.lat,
+          lng: s.lng,
+          clientRecordedAt: s.clientRecordedAt,
+        })),
+      );
+      if (geometry.path.length >= 2) {
+        snappedPaths.push(geometry.path);
+        if (geometry.source === "osrm") anyOsrm = true;
+        if (geometry.distanceKm != null) {
+          kmSum += geometry.distanceKm;
+          hasKm = true;
+        }
+      } else {
+        snappedPaths.push(seg.map((s) => ({ lat: s.lat, lng: s.lng })));
+      }
     }
+
+    const paths = snappedPaths.length > 0 ? snappedPaths : rawPaths.filter((p) => p.length >= 2);
+    const path = paths.length === 1 ? paths[0]! : paths.flat();
+    const distanceKm = hasKm
+      ? Math.round(kmSum * 10) / 10
+      : gpsTrackPathDistanceKm(sanitized.segments);
+    const source = anyOsrm ? ("osrm" as const) : ("fallback" as const);
     return {
       sampleCount: sanitized.samples.length,
-      ...geometry,
-      droppedReasons: sanitized.droppedReasons,
-      reanchorUsed: sanitized.reanchorUsed,
+      path,
+      paths,
+      source,
+      distanceKm,
+      ...meta,
     };
   }
 }

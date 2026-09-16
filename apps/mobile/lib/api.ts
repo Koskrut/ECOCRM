@@ -1,4 +1,5 @@
 import { apiErrorMessage } from "./api-error-message";
+import { refreshAuthToken } from "./auth-refresh";
 import { getApiBaseUrl } from "./config";
 
 export class ApiError extends Error {
@@ -18,9 +19,9 @@ function joinPath(base: string, path: string): string {
 
 export async function apiFetch<T>(
   path: string,
-  init?: RequestInit & { token?: string | null },
+  init?: RequestInit & { token?: string | null; _authRetried?: boolean },
 ): Promise<T> {
-  const { token, headers: initHeaders, ...rest } = init ?? {};
+  const { token, headers: initHeaders, _authRetried, ...rest } = init ?? {};
   const headers = new Headers(initHeaders ?? undefined);
   if (!headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
@@ -45,6 +46,12 @@ export async function apiFetch<T>(
   }
 
   if (!res.ok) {
+    if (res.status === 401 && !path.includes("/auth/") && !_authRetried) {
+      const refreshed = await refreshAuthToken(token ?? null);
+      if (refreshed) {
+        return apiFetch<T>(path, { ...init, token: refreshed, _authRetried: true });
+      }
+    }
     throw new ApiError(res.status, apiErrorMessage(res.status, body));
   }
 

@@ -19,16 +19,22 @@ describe("order-return-warehouse-role", () => {
     );
   });
 
-  it("blocks warehouse from closing returns", () => {
-    assert.throws(
-      () => assertWarehouseReturnStatusUpdate(warehouse, "CLOSED"),
-      ForbiddenException,
+  it("allows warehouse to close returns", () => {
+    assert.doesNotThrow(() =>
+      assertWarehouseReturnStatusUpdate(warehouse, "CLOSED"),
     );
   });
 
   it("allows warehouse to move to INSPECTION", () => {
     assert.doesNotThrow(() =>
       assertWarehouseReturnStatusUpdate(warehouse, "INSPECTION"),
+    );
+  });
+
+  it("blocks warehouse from refund/adjustment status", () => {
+    assert.throws(
+      () => assertWarehouseReturnStatusUpdate(warehouse, "REFUND_OR_ADJUSTMENT"),
+      ForbiddenException,
     );
   });
 
