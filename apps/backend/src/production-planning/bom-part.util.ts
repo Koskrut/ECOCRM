@@ -149,3 +149,64 @@ export function uniquifyPartSku(preferredSku: string, displayName: string, taken
   }
   return candidate;
 }
+
+const FASTENER_TOKENS = [
+  "винт",
+  "шуруп",
+  "болт",
+  "гайк",
+  "шайб",
+  "screw",
+  "bolt",
+  "nut",
+  "washer",
+  "fastener",
+  "крепёж",
+  "крепеж",
+];
+
+/**
+ * Heuristic: BOM line is a fastener/screw (Excel «Винты»), not a structural part.
+ * Matches SF-style article codes and common fastener words in SKU/name.
+ */
+export function isFastenerComponent(input: {
+  sku?: string | null;
+  name?: string | null;
+}): boolean {
+  const sku = (input.sku ?? "").trim();
+  const name = (input.name ?? "").trim();
+  if (!sku && !name) return false;
+  if (isNonInventoriedPackagingSku(sku, name)) return false;
+
+  const skuUpper = sku.toUpperCase();
+  // ND-SF-*, MG-SF-*, ST-SF-*, …-SF-…
+  if (/(^|[-_/])SF([-_/]|$)/i.test(sku)) return true;
+  if (/^SF[-_/]/i.test(skuUpper)) return true;
+
+  const hay = `${sku} ${name}`
+    .toLowerCase()
+    .replace(/[\u00a0\u202f]/g, " ")
+    .replace(/\s+/g, " ");
+  return FASTENER_TOKENS.some((token) => hay.includes(token));
+}
+
+/** Months of finished+buildable cover; null when no velocity. */
+export function monthsOfCover(stockNow: number, avgMonthlySold: number): number | null {
+  if (!(avgMonthlySold > 0) || !Number.isFinite(avgMonthlySold)) return null;
+  if (!Number.isFinite(stockNow)) return null;
+  return Math.round((Math.max(0, stockNow) / avgMonthlySold) * 100) / 100;
+}
+
+/** Cover expressed against a 2-month demand horizon (Excel «За 2 мес/МЕС»). */
+export function monthsOfCoverForHorizon(
+  stockNow: number,
+  avgMonthlySold: number,
+  horizonMonths: number,
+): number | null {
+  if (!(horizonMonths > 0)) return null;
+  if (!(avgMonthlySold > 0) || !Number.isFinite(avgMonthlySold)) return null;
+  if (!Number.isFinite(stockNow)) return null;
+  const need = avgMonthlySold * horizonMonths;
+  if (!(need > 0)) return null;
+  return Math.round((Math.max(0, stockNow) / need) * 100) / 100;
+}

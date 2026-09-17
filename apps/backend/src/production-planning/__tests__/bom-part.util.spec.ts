@@ -3,9 +3,11 @@ import assert from "node:assert/strict";
 import {
   displayBottleneckSku,
   inferArticleSkuFromFalsePkg,
+  isFastenerComponent,
   isNonInventoriedPackagingSku,
   looksLikeComponentSku,
-  looksLikePackagingName,
+  monthsOfCover,
+  monthsOfCoverForHorizon,
 } from "../bom-part.util";
 
 test("isNonInventoriedPackagingSku matches real PKG packaging", () => {
@@ -45,4 +47,23 @@ test("looksLikeComponentSku regression from bom-suprex", () => {
   assert.equal(looksLikeComponentSku("ST-RC-AN"), true);
   assert.equal(looksLikeComponentSku("01.010"), true);
   assert.equal(looksLikeComponentSku("Блистер Suprex  (Костя)"), false);
+});
+
+test("isFastenerComponent matches SF codes and fastener words", () => {
+  assert.equal(isFastenerComponent({ sku: "MG-SF-M2.0", name: "Screw M2" }), true);
+  assert.equal(isFastenerComponent({ sku: "ND-SF-RA 1", name: null }), true);
+  assert.equal(isFastenerComponent({ sku: "SF-M3", name: "" }), true);
+  assert.equal(isFastenerComponent({ sku: "01.010", name: "Винт титан M1.6" }), true);
+  assert.equal(isFastenerComponent({ sku: "BOLT-01", name: "hex bolt" }), true);
+  assert.equal(isFastenerComponent({ sku: "MG-PF-CAD_CAM-MU", name: "Platform" }), false);
+  assert.equal(isFastenerComponent({ sku: "ST-RC-AN", name: "Abutment" }), false);
+  assert.equal(isFastenerComponent({ sku: "PKG:блистер", name: "Блистер" }), false);
+});
+
+test("monthsOfCover helpers", () => {
+  assert.equal(monthsOfCover(100, 10), 10);
+  assert.equal(monthsOfCover(0, 10), 0);
+  assert.equal(monthsOfCover(100, 0), null);
+  assert.equal(monthsOfCoverForHorizon(100, 10, 2), 5);
+  assert.equal(monthsOfCoverForHorizon(100, 0, 2), null);
 });

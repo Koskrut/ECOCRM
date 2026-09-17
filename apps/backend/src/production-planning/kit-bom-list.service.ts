@@ -5,6 +5,7 @@ import {
   OrderStage,
   PackingListStatus,
   ProductKind,
+  ProductionBatchStatus,
   ReservationHardness,
   ReservationStatus,
   SalesHistoryUploadStatus,
@@ -13,6 +14,11 @@ import { PrismaService } from "../prisma/prisma.service";
 import { SettingsService } from "../settings/settings.service";
 import { toBaseCurrency } from "../common/currency.util";
 import { ANALYTICS_EXCLUDED_ORDER_STAGES } from "../analytics/analytics.constants";
+import {
+  isFastenerComponent,
+  monthsOfCover,
+  monthsOfCoverForHorizon,
+} from "./bom-part.util";
 import { DemandForecastService } from "./demand-forecast.service";
 import { VELOCITY_ORDER_STAGES } from "./crm-demand-velocity.util";
 import { MrpConfigService } from "./mrp-config.service";
@@ -53,6 +59,10 @@ export type KitBomListLine = {
   scrapPct: number | null;
   sortOrder: number;
   available: number;
+  /** Remaining WIP on open production batches for this component. */
+  wipQty: number;
+  /** Screw/bolt/fastener heuristic for spreadsheet «Винты» column. */
+  isFastener: boolean;
   isBottleneck: boolean;
 };
 
@@ -73,9 +83,15 @@ export type KitBomListItem = {
   xyzReason: XyzReason;
   xyzSource: XyzSource | null;
   stockFinished: number;
+  /** Remaining WIP kits (qtyPlanned − qtyGood on open batches). */
+  wipKits: number;
   stockNow: number;
   coverTarget: number;
   targetStock: number;
+  /** stockNow / avgMonthlySold; null when no velocity. */
+  monthsOfCover: number | null;
+  /** stockNow / (avgMonthlySold × 2); null when no velocity. */
+  monthsOfCover2m: number | null;
   maxBuildNow: number;
   /** Toward ideal (coverTarget). */
   canPackNow: number;
@@ -214,6 +230,7 @@ export class KitBomListService {
       shippedRows,
       packing,
       factoryOpenLines,
+      wipBatches,
     ] = await Promise.all([
       postedSnapshot
         ? this.prisma.inventorySnapshotLine.groupBy({
@@ -303,7 +320,25 @@ export class KitBomListService {
             },
           })
         : Promise.resolve([]),
+      allIds.length > 0
+        ? this.prisma.productionBatch.groupBy({
+            by: ["productId"],
+            where: {
+              productId: { in: allIds },
+              status: {
+                in: [ProductionBatchStatus.DRAFT, ProductionBatchStatus.IN_PROGRESS],
+              },
+            },
+            _sum: { qtyPlanned: true, qtyGood: true },
+          })
+        : Promise.resolve([]),
     ]);
+
+    const wipByProduct = new Map<string, number>();
+    for (const row of wipBatches) {
+      const remaining = Math.max(0, (row._sum.qtyPlanned ?? 0) - (row._sum.qtyGood ?? 0));
+      if (remaining > 0) wipByProduct.set(row.productId, remaining);
+    }
 
     const packingOpen = isOpenPackingStatus(packing?.status);
     const alreadyByKit = new Map(
@@ -487,9 +522,12 @@ export class KitBomListService {
         xyzReason: xyz.xyzReason,
         xyzSource: xyz.xyzSource,
         stockFinished,
+        wipKits: wipByProduct.get(kit.id) ?? 0,
         stockNow: positionPlan.stockNow,
         coverTarget: positionPlan.coverTarget,
         targetStock: positionPlan.targetStock,
+        monthsOfCover: monthsOfCover(positionPlan.stockNow, avgMonthlySold),
+        monthsOfCover2m: monthsOfCoverForHorizon(positionPlan.stockNow, avgMonthlySold, 2),
         maxBuildNow: build.maxBuildNow,
         canPackNow: idealPlan.canPackNow,
         toWork: idealPlan.toWork,
@@ -525,17 +563,23 @@ export class KitBomListService {
         waitingOrders: waitingByKit.get(kit.id)?.size ?? 0,
         bottleneckSku: build.bottleneckSku,
         bottleneckName: build.bottleneckName,
-        lines: (bom?.lines ?? []).map((line) => ({
-          componentProductId: line.componentProductId,
-          componentSku: line.component?.sku ?? "",
-          componentName: line.component?.name ?? "",
-          componentKind: line.component?.kind ?? "PART",
-          qtyPerKit: Number(line.qtyPerKit),
-          scrapPct: line.scrapPct != null ? Number(line.scrapPct) : null,
-          sortOrder: line.sortOrder,
-          available: availableOf(line.componentProductId),
-          isBottleneck: bottleneckIds.has(line.componentProductId),
-        })),
+        lines: (bom?.lines ?? []).map((line) => {
+          const componentSku = line.component?.sku ?? "";
+          const componentName = line.component?.name ?? "";
+          return {
+            componentProductId: line.componentProductId,
+            componentSku,
+            componentName,
+            componentKind: line.component?.kind ?? "PART",
+            qtyPerKit: Number(line.qtyPerKit),
+            scrapPct: line.scrapPct != null ? Number(line.scrapPct) : null,
+            sortOrder: line.sortOrder,
+            available: availableOf(line.componentProductId),
+            wipQty: wipByProduct.get(line.componentProductId) ?? 0,
+            isFastener: isFastenerComponent({ sku: componentSku, name: componentName }),
+            isBottleneck: bottleneckIds.has(line.componentProductId),
+          };
+        }),
       };
     });
   }

@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 /** Mirrors apps/web/src/app/planning/page.tsx workplace tab routing. */
-type PlanningScreen = "overview" | "factory" | "kits" | "risks" | "data";
+type PlanningScreen = "overview" | "sheet" | "factory" | "kits" | "risks" | "data";
 
 const LEGACY_TAB_MAP: Record<string, PlanningScreen> = {
   today: "overview",
@@ -26,7 +26,7 @@ const LEGACY_TAB_MAP: Record<string, PlanningScreen> = {
   queues: "data",
 };
 
-const PLANNING_SCREENS: PlanningScreen[] = ["overview", "factory", "kits", "risks", "data"];
+const PLANNING_SCREENS: PlanningScreen[] = ["overview", "sheet", "factory", "kits", "risks", "data"];
 
 function resolveScreen(tab: string | null): PlanningScreen {
   if (!tab) return "overview";
@@ -52,6 +52,7 @@ test("resolveScreen maps legacy tabs to workplace IA", () => {
 
 test("resolveScreen keeps workplace tab keys", () => {
   assert.equal(resolveScreen("overview"), "overview");
+  assert.equal(resolveScreen("sheet"), "sheet");
   assert.equal(resolveScreen("factory"), "factory");
   assert.equal(resolveScreen("kits"), "kits");
   assert.equal(resolveScreen("risks"), "risks");

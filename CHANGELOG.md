@@ -4,7 +4,28 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.179**.)_
+_(планируемые изменения после **0.2.180**.)_
+
+## [0.2.180] — 2026-09-17
+
+### Summary
+
+Патч **0.2.180**: planning «Таблиця» (sheet) — BOM-розгортка з гвинтами/WIP/cover; fastener heuristic.
+
+### Added
+
+- **PlanningSheetPanel** tab `sheet`: kit → parts/fasteners expand, pack draft + produce batch, cover 2m/MЕС.
+- `isFastenerComponent`, `monthsOfCover` / `monthsOfCoverForHorizon` in `bom-part.util`.
+- Kit BOM list: `wipKits` / line `wipQty` / `isFastener` / months-of-cover fields.
+
+### Changed
+
+- Planning URL/screens include `sheet`; locales en/uk.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.180`**.
+- **Миграций нет.**
 
 ## [0.2.179] — 2026-09-16
 

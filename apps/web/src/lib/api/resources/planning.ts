@@ -282,6 +282,8 @@ export type KitBomListLine = {
   scrapPct: number | null;
   sortOrder: number;
   available: number;
+  wipQty: number;
+  isFastener: boolean;
   isBottleneck: boolean;
 };
 
@@ -302,9 +304,12 @@ export type KitBomListItem = {
   xyzReason: "stable" | "variable" | "intermittent" | "insufficient_history";
   xyzSource: "crm_weeks" | "sales_months" | null;
   stockFinished: number;
+  wipKits: number;
   stockNow: number;
   coverTarget: number;
   targetStock: number;
+  monthsOfCover: number | null;
+  monthsOfCover2m: number | null;
   maxBuildNow: number;
   canPackNow: number;
   toWork: number;

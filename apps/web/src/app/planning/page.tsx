@@ -38,8 +38,9 @@ import {
 import { OverviewPanel } from "./OverviewPanel";
 import { ProductParamsPanel } from "./ProductParamsPanel";
 import { KitBomsPanel } from "./KitBomsPanel";
+import { PlanningSheetPanel } from "./PlanningSheetPanel";
 
-type PlanningScreen = "overview" | "factory" | "kits" | "risks" | "data";
+type PlanningScreen = "overview" | "sheet" | "factory" | "kits" | "risks" | "data";
 type BomEditorLine = {
   id: string;
   componentProductId: string;
@@ -71,7 +72,7 @@ const LEGACY_TAB_MAP: Record<string, PlanningScreen> = {
   queues: "data",
 };
 
-const PLANNING_SCREENS: PlanningScreen[] = ["overview", "factory", "kits", "risks", "data"];
+const PLANNING_SCREENS: PlanningScreen[] = ["overview", "sheet", "factory", "kits", "risks", "data"];
 
 function resolveScreen(tab: string | null): PlanningScreen {
   if (!tab) return "overview";
@@ -687,6 +688,8 @@ function PlanningPageInner() {
         )}
 
         {activeScreen === "factory" && <FactoryPanel onError={handleOpsError} />}
+
+        {activeScreen === "sheet" && <PlanningSheetPanel onError={handleOpsError} />}
 
         {activeScreen === "kits" && <KitBomsPanel onError={handleOpsError} />}
 
