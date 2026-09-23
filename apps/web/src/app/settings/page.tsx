@@ -1,14 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Search, Server, Settings2 } from "lucide-react";
 import { apiHttp } from "@/lib/api/client";
 import { useModules } from "@/lib/modules/useModules";
 import { settingsHrefModuleId } from "@/lib/modules/pathModuleGating";
 import { SettingCard, SettingCardSkeleton } from "@/components/SettingCard";
 import { PageShell } from "@/components/PageShell";
-import { EmptyState } from "@/components/feedback/EmptyState";
+import { EmptyState, PageLoading } from "@/components/feedback";
 import { strings } from "@/locales";
 import {
   allCards,
@@ -31,20 +32,62 @@ function dash(v: string | null | undefined): string {
   return v != null && v !== "" ? v : "—";
 }
 
+function parseSettingsGroup(raw: string | null): SettingsGroup | "all" {
+  const value = (raw ?? "").trim();
+  return SETTINGS_GROUP_ORDER.includes(value as SettingsGroup) ? (value as SettingsGroup) : "all";
+}
+
 export default function SettingsHomePage() {
+  return (
+    <Suspense fallback={<PageLoading />}>
+      <SettingsHomeContent />
+    </Suspense>
+  );
+}
+
+function SettingsHomeContent() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [role, setRole] = useState<string | null>(null);
   const [release, setRelease] = useState<SystemReleaseResponse | null>(null);
   const [releaseError, setReleaseError] = useState<string | null>(null);
   const { status: modulesStatus, effective: moduleEffective } = useModules();
 
-  const [query, setQuery] = useState("");
-  const [debouncedQuery, setDebouncedQuery] = useState("");
-  const [groupFilter, setGroupFilter] = useState<SettingsGroup | "all">("all");
+  const [query, setQuery] = useState(() => (searchParams.get("q") ?? "").trim());
+  const [debouncedQuery, setDebouncedQuery] = useState(() => (searchParams.get("q") ?? "").trim());
+  const [groupFilter, setGroupFilter] = useState<SettingsGroup | "all">(() =>
+    parseSettingsGroup(searchParams.get("group")),
+  );
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedQuery(query.trim()), 250);
     return () => clearTimeout(timer);
   }, [query]);
+
+  useEffect(() => {
+    const fromUrl = (searchParams.get("q") ?? "").trim();
+    if (fromUrl !== query) {
+      setQuery(fromUrl);
+      setDebouncedQuery(fromUrl);
+    }
+    const nextGroup = parseSettingsGroup(searchParams.get("group"));
+    if (nextGroup !== groupFilter) setGroupFilter(nextGroup);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- sync when URL params change externally
+  }, [searchParams]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(searchParams.toString());
+    const trimmed = debouncedQuery.trim();
+    if (trimmed) params.set("q", trimmed);
+    else params.delete("q");
+    if (groupFilter !== "all") params.set("group", groupFilter);
+    else params.delete("group");
+    const q = params.toString();
+    const next = q ? `${pathname}?${q}` : pathname;
+    const current = searchParams.toString() ? `${pathname}?${searchParams.toString()}` : pathname;
+    if (next !== current) router.replace(next, { scroll: false });
+  }, [debouncedQuery, groupFilter, pathname, router, searchParams]);
 
   useEffect(() => {
     apiHttp

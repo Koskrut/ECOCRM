@@ -60,6 +60,7 @@ import { FieldModule } from "./field/field.module";
 import { PresenceModule } from "./presence/presence.module";
 import { HelpModule } from "./help/help.module";
 import { RiskModule } from "./risk/risk.module";
+import { CannedResponsesModule } from "./canned-responses/canned-responses.module";
 
 @Module({
   imports: [
@@ -119,6 +120,7 @@ import { RiskModule } from "./risk/risk.module";
     TimelineModule,
     HelpModule,
     RiskModule,
+    CannedResponsesModule,
   ],
   providers: [
     {

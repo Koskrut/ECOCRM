@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { BarChart3, Map } from "lucide-react";
 import { apiHttp } from "@/lib/api/client";
@@ -8,6 +9,7 @@ import { apiHttp } from "@/lib/api/client";
 type MeResponse = { user?: { role?: string } };
 
 export default function AnalyticsPage() {
+  const router = useRouter();
   const [role, setRole] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -19,7 +21,15 @@ export default function AnalyticsPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  if (loading) {
+  const shouldRedirect = !loading && (role === "ADMIN" || role === "LEAD");
+
+  useEffect(() => {
+    if (shouldRedirect) {
+      router.replace("/analytics/overview");
+    }
+  }, [shouldRedirect, router]);
+
+  if (loading || shouldRedirect) {
     return (
       <div className="mx-auto max-w-6xl">
         <div className="animate-pulse rounded-lg bg-zinc-200 py-8" />

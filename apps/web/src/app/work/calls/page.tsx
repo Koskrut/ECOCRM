@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { ContactTimeline } from "@/app/contacts/ContactTimeline";
+import { ErrorPanel } from "@/components/feedback";
 import { leadsApi } from "@/lib/api/resources/leads";
 import {
   manualCallingApi,
@@ -115,7 +116,7 @@ export default function CallWorkspacePage() {
       setSession(s);
       await loadQueue();
     } catch (e) {
-      setCompleteErr(e instanceof Error ? e.message : "Claim failed");
+      setCompleteErr(e instanceof Error ? e.message : "Не вдалося взяти в роботу");
     }
   }, [selected, loadQueue]);
 
@@ -127,7 +128,7 @@ export default function CallWorkspacePage() {
       setSession(null);
       await loadQueue();
     } catch (e) {
-      setCompleteErr(e instanceof Error ? e.message : "Skip failed");
+      setCompleteErr(e instanceof Error ? e.message : "Не вдалося пропустити");
     }
   }, [selected, loadQueue]);
 
@@ -239,8 +240,10 @@ export default function CallWorkspacePage() {
         <aside className="rounded-xl border border-zinc-200 bg-white p-3 shadow-sm lg:col-span-3">
           <h2 className="mb-2 text-sm font-semibold text-zinc-800">Черга</h2>
           {queueLoading && <p className="text-sm text-zinc-500">Завантаження…</p>}
-          {queueErr && <p className="text-sm text-red-600">{queueErr}</p>}
-          {!queueLoading && !queue.length && (
+          {queueErr ? (
+            <ErrorPanel variant="inline" message={queueErr} onRetry={() => void loadQueue()} />
+          ) : null}
+          {!queueLoading && !queueErr && !queue.length && (
             <p className="text-sm text-zinc-500">Черга порожня. Додайте лід зі сторінки лідів.</p>
           )}
           <ul className="space-y-1">

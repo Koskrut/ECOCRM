@@ -1,6 +1,6 @@
 import { ConversationChannel, ConversationStatus } from "@prisma/client";
-import { Type } from "class-transformer";
-import { IsEnum, IsIn, IsInt, IsOptional, IsString, Max, Min } from "class-validator";
+import { Transform, Type } from "class-transformer";
+import { IsBoolean, IsEnum, IsIn, IsInt, IsOptional, IsString, Max, Min } from "class-validator";
 
 const META_CHANNELS = [ConversationChannel.INSTAGRAM, ConversationChannel.FACEBOOK] as const;
 
@@ -16,6 +16,11 @@ export class ListMetaConversationsQueryDto {
   @IsOptional()
   @IsString()
   assignedTo?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => value === true || value === "true" || value === "1")
+  @IsBoolean()
+  hideNoise?: boolean;
 
   @IsOptional()
   @IsInt()

@@ -40,6 +40,7 @@ export type DebtComment = {
   authorName: string | null;
   promiseDate?: string | null;
   promiseAmount?: number | null;
+  delayReasonCode?: string | null;
 };
 
 export type WorkClientRow = {
@@ -61,6 +62,9 @@ export type WorkClientRow = {
   primaryOrderId?: string | null;
   promiseDate?: string | null;
   promiseAmount?: number | null;
+  delayReasonCode?: string | null;
+  reconcileStatus?: ReceivablesReconcileStatus | null;
+  telegramConversationId?: string | null;
 };
 
 export type PeriodPaymentRow = {
@@ -239,6 +243,8 @@ export const receivablesApi = {
     needsComment?: boolean;
     promisedToday?: boolean;
     promiseBroken?: boolean;
+    reconcileDeltaOnly?: boolean;
+    delayReason?: string;
   }) {
     return apiHttp.get<{
       currency: string;
@@ -247,6 +253,33 @@ export const receivablesApi = {
       page: number;
       pageSize: number;
     }>("/receivables/work/clients", { params });
+  },
+
+  workAging(ownerId?: string) {
+    return apiHttp.get<{
+      currency: string;
+      buckets: Array<{
+        label: string;
+        amount: number;
+        clientsCount: number;
+        ordersCount: number;
+      }>;
+    }>("/receivables/work/aging", { params: { ownerId: ownerId || undefined } });
+  },
+
+  batch(body: {
+    contactIds: string[];
+    action: "assign_owner" | "create_call_tasks" | "send_telegram";
+    ownerId?: string;
+    message?: string;
+  }) {
+    return apiHttp.post<{
+      ok: boolean;
+      action: string;
+      processed: number;
+      skipped: number;
+      errors?: string[];
+    }>("/receivables/batch", body);
   },
 
   listDebtComments(contactId: string, limit = 20) {
@@ -259,12 +292,17 @@ export const receivablesApi = {
   addDebtComment(
     contactId: string,
     body: string,
-    promise?: { promiseDate?: string; promiseAmount?: number | null },
+    promise?: {
+      promiseDate?: string;
+      promiseAmount?: number | null;
+      delayReasonCode?: string | null;
+    },
   ) {
     return apiHttp.post<DebtComment>(`/receivables/contacts/${contactId}/comments`, {
       body,
       promiseDate: promise?.promiseDate,
       promiseAmount: promise?.promiseAmount,
+      delayReasonCode: promise?.delayReasonCode,
     });
   },
 

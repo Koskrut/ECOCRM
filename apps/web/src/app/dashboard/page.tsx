@@ -192,10 +192,14 @@ function DashboardPageContent() {
   }, [loadReceivables, refreshKey]);
 
   useEffect(() => {
-    if (userRole === "LEAD" && data?.myWork.agenda?.plan?.status !== "COMMITTED") {
+    if (
+      userRole === "LEAD" &&
+      data?.myWork.agenda &&
+      data.myWork.agenda.plan?.status !== "COMMITTED"
+    ) {
       setMorningOpen(true);
     }
-  }, [userRole, data?.myWork.agenda?.plan?.status]);
+  }, [userRole, data?.myWork.agenda]);
 
   const currency = (data?.currency === "EUR" ? "EUR" : "USD") as BaseCurrency;
   const showTeamDayPlan = (data?.teamPulse.rows.length ?? 0) > 1;

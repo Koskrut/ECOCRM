@@ -364,6 +364,7 @@ enum ConversationStatus {
 enum MessageDirection {
   INBOUND
   OUTBOUND
+  INTERNAL
 }
 
 enum MessageStatus {
@@ -698,6 +699,7 @@ model User {
   routeSessions              RouteSession[]
   assignedConversations      Conversation[]
   outboundMessages           Message[]
+  cannedResponses            CannedResponse[]
   tasks                      Task[]
   taskComments               TaskComment[]
   taskCollaborations         TaskCollaborator[]
@@ -3539,6 +3541,8 @@ model Conversation {
   assignedToUserId  String?
   status            ConversationStatus  @default(OPEN)
   lastMessageAt     DateTime?
+  pinnedAt          DateTime?
+  lastReadAt        DateTime?
   createdAt         DateTime            @default(now())
   updatedAt         DateTime            @updatedAt
 
@@ -3553,7 +3557,24 @@ model Conversation {
   @@index([status])
   @@index([assignedToUserId])
   @@index([lastMessageAt])
+  @@index([pinnedAt])
   @@index([metaParticipantId])
+}
+
+model CannedResponse {
+  id          String   @id @default(cuid())
+  title       String
+  body        String
+  shortcut    String?
+  sortOrder   Int      @default(0)
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  createdBy User? @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([sortOrder])
+  @@index([shortcut])
 }
 
 model Message {

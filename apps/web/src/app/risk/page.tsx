@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { ShieldAlert, RefreshCw } from "lucide-react";
 import { PageShell } from "@/components/PageShell";
-import { EmptyState } from "@/components/feedback/EmptyState";
+import { EmptyState, ErrorPanel } from "@/components/feedback";
 import { EriGauge, RiskBandBadge } from "@/components/risk/RiskBandBadge";
 import { riskApi, type RiskHub } from "@/lib/api/resources/risk";
 import { strings } from "@/locales";
@@ -14,12 +14,14 @@ export default function RiskHubPage() {
   const t = strings.risk;
   const [hub, setHub] = useState<RiskHub | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [canManage, setCanManage] = useState(false);
   const [canRecompute, setCanRecompute] = useState(false);
   const [activeDomain, setActiveDomain] = useState<string>("ALL");
 
   const load = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       const me = await apiGet<{ user?: { id?: string; role?: string } }>("/auth/me").catch(() => ({
         user: undefined,
@@ -40,8 +42,9 @@ export default function RiskHubPage() {
         setCanManage(false);
         setCanRecompute(false);
       }
-    } catch {
+    } catch (e) {
       setHub(null);
+      setError(e instanceof Error ? e.message : "Не вдалося завантажити дані ризиків");
     } finally {
       setLoading(false);
     }
@@ -103,6 +106,8 @@ export default function RiskHubPage() {
 
         {loading ? (
           <p className="text-sm text-zinc-500">{strings.common.loading}</p>
+        ) : error ? (
+          <ErrorPanel message={error} onRetry={() => void load()} />
         ) : !hub ? (
           <EmptyState title={t.emptyTitle} description={t.emptyDescription} />
         ) : (

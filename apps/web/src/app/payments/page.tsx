@@ -354,7 +354,9 @@ function PaymentsContent() {
   const urlSearch = searchParams.get("search") ?? "";
   const urlDateFrom = searchParams.get("dateFrom") ?? "";
   const urlDateTo = searchParams.get("dateTo") ?? "";
-  const [mode, setMode] = useState<"cash" | "fop">("fop");
+  const [mode, setMode] = useState<"cash" | "fop">(() =>
+    searchParams.get("mode") === "cash" ? "cash" : "fop",
+  );
   const initialView: PaymentsView =
     viewParam === "payments"
       ? "payments"
@@ -807,6 +809,8 @@ function PaymentsContent() {
     const nextTo = searchParams.get("dateTo") ?? "";
     if (nextFrom !== dateFrom) setDateFrom(nextFrom);
     if (nextTo !== dateTo) setDateTo(nextTo);
+    const urlMode = searchParams.get("mode") === "cash" ? "cash" : "fop";
+    if (urlMode !== mode) setMode(urlMode);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- sync when URL params change externally
   }, [searchParams]);
 
@@ -819,12 +823,14 @@ function PaymentsContent() {
     else params.delete("dateFrom");
     if (dateTo) params.set("dateTo", dateTo);
     else params.delete("dateTo");
+    if (mode === "cash") params.set("mode", "cash");
+    else params.delete("mode");
     if (/^\d+$/.test(trimmed)) params.delete("bankAccountId");
     const q = params.toString();
     const next = q ? `${pathname}?${q}` : pathname;
     const current = searchParams.toString() ? `${pathname}?${searchParams.toString()}` : pathname;
     if (next !== current) router.replace(next, { scroll: false });
-  }, [debouncedSearch, dateFrom, dateTo, pathname, router, searchParams]);
+  }, [debouncedSearch, dateFrom, dateTo, mode, pathname, router, searchParams]);
 
   useEffect(() => {
     if (mode === "cash" || (mode === "fop" && view === "payments")) {

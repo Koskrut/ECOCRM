@@ -2,11 +2,10 @@
 
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Filter, Pencil, Search, Trash2, Users } from "lucide-react";
+import { Pencil, Search, Trash2, Users } from "lucide-react";
 import { companiesApi, type Company, type CompaniesResponse } from "@/lib/api";
 import { apiHttp } from "@/lib/api/client";
 import { isTextSelected } from "@/lib/dom";
-import { CompaniesFiltersPopover } from "./CompaniesFiltersPopover";
 import { strings } from "@/locales";
 import { useListColumns } from "@/lib/lists/useListColumns";
 import { renderCellText } from "@/lib/lists/renderCell";
@@ -14,6 +13,7 @@ import { HelpHint } from "@/components/help/HelpHint";
 import { withPreservedScroll } from "@/lib/modal/preserveScroll";
 import { useEntityModalStack, type EntityModalFrame } from "@/lib/modal/useEntityModalStack";
 import { EntityModalStackLayers } from "@/components/modals/EntityModalStackLayers";
+import { ErrorPanel } from "@/components/feedback";
 
 const PAGE_SIZE = 20;
 const EMPTY = "—";
@@ -41,7 +41,6 @@ function CompaniesPageContent() {
   const [total, setTotal] = useState(0);
   const [q, setQ] = useState(() => searchParams.get("q") ?? "");
   const [qInput, setQInput] = useState(() => searchParams.get("q") ?? "");
-  const [filtersOpen, setFiltersOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkDeleting, setBulkDeleting] = useState(false);
 
@@ -207,12 +206,6 @@ function CompaniesPageContent() {
     stack.closeFrom(index);
   };
 
-  const resetAllFilters = () => {
-    setQInput("");
-    setQ("");
-    setPage(1);
-  };
-
   const goToPage = (next: number) => {
     setPage(next);
     void reload({ keepPage: true });
@@ -244,35 +237,18 @@ function CompaniesPageContent() {
                 placeholder="назва, ЄДРПОУ, ІПН, телефон, адреса"
                 className="min-w-0 flex-1 bg-transparent text-sm outline-none"
                 type="search"
-                aria-label="Поиск компаний"
+                aria-label="Пошук компаній"
               />
-              <button
-                type="button"
-                onClick={() => setFiltersOpen(true)}
-                className="flex shrink-0 items-center justify-center rounded p-1 text-zinc-500 hover:bg-zinc-200/50 hover:text-zinc-700"
-                aria-label="Відкрити фільтри"
-              >
-                <Filter className="h-4 w-4" />
-              </button>
             </div>
           </form>
-
-          <CompaniesFiltersPopover
-            open={filtersOpen}
-            onClose={() => setFiltersOpen(false)}
-            onApply={() => {}}
-            onReset={resetAllFilters}
-          />
         </div>
         <div className="mt-2 text-sm text-zinc-500">
-          Всего: {total} | Страница {page} из {totalPages}
+          Усього: {total} | Сторінка {page} з {totalPages}
         </div>
       </div>
 
       {error && (
-        <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 shadow-sm">
-          {error}
-        </div>
+        <ErrorPanel message={error} onRetry={() => void reload()} />
       )}
 
       {selectedIds.size > 0 && (
@@ -297,7 +273,7 @@ function CompaniesPageContent() {
         </div>
       )}
 
-      <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm">
+      <div className="hidden overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm sm:block">
         <table className="w-full text-left text-sm">
           <thead className="bg-zinc-100/80 text-xs font-medium uppercase text-zinc-500">
             <tr>
@@ -310,27 +286,27 @@ function CompaniesPageContent() {
                   aria-label="Вибрати всі на сторінці"
                 />
               </th>
-              <th className="px-4 py-3">Название</th>
+              <th className="px-4 py-3">Назва</th>
               {showOwnerColumn && <th className="px-4 py-3">Відповідальний</th>}
               {extraColumns.map((col) => (
                 <th key={col.fieldId} className="px-4 py-3">
                   {col.label}
                 </th>
               ))}
-              <th className="w-24 px-4 py-3 text-right">Действия</th>
+              <th className="w-24 px-4 py-3 text-right">Дії</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-zinc-100">
             {loading ? (
               <tr>
                 <td colSpan={colCount} className="px-4 py-8 text-center text-zinc-500">
-                  Загрузка…
+                  Завантаження…
                 </td>
               </tr>
             ) : items.length === 0 ? (
               <tr>
                 <td colSpan={colCount} className="px-4 py-8 text-center text-zinc-500">
-                  Нет компаний
+                  Немає компаній
                 </td>
               </tr>
             ) : (
@@ -385,8 +361,8 @@ function CompaniesPageContent() {
                         type="button"
                         onClick={(e) => handleDeleteOne(e, c.id, c.name)}
                         className="rounded p-1.5 text-zinc-500 hover:bg-red-50 hover:text-red-600"
-                        title="Удалить"
-                        aria-label="Удалить"
+                        title="Видалити"
+                        aria-label="Видалити"
                       >
                         <Trash2 className="h-4 w-4" />
                       </button>
@@ -397,10 +373,42 @@ function CompaniesPageContent() {
             )}
           </tbody>
         </table>
+      </div>
 
-        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-zinc-200 bg-zinc-50 px-4 py-4">
+      <div className="space-y-2 sm:hidden">
+        {loading ? (
+          <p className="rounded-xl border border-zinc-200 bg-white p-4 text-center text-sm text-zinc-500">
+            Завантаження…
+          </p>
+        ) : items.length === 0 ? (
+          <p className="rounded-xl border border-zinc-200 bg-white p-4 text-center text-sm text-zinc-500">
+            Немає компаній
+          </p>
+        ) : (
+          items.map((c) => (
+            <button
+              key={c.id}
+              type="button"
+              onClick={() => openCompany(c.id)}
+              className="flex w-full items-start justify-between gap-3 rounded-xl border border-zinc-200 bg-white p-4 text-left shadow-sm"
+            >
+              <div className="min-w-0">
+                <p className="truncate font-medium text-zinc-900">{c.name}</p>
+                {showOwnerColumn ? (
+                  <p className="mt-0.5 truncate text-xs text-zinc-500">
+                    {c.owner?.fullName ?? EMPTY}
+                  </p>
+                ) : null}
+              </div>
+              <Pencil className="mt-0.5 h-4 w-4 shrink-0 text-zinc-400" aria-hidden />
+            </button>
+          ))
+        )}
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-4">
           <span className="text-xs text-zinc-500">
-            Страница {page} из {totalPages} • Всего {total}
+            Сторінка {page} з {totalPages} · Усього {total}
           </span>
           <div className="flex gap-2">
             <button
@@ -421,7 +429,6 @@ function CompaniesPageContent() {
             </button>
           </div>
         </div>
-      </div>
 
       {root ? (
         <EntityModalStackLayers
@@ -440,7 +447,7 @@ function CompaniesPageContent() {
 
 export default function CompaniesPage() {
   return (
-    <Suspense fallback={<div className="p-6 text-sm text-zinc-600">Загрузка…</div>}>
+    <Suspense fallback={<div className="p-6 text-sm text-zinc-600">Завантаження…</div>}>
       <CompaniesPageContent />
     </Suspense>
   );

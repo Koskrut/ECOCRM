@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { DateTime } from "luxon";
 import {
   visitsApi,
@@ -227,6 +227,8 @@ export default function VisitsPage() {
 }
 
 function VisitsPageContent() {
+  const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
   const { pushToast } = useToast();
   const { confirm } = useConfirm();
@@ -338,9 +340,38 @@ function VisitsPageContent() {
       routeEndLng?: number | null;
     }[]
   >([]);
-  const [viewOwnerId, setViewOwnerId] = useState("");
+  const [viewOwnerId, setViewOwnerId] = useState(() => searchParams.get("owner") ?? "");
 
   const dateParam = useMemo(() => jsDateToYmdKyiv(date), [date]);
+
+  useEffect(() => {
+    setDate(parseVisitDateFromUrl(searchParams.get("date")));
+    setViewOwnerId(searchParams.get("owner") ?? "");
+  }, [searchParams]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(searchParams.toString());
+    const dateStr = jsDateToYmdKyiv(date);
+    const todayStr = todayYmdInKyiv();
+
+    if (dateStr === todayStr) {
+      params.delete("date");
+    } else {
+      params.set("date", dateStr);
+    }
+
+    if (viewOwnerId) {
+      params.set("owner", viewOwnerId);
+    } else {
+      params.delete("owner");
+    }
+
+    const qs = params.toString();
+    const target = qs ? `${pathname}?${qs}` : pathname;
+    if (qs !== searchParams.toString()) {
+      router.replace(target, { scroll: false });
+    }
+  }, [date, viewOwnerId, pathname, router, searchParams]);
 
   useEffect(() => {
     if (highlightVisitIds.size === 0 || loading) return;

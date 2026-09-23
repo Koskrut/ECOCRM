@@ -5,12 +5,19 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { ContactModal } from "@/app/contacts/ContactModal";
 import {
+  formatContactNextActionType,
+  formatContactPriorityReasonCompact,
+  formatDaysSinceLastContact,
+} from "@/app/contacts/contact-formatters";
+import {
   contactsApi,
   type ContactWorkQueueItem,
   type ContactWorkQueueSummaryResponse,
 } from "@/lib/api/resources/contacts";
-import { PageLoading } from "@/components/feedback";
+import { ErrorPanel, PageLoading } from "@/components/feedback";
 import { strings } from "@/locales";
+
+const wq = strings.contacts.workQueue;
 
 const PAGE_SIZE = 20;
 
@@ -26,23 +33,6 @@ function QueueScoreBadge({ score }: { score: number }) {
       {score}
     </span>
   );
-}
-
-function nextActionLabel(value: ContactWorkQueueItem["suggestion"]["suggestedNextActionType"]) {
-  switch (value) {
-    case "CALL":
-      return "Call";
-    case "MESSAGE":
-      return "Message";
-    case "SEND_OFFER":
-      return "Send offer";
-    case "CONTROL_PAYMENT":
-      return "Control payment";
-    case "MEETING":
-      return "Meeting";
-    default:
-      return "No action";
-  }
 }
 
 function ManagerQueuePageContent() {
@@ -160,31 +150,31 @@ function ManagerQueuePageContent() {
 
       <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
         <div className="rounded-lg border border-zinc-200 bg-white p-3">
-          <div className="text-xs text-zinc-500">In queue</div>
+          <div className="text-xs text-zinc-500">У черзі</div>
           <div className="mt-1 text-lg font-semibold text-zinc-900">
             {summary?.totalInQueue ?? 0}
           </div>
         </div>
         <div className="rounded-lg border border-zinc-200 bg-white p-3">
-          <div className="text-xs text-zinc-500">Overdue follow-up</div>
+          <div className="text-xs text-zinc-500">Прострочений follow-up</div>
           <div className="mt-1 text-lg font-semibold text-zinc-900">
             {summary?.buckets.overdueFollowup ?? 0}
           </div>
         </div>
         <div className="rounded-lg border border-zinc-200 bg-white p-3">
-          <div className="text-xs text-zinc-500">New no first contact</div>
+          <div className="text-xs text-zinc-500">Без першого контакту</div>
           <div className="mt-1 text-lg font-semibold text-zinc-900">
             {summary?.buckets.newNoFirstContact ?? 0}
           </div>
         </div>
         <div className="rounded-lg border border-zinc-200 bg-white p-3">
-          <div className="text-xs text-zinc-500">Debt control</div>
+          <div className="text-xs text-zinc-500">Контроль боргу</div>
           <div className="mt-1 text-lg font-semibold text-zinc-900">
             {summary?.buckets.debtControl ?? 0}
           </div>
         </div>
         <div className="rounded-lg border border-zinc-200 bg-white p-3">
-          <div className="text-xs text-zinc-500">Avg score</div>
+          <div className="text-xs text-zinc-500">Середній пріоритет</div>
           <div className="mt-1 text-lg font-semibold text-zinc-900">
             {summary?.avgPriorityScore ?? 0}
           </div>
@@ -194,34 +184,27 @@ function ManagerQueuePageContent() {
       <div className="rounded-xl border border-zinc-200 bg-white shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-200 px-4 py-3">
           <div className="text-sm text-zinc-600">
-            Total: {total} • Page {page} / {totalPages}
+            Усього: {total} · стор. {page} / {totalPages}
           </div>
           <input
             value={qInput}
             onChange={(e) => setQInput(e.target.value)}
-            placeholder="Search by name or phone"
+            placeholder="Пошук за імʼям або телефоном"
             className="w-full max-w-xs rounded-md border border-zinc-200 px-3 py-1.5 text-sm outline-none focus:border-zinc-400"
           />
         </div>
 
         {loading ? (
-          <div className="px-4 py-10 text-center text-sm text-zinc-500">
-            Loading manager queue...
-          </div>
+          <div className="px-4 py-10 text-center text-sm text-zinc-500">Завантаження черги…</div>
         ) : error ? (
-          <div className="flex items-center justify-between gap-3 px-4 py-6 text-sm text-red-700">
-            <span>{error}</span>
-            <button
-              type="button"
-              onClick={() => void load()}
-              className="rounded border border-red-300 bg-white px-3 py-1.5 text-xs font-medium hover:bg-red-50"
-            >
-              Retry
-            </button>
+          <div className="px-4 py-6">
+            <ErrorPanel variant="inline" message={error} onRetry={() => void load()} />
           </div>
         ) : items.length === 0 ? (
           <div className="px-4 py-10 text-center text-sm text-zinc-500">
-            Queue is empty for current filters.
+            {q.trim()
+              ? "Нічого не знайдено за поточним пошуком."
+              : strings.contacts.empty.queueTitle}
           </div>
         ) : (
           <div className="divide-y divide-zinc-100">
@@ -236,26 +219,31 @@ function ManagerQueuePageContent() {
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="truncate text-sm font-semibold text-zinc-900">
-                        {row.contact.fullName || "Unnamed contact"}
+                        {row.contact.fullName || wq.noName}
                       </span>
                       <QueueScoreBadge score={row.priorityScore} />
                       {row.metrics.debtAmount > 0 ? (
                         <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-800">
-                          Debt {row.metrics.debtAmount}
+                          {wq.debt.replace("{amount}", String(row.metrics.debtAmount))}
                         </span>
                       ) : null}
                     </div>
                     <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-zinc-500">
-                      <span>Company: {row.contact.companyName ?? "—"}</span>
-                      {row.contact.ownerName ? <span>Owner: {row.contact.ownerName}</span> : null}
                       <span>
-                        Last contact:{" "}
-                        {row.metrics.daysSinceLastContact != null
-                          ? `${row.metrics.daysSinceLastContact} d ago`
-                          : "no contact yet"}
+                        {wq.company}: {row.contact.companyName ?? "—"}
+                      </span>
+                      {row.contact.ownerName ? (
+                        <span>
+                          {wq.owner}: {row.contact.ownerName}
+                        </span>
+                      ) : null}
+                      <span>
+                        {wq.lastContact}:{" "}
+                        {formatDaysSinceLastContact(row.metrics.daysSinceLastContact)}
                       </span>
                       <span>
-                        Suggested: {nextActionLabel(row.suggestion.suggestedNextActionType)}
+                        {wq.nextAction}:{" "}
+                        {formatContactNextActionType(row.suggestion.suggestedNextActionType)}
                       </span>
                     </div>
                     <div className="mt-2 flex flex-wrap gap-1.5">
@@ -264,7 +252,7 @@ function ManagerQueuePageContent() {
                           key={reason}
                           className="rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-zinc-700"
                         >
-                          {reason}
+                          {formatContactPriorityReasonCompact(reason)}
                         </span>
                       ))}
                     </div>
@@ -277,7 +265,7 @@ function ManagerQueuePageContent() {
 
         <div className="flex items-center justify-between border-t border-zinc-200 bg-zinc-50 px-4 py-3">
           <span className="text-xs text-zinc-500">
-            Showing {items.length} of {total}
+            Показано {items.length} з {total}
           </span>
           <div className="flex gap-2">
             <button
@@ -286,7 +274,7 @@ function ManagerQueuePageContent() {
               onClick={() => setPage((p) => Math.max(1, p - 1))}
               className="rounded border border-zinc-300 px-3 py-1 text-xs disabled:opacity-50"
             >
-              Prev
+              Назад
             </button>
             <button
               type="button"
@@ -294,7 +282,7 @@ function ManagerQueuePageContent() {
               onClick={() => setPage((p) => p + 1)}
               className="rounded border border-zinc-300 px-3 py-1 text-xs disabled:opacity-50"
             >
-              Next
+              Далі
             </button>
           </div>
         </div>

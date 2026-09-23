@@ -14,6 +14,7 @@ test("plain receivables title has no promise", () => {
   assert.deepEqual(parseDebtCommentTitle(RECEIVABLES_COMMENT_TITLE), {
     promiseDate: null,
     promiseAmount: null,
+    delayReasonCode: null,
   });
 });
 
@@ -23,6 +24,7 @@ test("format/parse round-trip date and amount", () => {
   assert.deepEqual(parseDebtCommentTitle(title), {
     promiseDate: "2026-09-01",
     promiseAmount: 1200.5,
+    delayReasonCode: null,
   });
 });
 
@@ -31,6 +33,23 @@ test("format without amount keeps date only", () => {
   assert.deepEqual(parseDebtCommentTitle(title), {
     promiseDate: "2026-09-01",
     promiseAmount: null,
+    delayReasonCode: null,
+  });
+});
+
+test("format/parse delay reason with and without promise", () => {
+  const withReason = formatDebtCommentTitle(null, null, "WAITING_ACT");
+  assert.equal(withReason, `${RECEIVABLES_COMMENT_TITLE} | R:WAITING_ACT`);
+  assert.deepEqual(parseDebtCommentTitle(withReason), {
+    promiseDate: null,
+    promiseAmount: null,
+    delayReasonCode: "WAITING_ACT",
+  });
+  const full = formatDebtCommentTitle("2026-09-01", 100, "CLIENT_DELAY");
+  assert.deepEqual(parseDebtCommentTitle(full), {
+    promiseDate: "2026-09-01",
+    promiseAmount: 100,
+    delayReasonCode: "CLIENT_DELAY",
   });
 });
 

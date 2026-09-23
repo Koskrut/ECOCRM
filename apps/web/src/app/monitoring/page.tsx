@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Activity, Laptop, Smartphone } from "lucide-react";
 import { PageShell } from "@/components/PageShell";
@@ -166,8 +167,15 @@ function SessionHistoryPanel({
 }
 
 export default function MonitoringPage() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [role, setRole] = useState<string | null>(null);
-  const [date, setDate] = useState(todayYmdInKyiv());
+  const [date, setDate] = useState(() => {
+    const fromUrl = searchParams.get("date");
+    if (fromUrl && /^\d{4}-\d{2}-\d{2}$/.test(fromUrl)) return fromUrl;
+    return todayYmdInKyiv();
+  });
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [overview, setOverview] = useState<Awaited<ReturnType<typeof presenceApi.getOverview>> | null>(
@@ -181,6 +189,30 @@ export default function MonitoringPage() {
       .then((r) => setRole(r.data?.user?.role ?? null))
       .catch(() => setRole(null));
   }, []);
+
+  useEffect(() => {
+    const fromUrl = searchParams.get("date");
+    if (fromUrl && /^\d{4}-\d{2}-\d{2}$/.test(fromUrl)) {
+      setDate(fromUrl);
+    }
+  }, [searchParams]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(searchParams.toString());
+    const today = todayYmdInKyiv();
+
+    if (date === today) {
+      params.delete("date");
+    } else {
+      params.set("date", date);
+    }
+
+    const qs = params.toString();
+    const target = qs ? `${pathname}?${qs}` : pathname;
+    if (qs !== searchParams.toString()) {
+      router.replace(target, { scroll: false });
+    }
+  }, [date, pathname, router, searchParams]);
 
   const load = useCallback(async () => {
     try {

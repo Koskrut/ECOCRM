@@ -4,7 +4,30 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.180**.)_
+_(планируемые изменения после **0.2.181**.)_
+
+## [0.2.181] — 2026-09-23
+
+### Summary
+
+Патч **0.2.181**: inbox UX (pin / notes / read / canned replies) для Telegram і Meta; receivables aging + collect queue; planning sheet split.
+
+### Added
+
+- **Inbox UX:** `pinnedAt` / `lastReadAt`, internal notes (`MessageDirection.INTERNAL`), pin / mark-read / notes API (Telegram + Meta); canned responses CRUD + Settings → Inbox templates; suggest-replies.
+- Shared `conversation-inbox` util + inbox UI (`InboxComposer`, status filter/actions, selection toolbar, client card).
+- **Receivables:** aging chips / period-paid URL filters, aging widget, today-collect queue, batch toolbar, debt reminder dialog, client row actions.
+- Planning sheet components (`PlanningSheetTable`, rows, bulk toolbar, qty presets, freshness chip).
+
+### Changed
+
+- Telegram / Meta inbox pages refactored onto shared inbox components; receivables work tab clients view.
+- Broad list-page polish (companies, warehouse URL helpers, settings hub card for inbox templates); locales en/uk.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.181`**.
+- **Миграции:** `20260922160000_inbox_ux_upgrade` — **`prisma migrate deploy`**.
 
 ## [0.2.180] — 2026-09-17
 

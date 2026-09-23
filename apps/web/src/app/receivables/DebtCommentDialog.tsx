@@ -23,6 +23,7 @@ export function DebtCommentDialog({
   const [text, setText] = useState("");
   const [promiseDate, setPromiseDate] = useState("");
   const [promiseAmount, setPromiseAmount] = useState("");
+  const [delayReason, setDelayReason] = useState("");
   const [comments, setComments] = useState<DebtComment[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -46,7 +47,7 @@ export function DebtCommentDialog({
   }, [load]);
 
   const save = async () => {
-    if ((!text.trim() && !promiseDate) || saving) return;
+    if ((!text.trim() && !promiseDate && !delayReason) || saving) return;
     setSaving(true);
     setError(null);
     try {
@@ -54,10 +55,12 @@ export function DebtCommentDialog({
       await receivablesApi.addDebtComment(contactId, text.trim(), {
         promiseDate: promiseDate || undefined,
         promiseAmount: amount != null && Number.isFinite(amount) ? amount : undefined,
+        delayReasonCode: delayReason || undefined,
       });
       setText("");
       setPromiseDate("");
       setPromiseAmount("");
+      setDelayReason("");
       await load();
       onSaved();
     } catch {
@@ -115,6 +118,20 @@ export function DebtCommentDialog({
               />
             </label>
           </div>
+          <label className="block text-sm">
+            <span className="text-xs text-zinc-500">{t.delayReasonLabel}</span>
+            <select
+              value={delayReason}
+              onChange={(e) => setDelayReason(e.target.value)}
+              className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+            >
+              <option value="">{t.delayReasonAll}</option>
+              <option value="WAITING_ACT">{t.delayReasonWaitingAct}</option>
+              <option value="CLIENT_DELAY">{t.delayReasonClientDelay}</option>
+              <option value="DISPUTE">{t.delayReasonDispute}</option>
+              <option value="OTHER">{t.delayReasonOther}</option>
+            </select>
+          </label>
 
           {error ? (
             <div className="rounded-md border border-red-100 bg-red-50 px-3 py-2 text-sm text-red-700">
@@ -150,6 +167,18 @@ export function DebtCommentDialog({
                         {c.promiseAmount != null ? ` · ${c.promiseAmount.toFixed(2)}` : ""}
                       </div>
                     ) : null}
+                    {c.delayReasonCode ? (
+                      <div className="mt-1 text-xs text-zinc-600">
+                        {t.delayReasonLabel}:{" "}
+                        {c.delayReasonCode === "WAITING_ACT"
+                          ? t.delayReasonWaitingAct
+                          : c.delayReasonCode === "CLIENT_DELAY"
+                            ? t.delayReasonClientDelay
+                            : c.delayReasonCode === "DISPUTE"
+                              ? t.delayReasonDispute
+                              : t.delayReasonOther}
+                      </div>
+                    ) : null}
                   </li>
                 ))}
               </ul>
@@ -167,7 +196,7 @@ export function DebtCommentDialog({
           </button>
           <button
             type="button"
-            disabled={(!text.trim() && !promiseDate) || saving}
+            disabled={(!text.trim() && !promiseDate && !delayReason) || saving}
             onClick={() => void save()}
             className="rounded-lg bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
           >

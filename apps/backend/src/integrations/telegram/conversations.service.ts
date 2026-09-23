@@ -18,6 +18,11 @@ import { ContactsService } from "../../contacts/contacts.service";
 import { PrismaService } from "../../prisma/prisma.service";
 import { TelegramAiService } from "./telegram-ai.service";
 import { TelegramService } from "./telegram.service";
+import {
+  conversationListOrderBy,
+  countUnreadInbound,
+  hideNoiseWhere,
+} from "../shared/conversation-inbox.util";
 import type { ListConversationsQueryDto } from "./dto/list-conversations-query.dto";
 import type { ListMessagesQueryDto } from "./dto/list-messages-query.dto";
 
@@ -59,16 +64,21 @@ export class ConversationsService {
       { page: 1, pageSize: 20 },
     );
 
-    const where: Prisma.ConversationWhereInput = this.buildVisibilityWhere(safeActor);
+    const where: Prisma.ConversationWhereInput = {
+      ...this.buildVisibilityWhere(safeActor),
+    };
     if (q.channel) where.channel = q.channel;
     if (q.status) where.status = q.status;
     if (q.assignedTo === "me" && safeActor.id) where.assignedToUserId = safeActor.id;
     else if (q.assignedTo && q.assignedTo !== "me") where.assignedToUserId = q.assignedTo;
+    if (q.hideNoise) {
+      where.AND = [...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []), hideNoiseWhere()];
+    }
 
     const [items, total] = await Promise.all([
       this.prisma.conversation.findMany({
         where,
-        orderBy: { lastMessageAt: "desc" },
+        orderBy: conversationListOrderBy,
         skip: offset,
         take: limit,
         include: {
@@ -104,6 +114,10 @@ export class ConversationsService {
       this.prisma.conversation.count({ where }),
     ]);
 
+    const unreadById = await this.loadUnreadCounts(
+      items.map((c) => ({ id: c.id, lastReadAt: c.lastReadAt })),
+    );
+
     return {
       items: items.map((c) => ({
         id: c.id,
@@ -132,6 +146,9 @@ export class ConversationsService {
           : null,
         assignedTo: c.assignedTo,
         status: c.status,
+        pinnedAt: c.pinnedAt,
+        lastReadAt: c.lastReadAt,
+        unreadCount: unreadById.get(c.id) ?? 0,
         lastMessageAt: c.lastMessageAt,
         lastMessage: c.messages[0]
           ? {
@@ -150,8 +167,33 @@ export class ConversationsService {
     };
   }
 
+  private async loadUnreadCounts(
+    rows: Array<{ id: string; lastReadAt: Date | null }>,
+  ): Promise<Map<string, number>> {
+    const result = new Map<string, number>();
+    if (rows.length === 0) return result;
+
+    const ids = rows.map((r) => r.id);
+    const inbound = await this.prisma.message.findMany({
+      where: {
+        conversationId: { in: ids },
+        direction: MessageDirection.INBOUND,
+      },
+      select: { conversationId: true, sentAt: true, direction: true },
+    });
+
+    const lastReadById = new Map(rows.map((r) => [r.id, r.lastReadAt]));
+    for (const id of ids) result.set(id, 0);
+    for (const msg of inbound) {
+      const lastReadAt = lastReadById.get(msg.conversationId) ?? null;
+      const n = countUnreadInbound([msg], lastReadAt);
+      if (n > 0) result.set(msg.conversationId, (result.get(msg.conversationId) ?? 0) + n);
+    }
+    return result;
+  }
+
   /**
-   * OPEN Telegram conversations where the latest message is inbound (awaiting manager reply).
+   * Conversations with at least one unread inbound message (after lastReadAt).
    */
   async unreadCount(actor: AuthUser | undefined): Promise<{ count: number }> {
     const safeActor = this.requireActor(actor);
@@ -164,18 +206,16 @@ export class ConversationsService {
     const rows = await this.prisma.conversation.findMany({
       where,
       select: {
+        id: true,
+        lastReadAt: true,
         messages: {
-          orderBy: { sentAt: "desc" },
-          take: 1,
-          select: { direction: true },
+          where: { direction: MessageDirection.INBOUND },
+          select: { direction: true, sentAt: true },
         },
       },
     });
 
-    const count = rows.filter(
-      (row) => row.messages[0]?.direction === MessageDirection.INBOUND,
-    ).length;
-
+    const count = rows.filter((row) => countUnreadInbound(row.messages, row.lastReadAt) > 0).length;
     return { count };
   }
 
@@ -220,6 +260,7 @@ export class ConversationsService {
         mediaType: m.mediaType,
         fileId: m.fileId,
         fileUrl: m.fileUrl,
+        status: m.status,
       })),
       total,
       page,
@@ -249,6 +290,81 @@ export class ConversationsService {
         assignedTo: { select: { id: true, fullName: true } },
       },
     });
+  }
+
+  async setPinned(conversationId: string, pinned: boolean, actor: AuthUser | undefined) {
+    const safeActor = this.requireActor(actor);
+    const conv = await this.prisma.conversation.findUnique({
+      where: { id: conversationId },
+      select: { id: true, assignedToUserId: true },
+    });
+    if (!conv) throw new NotFoundException("Conversation not found");
+    this.assertManagerCanAccessConversation(safeActor, conv);
+
+    return this.prisma.conversation.update({
+      where: { id: conversationId },
+      data: { pinnedAt: pinned ? new Date() : null },
+      select: {
+        id: true,
+        pinnedAt: true,
+        status: true,
+        lastMessageAt: true,
+      },
+    });
+  }
+
+  async markRead(conversationId: string, actor: AuthUser | undefined) {
+    const safeActor = this.requireActor(actor);
+    const conv = await this.prisma.conversation.findUnique({
+      where: { id: conversationId },
+      select: { id: true, assignedToUserId: true },
+    });
+    if (!conv) throw new NotFoundException("Conversation not found");
+    this.assertManagerCanAccessConversation(safeActor, conv);
+
+    const lastReadAt = new Date();
+    await this.prisma.conversation.update({
+      where: { id: conversationId },
+      data: { lastReadAt },
+    });
+    return { ok: true, lastReadAt };
+  }
+
+  async addInternalNote(conversationId: string, text: string, actor: AuthUser | undefined) {
+    const safeActor = this.requireActor(actor);
+    const normalizedText = String(text ?? "").trim();
+    if (!normalizedText) {
+      throw new BadRequestException("Note text cannot be empty");
+    }
+
+    const conv = await this.prisma.conversation.findUnique({
+      where: { id: conversationId },
+      select: { id: true, assignedToUserId: true },
+    });
+    if (!conv) throw new NotFoundException("Conversation not found");
+    this.assertManagerCanAccessConversation(safeActor, conv);
+
+    const sentAt = new Date();
+    const message = await this.prisma.message.create({
+      data: {
+        conversationId: conv.id,
+        direction: MessageDirection.INTERNAL,
+        text: normalizedText,
+        authorUserId: safeActor.id,
+        sentAt,
+        status: MessageStatus.SENT,
+      },
+      include: {
+        author: { select: { id: true, fullName: true, email: true } },
+      },
+    });
+
+    await this.prisma.conversation.update({
+      where: { id: conv.id },
+      data: { lastMessageAt: sentAt },
+    });
+
+    return message;
   }
 
   async assign(conversationId: string, userId: string | null, actor: AuthUser | undefined) {
@@ -341,7 +457,7 @@ export class ConversationsService {
 
     await this.prisma.conversation.update({
       where: { id: conv.id },
-      data: { lastMessageAt: sentAt },
+      data: { lastMessageAt: sentAt, lastReadAt: sentAt },
     });
 
     return message;

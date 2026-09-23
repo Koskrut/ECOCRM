@@ -11,12 +11,18 @@ import { ListMetaConversationsQueryDto } from "./dto/list-meta-conversations-que
 import { ListMetaMessagesQueryDto } from "./dto/list-messages-query.dto";
 import { SendMetaMessageDto } from "./dto/send-message.dto";
 import { UpdateMetaConversationStatusDto } from "./dto/update-conversation-status.dto";
+import {
+  CreateInternalNoteDto,
+  PinConversationDto,
+} from "../shared/inbox-actions.dto";
 
 void MetaLinkContactDto;
 void ListMetaConversationsQueryDto;
 void ListMetaMessagesQueryDto;
 void SendMetaMessageDto;
 void UpdateMetaConversationStatusDto;
+void PinConversationDto;
+void CreateInternalNoteDto;
 
 @Controller("meta-conversations")
 @Roles(UserRole.MANAGER, UserRole.LEAD, UserRole.ADMIN)
@@ -55,6 +61,29 @@ export class MetaConversationsController {
     @Req() req: Request & { user?: AuthUser },
   ) {
     return this.conversations.updateStatus(id, dto.status, req.user);
+  }
+
+  @Patch(":id/pin")
+  setPinned(
+    @Param("id") id: string,
+    @Body() dto: PinConversationDto,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.conversations.setPinned(id, dto.pinned, req.user);
+  }
+
+  @Post(":id/read")
+  markRead(@Param("id") id: string, @Req() req: Request & { user?: AuthUser }) {
+    return this.conversations.markRead(id, req.user);
+  }
+
+  @Post(":id/notes")
+  addNote(
+    @Param("id") id: string,
+    @Body() dto: CreateInternalNoteDto,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.conversations.addInternalNote(id, dto.text, req.user);
   }
 
   @Post(":id/messages")

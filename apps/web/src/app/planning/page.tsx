@@ -27,7 +27,6 @@ import { productsApi, type ProductCatalogItem } from "@/lib/api/resources/produc
 import { formatDate, formatDateTime } from "@/lib/crmDatetime";
 import {
   ForecastPanel,
-  PlanningFreshnessBanners,
   MrpConfigPanel,
   MrpCriticalPanel,
   MrpDashboardPanel,
@@ -39,6 +38,7 @@ import { OverviewPanel } from "./OverviewPanel";
 import { ProductParamsPanel } from "./ProductParamsPanel";
 import { KitBomsPanel } from "./KitBomsPanel";
 import { PlanningSheetPanel } from "./PlanningSheetPanel";
+import { CompactFreshnessChip } from "./sheet/CompactFreshnessChip";
 
 type PlanningScreen = "overview" | "sheet" | "factory" | "kits" | "risks" | "data";
 type BomEditorLine = {
@@ -611,6 +611,14 @@ function PlanningPageInner() {
           >
             {t.actions.openFullGuide}
           </Link>
+          {activeScreen !== "overview" ? (
+            <CompactFreshnessChip
+              snapshot={freshness}
+              sales={salesFreshness}
+              mrpStale={mrpStale}
+              mrpStaleWarning={mrpStaleWarning}
+            />
+          ) : null}
           <button
             type="button"
             onClick={() => void handleRefresh()}
@@ -621,13 +629,10 @@ function PlanningPageInner() {
         </div>
       </div>
 
-      {activeScreen !== "overview" ? (
-        <PlanningFreshnessBanners
-          snapshot={freshness}
-          sales={salesFreshness}
-          mrpStale={mrpStale}
-          mrpStaleWarning={mrpStaleWarning}
-        />
+      {userRole && !canManagePlanning ? (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          Перегляд доступний. Змінювати BOM, імпорт і налаштування можуть лише адміністратор і керівник.
+        </div>
       ) : null}
 
       <div className="flex flex-wrap gap-2">

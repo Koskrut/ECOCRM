@@ -17,12 +17,17 @@ const emptyUrl: ReceivablesUrlState = {
   needsComment: false,
   deltasOnly: false,
   reconcileStatus: "",
+  reconcileDeltaOnly: false,
+  delayReason: "",
   snapshotId: "",
   ownerId: "",
   q: "",
   clientId: "",
   promisedToday: false,
   promiseBroken: false,
+  aging: "",
+  periodPaidFrom: "",
+  periodPaidTo: "",
   contactId: "",
   orderId: "",
 };
@@ -131,12 +136,17 @@ test("round-trip preserves work filters", () => {
     needsComment: true,
     deltasOnly: false,
     reconcileStatus: "",
+    reconcileDeltaOnly: true,
+    delayReason: "WAITING_ACT",
     snapshotId: "snap-1",
     ownerId: "m1",
     q: "код",
     clientId: "c1",
     promisedToday: true,
     promiseBroken: false,
+    aging: "",
+    periodPaidFrom: "",
+    periodPaidTo: "",
     contactId: "",
     orderId: "o1",
   };
@@ -149,4 +159,54 @@ test("round-trip preserves work filters", () => {
   assert.equal(parsed.q, "код");
   assert.equal(parsed.clientId, "c1");
   assert.equal(parsed.promisedToday, false);
+  assert.equal(parsed.reconcileDeltaOnly, false);
+  assert.equal(parsed.delayReason, "");
+});
+
+test("reconcileDeltaOnly and delayReason only on clients work tab", () => {
+  const onClients = buildReceivablesSearchParams({
+    ...emptyUrl,
+    reconcileDeltaOnly: true,
+    delayReason: "DISPUTE",
+  });
+  assert.equal(onClients.get("reconcileDeltaOnly"), "true");
+  assert.equal(onClients.get("delayReason"), "DISPUTE");
+  const onOrders = buildReceivablesSearchParams({
+    ...emptyUrl,
+    workView: "orders",
+    reconcileDeltaOnly: true,
+    delayReason: "DISPUTE",
+  });
+  assert.equal(onOrders.get("reconcileDeltaOnly"), null);
+  assert.equal(onOrders.get("delayReason"), null);
+});
+
+test("aging and period payments sync on clients work tab only", () => {
+  const onClients = buildReceivablesSearchParams({
+    ...emptyUrl,
+    aging: "8-30",
+    periodPaidFrom: "2026-01-01",
+    periodPaidTo: "2026-01-31",
+  });
+  assert.equal(onClients.get("aging"), "8-30");
+  assert.equal(onClients.get("periodPaidFrom"), "2026-01-01");
+  assert.equal(onClients.get("periodPaidTo"), "2026-01-31");
+
+  const onOrders = buildReceivablesSearchParams({
+    ...emptyUrl,
+    workView: "orders",
+    aging: "8-30",
+    periodPaidFrom: "2026-01-01",
+    periodPaidTo: "2026-01-31",
+  });
+  assert.equal(onOrders.get("aging"), null);
+  assert.equal(onOrders.get("periodPaidFrom"), null);
+  assert.equal(onOrders.get("periodPaidTo"), null);
+});
+
+test("parseReceivablesFilters reads aging and custom period", () => {
+  const parsed = fromQuery("aging=90%2B&periodPaidFrom=2026-02-01&periodPaidTo=2026-02-28");
+  assert.equal(parsed.aging, "90+");
+  assert.equal(parsed.periodPaidFrom, "2026-02-01");
+  assert.equal(parsed.periodPaidTo, "2026-02-28");
 });

@@ -32,6 +32,6 @@ import { TelegramService } from "./telegram.service";
     TelegramIntegrationAdapter,
     TelegramInboxNotifierService,
   ],
-  exports: [TelegramService],
+  exports: [TelegramService, ConversationsService],
 })
 export class TelegramModule {}

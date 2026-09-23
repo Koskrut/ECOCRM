@@ -54,7 +54,12 @@ export function DailyAgendaWidget({ agenda, loading, error, onCompose }: DailyAg
       </div>
 
       {committed && completion ? (
-        <DailyAgendaProgressBar completion={completion} />
+        <div className="space-y-3">
+          <DailyAgendaProgressBar completion={completion} />
+          {completion.activeCount + completion.doneCount === 0 ? (
+            <p className="text-sm text-zinc-600">{t.emptyPlan}</p>
+          ) : null}
+        </div>
       ) : (
         <div className="space-y-2">
           <p className="text-sm text-zinc-600">{t.composeCta}</p>

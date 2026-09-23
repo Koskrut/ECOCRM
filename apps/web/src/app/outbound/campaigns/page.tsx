@@ -250,7 +250,9 @@ export default function CampaignsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [togglingId, setTogglingId] = useState<string | null>(null);
+  const [toggleError, setToggleError] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
+  const canCreate = scenarios.length > 0;
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -278,11 +280,15 @@ export default function CampaignsPage() {
 
   const handleToggle = async (campaign: OutboundCampaign) => {
     setTogglingId(campaign.id);
+    setToggleError(null);
     try {
       const updated = await outboundApi.setCampaignActive(campaign.id, !campaign.isActive);
       setItems((prev) => prev.map((c) => (c.id === updated.id ? { ...c, ...updated } : c)));
-    } catch {
-      // silently ignore — user can retry
+    } catch (e) {
+      setToggleError(
+        (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
+          (e instanceof Error ? e.message : "Не вдалося змінити статус кампанії"),
+      );
     } finally {
       setTogglingId(null);
     }
@@ -296,17 +302,36 @@ export default function CampaignsPage() {
         </p>
         <button
           type="button"
-          onClick={() => setShowCreate(true)}
-          className="inline-flex items-center gap-1.5 rounded-xl bg-zinc-900 px-3 py-2 text-sm font-medium text-white hover:bg-zinc-800"
+          onClick={() => canCreate && setShowCreate(true)}
+          disabled={!canCreate || loading}
+          title={
+            canCreate
+              ? undefined
+              : "Спочатку налаштуйте сценарії вихідних дзвінків у системі"
+          }
+          className="inline-flex items-center gap-1.5 rounded-xl bg-zinc-900 px-3 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
         >
           <Plus className="h-4 w-4" />
           Нова кампанія
         </button>
       </div>
 
+      {!loading && !canCreate ? (
+        <p className="mb-4 text-sm text-amber-800">
+          Немає доступних сценаріїв — створення кампанії тимчасово недоступне. Зверніться до
+          адміністратора.
+        </p>
+      ) : null}
+
       {error && (
         <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {error}
+        </div>
+      )}
+
+      {toggleError && (
+        <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {toggleError}
         </div>
       )}
 
@@ -327,7 +352,7 @@ export default function CampaignsPage() {
             {loading ? (
               <tr>
                 <td colSpan={7} className="px-4 py-10 text-center text-zinc-400">
-                  Loading campaigns…
+                  Завантаження кампаній…
                 </td>
               </tr>
             ) : items.length === 0 ? (
@@ -336,13 +361,19 @@ export default function CampaignsPage() {
                   <div className="flex flex-col items-center gap-2">
                     <span className="text-3xl">📋</span>
                     <p className="font-medium text-zinc-700">Ще немає кампаній</p>
-                    <button
-                      type="button"
-                      onClick={() => setShowCreate(true)}
-                      className="mt-1 text-sm font-medium text-blue-600 hover:underline"
-                    >
-                      Create your first campaign →
-                    </button>
+                    {canCreate ? (
+                      <button
+                        type="button"
+                        onClick={() => setShowCreate(true)}
+                        className="mt-1 text-sm font-medium text-blue-600 hover:underline"
+                      >
+                        Створити першу кампанію →
+                      </button>
+                    ) : (
+                      <p className="mt-1 text-sm text-zinc-500">
+                        Немає сценаріїв для створення кампанії
+                      </p>
+                    )}
                   </div>
                 </td>
               </tr>
@@ -402,7 +433,7 @@ export default function CampaignsPage() {
                       href={`/outbound/attempts?campaignId=${c.id}`}
                       className="text-xs font-medium text-zinc-500 hover:text-zinc-800"
                     >
-                      Attempts →
+                      Спроби →
                     </Link>
                   </td>
                 </tr>

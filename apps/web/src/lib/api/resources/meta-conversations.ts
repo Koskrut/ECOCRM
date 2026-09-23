@@ -19,7 +19,7 @@ export type MetaConversationLastMessage = {
   id: string;
   text: string | null;
   sentAt: string;
-  direction: "INBOUND" | "OUTBOUND";
+  direction: "INBOUND" | "OUTBOUND" | "INTERNAL";
 };
 
 export type MetaConversationItem = {
@@ -34,6 +34,9 @@ export type MetaConversationItem = {
   lead: MetaConversationLeadBrief | null;
   assignedTo: { id: string; fullName: string; email: string } | null;
   status: "OPEN" | "PENDING" | "CLOSED";
+  pinnedAt: string | null;
+  lastReadAt: string | null;
+  unreadCount: number;
   lastMessageAt: string | null;
   lastMessage: MetaConversationLastMessage | null;
   createdAt: string;
@@ -50,7 +53,7 @@ export type MetaConversationsListResponse = {
 export type MetaMessageItem = {
   id: string;
   conversationId: string;
-  direction: "INBOUND" | "OUTBOUND";
+  direction: "INBOUND" | "OUTBOUND" | "INTERNAL";
   text: string | null;
   externalMessageId: string | null;
   authorUserId: string | null;
@@ -77,6 +80,7 @@ export type ListMetaConversationsParams = {
   pageSize?: number;
   status?: string;
   assignedTo?: string;
+  hideNoise?: boolean;
 };
 
 export const metaConversationsApi = {
@@ -87,6 +91,7 @@ export const metaConversationsApi = {
     if (params.pageSize != null) searchParams.set("pageSize", String(params.pageSize));
     if (params.status) searchParams.set("status", params.status);
     if (params.assignedTo) searchParams.set("assignedTo", params.assignedTo);
+    if (params.hideNoise) searchParams.set("hideNoise", "true");
     const res = await apiHttp.get<MetaConversationsListResponse>(
       `/meta-conversations?${searchParams.toString()}`,
     );
@@ -111,6 +116,32 @@ export const metaConversationsApi = {
     const res = await apiHttp.post<MetaMessageItem>(
       `/meta-conversations/${conversationId}/messages`,
       { text },
+    );
+    return res.data;
+  },
+
+  addNote: async (conversationId: string, text: string): Promise<MetaMessageItem> => {
+    const res = await apiHttp.post<MetaMessageItem>(
+      `/meta-conversations/${conversationId}/notes`,
+      { text },
+    );
+    return res.data;
+  },
+
+  markRead: async (conversationId: string): Promise<{ ok: boolean; lastReadAt: string }> => {
+    const res = await apiHttp.post<{ ok: boolean; lastReadAt: string }>(
+      `/meta-conversations/${conversationId}/read`,
+    );
+    return res.data;
+  },
+
+  setPinned: async (
+    conversationId: string,
+    pinned: boolean,
+  ): Promise<{ id: string; pinnedAt: string | null }> => {
+    const res = await apiHttp.patch<{ id: string; pinnedAt: string | null }>(
+      `/meta-conversations/${conversationId}/pin`,
+      { pinned },
     );
     return res.data;
   },

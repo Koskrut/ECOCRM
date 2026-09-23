@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { strings } from "@/locales";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { format } from "date-fns";
@@ -38,6 +38,19 @@ type UserRow = { id: string; fullName: string; email: string; role: string };
 
 const PAGE_SIZE = 100;
 const WEEKDAYS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Нд"];
+
+const OUTCOME_FILTERS: OutcomeFilter[] = ["all", "success", "follow_up", "problem"];
+
+function parseOutcomeFilter(raw: string | null): OutcomeFilter {
+  if (raw && OUTCOME_FILTERS.includes(raw as OutcomeFilter)) {
+    return raw as OutcomeFilter;
+  }
+  return "all";
+}
+
+function parseViewMode(raw: string | null): ViewMode {
+  return raw === "calendar" ? "calendar" : "list";
+}
 
 function formatDateTime(value?: string | null) {
   return value ? format(new Date(value), "dd.MM.yyyy HH:mm") : "—";
@@ -219,20 +232,33 @@ function HistoryDaySectionHeader({
 }
 
 export default function VisitsHistoryPage() {
+  const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
+  const defaultRange = quickRange("30d");
   const [role, setRole] = useState<string | null>(null);
   const [users, setUsers] = useState<UserRow[]>([]);
-  const [ownerId, setOwnerId] = useState("");
-  const [from, setFrom] = useState(() => quickRange("30d").from);
-  const [to, setTo] = useState(() => quickRange("30d").to);
+  const [ownerId, setOwnerId] = useState(() => searchParams.get("owner") ?? "");
+  const [from, setFrom] = useState(() => searchParams.get("from") ?? defaultRange.from);
+  const [to, setTo] = useState(() => searchParams.get("to") ?? defaultRange.to);
   const [items, setItems] = useState<VisitHistoryItem[]>([]);
   const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(1);
+  const [page, setPage] = useState(() => {
+    const raw = searchParams.get("page");
+    const n = raw ? Number.parseInt(raw, 10) : 1;
+    return Number.isFinite(n) && n > 0 ? n : 1;
+  });
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<ViewMode>("list");
-  const [outcomeFilter, setOutcomeFilter] = useState<OutcomeFilter>("all");
-  const [selectedDay, setSelectedDay] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<ViewMode>(() => parseViewMode(searchParams.get("view")));
+  const [outcomeFilter, setOutcomeFilter] = useState<OutcomeFilter>(() =>
+    parseOutcomeFilter(searchParams.get("outcome")),
+  );
+  const [selectedDay, setSelectedDay] = useState<string | null>(() => {
+    const spFrom = searchParams.get("from");
+    const spTo = searchParams.get("to");
+    return spFrom && spFrom === spTo ? spFrom : null;
+  });
   const [myUserId, setMyUserId] = useState<string | null>(null);
   const [mapsApiKey, setMapsApiKey] = useState<string | null>(null);
   const [mapDialog, setMapDialog] = useState<VisitHistoryListSection | null>(null);
@@ -240,12 +266,36 @@ export default function VisitsHistoryPage() {
   useEffect(() => {
     const spFrom = searchParams.get("from");
     const spTo = searchParams.get("to");
-    const spOwner = searchParams.get("owner");
     if (spFrom) setFrom(spFrom);
     if (spTo) setTo(spTo);
-    if (spOwner) setOwnerId(spOwner);
-    if (spFrom && spFrom === spTo) setSelectedDay(spFrom);
+    setOwnerId(searchParams.get("owner") ?? "");
+    const rawPage = searchParams.get("page");
+    const n = rawPage ? Number.parseInt(rawPage, 10) : 1;
+    setPage(Number.isFinite(n) && n > 0 ? n : 1);
+    setViewMode(parseViewMode(searchParams.get("view")));
+    setOutcomeFilter(parseOutcomeFilter(searchParams.get("outcome")));
+    if (spFrom && spTo && spFrom === spTo) {
+      setSelectedDay(spFrom);
+    } else if (!spFrom || !spTo || spFrom !== spTo) {
+      setSelectedDay(null);
+    }
   }, [searchParams]);
+
+  useEffect(() => {
+    const params = new URLSearchParams();
+    params.set("from", from);
+    params.set("to", to);
+    if (ownerId) params.set("owner", ownerId);
+    if (page > 1) params.set("page", String(page));
+    if (viewMode !== "list") params.set("view", viewMode);
+    if (outcomeFilter !== "all") params.set("outcome", outcomeFilter);
+
+    const qs = params.toString();
+    const target = qs ? `${pathname}?${qs}` : pathname;
+    if (qs !== searchParams.toString()) {
+      router.replace(target, { scroll: false });
+    }
+  }, [from, to, ownerId, page, viewMode, outcomeFilter, pathname, router, searchParams]);
 
   useEffect(() => {
     apiHttp
@@ -333,6 +383,8 @@ export default function VisitsHistoryPage() {
     setMapDialog(section);
   }
 
+  const outcomeFilterActive = outcomeFilter !== "all";
+
   const resetFilters = () => {
     const r = quickRange("30d");
     setFrom(r.from);
@@ -341,6 +393,7 @@ export default function VisitsHistoryPage() {
     setOutcomeFilter("all");
     setPage(1);
     setSelectedDay(null);
+    setViewMode("list");
   };
 
   const applyQuickRange = (kind: "today" | "7d" | "30d" | "month") => {
@@ -492,7 +545,10 @@ export default function VisitsHistoryPage() {
               <label className="block text-xs font-medium text-zinc-600">Результат</label>
               <select
                 value={outcomeFilter}
-                onChange={(e) => setOutcomeFilter(e.target.value as OutcomeFilter)}
+                onChange={(e) => {
+                  setOutcomeFilter(e.target.value as OutcomeFilter);
+                  setPage(1);
+                }}
                 className="mt-0.5 rounded border border-zinc-200 px-2 py-1.5 text-sm"
               >
                 <option value="all">Все</option>
@@ -556,6 +612,13 @@ export default function VisitsHistoryPage() {
 
         {viewMode === "list" ? (
           <>
+            {outcomeFilterActive ? (
+              <p className="mb-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                Фільтр результату застосовується лише до поточної сторінки завантаження. Для
+                повного пошуку скиньте фільтр або змініть період.
+              </p>
+            ) : null}
+
             {selectedDay ? (
               <p className="mb-3 text-sm text-zinc-600">
                 Показано візити за{" "}
@@ -609,7 +672,7 @@ export default function VisitsHistoryPage() {
               </div>
             )}
 
-            {total > PAGE_SIZE ? (
+            {total > PAGE_SIZE && !outcomeFilterActive ? (
               <div className="mt-4 flex items-center justify-center gap-2 text-sm">
                 <button
                   type="button"
@@ -620,8 +683,7 @@ export default function VisitsHistoryPage() {
                   Назад
                 </button>
                 <span className="text-zinc-600">
-                  Стр. {page} · всего {total}
-                  {outcomeFilter !== "all" ? ` · на сторінці ${filteredItems.length}` : ""}
+                  Стр. {page} · усього {total}
                 </span>
                 <button
                   type="button"

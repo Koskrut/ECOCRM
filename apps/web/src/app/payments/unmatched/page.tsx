@@ -10,7 +10,7 @@ export default function UnmatchedRedirectPage() {
   }, [router]);
   return (
     <div className="flex min-h-[200px] items-center justify-center p-6 text-sm text-zinc-500">
-      Redirecting to Payments…
+      Перенаправлення до оплат…
     </div>
   );
 }

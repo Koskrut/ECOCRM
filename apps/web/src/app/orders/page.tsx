@@ -27,9 +27,14 @@ import {
 } from "./OrdersFiltersPopover";
 import { strings } from "@/locales";
 import { HelpHint } from "@/components/help/HelpHint";
+import { ErrorPanel } from "@/components/feedback";
 import { withPreservedScroll } from "@/lib/modal/preserveScroll";
 import { useEntityModalStack, type EntityModalFrame } from "@/lib/modal/useEntityModalStack";
+import { interpolate } from "@/lib/task-labels";
+
 import { EntityModalStackLayers } from "@/components/modals/EntityModalStackLayers";
+
+const tOrdersList = strings.contacts.card.orders;
 
 type OrderSummary = {
   id: string;
@@ -403,7 +408,7 @@ function OrdersPageContent() {
         });
         setTotal(res.data?.total ?? 0);
       } catch (err) {
-        setError(getErrMessage(err, "Error loading orders"));
+        setError(getErrMessage(err, tOrdersList.loadError));
         if (!appendOnNextFetch) setOrders([]);
       } finally {
         setAppendOnNextFetch(false);
@@ -508,7 +513,7 @@ function OrdersPageContent() {
       });
 
       const created = res.data;
-      if (!created?.id) throw new Error("Order created, but id missing");
+      if (!created?.id) throw new Error("Замовлення створено, але без ідентифікатора");
 
       openRootOrder(created.id);
 
@@ -660,11 +665,16 @@ function OrdersPageContent() {
           )}
         </div>
 
-        {error && (
-          <div className="mb-4 rounded-md border border-red-100 bg-red-50 p-4 text-sm text-red-600">
-            {error}
-          </div>
-        )}
+        {error && view === "list" ? (
+          <ErrorPanel
+            variant="inline"
+            className="mb-4"
+            message={error}
+            onRetry={() => void fetchOrders()}
+          />
+        ) : error ? (
+          <ErrorPanel variant="inline" className="mb-4" message={error} />
+        ) : null}
 
         {(attention || orderIdsFilter) && view !== "returns" ? (
           <div className="mb-3 flex flex-wrap items-center gap-2">
@@ -726,7 +736,7 @@ function OrdersPageContent() {
                         : "text-zinc-700 hover:bg-zinc-50"
                     }`}
                   >
-                    Kanban
+                    Канбан
                   </button>
                   {!isWarehouse ? (
                     <>
@@ -807,7 +817,11 @@ function OrdersPageContent() {
                 ? "Канбан повернень замовлень"
                 : view === "kanban"
                   ? "Канбан за стадіями замовлення"
-                  : `Всего: ${total} | Страница ${page} из ${totalPages}`}
+                  : interpolate(strings.contacts.page.totalPage, {
+                      total: String(total),
+                      page: String(page),
+                      totalPages: String(totalPages),
+                    })}
           </div>
         </div>
 
@@ -918,8 +932,8 @@ function OrdersPageContent() {
               <table className="w-full text-left text-sm">
                 <thead className="bg-zinc-100/80 text-xs font-medium uppercase text-zinc-500">
                   <tr>
-                    <th className="px-4 py-3">Заказ</th>
-                    <th className="px-4 py-3">Клиент/Компания</th>
+                    <th className="px-4 py-3">Замовлення</th>
+                    <th className="px-4 py-3">Клієнт/Компанія</th>
                     <th className="px-4 py-3 hidden lg:table-cell">Відповідальний</th>
                     <th className="px-4 py-3 hidden lg:table-cell">Склад</th>
                     <th className="px-4 py-3">Дата</th>
@@ -938,13 +952,13 @@ function OrdersPageContent() {
                   {loading ? (
                     <tr>
                       <td colSpan={9 + extraColumns.length} className="px-6 py-8 text-center text-zinc-500">
-                        Загрузка заказов...
+                        {tOrdersList.loading}
                       </td>
                     </tr>
                   ) : orders.length === 0 ? (
                     <tr>
                       <td colSpan={9 + extraColumns.length} className="px-6 py-8 text-center text-zinc-500">
-                        Замовлення не знайдено
+                        {strings.orders.modal.notFound}
                       </td>
                     </tr>
                   ) : (
@@ -961,7 +975,7 @@ function OrdersPageContent() {
                           <div className="flex items-center gap-2 font-medium text-zinc-900">
                             <span>{order.orderNumber}</span>
                             {order.orderSource === "STORE" && (
-                              <span title="Заказ с сайта" className="inline-flex text-violet-600">
+                              <span title="Замовлення з сайту" className="inline-flex text-violet-600">
                                 <Globe className="h-4 w-4" />
                               </span>
                             )}
@@ -1002,7 +1016,7 @@ function OrdersPageContent() {
                             {(order.isPaid ||
                               order.paymentStatus === "PAID" ||
                               order.paymentStatus === "OVERPAID") && (
-                              <span title="Заказ оплачен" className="inline-flex text-emerald-600">
+                              <span title="Замовлення оплачено" className="inline-flex text-emerald-600">
                                 <CheckCircle2 className="h-4 w-4" />
                               </span>
                             )}
@@ -1076,7 +1090,7 @@ function OrdersPageContent() {
 
               <div className="flex flex-wrap items-center justify-between gap-3 border-t border-zinc-200 bg-zinc-50 px-4 py-4">
                 <span className="text-xs text-zinc-500">
-                  Страница {page} из {totalPages} • Всего {total}
+                  Сторінка {page} з {totalPages} · Усього {total}
                 </span>
                 <div className="flex gap-2">
                   <button
@@ -1117,11 +1131,11 @@ function OrdersPageContent() {
             <div className="sm:hidden space-y-4">
               {loading ? (
                 <div className="rounded-xl border border-zinc-200 bg-white p-8 text-center text-sm text-zinc-500">
-                  Загрузка заказов...
+                  {tOrdersList.loading}
                 </div>
               ) : orders.length === 0 ? (
                 <div className="rounded-xl border border-zinc-200 bg-white p-8 text-center text-sm text-zinc-500">
-                  Замовлення не знайдено
+                  {strings.orders.modal.notFound}
                 </div>
               ) : (
                 <>
@@ -1137,7 +1151,7 @@ function OrdersPageContent() {
                   </div>
                   <div className="flex flex-wrap items-center justify-between gap-2 border-t border-zinc-200 bg-transparent px-2 py-4">
                     <span className="text-xs text-zinc-500">
-                      Страница {page}/{totalPages}
+                      Сторінка {page}/{totalPages}
                     </span>
                     <div className="flex gap-2">
                       <button
@@ -1253,7 +1267,7 @@ function OrdersPageContent() {
 
 export default function OrdersPage() {
   return (
-    <Suspense fallback={<div className="p-6 text-sm text-gray-600">Loading…</div>}>
+    <Suspense fallback={<div className="p-6 text-sm text-zinc-600">{strings.common.loading}</div>}>
       <OrdersPageContent />
     </Suspense>
   );

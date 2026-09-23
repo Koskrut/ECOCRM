@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   contactsApi,
   metaConversationsApi,
@@ -10,21 +10,27 @@ import {
   type MetaInboxChannel,
   type MetaMessageItem,
 } from "@/lib/api";
-import { isTextSelected } from "@/lib/dom";
-import { Link2, MessageCircle, Send, User, UserPlus } from "lucide-react";
+import { apiHttp } from "@/lib/api/client";
+import { MessageCircle, User } from "lucide-react";
 import { DateTime } from "luxon";
 import { CRM_LOCALE, CRM_TIME_ZONE } from "@/lib/crmDatetime";
-import { inboxStatusLabel } from "@/lib/status-labels";
+import { ErrorPanel } from "@/components/feedback";
+import { InboxStatusFilter } from "@/components/inbox/InboxStatusFilter";
+import { InboxStatusActions } from "@/components/inbox/InboxStatusActions";
+import { InboxConversationRow } from "@/components/inbox/InboxConversationRow";
+import { InboxComposer } from "@/components/inbox/InboxComposer";
+import { InboxClientCard } from "@/components/inbox/InboxClientCard";
+import { InboxSelectionToolbar } from "@/components/inbox/InboxSelectionToolbar";
+import { TaskCreateModal } from "@/components/tasks/TaskCreateModal";
+import {
+  useEntityModalStack,
+  type EntityModalFrame,
+} from "@/lib/modal/useEntityModalStack";
+import { EntityModalStackLayers } from "@/components/modals/EntityModalStackLayers";
 
 const PAGE_SIZE = 50;
 const LIST_PAGE_SIZE = 30;
 const INBOX_POLL_MS = 5_000;
-
-function isConversationUnread(c: MetaConversationItem, activeId: string | null): boolean {
-  if (c.status !== "OPEN") return false;
-  if (c.id === activeId) return false;
-  return c.lastMessage?.direction === "INBOUND";
-}
 
 function formatTime(iso: string): string {
   const d = DateTime.fromISO(iso, { setZone: true }).setZone(CRM_TIME_ZONE);
@@ -64,19 +70,30 @@ type MetaInboxPageProps = {
 };
 
 export function MetaInboxPage({ channel, title, emptyChannelLabel }: MetaInboxPageProps) {
+  const hideNoiseKey = `inbox.hideNoise.${channel.toLowerCase()}`;
+  const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
   const conversationIdFromUrl = searchParams.get("conversationId");
+  const statusFromUrl = searchParams.get("status");
 
   const [mobilePanel, setMobilePanel] = useState<"list" | "chat" | "card">("list");
   const [conversations, setConversations] = useState<MetaConversationItem[]>([]);
   const [conversationsTotal, setConversationsTotal] = useState(0);
   const [conversationsLoading, setConversationsLoading] = useState(true);
+  const [conversationsError, setConversationsError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(conversationIdFromUrl);
   const [messages, setMessages] = useState<MetaMessageItem[]>([]);
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [sendText, setSendText] = useState("");
   const [sending, setSending] = useState(false);
-  const [statusFilter, setStatusFilter] = useState<string>("OPEN");
+  const [statusFilter, setStatusFilter] = useState<string>(() => {
+    if (statusFromUrl === "OPEN" || statusFromUrl === "PENDING" || statusFromUrl === "CLOSED") {
+      return statusFromUrl;
+    }
+    return "OPEN";
+  });
+  const [hideNoise, setHideNoise] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [linkModalOpen, setLinkModalOpen] = useState(false);
   const [linkSearch, setLinkSearch] = useState("");
@@ -85,29 +102,67 @@ export function MetaInboxPage({ channel, title, emptyChannelLabel }: MetaInboxPa
   const [linkContactLoading, setLinkContactLoading] = useState(false);
   const [createContactLoading, setCreateContactLoading] = useState(false);
   const linkSearchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [taskModalOpen, setTaskModalOpen] = useState(false);
+  const [taskPreset, setTaskPreset] = useState<{
+    contactId?: string | null;
+    leadId?: string | null;
+    linkLabel?: string;
+    initialBody?: string;
+    initialTitle?: string;
+  } | null>(null);
+  const [orderRoot, setOrderRoot] = useState<EntityModalFrame | null>(null);
+  const orderStack = useEntityModalStack(orderRoot);
 
   const selected = conversations.find((c) => c.id === selectedId);
 
-  const loadConversations = useCallback(async (opts?: { silent?: boolean }) => {
-    if (!opts?.silent) setConversationsLoading(true);
-    try {
-      const res = await metaConversationsApi.list({
-        channel,
-        status: statusFilter || undefined,
-        page: 1,
-        pageSize: LIST_PAGE_SIZE,
-      });
-      setConversations(res.items);
-      setConversationsTotal(res.total);
-    } catch {
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const v = window.localStorage.getItem(hideNoiseKey);
+    if (v != null) setHideNoise(v === "1" || v === "true");
+  }, [hideNoiseKey]);
+
+  const loadConversations = useCallback(
+    async (opts?: { silent?: boolean }) => {
       if (!opts?.silent) {
-        setConversations([]);
-        setConversationsTotal(0);
+        setConversationsLoading(true);
+        setConversationsError(null);
       }
-    } finally {
-      if (!opts?.silent) setConversationsLoading(false);
+      try {
+        const res = await metaConversationsApi.list({
+          channel,
+          status: statusFilter || undefined,
+          hideNoise,
+          page: 1,
+          pageSize: LIST_PAGE_SIZE,
+        });
+        setConversations(res.items);
+        setConversationsTotal(res.total);
+        setConversationsError(null);
+      } catch (e) {
+        if (!opts?.silent) {
+          setConversations([]);
+          setConversationsTotal(0);
+          setConversationsError(e instanceof Error ? e.message : "Не вдалося завантажити діалоги");
+        }
+      } finally {
+        if (!opts?.silent) setConversationsLoading(false);
+      }
+    },
+    [channel, statusFilter, hideNoise],
+  );
+
+  useEffect(() => {
+    const params = new URLSearchParams(searchParams.toString());
+    if (statusFilter && statusFilter !== "OPEN") params.set("status", statusFilter);
+    else params.delete("status");
+    if (selectedId) params.set("conversationId", selectedId);
+    else params.delete("conversationId");
+    const next = params.toString();
+    const current = searchParams.toString();
+    if (next !== current) {
+      router.replace(`${pathname}${next ? `?${next}` : ""}`, { scroll: false });
     }
-  }, [channel, statusFilter]);
+  }, [statusFilter, selectedId, pathname, router, searchParams]);
 
   const loadMessages = useCallback(async (convId: string, opts?: { silent?: boolean }) => {
     if (!opts?.silent) setMessagesLoading(true);
@@ -162,8 +217,18 @@ export function MetaInboxPage({ channel, title, emptyChannelLabel }: MetaInboxPa
   };
 
   useEffect(() => {
-    if (selectedId) void loadMessages(selectedId);
-    else setMessages([]);
+    if (selectedId) {
+      void loadMessages(selectedId);
+      void metaConversationsApi.markRead(selectedId).then(() => {
+        setConversations((prev) =>
+          prev.map((c) =>
+            c.id === selectedId
+              ? { ...c, unreadCount: 0, lastReadAt: new Date().toISOString() }
+              : c,
+          ),
+        );
+      });
+    } else setMessages([]);
   }, [selectedId, loadMessages]);
 
   useEffect(() => {
@@ -203,17 +268,54 @@ export function MetaInboxPage({ channel, title, emptyChannelLabel }: MetaInboxPa
     }
   }, [selectedId, sendText, sending, loadConversations]);
 
+  const handleSendNote = useCallback(async () => {
+    const text = sendText.trim();
+    if (!text || !selectedId || sending) return;
+    setSendText("");
+    setSending(true);
+    try {
+      const created = await metaConversationsApi.addNote(selectedId, text);
+      setMessages((prev) => [...prev, created]);
+      void loadConversations();
+    } finally {
+      setSending(false);
+    }
+  }, [selectedId, sendText, sending, loadConversations]);
+
   const handleStatusChange = useCallback(
     async (convId: string, status: "OPEN" | "PENDING" | "CLOSED") => {
       try {
         await metaConversationsApi.updateStatus(convId, status);
-        setConversations((prev) => prev.map((c) => (c.id === convId ? { ...c, status } : c)));
+        setConversations((prev) => {
+          if (status !== statusFilter) return prev.filter((c) => c.id !== convId);
+          return prev.map((c) => (c.id === convId ? { ...c, status } : c));
+        });
       } catch {
         // keep UI
       }
     },
-    [],
+    [statusFilter],
   );
+
+  const handleTogglePin = useCallback(async (convId: string, currentlyPinned: boolean) => {
+    try {
+      const res = await metaConversationsApi.setPinned(convId, !currentlyPinned);
+      setConversations((prev) => {
+        const next = prev.map((c) =>
+          c.id === convId ? { ...c, pinnedAt: res.pinnedAt } : c,
+        );
+        return [...next].sort((a, b) => {
+          if (a.pinnedAt && !b.pinnedAt) return -1;
+          if (!a.pinnedAt && b.pinnedAt) return 1;
+          const ta = a.lastMessageAt ? Date.parse(a.lastMessageAt) : 0;
+          const tb = b.lastMessageAt ? Date.parse(b.lastMessageAt) : 0;
+          return tb - ta;
+        });
+      });
+    } catch {
+      // ignore
+    }
+  }, []);
 
   const handleLinkContact = useCallback(
     async (contactId: string) => {
@@ -243,6 +345,44 @@ export function MetaInboxPage({ channel, title, emptyChannelLabel }: MetaInboxPa
     }
   }, [selectedId, createContactLoading, loadConversations]);
 
+  const openTaskModal = useCallback(
+    (opts?: { initialBody?: string }) => {
+      if (!selected) return;
+      setTaskPreset({
+        contactId: selected.contactId,
+        leadId: selected.contactId ? null : selected.leadId,
+        linkLabel: conversationTitle(selected),
+        initialBody: opts?.initialBody,
+        initialTitle: opts?.initialBody
+          ? `Чат: ${conversationTitle(selected)}`
+          : undefined,
+      });
+      setTaskModalOpen(true);
+    },
+    [selected],
+  );
+
+  const handleCreateOrder = useCallback(async () => {
+    if (!selected?.contactId) return;
+    const contactId = selected.contactId;
+    let companyId: string | null = null;
+    try {
+      const card = await apiHttp.get<{ contact: { company: { id: string } | null } }>(
+        `/contacts/${contactId}/card`,
+      );
+      companyId = card.data?.contact?.company?.id ?? null;
+    } catch {
+      // optional
+    }
+    const res = await apiHttp.post<{ id: string }>("/orders", {
+      clientId: contactId,
+      contactId,
+      companyId,
+    });
+    const createdId = res.data?.id;
+    if (createdId) setOrderRoot({ type: "order", id: createdId });
+  }, [selected?.contactId]);
+
   const linkSearchDebounced = useMemo(() => linkSearch.trim(), [linkSearch]);
   useEffect(() => {
     if (!linkModalOpen) return;
@@ -264,6 +404,27 @@ export function MetaInboxPage({ channel, title, emptyChannelLabel }: MetaInboxPa
     };
   }, [linkModalOpen, linkSearchDebounced]);
 
+  const placeholderContext = useMemo(() => {
+    if (!selected) return {};
+    if (selected.contact) {
+      return {
+        clientName: [selected.contact.lastName, selected.contact.firstName]
+          .filter(Boolean)
+          .join(" "),
+        phone: selected.contact.phone,
+      };
+    }
+    if (selected.lead) {
+      return {
+        clientName:
+          selected.lead.fullName ||
+          [selected.lead.lastName, selected.lead.firstName].filter(Boolean).join(" "),
+        phone: selected.lead.phone,
+      };
+    }
+    return {};
+  }, [selected]);
+
   return (
     <div className="flex h-[calc(100dvh-5rem)] max-w-full min-w-0 gap-0 overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm">
       <aside
@@ -276,76 +437,51 @@ export function MetaInboxPage({ channel, title, emptyChannelLabel }: MetaInboxPa
             <MessageCircle className="h-5 w-5" />
             {title}
           </h2>
-          <div className="mt-2 flex gap-1">
-            {(["OPEN", "PENDING", "CLOSED"] as const).map((s) => (
-              <button
-                key={s}
-                type="button"
-                onClick={() => setStatusFilter(s)}
-                className={`rounded px-2 py-1 text-xs font-medium ${
-                  statusFilter === s
-                    ? "bg-accent-gradient text-white"
-                    : "bg-zinc-200/80 text-zinc-600 hover:bg-zinc-200"
-                }`}
-              >
-                {s}
-              </button>
-            ))}
+          <div className="mt-2">
+            <InboxStatusFilter
+              value={statusFilter}
+              onChange={setStatusFilter}
+              hideNoise={hideNoise}
+              onHideNoiseChange={(next) => {
+                setHideNoise(next);
+                window.localStorage.setItem(hideNoiseKey, next ? "1" : "0");
+              }}
+            />
           </div>
         </div>
         <div className="flex-1 overflow-y-auto">
           {conversationsLoading ? (
             <div className="p-4 text-center text-sm text-zinc-500">Завантаження…</div>
+          ) : conversationsError ? (
+            <div className="p-3">
+              <ErrorPanel
+                message={conversationsError}
+                onRetry={() => void loadConversations()}
+              />
+            </div>
           ) : conversations.length === 0 ? (
             <div className="p-4 text-center text-sm text-zinc-500">Немає діалогів</div>
           ) : (
             <ul className="divide-y divide-zinc-100">
-              {conversations.map((c) => {
-                const unread = isConversationUnread(c, selectedId);
-                return (
-                  <li key={c.id}>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (isTextSelected()) return;
-                        selectConversation(c.id);
-                      }}
-                      className={`w-full px-3 py-3 text-left transition-colors ${
-                        selectedId === c.id ? "bg-accent-gradient/10" : "hover:bg-zinc-100/80"
-                      } ${unread ? "border-l-2 border-l-blue-600" : ""}`}
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <span
-                          className={`truncate text-zinc-900 ${unread ? "font-semibold" : "font-medium"}`}
-                        >
-                          {conversationTitle(c)}
-                        </span>
-                        <span className="flex shrink-0 items-center gap-1.5">
-                          {unread && (
-                            <span
-                              className="size-2 rounded-full bg-blue-600"
-                              aria-label="Нове повідомлення"
-                            />
-                          )}
-                          <span className="text-xs text-zinc-500">
-                            {c.lastMessageAt ? formatTime(c.lastMessageAt) : ""}
-                          </span>
-                        </span>
-                      </div>
-                      {c.lastMessage?.text && (
-                        <p
-                          className={`mt-0.5 truncate text-xs ${unread ? "text-zinc-700" : "text-zinc-500"}`}
-                        >
-                          {c.lastMessage.text}
-                        </p>
-                      )}
-                      <span className="mt-1 inline-block rounded bg-zinc-200/80 px-1.5 py-0.5 text-[10px] text-zinc-600">
-                        {inboxStatusLabel(c.status)}
-                      </span>
-                    </button>
-                  </li>
-                );
-              })}
+              {conversations.map((c) => (
+                <InboxConversationRow
+                  key={c.id}
+                  item={{
+                    id: c.id,
+                    title: conversationTitle(c),
+                    status: c.status,
+                    pinnedAt: c.pinnedAt,
+                    unreadCount: selectedId === c.id ? 0 : c.unreadCount ?? 0,
+                    lastMessageAt: c.lastMessageAt,
+                    lastMessageText: c.lastMessage?.text ?? null,
+                    lastMessageDirection: c.lastMessage?.direction ?? null,
+                  }}
+                  selected={selectedId === c.id}
+                  timeLabel={c.lastMessageAt ? formatTime(c.lastMessageAt) : ""}
+                  onSelect={() => selectConversation(c.id)}
+                  onTogglePin={() => void handleTogglePin(c.id, !!c.pinnedAt)}
+                />
+              ))}
             </ul>
           )}
         </div>
@@ -392,84 +528,82 @@ export function MetaInboxPage({ channel, title, emptyChannelLabel }: MetaInboxPa
                   <User className="h-4 w-4" />
                 </button>
               </div>
-              <div className="mt-1 flex gap-2">
-                {(["OPEN", "PENDING", "CLOSED"] as const).map((s) => (
-                  <button
-                    key={s}
-                    type="button"
-                    onClick={() => selected && handleStatusChange(selected.id, s)}
-                    className={`rounded px-2 py-0.5 text-xs ${
-                      selected?.status === s
-                        ? "bg-zinc-800 text-white"
-                        : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
-                    }`}
-                  >
-                    {s}
-                  </button>
-                ))}
-              </div>
+              {selected ? (
+                <InboxStatusActions
+                  value={selected.status}
+                  onChange={(s) => void handleStatusChange(selected.id, s)}
+                />
+              ) : null}
             </div>
 
-            <div className="flex-1 overflow-y-auto p-4">
+            <div className="relative flex-1 overflow-y-auto p-4">
               {messagesLoading ? (
-                <div className="flex justify-center py-8 text-zinc-500">Завантаження повідомлень…</div>
+                <div className="flex justify-center py-8 text-zinc-500">
+                  Завантаження повідомлень…
+                </div>
               ) : (
                 <div className="space-y-3">
-                  {messages.map((m) => (
-                    <div
-                      key={m.id}
-                      className={`flex ${m.direction === "OUTBOUND" ? "justify-end" : "justify-start"}`}
-                    >
+                  {messages.map((m) => {
+                    if (m.direction === "INTERNAL") {
+                      return (
+                        <div key={m.id} className="flex justify-center">
+                          <div className="max-w-[85%] rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+                            <p className="text-[10px] font-medium text-amber-700">
+                              Тільки для команди
+                              {m.author ? ` · ${m.author.fullName}` : ""}
+                            </p>
+                            <p className="mt-0.5 whitespace-pre-wrap break-words">{m.text}</p>
+                            <p className="mt-1 text-[10px] text-amber-600/80">
+                              {formatTime(m.sentAt)}
+                            </p>
+                          </div>
+                        </div>
+                      );
+                    }
+                    return (
                       <div
-                        className={`max-w-[75%] rounded-lg px-3 py-2 text-sm ${
-                          m.direction === "OUTBOUND"
-                            ? "bg-accent-gradient text-white"
-                            : "bg-zinc-100 text-zinc-900"
-                        }`}
+                        key={m.id}
+                        className={`flex ${m.direction === "OUTBOUND" ? "justify-end" : "justify-start"}`}
                       >
-                        <p className="whitespace-pre-wrap break-words">{m.text || "(вкладення)"}</p>
-                        <p
-                          className={`mt-1 text-[10px] ${
-                            m.direction === "OUTBOUND" ? "text-white/80" : "text-zinc-500"
+                        <div
+                          data-inbox-inbound={m.direction === "INBOUND" ? "1" : undefined}
+                          className={`max-w-[75%] rounded-lg px-3 py-2 text-sm ${
+                            m.direction === "OUTBOUND"
+                              ? "bg-accent-gradient text-white"
+                              : "bg-zinc-100 text-zinc-900"
                           }`}
                         >
-                          {formatTime(m.sentAt)}
-                          {m.direction === "OUTBOUND" && m.author && ` · ${m.author.fullName}`}
-                        </p>
+                          <p className="whitespace-pre-wrap break-words">
+                            {m.text || "(вкладення)"}
+                          </p>
+                          <p
+                            className={`mt-1 text-[10px] ${
+                              m.direction === "OUTBOUND" ? "text-white/80" : "text-zinc-500"
+                            }`}
+                          >
+                            {formatTime(m.sentAt)}
+                            {m.direction === "OUTBOUND" && m.author && ` · ${m.author.fullName}`}
+                          </p>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                   <div ref={messagesEndRef} />
                 </div>
               )}
+              <InboxSelectionToolbar
+                onCreateTaskFromSelection={(text) => openTaskModal({ initialBody: text })}
+              />
             </div>
 
-            <div className="border-t border-zinc-200 p-3">
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  void handleSend();
-                }}
-                className="flex gap-2"
-              >
-                <input
-                  type="text"
-                  value={sendText}
-                  onChange={(e) => setSendText(e.target.value)}
-                  placeholder="Повідомлення…"
-                  className="min-w-0 flex-1 rounded-lg border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400 focus:ring-1 focus:ring-zinc-400"
-                  disabled={sending}
-                />
-                <button
-                  type="submit"
-                  disabled={!sendText.trim() || sending}
-                  className="rounded-lg bg-accent-gradient px-4 py-2 text-white shadow-sm transition-opacity hover:opacity-90 disabled:opacity-50"
-                  aria-label="Відправити"
-                >
-                  <Send className="h-4 w-4" />
-                </button>
-              </form>
-            </div>
+            <InboxComposer
+              value={sendText}
+              onChange={setSendText}
+              onSend={() => void handleSend()}
+              onSendNote={() => void handleSendNote()}
+              sending={sending}
+              placeholderContext={placeholderContext}
+            />
           </>
         )}
       </section>
@@ -479,15 +613,6 @@ export function MetaInboxPage({ channel, title, emptyChannelLabel }: MetaInboxPa
           mobilePanel === "card" ? "flex" : "hidden md:flex"
         }`}
       >
-        {mobilePanel === "card" ? (
-          <button
-            type="button"
-            onClick={() => setMobilePanel("chat")}
-            className="mb-3 self-start rounded-md border border-zinc-200 px-2 py-1 text-sm text-zinc-700 hover:bg-zinc-100 md:hidden"
-          >
-            ← До чату
-          </button>
-        ) : null}
         {!selected ? (
           <div className="flex flex-1 items-center justify-center text-center text-sm text-zinc-500">
             <div>
@@ -496,112 +621,54 @@ export function MetaInboxPage({ channel, title, emptyChannelLabel }: MetaInboxPa
             </div>
           </div>
         ) : (
-          <div className="space-y-3">
-            <h4 className="text-sm font-medium text-zinc-700">Картка</h4>
-            {selected.contact && (
-              <div className="rounded-lg border border-zinc-200 bg-white p-3 text-sm">
-                <p className="font-medium text-zinc-900">
-                  {selected.contact.lastName} {selected.contact.firstName}
-                </p>
-                <p className="mt-1 text-zinc-600">{selected.contact.phone}</p>
-                <a
-                  href={`/contacts?contactId=${selected.contact.id}`}
-                  className="mt-2 inline-block text-xs text-blue-600 hover:underline"
-                >
-                  Відкрити контакт →
-                </a>
-              </div>
-            )}
-            {selected.lead && !selected.contact && (
-              <div className="rounded-lg border border-zinc-200 bg-white p-3 text-sm">
-                <p className="font-medium text-zinc-900">
-                  {selected.lead.fullName ||
-                    [selected.lead.lastName, selected.lead.firstName].filter(Boolean).join(" ") ||
-                    "Лід"}
-                </p>
-                {selected.lead.phone && (
-                  <p className="mt-1 text-zinc-600">{selected.lead.phone}</p>
-                )}
-                <div className="mt-2 flex flex-wrap gap-2">
-                  <a
-                    href={`/leads?leadId=${selected.lead.id}`}
-                    className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline"
-                  >
-                    Відкрити лід →
-                  </a>
-                  <button
-                    type="button"
-                    onClick={() => setLinkModalOpen(true)}
-                    disabled={linkContactLoading}
-                    className="inline-flex items-center gap-1 rounded border border-zinc-200 px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
-                  >
-                    <Link2 className="h-3 w-3" />
-                    Прив&apos;язати до контакту
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void handleCreateContactFromLead()}
-                    disabled={createContactLoading || !selected.lead.phone}
-                    title={
-                      !selected.lead.phone
-                        ? "Додайте телефон до ліда"
-                        : "Створити контакт з даних ліда"
-                    }
-                    className="inline-flex items-center gap-1 rounded border border-zinc-200 px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
-                  >
-                    <UserPlus className="h-3 w-3" />
-                    {createContactLoading ? "…" : "Створити контакт"}
-                  </button>
-                </div>
-                {linkModalOpen && (
-                  <div className="mt-3 rounded border border-zinc-200 bg-zinc-50 p-2">
-                    <input
-                      type="text"
-                      value={linkSearch}
-                      onChange={(e) => setLinkSearch(e.target.value)}
-                      placeholder="Пошук контакту…"
-                      className="w-full rounded border border-zinc-200 px-2 py-1.5 text-sm outline-none"
-                      autoFocus
-                    />
-                    {linkSearching && <p className="mt-1 text-xs text-zinc-500">Пошук…</p>}
-                    {!linkSearching && linkSearch.trim() && linkResults.length === 0 && (
-                      <p className="mt-1 text-xs text-zinc-500">Нічого не знайдено</p>
-                    )}
-                    <ul className="mt-2 max-h-32 overflow-y-auto">
-                      {linkResults.map((c) => (
-                        <li key={c.id}>
-                          <button
-                            type="button"
-                            onClick={() => void handleLinkContact(c.id)}
-                            disabled={linkContactLoading}
-                            className="w-full rounded px-2 py-1.5 text-left text-xs hover:bg-zinc-200 disabled:opacity-50"
-                          >
-                            {c.lastName} {c.firstName} — {c.phone}
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setLinkModalOpen(false);
-                        setLinkSearch("");
-                        setLinkResults([]);
-                      }}
-                      className="mt-2 text-xs text-zinc-500 hover:underline"
-                    >
-                      Скасувати
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
-            {!selected.contact && !selected.lead && (
-              <p className="text-sm text-zinc-500">{emptyChannelLabel}</p>
-            )}
-          </div>
+          <InboxClientCard
+            contact={selected.contact}
+            lead={selected.lead}
+            link={{
+              linkModalOpen,
+              linkSearch,
+              linkSearching,
+              linkResults,
+              linkContactLoading,
+              createContactLoading,
+              onOpenLink: () => setLinkModalOpen(true),
+              onCloseLink: () => {
+                setLinkModalOpen(false);
+                setLinkSearch("");
+                setLinkResults([]);
+              },
+              onLinkSearchChange: setLinkSearch,
+              onLinkContact: (id) => void handleLinkContact(id),
+              onCreateContact: () => void handleCreateContactFromLead(),
+            }}
+            onCreateTask={() => openTaskModal()}
+            onCreateOrder={selected.contactId ? handleCreateOrder : undefined}
+            unlinkedLabel={emptyChannelLabel}
+            mobileBack={
+              mobilePanel === "card" ? () => setMobilePanel("chat") : undefined
+            }
+          />
         )}
       </aside>
+
+      <TaskCreateModal
+        open={taskModalOpen}
+        onClose={() => setTaskModalOpen(false)}
+        onCreated={() => setTaskModalOpen(false)}
+        preset={taskPreset ?? undefined}
+      />
+      <EntityModalStackLayers
+        frames={orderStack.frames}
+        root={orderRoot}
+        onOpen={orderStack.open}
+        onCloseFrom={(index) => {
+          if (index <= 0) setOrderRoot(null);
+          else orderStack.closeFrom(index);
+        }}
+        onReplace={orderStack.replace}
+        onReplaceRoot={setOrderRoot}
+        onUpdate={() => undefined}
+      />
     </div>
   );
 }

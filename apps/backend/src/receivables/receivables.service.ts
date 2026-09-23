@@ -6,6 +6,7 @@ import {
 } from "@nestjs/common";
 import {
   ActivityType,
+  ConversationChannel,
   ReceivablesReconcileStatus,
   UserRole,
   type Prisma,
@@ -36,10 +37,15 @@ import { DateTime } from "luxon";
 import { CRM_TIME_ZONE } from "../crm-timezone";
 import {
   formatDebtCommentTitle,
+  isDelayReasonCode,
   isPromiseBroken,
   isPromiseForYmd,
   parseDebtCommentTitle,
 } from "./debt-promise.util";
+import {
+  agingBucketIndex,
+  createEmptyAgingBuckets,
+} from "./receivables-aging.util";
 import {
   buildBitrixLegacyDebtOrderWhere,
   buildOperationalDebtOrderWhere,
@@ -48,6 +54,7 @@ import {
   computeReconcileStatus,
   isReceivablesDeltaStatus,
 } from "./receivables-scope.util";
+import { ConversationsService } from "../integrations/telegram/conversations.service";
 
 type ContactDebtRow = {
   contactId: string;
@@ -94,6 +101,7 @@ export class ReceivablesService {
     private readonly prisma: PrismaService,
     private readonly settings: SettingsService,
     private readonly scopeService: AnalyticsScopeService,
+    private readonly conversations: ConversationsService,
   ) {}
 
   async listSnapshots(limit = 20) {
@@ -746,6 +754,8 @@ export class ReceivablesService {
       needsComment?: boolean;
       promisedToday?: boolean;
       promiseBroken?: boolean;
+      reconcileDeltaOnly?: boolean;
+      delayReason?: string;
     },
   ) {
     const scope = await this.scopeService.resolveDashboardScope(actor, { managerId: query.ownerId });
@@ -786,6 +796,10 @@ export class ReceivablesService {
     }
 
     const lastCommentByContact = await this.loadLastDebtComments(items.map((i) => i.contactId));
+    const reconcileByContact = await this.loadLatestReconcileStatusMap(
+      items.map((i) => i.contactId),
+      actor,
+    );
 
     if (query.needsComment) {
       const staleBefore = new Date(
@@ -808,6 +822,20 @@ export class ReceivablesService {
       items = items.filter((i) => {
         const parsed = parseDebtCommentTitle(lastCommentByContact.get(i.contactId)?.title ?? null);
         return isPromiseBroken(parsed.promiseDate, todayYmd);
+      });
+    }
+
+    if (query.reconcileDeltaOnly) {
+      items = items.filter((i) => {
+        const status = reconcileByContact.get(i.contactId);
+        return status != null && isReceivablesDeltaStatus(status);
+      });
+    }
+
+    if (query.delayReason && isDelayReasonCode(query.delayReason)) {
+      items = items.filter((i) => {
+        const parsed = parseDebtCommentTitle(lastCommentByContact.get(i.contactId)?.title ?? null);
+        return parsed.delayReasonCode === query.delayReason;
       });
     }
 
@@ -835,6 +863,10 @@ export class ReceivablesService {
         : [];
     const userMap = new Map(users.map((o) => [o.id, o.fullName]));
 
+    const telegramByContact = await this.loadTelegramConversationIds(
+      pageItems.map((i) => i.contactId),
+    );
+
     return {
       currency,
       items: pageItems.map((i) => {
@@ -848,12 +880,181 @@ export class ReceivablesService {
           lastCommentAuthorName: last ? (userMap.get(last.createdBy) ?? null) : null,
           promiseDate: parsed.promiseDate,
           promiseAmount: parsed.promiseAmount,
+          delayReasonCode: parsed.delayReasonCode,
+          reconcileStatus: reconcileByContact.get(i.contactId) ?? null,
+          telegramConversationId: telegramByContact.get(i.contactId) ?? null,
         };
       }),
       total,
       page: pagination.page,
       pageSize: pagination.pageSize,
     };
+  }
+
+  private async loadLatestReconcileStatusMap(
+    contactIds: string[],
+    actor: AuthUser,
+  ): Promise<Map<string, ReceivablesReconcileStatus>> {
+    const map = new Map<string, ReceivablesReconcileStatus>();
+    const uniqueIds = [...new Set(contactIds.filter(Boolean))];
+    if (uniqueIds.length === 0) return map;
+
+    const snapshotId = await this.getLatestSnapshotId();
+    if (!snapshotId) return map;
+
+    const lines = await this.prisma.receivablesSnapshotLine.findMany({
+      where: {
+        snapshotId,
+        contactId: { in: uniqueIds },
+        ...(actor.role === UserRole.MANAGER ? { status: { not: "ONLY_1C" } } : {}),
+      },
+      select: { contactId: true, status: true },
+    });
+    for (const line of lines) {
+      if (line.contactId) map.set(line.contactId, line.status);
+    }
+    return map;
+  }
+
+  private async loadTelegramConversationIds(contactIds: string[]) {
+    const map = new Map<string, string>();
+    const uniqueIds = [...new Set(contactIds.filter(Boolean))];
+    if (uniqueIds.length === 0) return map;
+    const rows = await this.prisma.conversation.findMany({
+      where: {
+        contactId: { in: uniqueIds },
+        channel: ConversationChannel.TELEGRAM,
+        telegramChatId: { not: null },
+      },
+      select: { id: true, contactId: true },
+      orderBy: { lastMessageAt: "desc" },
+    });
+    for (const row of rows) {
+      if (row.contactId && !map.has(row.contactId)) map.set(row.contactId, row.id);
+    }
+    return map;
+  }
+
+  async getWorkAging(actor: AuthUser, ownerId?: string) {
+    const scope = await this.scopeService.resolveDashboardScope(actor, { managerId: ownerId });
+    const rates = await this.settings.getExchangeRates();
+    const currency = getBaseCurrency(rates);
+    const buckets = createEmptyAgingBuckets();
+
+    if (scope.emptyTeam) {
+      return { currency, buckets };
+    }
+
+    const contactDebt = await this.loadContactDebtMap(scope, rates);
+    const clientsByBucket = buckets.map(() => new Set<string>());
+
+    for (const row of contactDebt.values()) {
+      if (!(row.overdueBase > 0) || row.overdueDays <= 0) continue;
+      const idx = agingBucketIndex(row.overdueDays);
+      buckets[idx]!.amount += row.overdueBase;
+      clientsByBucket[idx]!.add(row.contactId);
+      buckets[idx]!.ordersCount += row.orderCount;
+    }
+
+    return {
+      currency,
+      buckets: buckets.map((b, i) => ({
+        label: b.label,
+        amount: Math.round(b.amount * 100) / 100,
+        clientsCount: clientsByBucket[i]!.size,
+        ordersCount: b.ordersCount,
+      })),
+    };
+  }
+
+  async batchActions(
+    actor: AuthUser,
+    body: {
+      contactIds?: string[];
+      action?: "assign_owner" | "create_call_tasks" | "send_telegram";
+      ownerId?: string;
+      message?: string;
+    },
+  ) {
+    const contactIds = [...new Set((body.contactIds ?? []).map((id) => id.trim()).filter(Boolean))];
+    if (contactIds.length === 0) throw new BadRequestException("contactIds is required");
+    if (contactIds.length > 100) throw new BadRequestException("Too many contacts (max 100)");
+    const action = body.action;
+    if (!action) throw new BadRequestException("action is required");
+
+    const contacts = await this.prisma.contact.findMany({
+      where: { id: { in: contactIds } },
+      select: { id: true, ownerId: true, firstName: true, lastName: true },
+    });
+    if (contacts.length === 0) throw new NotFoundException("Contacts not found");
+    for (const c of contacts) this.assertContactAccess(c, actor);
+
+    if (action === "assign_owner") {
+      if (actor.role !== UserRole.ADMIN && actor.role !== UserRole.LEAD) {
+        throw new ForbiddenException("Only ADMIN or LEAD can reassign managers");
+      }
+      const ownerId = body.ownerId?.trim();
+      if (!ownerId) throw new BadRequestException("ownerId is required");
+      const owner = await this.prisma.user.findUnique({
+        where: { id: ownerId },
+        select: { id: true, role: true },
+      });
+      if (!owner || (owner.role !== UserRole.MANAGER && owner.role !== UserRole.LEAD)) {
+        throw new BadRequestException("Invalid ownerId");
+      }
+      await this.prisma.contact.updateMany({
+        where: { id: { in: contacts.map((c) => c.id) } },
+        data: { ownerId },
+      });
+      return { ok: true, action, processed: contacts.length, skipped: 0 };
+    }
+
+    if (action === "create_call_tasks") {
+      const dueAt = DateTime.now().setZone(CRM_TIME_ZONE).endOf("day").toJSDate();
+      let processed = 0;
+      for (const c of contacts) {
+        const assigneeId = c.ownerId ?? actor.id;
+        const name = [c.firstName, c.lastName].filter(Boolean).join(" ") || c.id;
+        await this.prisma.task.create({
+          data: {
+            assigneeId,
+            createdById: actor.id,
+            contactId: c.id,
+            title: `Дзвінок: дебіторка — ${name}`,
+            body: "Задача створена з розділу Дебіторка (масова дія).",
+            dueAt,
+          },
+        });
+        processed += 1;
+      }
+      return { ok: true, action, processed, skipped: 0 };
+    }
+
+    if (action === "send_telegram") {
+      const message = body.message?.trim() ?? "";
+      if (!message) throw new BadRequestException("message is required");
+      const telegramMap = await this.loadTelegramConversationIds(contacts.map((c) => c.id));
+      let processed = 0;
+      let skipped = 0;
+      const errors: string[] = [];
+      for (const c of contacts) {
+        const conversationId = telegramMap.get(c.id);
+        if (!conversationId) {
+          skipped += 1;
+          continue;
+        }
+        try {
+          await this.conversations.sendMessage(conversationId, message, actor);
+          processed += 1;
+        } catch (e) {
+          skipped += 1;
+          errors.push(`${c.id}: ${e instanceof Error ? e.message : "send failed"}`);
+        }
+      }
+      return { ok: true, action, processed, skipped, errors: errors.slice(0, 10) };
+    }
+
+    throw new BadRequestException("Unknown action");
   }
 
   private async loadLastDebtComments(contactIds: string[]) {
@@ -896,12 +1097,21 @@ export class ReceivablesService {
     actor: AuthUser,
     contactId: string,
     bodyRaw: string,
-    promise?: { date?: string; amount?: number | null },
+    promise?: { date?: string; amount?: number | null; delayReasonCode?: string | null },
   ) {
     const body = bodyRaw?.trim() ?? "";
-    const title = formatDebtCommentTitle(promise?.date, promise?.amount ?? null);
-    const hasPromise = title !== RECEIVABLES_COMMENT_TITLE;
-    if (!body && !hasPromise) throw new BadRequestException("Comment body is required");
+    const delayReasonCode = promise?.delayReasonCode?.trim() || null;
+    if (delayReasonCode && !isDelayReasonCode(delayReasonCode)) {
+      throw new BadRequestException("Invalid delayReasonCode");
+    }
+    const title = formatDebtCommentTitle(
+      promise?.date,
+      promise?.amount ?? null,
+      delayReasonCode,
+    );
+    const hasPromise = Boolean(promise?.date && /^\d{4}-\d{2}-\d{2}$/.test(promise.date.trim()));
+    const hasReason = Boolean(delayReasonCode);
+    if (!body && !hasPromise && !hasReason) throw new BadRequestException("Comment body is required");
     if (body.length > 10_000) throw new BadRequestException("Comment is too long");
 
     const contact = await this.prisma.contact.findUnique({
@@ -915,7 +1125,7 @@ export class ReceivablesService {
       data: {
         type: ActivityType.COMMENT,
         title,
-        body: body || "Обіцяна оплата",
+        body: body || (hasPromise ? "Обіцяна оплата" : "Причина прострочки"),
         createdBy: actor.id,
         contactId: contact.id,
       },
@@ -942,6 +1152,7 @@ export class ReceivablesService {
       authorName: author?.fullName ?? null,
       promiseDate: parsed.promiseDate,
       promiseAmount: parsed.promiseAmount,
+      delayReasonCode: parsed.delayReasonCode,
     };
   }
 
@@ -992,6 +1203,7 @@ export class ReceivablesService {
           authorName: authorMap.get(r.createdBy) ?? null,
           promiseDate: parsed.promiseDate,
           promiseAmount: parsed.promiseAmount,
+          delayReasonCode: parsed.delayReasonCode,
         };
       }),
     };

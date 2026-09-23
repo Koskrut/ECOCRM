@@ -2,6 +2,7 @@ export * from "./audit";
 export * from "./companies";
 export * from "./contacts";
 export * from "./conversations";
+export * from "./canned-responses";
 export * from "./meta-conversations";
 export * from "./leads";
 export * from "./manual-calling";

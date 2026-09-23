@@ -19,7 +19,7 @@ export type ConversationLastMessage = {
   id: string;
   text: string | null;
   sentAt: string;
-  direction: "INBOUND" | "OUTBOUND";
+  direction: "INBOUND" | "OUTBOUND" | "INTERNAL";
 };
 
 export type ConversationItem = {
@@ -32,6 +32,9 @@ export type ConversationItem = {
   lead: ConversationLeadBrief | null;
   assignedTo: { id: string; fullName: string; email: string } | null;
   status: "OPEN" | "PENDING" | "CLOSED";
+  pinnedAt: string | null;
+  lastReadAt: string | null;
+  unreadCount: number;
   lastMessageAt: string | null;
   lastMessage: ConversationLastMessage | null;
   createdAt: string;
@@ -48,7 +51,7 @@ export type ConversationsListResponse = {
 export type MessageItem = {
   id: string;
   conversationId: string;
-  direction: "INBOUND" | "OUTBOUND";
+  direction: "INBOUND" | "OUTBOUND" | "INTERNAL";
   text: string | null;
   tgMessageId: string | null;
   authorUserId: string | null;
@@ -74,6 +77,7 @@ export type ListConversationsParams = {
   channel?: string;
   status?: string;
   assignedTo?: string;
+  hideNoise?: boolean;
 };
 
 export type ListMessagesParams = {
@@ -89,6 +93,7 @@ export const conversationsApi = {
     if (params?.channel) searchParams.set("channel", params.channel);
     if (params?.status) searchParams.set("status", params.status);
     if (params?.assignedTo) searchParams.set("assignedTo", params.assignedTo);
+    if (params?.hideNoise) searchParams.set("hideNoise", "true");
     const qs = searchParams.toString();
     const res = await apiHttp.get<ConversationsListResponse>(
       `/conversations${qs ? `?${qs}` : ""}`,
@@ -117,6 +122,31 @@ export const conversationsApi = {
     const res = await apiHttp.post<MessageItem>(
       `/conversations/${conversationId}/messages`,
       { text },
+    );
+    return res.data;
+  },
+
+  addNote: async (conversationId: string, text: string): Promise<MessageItem> => {
+    const res = await apiHttp.post<MessageItem>(`/conversations/${conversationId}/notes`, {
+      text,
+    });
+    return res.data;
+  },
+
+  markRead: async (conversationId: string): Promise<{ ok: boolean; lastReadAt: string }> => {
+    const res = await apiHttp.post<{ ok: boolean; lastReadAt: string }>(
+      `/conversations/${conversationId}/read`,
+    );
+    return res.data;
+  },
+
+  setPinned: async (
+    conversationId: string,
+    pinned: boolean,
+  ): Promise<{ id: string; pinnedAt: string | null }> => {
+    const res = await apiHttp.patch<{ id: string; pinnedAt: string | null }>(
+      `/conversations/${conversationId}/pin`,
+      { pinned },
     );
     return res.data;
   },

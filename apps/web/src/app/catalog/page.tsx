@@ -1,6 +1,7 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState, useDeferredValue } from "react";
+import { Fragment, Suspense, useCallback, useEffect, useMemo, useRef, useState, useDeferredValue } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   listWarehouses,
   productsApi,
@@ -1266,6 +1267,10 @@ function AddProductModal({
 const SEARCH_SUPPLEMENT_MS = 400;
 
 function CatalogPageContent() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
   const [userRole, setUserRole] = useState<string | null>(null);
   const [allItems, setAllItems] = useState<ProductCatalogItem[]>([]);
   /** Inactive / server-only matches merged after debounced API search. */
@@ -1274,7 +1279,7 @@ function CatalogPageContent() {
   const [loading, setLoading] = useState(true);
   const [searching, setSearching] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState(() => searchParams.get("q") ?? "");
   const searchSupplementGen = useRef(0);
   const [addProductModalOpen, setAddProductModalOpen] = useState(false);
   const [uploadModalOpen, setUploadModalOpen] = useState(false);
@@ -1358,6 +1363,23 @@ function CatalogPageContent() {
   }, []);
 
   const catalogReadOnly = userRole === "WAREHOUSE";
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const trimmed = search.trim();
+      const params = new URLSearchParams(searchParams.toString());
+      if (trimmed) params.set("q", trimmed);
+      else params.delete("q");
+
+      const next = params.toString();
+      const current = searchParams.toString();
+      if (next !== current) {
+        router.replace(`${pathname}${next ? `?${next}` : ""}`, { scroll: false });
+      }
+    }, 300);
+
+    return () => window.clearTimeout(timer);
+  }, [pathname, router, search, searchParams]);
 
   const reloadWarehouses = useCallback(async () => {
     try {
@@ -1720,6 +1742,7 @@ function CatalogPageContent() {
                       <CatalogProductCard
                         key={p.id}
                         product={p}
+                        readOnly={catalogReadOnly}
                         expanded={expandedSpecsProductId === p.id}
                         onToggleExpand={() =>
                           setExpandedSpecsProductId((id) => (id === p.id ? null : p.id))
@@ -1730,24 +1753,30 @@ function CatalogPageContent() {
                         qtyAtWarehouse={qtyAtWarehouse}
                         stockTitleAtWarehouse={stockTitleAtWarehouse}
                         editButton={
-                          <CatalogRowEditButton
-                            productName={p.name}
-                            onEdit={() => setEditModalProduct(p)}
-                          />
+                          catalogReadOnly ? null : (
+                            <CatalogRowEditButton
+                              productName={p.name}
+                              onEdit={() => setEditModalProduct(p)}
+                            />
+                          )
                         }
                         deleteButton={
-                          <CatalogRowDeleteButton
-                            productId={p.id}
-                            productName={p.name}
-                            onDeleted={loadCatalog}
-                          />
+                          catalogReadOnly ? null : (
+                            <CatalogRowDeleteButton
+                              productId={p.id}
+                              productName={p.name}
+                              onDeleted={loadCatalog}
+                            />
+                          )
                         }
                         activateButton={
-                          <ActivateProductButton
-                            productId={p.id}
-                            productName={p.name}
-                            onActivated={loadCatalog}
-                          />
+                          catalogReadOnly ? null : (
+                            <ActivateProductButton
+                              productId={p.id}
+                              productName={p.name}
+                              onActivated={loadCatalog}
+                            />
+                          )
                         }
                       />
                     ))}
@@ -1818,5 +1847,9 @@ function CatalogPageContent() {
 }
 
 export default function CatalogPage() {
-  return <CatalogPageContent />;
+  return (
+    <Suspense fallback={<div className="p-6 text-sm text-zinc-600">Завантаження…</div>}>
+      <CatalogPageContent />
+    </Suspense>
+  );
 }

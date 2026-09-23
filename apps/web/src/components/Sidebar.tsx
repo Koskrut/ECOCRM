@@ -25,6 +25,8 @@ import {
   ShieldAlert,
   BookOpen,
   Factory,
+  CalendarCheck,
+  Target,
   type LucideIcon,
 } from "lucide-react";
 import { apiHttp } from "../lib/api/client";
@@ -63,6 +65,8 @@ function buildMenuItems() {
   const t = strings.nav;
   const base: MenuItem[] = [
     { label: t.dashboard, icon: LayoutDashboard, href: "/", exact: true },
+    { label: t.workPlan, icon: CalendarCheck, href: "/work/daily-agenda", exact: true },
+    { label: t.dayPlanKpi, icon: Target, href: "/work/day-plan", exact: true },
     { label: t.leads, icon: UserPlus, href: "/leads" },
     { label: t.orders, icon: Package, href: "/orders" },
     { label: t.companies, icon: Building2, href: "/companies" },

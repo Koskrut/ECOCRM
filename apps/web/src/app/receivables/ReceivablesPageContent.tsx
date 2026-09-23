@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   AlertTriangle,
@@ -11,7 +11,6 @@ import {
 import { apiHttp } from "@/lib/api/client";
 import { PageShell } from "@/components/PageShell";
 import { useToast } from "@/components/feedback";
-import { KyivstarDialButton } from "@/components/kyivstar/KyivstarDialButton";
 import { CRM_TIME_ZONE, formatDate, kyivStartOfDayFromYmd, ymdDaysAgoInKyiv } from "@/lib/crmDatetime";
 import { formatOrderAmount } from "@/lib/formatOrderAmount";
 import { strings } from "@/locales";
@@ -23,6 +22,13 @@ import {
   type ReceivablesWorkView,
 } from "./receivables-url";
 import { pickTodayCollectQueue } from "./debt-promise";
+import { matchesAging, type AgingChip } from "./aging";
+import { formatMoney } from "./format-money";
+import { TodayCollectQueue } from "./TodayCollectQueue";
+import { WorkClientsTable } from "./WorkClientsTable";
+import { ReceivablesBatchToolbar } from "./ReceivablesBatchToolbar";
+import { DebtReminderDialog } from "./DebtReminderDialog";
+import { ReceivablesAgingWidget } from "./ReceivablesAgingWidget";
 import {
   receivablesApi,
   type ReceivablesReconcileStatus,
@@ -33,11 +39,10 @@ import {
   type WorkClientRow,
   type WorkOrderRow,
 } from "@/lib/api/resources/receivables";
+import { conversationsApi } from "@/lib/api/resources/conversations";
 import { DebtCommentDialog } from "./DebtCommentDialog";
 import { useEntityModalStack, type EntityModalFrame } from "@/lib/modal/useEntityModalStack";
 import { EntityModalStackLayers } from "@/components/modals/EntityModalStackLayers";
-
-type AgingChip = "" | "0-7" | "8-30" | "30+";
 
 type Tab = ReceivablesTab;
 type WorkView = ReceivablesWorkView;
@@ -69,19 +74,6 @@ const RECONCILE_STATUS_CLASS: Record<ReceivablesReconcileStatus, string> = {
   ONLY_1C: "bg-red-50 text-red-700 ring-red-200",
   ONLY_CRM: "bg-violet-50 text-violet-800 ring-violet-200",
 };
-
-function formatMoney(amount: number, currency: string) {
-  const sym = currency === "EUR" ? "€" : "$";
-  return `${amount.toFixed(2)} ${sym}`;
-}
-
-function matchesAging(days: number | undefined, chip: AgingChip): boolean {
-  if (!chip) return true;
-  const d = Math.max(Number(days) || 0, 0);
-  if (chip === "0-7") return d <= 7;
-  if (chip === "8-30") return d >= 8 && d <= 30;
-  return d > 30;
-}
 
 async function copyPendingPayLink(orderId: string): Promise<boolean> {
   const r = await fetch(`/api/orders/${orderId}/payment-requests`, {
@@ -147,7 +139,9 @@ export function ReceivablesPageContent() {
   const [needsComment, setNeedsComment] = useState(initialFilters.needsComment);
   const [promisedToday, setPromisedToday] = useState(initialFilters.promisedToday);
   const [promiseBroken, setPromiseBroken] = useState(initialFilters.promiseBroken);
-  const [aging, setAging] = useState<AgingChip>("");
+  const [aging, setAging] = useState<AgingChip>(initialFilters.aging);
+  const [reconcileDeltaOnly, setReconcileDeltaOnly] = useState(initialFilters.reconcileDeltaOnly);
+  const [delayReason, setDelayReason] = useState(initialFilters.delayReason);
   const [deltasOnly, setDeltasOnly] = useState(initialFilters.deltasOnly);
   const [reconcileStatus, setReconcileStatus] = useState(initialFilters.reconcileStatus);
   const [snapshotId, setSnapshotId] = useState(initialFilters.snapshotId);
@@ -170,6 +164,9 @@ export function ReceivablesPageContent() {
   const [workClients, setWorkClients] = useState<WorkClientRow[]>([]);
   const [workOrders, setWorkOrders] = useState<WorkOrderRow[]>([]);
   const [reconcileRows, setReconcileRows] = useState<ReconciliationLine[]>([]);
+  const [agingBuckets, setAgingBuckets] = useState<
+    Array<{ label: string; amount: number; clientsCount: number; ordersCount: number }>
+  >([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
@@ -181,13 +178,16 @@ export function ReceivablesPageContent() {
     contactId: string;
     clientName: string;
   } | null>(null);
+  const [remindTarget, setRemindTarget] = useState<WorkClientRow | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [batchBusy, setBatchBusy] = useState(false);
   const [expandedClients, setExpandedClients] = useState<Set<string>>(new Set());
   const [clientDetails, setClientDetails] = useState<
     Map<string, ContactReceivablesResponse>
   >(new Map());
   const [clientDetailsLoading, setClientDetailsLoading] = useState<Set<string>>(new Set());
-  const [periodPaidFrom, setPeriodPaidFrom] = useState(() => ymdDaysAgoInKyiv(30));
-  const [periodPaidTo, setPeriodPaidTo] = useState(() => ymdDaysAgoInKyiv(0));
+  const [periodPaidFrom, setPeriodPaidFrom] = useState(initialFilters.periodPaidFrom);
+  const [periodPaidTo, setPeriodPaidTo] = useState(initialFilters.periodPaidTo);
   const [periodPayments, setPeriodPayments] = useState<PeriodPaymentRow[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -205,12 +205,17 @@ export function ReceivablesPageContent() {
       promiseBroken,
       deltasOnly,
       reconcileStatus,
+      reconcileDeltaOnly,
+      delayReason,
       snapshotId,
       ownerId,
       q,
       clientId,
       contactId,
       orderId,
+      aging,
+      periodPaidFrom,
+      periodPaidTo,
     }),
     [
       tab,
@@ -221,12 +226,17 @@ export function ReceivablesPageContent() {
       promiseBroken,
       deltasOnly,
       reconcileStatus,
+      reconcileDeltaOnly,
+      delayReason,
       snapshotId,
       ownerId,
       q,
       clientId,
       contactId,
       orderId,
+      aging,
+      periodPaidFrom,
+      periodPaidTo,
     ],
   );
 
@@ -299,7 +309,7 @@ export function ReceivablesPageContent() {
   }, []);
 
   const loadWork = useCallback(async () => {
-    const [summaryRes, listRes] = await Promise.all([
+    const [summaryRes, listRes, agingRes] = await Promise.all([
       receivablesApi.workSummary(ownerId || undefined),
       workView === "orders"
         ? receivablesApi.workOrders({
@@ -317,17 +327,34 @@ export function ReceivablesPageContent() {
             needsComment: needsComment || undefined,
             promisedToday: promisedToday || undefined,
             promiseBroken: promiseBroken || undefined,
+            reconcileDeltaOnly: reconcileDeltaOnly || undefined,
+            delayReason: delayReason || undefined,
             page: 1,
             pageSize: 100,
           }),
+      workView === "clients"
+        ? receivablesApi.workAging(ownerId || undefined).catch(() => null)
+        : Promise.resolve(null),
     ]);
     const items = listRes.data.items ?? [];
     return {
       summary: summaryRes.data,
       orders: workView === "orders" ? (items as WorkOrderRow[]) : [],
       clients: workView === "orders" ? [] : (items as WorkClientRow[]),
+      agingBuckets: agingRes?.data.buckets ?? [],
     };
-  }, [ownerId, q, overdue, needsComment, promisedToday, promiseBroken, workView, clientId]);
+  }, [
+    ownerId,
+    q,
+    overdue,
+    needsComment,
+    promisedToday,
+    promiseBroken,
+    reconcileDeltaOnly,
+    delayReason,
+    workView,
+    clientId,
+  ]);
 
   const loadPeriodPayments = useCallback(async () => {
     const res = await receivablesApi.periodPayments({
@@ -395,6 +422,8 @@ export function ReceivablesPageContent() {
     setWorkSummary(data.summary);
     setWorkOrders(data.orders);
     setWorkClients(data.clients);
+    setAgingBuckets(data.agingBuckets);
+    setSelectedIds(new Set());
   }, []);
 
   const applyReconcileResult = useCallback((data: Awaited<ReturnType<typeof loadReconcile>>) => {
@@ -484,10 +513,83 @@ export function ReceivablesPageContent() {
     [workClients, aging],
   );
   const todayQueue = useMemo(() => pickTodayCollectQueue(visibleClients), [visibleClients]);
-  const queueCoverPct =
-    todayQueue.overdueTotal > 0
-      ? Math.round((todayQueue.overdueCovered / todayQueue.overdueTotal) * 100)
-      : 0;
+
+  const toggleSelect = useCallback((id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const toggleSelectAll = useCallback(() => {
+    setSelectedIds((prev) => {
+      const allSelected =
+        visibleClients.length > 0 && visibleClients.every((r) => prev.has(r.contactId));
+      if (allSelected) return new Set();
+      return new Set(visibleClients.map((r) => r.contactId));
+    });
+  }, [visibleClients]);
+
+  const sendTelegramReminder = useCallback(
+    async (row: WorkClientRow, text: string) => {
+      const conversationId = row.telegramConversationId;
+      if (!conversationId) {
+        return { ok: false, error: t.reminderTelegramMissing };
+      }
+      try {
+        await conversationsApi.sendMessage(conversationId, text);
+        return { ok: true };
+      } catch (e) {
+        return {
+          ok: false,
+          error: e instanceof Error ? e.message : t.reminderTelegramMissing,
+        };
+      }
+    },
+    [t.reminderTelegramMissing],
+  );
+
+  const handleBatchCallTasks = async () => {
+    if (selectedIds.size === 0) return;
+    setBatchBusy(true);
+    try {
+      const res = await receivablesApi.batch({
+        contactIds: [...selectedIds],
+        action: "create_call_tasks",
+      });
+      pushToast(t.batchTasksCreated(res.data.processed), "success");
+      setSelectedIds(new Set());
+    } catch {
+      pushToast(t.loadError, "error");
+    } finally {
+      setBatchBusy(false);
+    }
+  };
+
+  const handleBatchAssign = async (nextOwnerId: string) => {
+    if (selectedIds.size === 0 || !nextOwnerId) return;
+    setBatchBusy(true);
+    try {
+      const res = await receivablesApi.batch({
+        contactIds: [...selectedIds],
+        action: "assign_owner",
+        ownerId: nextOwnerId,
+      });
+      pushToast(t.batchAssigned(res.data.processed), "success");
+      applyWorkResult(await loadWork());
+    } catch {
+      pushToast(t.loadError, "error");
+    } finally {
+      setBatchBusy(false);
+    }
+  };
+
+  const handleBatchRemind = () => {
+    const first = visibleClients.find((r) => selectedIds.has(r.contactId));
+    if (first) setRemindTarget(first);
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -630,6 +732,17 @@ export function ReceivablesPageContent() {
       <div className="flex flex-wrap items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
         <AlertTriangle className="h-4 w-4 shrink-0" />
         <span>{t.reconcileWarning(rec.managerDeltaCount)}</span>
+        <button
+          type="button"
+          onClick={() => {
+            setTab("work");
+            setWorkView("clients");
+            setReconcileDeltaOnly(true);
+          }}
+          className="font-medium underline underline-offset-2"
+        >
+          {t.filterShowDeltas}
+        </button>
         {canUpload ? (
           <button
             type="button"
@@ -778,64 +891,30 @@ export function ReceivablesPageContent() {
             </div>
 
             {workView === "clients" ? (
-              <div className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm">
-                <div className="flex flex-wrap items-baseline justify-between gap-2">
-                  <h2 className="text-sm font-semibold text-zinc-900">{t.todayQueueTitle}</h2>
-                  {todayQueue.items.length > 0 && todayQueue.overdueTotal > 0 ? (
-                    <p className="text-xs text-zinc-500">
-                      {t.todayQueuePareto(todayQueue.items.length, queueCoverPct)}
-                    </p>
-                  ) : null}
-                </div>
-                {todayQueue.items.length === 0 ? (
-                  <p className="mt-2 text-sm text-zinc-500">{t.todayQueueEmpty}</p>
-                ) : (
-                  <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                    {todayQueue.items.map((row) => (
-                      <div
-                        key={row.contactId}
-                        className="flex flex-col gap-2 rounded-lg border border-zinc-200 bg-zinc-50 p-3"
-                      >
-                        <button
-                          type="button"
-                          className="text-left text-sm font-medium text-zinc-900 underline-offset-2 hover:underline"
-                          onClick={() => openContact(row.contactId)}
-                        >
-                          {row.clientName}
-                        </button>
-                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-zinc-600">
-                          <span className="font-semibold tabular-nums text-red-700">
-                            {formatMoney(row.overdueAmount || row.debtAmount, currency)}
-                          </span>
-                          {row.overdueDays ? (
-                            <span>{t.overdueDaysShort(row.overdueDays)}</span>
-                          ) : null}
-                          {row.promiseDate ? (
-                            <span className="rounded-full bg-amber-50 px-1.5 py-0.5 text-amber-800 ring-1 ring-amber-200">
-                              {t.promiseDate}: {row.promiseDate}
-                            </span>
-                          ) : null}
-                        </div>
-                        {row.lastCommentPreview ? (
-                          <p className="line-clamp-2 text-xs text-zinc-500">{row.lastCommentPreview}</p>
-                        ) : (
-                          <p className="text-xs text-amber-700">{t.commentNone}</p>
-                        )}
-                        <ClientRowActions
-                          row={row}
-                          onComment={(next) =>
-                            setCommentTarget({
-                              contactId: next.contactId,
-                              clientName: next.clientName,
-                            })
-                          }
-                          onCopyPay={(next) => void handleCopyPay(next)}
-                        />
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
+              <TodayCollectQueue
+                items={todayQueue.items}
+                overdueTotal={todayQueue.overdueTotal}
+                overdueCovered={todayQueue.overdueCovered}
+                currency={currency}
+                onOpenContact={openContact}
+                onComment={(next) =>
+                  setCommentTarget({
+                    contactId: next.contactId,
+                    clientName: next.clientName,
+                  })
+                }
+                onCopyPay={(next) => void handleCopyPay(next)}
+                onRemind={(next) => setRemindTarget(next)}
+              />
+            ) : null}
+
+            {workView === "clients" ? (
+              <ReceivablesAgingWidget
+                buckets={agingBuckets}
+                currency={currency}
+                activeAging={aging}
+                onSelectAging={setAging}
+              />
             ) : null}
 
             <div className="flex flex-wrap items-center gap-2">
@@ -901,13 +980,33 @@ export function ReceivablesPageContent() {
                     />
                     {t.promiseBrokenOnly}
                   </label>
+                  <label className="flex items-center gap-2 text-sm text-zinc-600">
+                    <input
+                      type="checkbox"
+                      checked={reconcileDeltaOnly}
+                      onChange={(e) => setReconcileDeltaOnly(e.target.checked)}
+                    />
+                    {t.reconcileDeltaOnly}
+                  </label>
+                  <select
+                    value={delayReason}
+                    onChange={(e) => setDelayReason(e.target.value)}
+                    className="rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs"
+                  >
+                    <option value="">{t.delayReasonAll}</option>
+                    <option value="WAITING_ACT">{t.delayReasonWaitingAct}</option>
+                    <option value="CLIENT_DELAY">{t.delayReasonClientDelay}</option>
+                    <option value="DISPUTE">{t.delayReasonDispute}</option>
+                    <option value="OTHER">{t.delayReasonOther}</option>
+                  </select>
                   <div className="flex rounded-lg border border-zinc-200 bg-white p-0.5">
                     {(
                       [
                         ["", t.agingAll],
                         ["0-7", t.aging0to7],
                         ["8-30", t.aging8to30],
-                        ["30+", t.aging30plus],
+                        ["31-60", t.aging31to60],
+                        ["90+", t.aging90plus],
                       ] as const
                     ).map(([value, label]) => (
                       <button
@@ -953,6 +1052,9 @@ export function ReceivablesPageContent() {
                   expandedClients={expandedClients}
                   clientDetails={clientDetails}
                   clientDetailsLoading={clientDetailsLoading}
+                  selectedIds={selectedIds}
+                  onToggleSelect={toggleSelect}
+                  onToggleSelectAll={toggleSelectAll}
                   onToggleExpand={(id) => void toggleClientExpand(id)}
                   onOpenContact={openContact}
                   onOpenOrder={openOrder}
@@ -960,6 +1062,17 @@ export function ReceivablesPageContent() {
                     setCommentTarget({ contactId: row.contactId, clientName: row.clientName })
                   }
                   onCopyPay={(row) => void handleCopyPay(row)}
+                  onRemind={(row) => setRemindTarget(row)}
+                />
+                <ReceivablesBatchToolbar
+                  selectedCount={selectedIds.size}
+                  canAssignManager={role === "ADMIN" || role === "LEAD"}
+                  managers={managers}
+                  busy={batchBusy}
+                  onClear={() => setSelectedIds(new Set())}
+                  onRemind={handleBatchRemind}
+                  onCreateCallTasks={() => void handleBatchCallTasks()}
+                  onAssignManager={(id) => void handleBatchAssign(id)}
                 />
                 <div className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm">
                   <div className="flex flex-wrap items-end gap-3">
@@ -1210,244 +1323,36 @@ export function ReceivablesPageContent() {
           }}
         />
       ) : null}
-    </>
-  );
-}
-
-const COMMENT_STALE_MS = 7 * 24 * 60 * 60 * 1000;
-
-function isCommentStale(lastCommentAt: string | null): boolean {
-  if (!lastCommentAt) return true;
-  const ts = Date.parse(lastCommentAt);
-  if (Number.isNaN(ts)) return true;
-  return Date.now() - ts > COMMENT_STALE_MS;
-}
-
-function ClientRowActions({
-  row,
-  onComment,
-  onCopyPay,
-}: {
-  row: WorkClientRow;
-  onComment: (row: WorkClientRow) => void;
-  onCopyPay: (row: WorkClientRow) => void;
-}) {
-  const t = strings.receivables;
-  return (
-    <div className="flex flex-wrap items-center gap-1.5">
-      {row.phone ? <KyivstarDialButton phone={row.phone} size="sm" label="" /> : null}
-      {row.primaryOrderId ? (
-        <button
-          type="button"
-          onClick={() => onCopyPay(row)}
-          className="rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
-        >
-          {t.copyPayLink}
-        </button>
+      {remindTarget ? (
+        <DebtReminderDialog
+          row={remindTarget}
+          currency={currency}
+          onClose={() => setRemindTarget(null)}
+          onSendTelegram={async (text) => {
+            if (selectedIds.size > 1 && selectedIds.has(remindTarget.contactId)) {
+              try {
+                const res = await receivablesApi.batch({
+                  contactIds: [...selectedIds],
+                  action: "send_telegram",
+                  message: text,
+                });
+                pushToast(
+                  t.batchTelegramResult(res.data.processed, res.data.skipped),
+                  res.data.processed > 0 ? "success" : "info",
+                );
+                return { ok: res.data.processed > 0, error: t.reminderTelegramMissing };
+              } catch (e) {
+                return {
+                  ok: false,
+                  error: e instanceof Error ? e.message : t.reminderTelegramMissing,
+                };
+              }
+            }
+            return sendTelegramReminder(remindTarget, text);
+          }}
+        />
       ) : null}
-      <button
-        type="button"
-        onClick={() => onComment(row)}
-        className="rounded-md border border-zinc-200 bg-white px-2.5 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
-      >
-        {t.commentAdd}
-      </button>
-    </div>
-  );
-}
-
-function WorkClientsTable({
-  rows,
-  currency,
-  expandedClients,
-  clientDetails,
-  clientDetailsLoading,
-  onToggleExpand,
-  onOpenContact,
-  onOpenOrder,
-  onComment,
-  onCopyPay,
-}: {
-  rows: WorkClientRow[];
-  currency: string;
-  expandedClients: Set<string>;
-  clientDetails: Map<string, ContactReceivablesResponse>;
-  clientDetailsLoading: Set<string>;
-  onToggleExpand: (contactId: string) => void;
-  onOpenContact: (id: string) => void;
-  onOpenOrder: (id: string) => void;
-  onComment: (row: WorkClientRow) => void;
-  onCopyPay: (row: WorkClientRow) => void;
-}) {
-  const t = strings.receivables;
-  if (rows.length === 0) {
-    return <div className="text-sm text-zinc-500">{t.noClients}</div>;
-  }
-  return (
-    <div className="overflow-x-auto rounded-xl border border-zinc-200 bg-white shadow-sm">
-      <table className="w-full text-sm">
-        <thead className="border-b border-zinc-200 bg-zinc-50 text-left text-xs uppercase text-zinc-500">
-          <tr>
-            <th className="px-4 py-3 w-8" />
-            <th className="px-4 py-3">{t.colClient}</th>
-            <th className="px-4 py-3">{t.colCode1C}</th>
-            <th className="px-4 py-3 text-right">{t.colDebt}</th>
-            <th className="px-4 py-3 text-right">{t.colOverdue}</th>
-            <th className="px-4 py-3 text-right">{t.colOverpayment}</th>
-            <th className="px-4 py-3 text-right">{t.colOrders}</th>
-            <th className="px-4 py-3">{t.colLastPayment}</th>
-            <th className="px-4 py-3">{t.colManager}</th>
-            <th className="px-4 py-3">{t.colLastComment}</th>
-            <th className="px-4 py-3">{t.colActions}</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-zinc-100">
-          {rows.map((row) => {
-            const stale = isCommentStale(row.lastCommentAt);
-            const expanded = expandedClients.has(row.contactId);
-            const detail = clientDetails.get(row.contactId);
-            const loadingDetail = clientDetailsLoading.has(row.contactId);
-            return (
-              <Fragment key={row.contactId}>
-                <tr className="hover:bg-zinc-50">
-                  <td className="px-4 py-3">
-                    <button
-                      type="button"
-                      onClick={() => onToggleExpand(row.contactId)}
-                      className="text-zinc-500 hover:text-zinc-800"
-                      aria-label={expanded ? t.collapseDetails : t.expandDetails}
-                    >
-                      {expanded ? "▾" : "▸"}
-                    </button>
-                  </td>
-                  <td className="px-4 py-3">
-                    <button
-                      type="button"
-                      className="font-medium text-zinc-900 underline-offset-2 hover:underline"
-                      onClick={() => onOpenContact(row.contactId)}
-                    >
-                      {row.clientName}
-                    </button>
-                  </td>
-                  <td className="px-4 py-3 font-mono text-xs text-zinc-600">
-                    {row.externalCode ?? "—"}
-                  </td>
-                  <td className="px-4 py-3 text-right tabular-nums font-medium">
-                    {formatMoney(row.debtAmount, currency)}
-                  </td>
-                  <td className="px-4 py-3 text-right tabular-nums text-red-600">
-                    {row.overdueAmount > 0 ? formatMoney(row.overdueAmount, currency) : "—"}
-                  </td>
-                  <td className="px-4 py-3 text-right tabular-nums text-emerald-700">
-                    {(row.overpaymentAmount ?? 0) > 0
-                      ? formatMoney(row.overpaymentAmount!, currency)
-                      : "—"}
-                  </td>
-                  <td className="px-4 py-3 text-right tabular-nums">{row.orderCount}</td>
-                  <td className="px-4 py-3 text-zinc-600">
-                    {row.lastPaymentAt ? formatDate(row.lastPaymentAt.slice(0, 10)) : "—"}
-                  </td>
-                  <td className="px-4 py-3 text-zinc-600">{row.ownerName ?? "—"}</td>
-                  <td className="px-4 py-3 max-w-[16rem]">
-                    {row.lastCommentAt ? (
-                      <div className={stale ? "text-amber-800" : "text-zinc-700"}>
-                        <div className="flex flex-wrap items-center gap-1.5 text-xs">
-                          <span>{formatDate(row.lastCommentAt.slice(0, 10))}</span>
-                          {row.lastCommentAuthorName ? (
-                            <span className="text-zinc-500">· {row.lastCommentAuthorName}</span>
-                          ) : null}
-                          {stale ? (
-                            <span className="rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 ring-1 ring-amber-200">
-                              {t.commentStale}
-                            </span>
-                          ) : null}
-                        </div>
-                          {row.lastCommentPreview ? (
-                          <div className="mt-0.5 truncate text-xs text-zinc-500">
-                            {row.lastCommentPreview}
-                          </div>
-                        ) : null}
-                        {row.promiseDate ? (
-                          <div className="mt-0.5 text-xs text-amber-800">
-                            {t.promiseDate}: {row.promiseDate}
-                            {row.promiseAmount != null ? ` · ${row.promiseAmount.toFixed(2)}` : ""}
-                          </div>
-                        ) : null}
-                      </div>
-                    ) : (
-                      <span className="text-xs text-amber-700">{t.commentNone}</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3">
-                    <ClientRowActions row={row} onComment={onComment} onCopyPay={onCopyPay} />
-                  </td>
-                </tr>
-                {expanded ? (
-                  <tr className="bg-zinc-50/80">
-                    <td colSpan={11} className="px-6 py-4">
-                      {loadingDetail ? (
-                        <p className="text-sm text-zinc-500">{strings.common.loading}</p>
-                      ) : detail ? (
-                        <div className="grid gap-4 lg:grid-cols-2">
-                          <div>
-                            <h4 className="text-xs font-semibold uppercase text-zinc-500">
-                              {t.expandOrders}
-                            </h4>
-                            <ul className="mt-2 space-y-1 text-sm">
-                              {detail.orders.map((o) => (
-                                <li key={o.id} className="flex flex-wrap gap-2">
-                                  <button
-                                    type="button"
-                                    className="font-medium text-zinc-800 underline-offset-2 hover:underline"
-                                    onClick={() => onOpenOrder(o.id)}
-                                  >
-                                    {o.orderNumber}
-                                  </button>
-                                  <span className="tabular-nums">
-                                    {formatOrderAmount(o.debtAmount, o.currency)}
-                                  </span>
-                                  {(o.creditAmount ?? 0) > 0 ? (
-                                    <span className="text-emerald-700">
-                                      +{formatOrderAmount(o.creditAmount!, o.currency)}
-                                    </span>
-                                  ) : null}
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
-                          <div>
-                            <h4 className="text-xs font-semibold uppercase text-zinc-500">
-                              {t.expandPayments}
-                            </h4>
-                            <ul className="mt-2 space-y-1 text-sm">
-                              {(detail.payments ?? []).length === 0 ? (
-                                <li className="text-zinc-500">{t.noPeriodPayments}</li>
-                              ) : (
-                                detail.payments!.map((p) => (
-                                  <li key={p.id} className="flex flex-wrap gap-2">
-                                    <span className="text-zinc-500">
-                                      {formatDate(p.paidAt.slice(0, 10))}
-                                    </span>
-                                    <span className="tabular-nums">
-                                      {p.amount.toFixed(2)} {p.currency}
-                                    </span>
-                                    <span className="text-zinc-600">{p.orderNumber ?? "—"}</span>
-                                  </li>
-                                ))
-                              )}
-                            </ul>
-                          </div>
-                        </div>
-                      ) : null}
-                    </td>
-                  </tr>
-                ) : null}
-              </Fragment>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
+    </>
   );
 }
 

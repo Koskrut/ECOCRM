@@ -243,6 +243,53 @@ export function ManagerDashboardView({ userName, userRole }: Props) {
     <div className="space-y-6">
       <ManagerDashboardHeader userName={userName} onNewLead={() => setCreateLeadOpen(true)} />
 
+      <section className="space-y-3">
+        <div>
+          <h2 className="text-lg font-semibold text-zinc-900">
+            {strings.dailyAgenda.widgetTitle}
+          </h2>
+          <p className="mt-0.5 text-sm text-zinc-500">
+            {strings.dailyAgenda.morningSubtitle}
+          </p>
+        </div>
+        <div className="grid gap-4 lg:grid-cols-3">
+          <div className="lg:col-span-2">
+            <DailyAgendaWidget
+              agenda={agenda}
+              loading={false}
+              error={null}
+              onCompose={() => setMorningOpen(true)}
+            />
+          </div>
+          <DayPlanWidget plan={dayPlan} loading={false} error={null} detailHref="/work/day-plan" />
+        </div>
+      </section>
+
+      <ManagerInboxPanel tiles={inbox.tiles} financeEnabled={financeEnabled} />
+
+      <ManagerWorkQueueTeaser
+        items={queue}
+        loading={queueLoading}
+        onOpenContact={setOpenContactId}
+      />
+
+      <div className="grid gap-6 lg:grid-cols-2">
+        <ManagerTasksPanel tasks={inbox.tasks} onComplete={completeTask} />
+        <ManagerLeadPipeline
+          pipelineCounts={inbox.pipelineCounts}
+          hotLeads={inbox.hotLeads}
+          onOpenLead={setOpenLeadId}
+        />
+      </div>
+
+      {financeEnabled ? (
+        <DashboardReceivablesPanel
+          data={receivables}
+          loading={receivablesLoading}
+          currency={currency}
+        />
+      ) : null}
+
       {scorecardLoading && !scorecard ? (
         <PulseSkeleton />
       ) : scorecard && hasMonthPulse ? (
@@ -270,43 +317,6 @@ export function ManagerDashboardView({ userName, userRole }: Props) {
         </div>
       ) : scorecardError ? (
         <ErrorPanel message={scorecardError} onRetry={() => void loadScorecard()} />
-      ) : null}
-
-      <ManagerInboxPanel tiles={inbox.tiles} financeEnabled={financeEnabled} />
-
-      <div className="grid gap-6 lg:grid-cols-3">
-        <div className="lg:col-span-2">
-          <ManagerWorkQueueTeaser
-            items={queue}
-            loading={queueLoading}
-            onOpenContact={setOpenContactId}
-          />
-        </div>
-        <div className="space-y-4">
-          <DayPlanWidget plan={dayPlan} loading={false} error={null} detailHref="/work/day-plan" />
-          <DailyAgendaWidget
-            agenda={agenda}
-            loading={false}
-            error={null}
-            onCompose={() => setMorningOpen(true)}
-          />
-        </div>
-      </div>
-
-      <ManagerTasksPanel tasks={inbox.tasks} onComplete={completeTask} />
-
-      <ManagerLeadPipeline
-        pipelineCounts={inbox.pipelineCounts}
-        hotLeads={inbox.hotLeads}
-        onOpenLead={setOpenLeadId}
-      />
-
-      {financeEnabled ? (
-        <DashboardReceivablesPanel
-          data={receivables}
-          loading={receivablesLoading}
-          currency={currency}
-        />
       ) : null}
 
       {scorecard ? (

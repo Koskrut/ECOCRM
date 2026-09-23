@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Package, Search, X } from "lucide-react";
 import { TtnStatusBadge } from "@/components/TtnStatusBadge";
 import { HelpHint } from "@/components/help/HelpHint";
@@ -20,6 +21,7 @@ import {
   dispositionLabel,
   returnReasonLabel,
 } from "@/lib/returns/return-labels";
+import { buildWarehousesParam, parseWarehouseIdsParam } from "../warehouse-url";
 
 type OrderLine = {
   id: string;
@@ -130,6 +132,21 @@ function StepPill({
 }
 
 export default function WarehouseReturnsPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="p-6 text-sm text-zinc-500">Завантаження повернень…</div>
+      }
+    >
+      <WarehouseReturnsPageContent />
+    </Suspense>
+  );
+}
+
+function WarehouseReturnsPageContent() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [items, setItems] = useState<ReturnPackage[]>([]);
   const [warehouses, setWarehouses] = useState<WarehouseItem[]>([]);
   const [selectedWarehouseIds, setSelectedWarehouseIds] = useState<string[]>([]);
@@ -192,8 +209,13 @@ export default function WarehouseReturnsPage() {
     void listWarehouses()
       .then((list) => {
         setWarehouses(list);
-        const stored = loadStoredWarehouseIds();
         const allIds = list.map((w) => w.id);
+        const fromUrl = parseWarehouseIdsParam(searchParams);
+        if (fromUrl !== null) {
+          setSelectedWarehouseIds(fromUrl.filter((id) => allIds.includes(id)));
+          return;
+        }
+        const stored = loadStoredWarehouseIds();
         if (stored && stored.length > 0) {
           setSelectedWarehouseIds(stored.filter((id) => allIds.includes(id)));
         } else {
@@ -201,7 +223,21 @@ export default function WarehouseReturnsPage() {
         }
       })
       .catch(() => setWarehouses([]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- init from URL once on mount
   }, []);
+
+  useEffect(() => {
+    if (warehouses.length === 0) return;
+    const allIds = warehouses.map((w) => w.id);
+    const params = new URLSearchParams(searchParams.toString());
+    const warehousesParam = buildWarehousesParam(selectedWarehouseIds, allIds);
+    if (warehousesParam === null) params.delete("warehouses");
+    else params.set("warehouses", warehousesParam);
+    const q = params.toString();
+    const next = q ? `${pathname}?${q}` : pathname;
+    const current = searchParams.toString() ? `${pathname}?${searchParams.toString()}` : pathname;
+    if (next !== current) router.replace(next, { scroll: false });
+  }, [pathname, router, searchParams, selectedWarehouseIds, warehouses]);
 
   useEffect(() => {
     void loadQueue();

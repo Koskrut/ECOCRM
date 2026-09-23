@@ -35,6 +35,17 @@ function moduleImports(root: Type<unknown>): Type<unknown>[] {
   return imports as Type<unknown>[];
 }
 
+/** Stable id for class modules and Nest DynamicModule objects (e.g. ScheduleModule.forRoot()). */
+function moduleIdentity(mod: unknown): string {
+  if (typeof mod === "function") {
+    return (mod as Type<unknown>).name || String(mod);
+  }
+  const dyn = mod as { module?: Type<unknown>; name?: string } | null;
+  if (dyn?.module?.name) return `dyn:${dyn.module.name}`;
+  if (dyn?.name) return dyn.name;
+  return String(mod);
+}
+
 function proxiedEnvVars(): Set<string> {
   const env = new Set<string>();
   for (const m of MODULE_UPSTREAM_STATIC_MOUNTS) env.add(m.envVar);
@@ -43,14 +54,13 @@ function proxiedEnvVars(): Set<string> {
 }
 
 test("AppModuleCore includes every in-process Nest module without a sidecar upstream proxy", () => {
-  const fullOnly = moduleImports(AppModule).filter(
-    (mod) => !moduleImports(AppModuleCore).includes(mod),
-  );
+  const coreIds = new Set(moduleImports(AppModuleCore).map(moduleIdentity));
+  const fullOnly = moduleImports(AppModule).filter((mod) => !coreIds.has(moduleIdentity(mod)));
 
   const knownProxies = proxiedEnvVars();
 
   for (const mod of fullOnly) {
-    const name = mod.name ?? String(mod);
+    const name = moduleIdentity(mod).replace(/^dyn:/, "");
     const envVar = SIDEcar_PROXY_ENV_BY_MODULE[name];
     assert.ok(
       envVar && knownProxies.has(envVar),

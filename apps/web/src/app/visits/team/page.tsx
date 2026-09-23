@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { apiHttp } from "@/lib/api/client";
 import { fieldFuelApi } from "@/lib/api/resources/field-fuel";
 import {
@@ -25,6 +25,8 @@ const POLL_MS = 30_000;
 type MeUser = { role?: string };
 
 export default function VisitsTeamPage() {
+  const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
   const [role, setRole] = useState<string | null>(null);
   const [items, setItems] = useState<FieldShiftTeamItem[]>([]);
@@ -85,6 +87,24 @@ export default function VisitsTeamPage() {
       setSelectedOwnerId((prev) => prev ?? items[0]!.owner.id);
     }
   }, [searchParams, items]);
+
+  useEffect(() => {
+    if (!selectedOwnerId) return;
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("owner", selectedOwnerId);
+    const qs = params.toString();
+    const target = `${pathname}?${qs}`;
+    if (qs !== searchParams.toString()) {
+      router.replace(target, { scroll: false });
+    }
+  }, [selectedOwnerId, pathname, router, searchParams]);
+
+  const selectOwner = useCallback(
+    (id: string) => {
+      setSelectedOwnerId(id);
+    },
+    [],
+  );
 
   const loadTeam = useCallback(async () => {
     if (role !== "ADMIN" && role !== "LEAD") return;
@@ -181,7 +201,16 @@ export default function VisitsTeamPage() {
     await loadTeam();
   }
 
-  if (role != null && role !== "ADMIN" && role !== "LEAD") {
+  if (role === null) {
+    return (
+      <div>
+        <VisitsSubNav />
+        <p className="text-sm text-zinc-500">{strings.common.loading}</p>
+      </div>
+    );
+  }
+
+  if (role !== "ADMIN" && role !== "LEAD") {
     return (
       <div>
         <VisitsSubNav />
@@ -255,7 +284,7 @@ export default function VisitsTeamPage() {
             <TeamFieldList
               items={items}
               selectedOwnerId={selectedOwnerId}
-              onSelect={setSelectedOwnerId}
+              onSelect={selectOwner}
             />
           )}
           {selectedItem ? (

@@ -9,6 +9,7 @@ import {
   ConversationChannel,
   ConversationStatus,
   MessageDirection,
+  MessageStatus,
   UserRole,
 } from "@prisma/client";
 import type { AuthUser } from "../../auth/auth.types";
@@ -16,6 +17,11 @@ import { normalizePagination } from "../../common/pagination";
 import { ContactsService } from "../../contacts/contacts.service";
 import { PrismaService } from "../../prisma/prisma.service";
 import { MetaMessagingService } from "./meta-messaging.service";
+import {
+  conversationListOrderBy,
+  countUnreadInbound,
+  hideNoiseWhere,
+} from "../shared/conversation-inbox.util";
 import type { ListMetaMessagesQueryDto } from "./dto/list-messages-query.dto";
 import type { ListMetaConversationsQueryDto } from "./dto/list-meta-conversations-query.dto";
 
@@ -76,11 +82,14 @@ export class MetaConversationsService {
     if (q.status) where.status = q.status;
     if (q.assignedTo === "me" && safeActor.id) where.assignedToUserId = safeActor.id;
     else if (q.assignedTo && q.assignedTo !== "me") where.assignedToUserId = q.assignedTo;
+    if (q.hideNoise) {
+      where.AND = [...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []), hideNoiseWhere()];
+    }
 
     const [items, total] = await Promise.all([
       this.prisma.conversation.findMany({
         where,
-        orderBy: { lastMessageAt: "desc" },
+        orderBy: conversationListOrderBy,
         skip: offset,
         take: limit,
         include: {
@@ -124,52 +133,88 @@ export class MetaConversationsService {
       this.prisma.conversation.count({ where }),
     ]);
 
+    const unreadById = await this.loadUnreadCounts(
+      items.map((c) => ({ id: c.id, lastReadAt: c.lastReadAt })),
+    );
+
     return {
-      items: items.map((c) => this.mapConversationItem(c)),
+      items: items.map((c) =>
+        this.mapConversationItem(c, unreadById.get(c.id) ?? 0),
+      ),
       total,
       page,
       pageSize,
     };
   }
 
-  private mapConversationItem(c: {
-    id: string;
-    channel: ConversationChannel;
-    contactId: string | null;
-    leadId: string | null;
-    status: ConversationStatus;
-    lastMessageAt: Date | null;
-    createdAt: Date;
-    updatedAt: Date;
-    contact: {
+  private async loadUnreadCounts(
+    rows: Array<{ id: string; lastReadAt: Date | null }>,
+  ): Promise<Map<string, number>> {
+    const result = new Map<string, number>();
+    if (rows.length === 0) return result;
+
+    const ids = rows.map((r) => r.id);
+    const inbound = await this.prisma.message.findMany({
+      where: {
+        conversationId: { in: ids },
+        direction: MessageDirection.INBOUND,
+      },
+      select: { conversationId: true, sentAt: true, direction: true },
+    });
+
+    const lastReadById = new Map(rows.map((r) => [r.id, r.lastReadAt]));
+    for (const id of ids) result.set(id, 0);
+    for (const msg of inbound) {
+      const lastReadAt = lastReadById.get(msg.conversationId) ?? null;
+      const n = countUnreadInbound([msg], lastReadAt);
+      if (n > 0) result.set(msg.conversationId, (result.get(msg.conversationId) ?? 0) + n);
+    }
+    return result;
+  }
+
+  private mapConversationItem(
+    c: {
       id: string;
-      firstName: string;
-      lastName: string;
-      middleName: string | null;
-      phone: string;
-    } | null;
-    lead: {
-      id: string;
-      firstName: string | null;
-      lastName: string | null;
-      middleName: string | null;
-      fullName: string | null;
-      phone: string | null;
-    } | null;
-    metaParticipant: {
-      id: string;
-      participantId: string;
-      displayName: string | null;
-      platform: ConversationChannel;
-    } | null;
-    assignedTo: { id: string; fullName: string; email: string } | null;
-    messages: Array<{
-      id: string;
-      text: string | null;
-      sentAt: Date;
-      direction: MessageDirection;
-    }>;
-  }) {
+      channel: ConversationChannel;
+      contactId: string | null;
+      leadId: string | null;
+      status: ConversationStatus;
+      pinnedAt: Date | null;
+      lastReadAt: Date | null;
+      lastMessageAt: Date | null;
+      createdAt: Date;
+      updatedAt: Date;
+      contact: {
+        id: string;
+        firstName: string;
+        lastName: string;
+        middleName: string | null;
+        phone: string;
+      } | null;
+      lead: {
+        id: string;
+        firstName: string | null;
+        lastName: string | null;
+        middleName: string | null;
+        fullName: string | null;
+        phone: string | null;
+      } | null;
+      metaParticipant: {
+        id: string;
+        participantId: string;
+        displayName: string | null;
+        platform: ConversationChannel;
+      } | null;
+      assignedTo: { id: string; fullName: string; email: string } | null;
+      messages: Array<{
+        id: string;
+        text: string | null;
+        sentAt: Date;
+        direction: MessageDirection;
+      }>;
+    },
+    unreadCount = 0,
+  ) {
     return {
       id: c.id,
       channel: c.channel,
@@ -199,6 +244,9 @@ export class MetaConversationsService {
         : null,
       assignedTo: c.assignedTo,
       status: c.status,
+      pinnedAt: c.pinnedAt,
+      lastReadAt: c.lastReadAt,
+      unreadCount,
       lastMessageAt: c.lastMessageAt,
       lastMessage: c.messages[0]
         ? {
@@ -229,15 +277,16 @@ export class MetaConversationsService {
     const rows = await this.prisma.conversation.findMany({
       where,
       select: {
+        id: true,
+        lastReadAt: true,
         messages: {
-          orderBy: { sentAt: "desc" },
-          take: 1,
-          select: { direction: true },
+          where: { direction: MessageDirection.INBOUND },
+          select: { direction: true, sentAt: true },
         },
       },
     });
 
-    const count = rows.filter((row) => row.messages[0]?.direction === MessageDirection.INBOUND).length;
+    const count = rows.filter((row) => countUnreadInbound(row.messages, row.lastReadAt) > 0).length;
     return { count };
   }
 
@@ -319,6 +368,84 @@ export class MetaConversationsService {
     });
   }
 
+  async setPinned(conversationId: string, pinned: boolean, actor: AuthUser | undefined) {
+    const safeActor = this.requireActor(actor);
+    const conv = await this.prisma.conversation.findUnique({
+      where: { id: conversationId },
+      select: { id: true, assignedToUserId: true, channel: true },
+    });
+    if (!conv) throw new NotFoundException("Conversation not found");
+    this.assertMetaChannel(conv.channel);
+    this.assertManagerCanAccessConversation(safeActor, conv);
+
+    return this.prisma.conversation.update({
+      where: { id: conversationId },
+      data: { pinnedAt: pinned ? new Date() : null },
+      select: {
+        id: true,
+        pinnedAt: true,
+        status: true,
+        lastMessageAt: true,
+      },
+    });
+  }
+
+  async markRead(conversationId: string, actor: AuthUser | undefined) {
+    const safeActor = this.requireActor(actor);
+    const conv = await this.prisma.conversation.findUnique({
+      where: { id: conversationId },
+      select: { id: true, assignedToUserId: true, channel: true },
+    });
+    if (!conv) throw new NotFoundException("Conversation not found");
+    this.assertMetaChannel(conv.channel);
+    this.assertManagerCanAccessConversation(safeActor, conv);
+
+    const lastReadAt = new Date();
+    await this.prisma.conversation.update({
+      where: { id: conversationId },
+      data: { lastReadAt },
+    });
+    return { ok: true, lastReadAt };
+  }
+
+  async addInternalNote(conversationId: string, text: string, actor: AuthUser | undefined) {
+    const safeActor = this.requireActor(actor);
+    const normalizedText = String(text ?? "").trim();
+    if (!normalizedText) {
+      throw new BadRequestException("Note text cannot be empty");
+    }
+
+    const conv = await this.prisma.conversation.findUnique({
+      where: { id: conversationId },
+      select: { id: true, assignedToUserId: true, channel: true },
+    });
+    if (!conv) throw new NotFoundException("Conversation not found");
+    this.assertMetaChannel(conv.channel);
+    this.assertManagerCanAccessConversation(safeActor, conv);
+
+    const sentAt = new Date();
+    const message = await this.prisma.message.create({
+      data: {
+        conversationId: conv.id,
+        direction: MessageDirection.INTERNAL,
+        text: normalizedText,
+        authorUserId: safeActor.id,
+        sentAt,
+        status: MessageStatus.SENT,
+      },
+      include: {
+        author: { select: { id: true, fullName: true, email: true } },
+      },
+    });
+
+    await this.prisma.conversation.update({
+      where: { id: conv.id },
+      data: { lastMessageAt: sentAt },
+    });
+
+    return message;
+  }
+
   async sendMessage(conversationId: string, text: string, actor: AuthUser | undefined) {
     const safeActor = this.requireActor(actor);
     const normalizedText = String(text ?? "").trim();
@@ -374,7 +501,7 @@ export class MetaConversationsService {
 
     await this.prisma.conversation.update({
       where: { id: conv.id },
-      data: { lastMessageAt: sentAt },
+      data: { lastMessageAt: sentAt, lastReadAt: sentAt },
     });
 
     return message;

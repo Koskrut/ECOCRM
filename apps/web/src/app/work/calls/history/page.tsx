@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { apiHttp } from "@/lib/api/client";
 import { formatDateTimeNumeric, todayYmdInKyiv, ymdDaysAgoInKyiv } from "@/lib/crmDatetime";
+import { ErrorPanel } from "@/components/feedback";
 import { CallRecordingPlayer } from "@/components/calls/CallRecordingPlayer";
 import { useCallRecordingPlayback } from "@/components/calls/call-recording-playback";
 import { callsApi, type CallsHistoryItem } from "@/lib/api/resources/calls";
@@ -366,7 +367,7 @@ export default function CallsHistoryPage() {
       </div>
 
       {err ? (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{err}</div>
+        <ErrorPanel variant="inline" message={err} onRetry={() => void load()} />
       ) : null}
 
       <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm">
@@ -479,12 +480,12 @@ export default function CallsHistoryPage() {
                           <div className="flex flex-wrap items-center gap-2">
                             <span className="truncate">{displayManager?.fullName ?? "—"}</span>
                             {row.rowKind === "CALL" && row.isInternalCall ? (
-                              <Badge tone="info" title="Внутренний звонок (менеджер ↔ менеджер)">
+                              <Badge tone="info" title="Внутрішній дзвінок (менеджер ↔ менеджер)">
                                 INTERNAL
                               </Badge>
                             ) : null}
                             {noClientPhone ? (
-                              <Badge tone="warn" title="Ringostat не передал номер клиента (обе ноги совпадают)">
+                              <Badge tone="warn" title="Ringostat не передав номер клієнта (обидві лінії збігаються)">
                                 NO_CLI
                               </Badge>
                             ) : null}

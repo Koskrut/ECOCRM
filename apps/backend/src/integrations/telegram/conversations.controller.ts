@@ -10,6 +10,10 @@ import { ListConversationsQueryDto } from "./dto/list-conversations-query.dto";
 import { ListMessagesQueryDto } from "./dto/list-messages-query.dto";
 import { SendMessageDto } from "./dto/send-message.dto";
 import { UpdateConversationStatusDto } from "./dto/update-conversation-status.dto";
+import {
+  CreateInternalNoteDto,
+  PinConversationDto,
+} from "../shared/inbox-actions.dto";
 import { RequireModule } from "../../modules/gating/require-module.decorator";
 import { ModuleIds } from "../../modules/module-ids";
 
@@ -19,6 +23,8 @@ void ListConversationsQueryDto;
 void ListMessagesQueryDto;
 void SendMessageDto;
 void UpdateConversationStatusDto;
+void PinConversationDto;
+void CreateInternalNoteDto;
 
 @Controller("conversations")
 @Roles(UserRole.MANAGER, UserRole.LEAD, UserRole.ADMIN)
@@ -57,6 +63,29 @@ export class ConversationsController {
     @Req() req: Request & { user?: AuthUser },
   ) {
     return this.conversations.updateStatus(id, dto.status, req.user);
+  }
+
+  @Patch(":id/pin")
+  setPinned(
+    @Param("id") id: string,
+    @Body() dto: PinConversationDto,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.conversations.setPinned(id, dto.pinned, req.user);
+  }
+
+  @Post(":id/read")
+  markRead(@Param("id") id: string, @Req() req: Request & { user?: AuthUser }) {
+    return this.conversations.markRead(id, req.user);
+  }
+
+  @Post(":id/notes")
+  addNote(
+    @Param("id") id: string,
+    @Body() dto: CreateInternalNoteDto,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.conversations.addInternalNote(id, dto.text, req.user);
   }
 
   @Post(":id/messages")

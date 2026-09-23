@@ -13,9 +13,10 @@ type CatalogProductCardProps = {
   warehouseNames: readonly string[];
   qtyAtWarehouse: (p: ProductCatalogItem, name: string) => number;
   stockTitleAtWarehouse?: (p: ProductCatalogItem, name: string) => string | undefined;
-  deleteButton: ReactNode;
-  editButton: ReactNode;
-  activateButton: ReactNode;
+  readOnly?: boolean;
+  deleteButton?: ReactNode;
+  editButton?: ReactNode;
+  activateButton?: ReactNode;
 };
 
 export function CatalogProductCard({
@@ -27,6 +28,7 @@ export function CatalogProductCard({
   warehouseNames,
   qtyAtWarehouse,
   stockTitleAtWarehouse,
+  readOnly = false,
   deleteButton,
   editButton,
   activateButton,
@@ -73,7 +75,7 @@ export function CatalogProductCard({
               <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-800">
                 неактивен
               </span>
-              {activateButton}
+              {!readOnly ? activateButton : null}
             </div>
           )}
 
@@ -101,16 +103,22 @@ export function CatalogProductCard({
         </div>
       </div>
 
-      <div className="flex items-center justify-between gap-2 border-t border-zinc-100 px-3 py-2">
-        <label className="inline-flex min-h-[44px] cursor-pointer items-center gap-2 text-sm text-zinc-700">
-          <input
-            type="checkbox"
-            checked={p.showOnStore ?? true}
-            onChange={(e) => void onShowOnStoreChange(e.target.checked)}
-            className="h-4 w-4 rounded border-zinc-300 text-zinc-900 focus:ring-zinc-500"
-          />
-          На сайте
-        </label>
+      <div
+        className={`flex items-center gap-2 border-t border-zinc-100 px-3 py-2 ${
+          readOnly ? "justify-end" : "justify-between"
+        }`}
+      >
+        {!readOnly ? (
+          <label className="inline-flex min-h-[44px] cursor-pointer items-center gap-2 text-sm text-zinc-700">
+            <input
+              type="checkbox"
+              checked={p.showOnStore ?? true}
+              onChange={(e) => void onShowOnStoreChange(e.target.checked)}
+              className="h-4 w-4 rounded border-zinc-300 text-zinc-900 focus:ring-zinc-500"
+            />
+            На сайте
+          </label>
+        ) : null}
         <div className="flex items-center gap-1">
           <button
             type="button"
@@ -129,8 +137,12 @@ export function CatalogProductCard({
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
             </svg>
           </button>
-          <div onClick={(e) => e.stopPropagation()}>{editButton}</div>
-          <div onClick={(e) => e.stopPropagation()}>{deleteButton}</div>
+          {!readOnly ? (
+            <>
+              <div onClick={(e) => e.stopPropagation()}>{editButton}</div>
+              <div onClick={(e) => e.stopPropagation()}>{deleteButton}</div>
+            </>
+          ) : null}
         </div>
       </div>
 

@@ -68,18 +68,18 @@ export function DashboardMyWorkSection({
         <p className="mt-1 text-sm text-zinc-500">План, порядок дня та найближчі задачі.</p>
       </div>
 
-      <DayPlanWidget
-        plan={myWork.dayPlan}
-        loading={false}
-        error={null}
-        detailHref="/work/day-plan"
-      />
-
       <DailyAgendaWidget
         agenda={myWork.agenda}
         loading={false}
         error={null}
         onCompose={() => onMorningOpenChange(true)}
+      />
+
+      <DayPlanWidget
+        plan={myWork.dayPlan}
+        loading={false}
+        error={null}
+        detailHref="/work/day-plan"
       />
 
       {myWork.agenda && morningOpen ? (

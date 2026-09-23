@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { DateTime } from "luxon";
 import { apiHttp } from "@/lib/api/client";
 import {
@@ -671,13 +671,18 @@ function ProfileModal({
 
 export default function VisitsFuelPage() {
   const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
   const selectedDate = searchParams.get("date");
 
   const [role, setRole] = useState<string | null>(null);
   const [users, setUsers] = useState<UserRow[]>([]);
-  const [ownerId, setOwnerId] = useState("");
-  const [monthKey, setMonthKey] = useState(() => monthKeyFromYmd(todayYmdInKyiv()));
+  const [ownerId, setOwnerId] = useState(() => searchParams.get("owner") ?? "");
+  const [monthKey, setMonthKey] = useState(() => {
+    const fromUrl = searchParams.get("month");
+    if (fromUrl && /^\d{4}-\d{2}$/.test(fromUrl)) return fromUrl;
+    return monthKeyFromYmd(todayYmdInKyiv());
+  });
   const [range, setRange] = useState<FuelRangeResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -706,8 +711,35 @@ export default function VisitsFuelPage() {
 
   useEffect(() => {
     const owner = searchParams.get("owner");
-    if (owner) setOwnerId(owner);
+    setOwnerId(owner ?? "");
+    const month = searchParams.get("month");
+    if (month && /^\d{4}-\d{2}$/.test(month)) {
+      setMonthKey(month);
+    }
   }, [searchParams]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(searchParams.toString());
+    const defaultMonth = monthKeyFromYmd(todayYmdInKyiv());
+
+    if (monthKey === defaultMonth) {
+      params.delete("month");
+    } else {
+      params.set("month", monthKey);
+    }
+
+    if (ownerId) {
+      params.set("owner", ownerId);
+    } else {
+      params.delete("owner");
+    }
+
+    const qs = params.toString();
+    const target = qs ? `${pathname}?${qs}` : pathname;
+    if (qs !== searchParams.toString()) {
+      router.replace(target, { scroll: false });
+    }
+  }, [monthKey, ownerId, pathname, router, searchParams]);
 
   const loadRange = useCallback(async () => {
     setLoading(true);

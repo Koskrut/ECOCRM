@@ -117,6 +117,8 @@ export class ReceivablesController {
     @Query("needsComment") needsComment?: string,
     @Query("promisedToday") promisedToday?: string,
     @Query("promiseBroken") promiseBroken?: string,
+    @Query("reconcileDeltaOnly") reconcileDeltaOnly?: string,
+    @Query("delayReason") delayReason?: string,
     @Req() req?: Request & { user?: AuthUser },
   ) {
     return this.service.listWorkClients(this.requireUser(req!), {
@@ -128,7 +130,33 @@ export class ReceivablesController {
       needsComment: needsComment === "true" || needsComment === "1",
       promisedToday: promisedToday === "true" || promisedToday === "1",
       promiseBroken: promiseBroken === "true" || promiseBroken === "1",
+      reconcileDeltaOnly: reconcileDeltaOnly === "true" || reconcileDeltaOnly === "1",
+      delayReason,
     });
+  }
+
+  @Get("work/aging")
+  @Roles(UserRole.ADMIN, UserRole.LEAD, UserRole.MANAGER)
+  workAging(
+    @Query("ownerId") ownerId: string | undefined,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.service.getWorkAging(this.requireUser(req), ownerId);
+  }
+
+  @Post("batch")
+  @Roles(UserRole.ADMIN, UserRole.LEAD, UserRole.MANAGER)
+  batch(
+    @Body()
+    body: {
+      contactIds?: string[];
+      action?: "assign_owner" | "create_call_tasks" | "send_telegram";
+      ownerId?: string;
+      message?: string;
+    },
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.service.batchActions(this.requireUser(req), body);
   }
 
   @Get("contacts/:contactId")
@@ -169,13 +197,20 @@ export class ReceivablesController {
   @Roles(UserRole.ADMIN, UserRole.LEAD, UserRole.MANAGER)
   addDebtComment(
     @Param("contactId") contactId: string,
-    @Body() body: { body?: string; promiseDate?: string; promiseAmount?: number },
+    @Body()
+    body: {
+      body?: string;
+      promiseDate?: string;
+      promiseAmount?: number;
+      delayReasonCode?: string;
+    },
     @Req() req: Request & { user?: AuthUser },
   ) {
     if (!contactId?.trim()) throw new BadRequestException("contactId is required");
     return this.service.addDebtComment(this.requireUser(req), contactId.trim(), body?.body ?? "", {
       date: body?.promiseDate,
       amount: body?.promiseAmount,
+      delayReasonCode: body?.delayReasonCode,
     });
   }
 

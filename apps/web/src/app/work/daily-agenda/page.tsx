@@ -141,7 +141,7 @@ function DailyAgendaContent() {
         <div>
           <h1 className="text-xl font-semibold text-zinc-900">{t.pageTitle}</h1>
         </div>
-        <Link href="/dashboard" className="text-sm text-zinc-600 hover:text-zinc-900">
+        <Link href="/" className="text-sm text-zinc-600 hover:text-zinc-900">
           {t.backDashboard}
         </Link>
       </div>
@@ -190,6 +190,19 @@ function DailyAgendaContent() {
         </div>
       ) : committed ? (
         <div className="space-y-6">
+          {activeItems.length === 0 && doneItems.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-zinc-300 bg-zinc-50/80 p-6 text-center">
+              <p className="text-sm text-zinc-600">{t.emptyPlan}</p>
+              <button
+                type="button"
+                onClick={() => setEditing(true)}
+                className="btn-primary mt-3 text-sm"
+              >
+                {t.editPlan}
+              </button>
+            </div>
+          ) : null}
+
           {activeItems.length > 0 ? (
             <section>
               <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">

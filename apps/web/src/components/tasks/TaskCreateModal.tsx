@@ -32,6 +32,8 @@ type Props = {
     orderId?: string | null;
     lockedType?: TaskEntityType;
     linkLabel?: string;
+    initialTitle?: string;
+    initialBody?: string;
   };
 };
 
@@ -49,9 +51,9 @@ export function TaskCreateModal({ open, onClose, onCreated, preset }: Props) {
 
   useEffect(() => {
     if (!open) return;
-    setTitle("");
+    setTitle(preset?.initialTitle?.trim() || "");
     setDueAt("");
-    setBody("");
+    setBody(preset?.initialBody?.trim() || "");
     setCollaboratorIds([]);
     setError(null);
     if (preset?.contactId) {
@@ -95,7 +97,16 @@ export function TaskCreateModal({ open, onClose, onCreated, preset }: Props) {
     })();
     const tFocus = window.setTimeout(() => titleRef.current?.focus(), 50);
     return () => window.clearTimeout(tFocus);
-  }, [open, preset?.contactId, preset?.companyId, preset?.leadId, preset?.orderId, preset?.linkLabel]);
+  }, [
+    open,
+    preset?.contactId,
+    preset?.companyId,
+    preset?.leadId,
+    preset?.orderId,
+    preset?.linkLabel,
+    preset?.initialTitle,
+    preset?.initialBody,
+  ]);
 
   useEffect(() => {
     if (!open) return;

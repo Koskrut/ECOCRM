@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { AlertTriangle, X } from "lucide-react";
 import { OrderModal } from "@/app/orders/OrderModal";
 import { ordersApi, type FulfillmentQueueOrder } from "@/lib/api/resources/orders";
@@ -10,6 +11,7 @@ import { apiHttp } from "@/lib/api/client";
 import { formatOrderAmount } from "@/lib/formatOrderAmount";
 import { strings } from "@/locales";
 import { scheduleModalClose } from "@/lib/modal/scheduleModalClose";
+import { buildWarehousesParam, parseWarehouseIdsParam } from "./warehouse-url";
 
 const WORKSPACE_STAGE = "CONFIRMED";
 const NEXT_STAGE = "READY_TO_SHIP";
@@ -75,6 +77,21 @@ function parseFoundQty(raw: string | undefined, ordered: number): number {
 }
 
 export default function WarehouseWorkPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="p-6 text-sm text-zinc-500">Завантаження складу…</div>
+      }
+    >
+      <WarehouseWorkPageContent />
+    </Suspense>
+  );
+}
+
+function WarehouseWorkPageContent() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [items, setItems] = useState<FulfillmentQueueOrder[]>([]);
   const [warehouses, setWarehouses] = useState<WarehouseItem[]>([]);
   const [selectedWarehouseIds, setSelectedWarehouseIds] = useState<string[]>([]);
@@ -92,8 +109,13 @@ export default function WarehouseWorkPage() {
     void listWarehouses()
       .then((list) => {
         setWarehouses(list);
-        const stored = loadStoredWarehouseIds();
         const allIds = list.map((w) => w.id);
+        const fromUrl = parseWarehouseIdsParam(searchParams);
+        if (fromUrl !== null) {
+          setSelectedWarehouseIds(fromUrl.filter((id) => allIds.includes(id)));
+          return;
+        }
+        const stored = loadStoredWarehouseIds();
         if (stored && stored.length > 0) {
           setSelectedWarehouseIds(stored.filter((id) => allIds.includes(id)));
         } else {
@@ -101,7 +123,21 @@ export default function WarehouseWorkPage() {
         }
       })
       .catch(() => setWarehouses([]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- init from URL once on mount
   }, []);
+
+  useEffect(() => {
+    if (warehouses.length === 0) return;
+    const allIds = warehouses.map((w) => w.id);
+    const params = new URLSearchParams(searchParams.toString());
+    const warehousesParam = buildWarehousesParam(selectedWarehouseIds, allIds);
+    if (warehousesParam === null) params.delete("warehouses");
+    else params.set("warehouses", warehousesParam);
+    const q = params.toString();
+    const next = q ? `${pathname}?${q}` : pathname;
+    const current = searchParams.toString() ? `${pathname}?${searchParams.toString()}` : pathname;
+    if (next !== current) router.replace(next, { scroll: false });
+  }, [pathname, router, searchParams, selectedWarehouseIds, warehouses]);
 
   const activeWarehouseFilter = useMemo(() => {
     if (warehouses.length === 0) return undefined;

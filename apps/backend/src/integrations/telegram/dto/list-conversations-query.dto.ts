@@ -1,6 +1,6 @@
 import { ConversationChannel, ConversationStatus } from "@prisma/client";
-import { Type } from "class-transformer";
-import { IsEnum, IsInt, IsOptional, IsString, Max, Min } from "class-validator";
+import { Transform, Type } from "class-transformer";
+import { IsBoolean, IsEnum, IsInt, IsOptional, IsString, Max, Min } from "class-validator";
 
 export class ListConversationsQueryDto {
   @IsOptional()
@@ -14,6 +14,11 @@ export class ListConversationsQueryDto {
   @IsOptional()
   @IsString()
   assignedTo?: string; // "me" or userId
+
+  @IsOptional()
+  @Transform(({ value }) => value === true || value === "true" || value === "1")
+  @IsBoolean()
+  hideNoise?: boolean;
 
   @IsOptional()
   @IsInt()
