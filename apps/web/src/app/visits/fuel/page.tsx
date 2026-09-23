@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { DateTime } from "luxon";
 import { apiHttp } from "@/lib/api/client";
@@ -669,7 +669,7 @@ function ProfileModal({
   );
 }
 
-export default function VisitsFuelPage() {
+function VisitsFuelPageContent() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -999,5 +999,13 @@ export default function VisitsFuelPage() {
         />
       ) : null}
     </div>
+  );
+}
+
+export default function VisitsFuelPage() {
+  return (
+    <Suspense fallback={<div className="p-6 text-sm text-zinc-600">Завантаження…</div>}>
+      <VisitsFuelPageContent />
+    </Suspense>
   );
 }

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { strings } from "@/locales";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { format } from "date-fns";
 import { apiHttp } from "@/lib/api/client";
 import {
@@ -231,7 +231,7 @@ function HistoryDaySectionHeader({
   );
 }
 
-export default function VisitsHistoryPage() {
+function VisitsHistoryPageContent() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -717,5 +717,13 @@ export default function VisitsHistoryPage() {
         ) : null}
       </div>
     </div>
+  );
+}
+
+export default function VisitsHistoryPage() {
+  return (
+    <Suspense fallback={<div className="p-6 text-sm text-zinc-600">Завантаження…</div>}>
+      <VisitsHistoryPageContent />
+    </Suspense>
   );
 }

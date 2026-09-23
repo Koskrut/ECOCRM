@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { Activity, Laptop, Smartphone } from "lucide-react";
 import { PageShell } from "@/components/PageShell";
 import { apiHttp } from "@/lib/api/client";
@@ -166,7 +166,7 @@ function SessionHistoryPanel({
   );
 }
 
-export default function MonitoringPage() {
+function MonitoringPageContent() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -356,5 +356,13 @@ export default function MonitoringPage() {
         />
       ) : null}
     </PageShell>
+  );
+}
+
+export default function MonitoringPage() {
+  return (
+    <Suspense fallback={<div className="p-6 text-sm text-zinc-600">Завантаження…</div>}>
+      <MonitoringPageContent />
+    </Suspense>
   );
 }

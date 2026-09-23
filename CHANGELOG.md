@@ -4,13 +4,35 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.181**.)_
+_(планируемые изменения после **0.2.182**.)_
+
+## [0.2.182] — 2026-09-23
+
+### Summary
+
+Патч **0.2.182**: hotfix Next.js build — Suspense для `useSearchParams` на monitoring / visits; содержимое **0.2.181** (inbox UX + receivables aging).
+
+### Fixed
+
+- Wrap `/monitoring`, `/visits/fuel`, `/visits/history`, `/visits/team` in `<Suspense>` so static generation does not bail on `useSearchParams`.
+
+### Added / Changed
+
+- Same as **[0.2.181]** (inbox pin/notes/read/canned; receivables aging; planning sheet split).
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.182`**.
+- **Миграции:** `20260922160000_inbox_ux_upgrade` — **`prisma migrate deploy`** (если ещё не накатывали с 0.2.181).
+- **Не использовать `0.2.181`** — web image CI failed.
 
 ## [0.2.181] — 2026-09-23
 
 ### Summary
 
 Патч **0.2.181**: inbox UX (pin / notes / read / canned replies) для Telegram і Meta; receivables aging + collect queue; planning sheet split.
+
+**Не опубликован** — **Publish Registry Release** впав на web build (`useSearchParams` без Suspense на `/monitoring`). Використовуйте **0.2.182**.
 
 ### Added
 
@@ -26,8 +48,7 @@ _(планируемые изменения после **0.2.181**.)_
 
 ### Upgrade notes
 
-- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.181`**.
-- **Миграции:** `20260922160000_inbox_ux_upgrade` — **`prisma migrate deploy`**.
+- **Не використовувати** — див. **0.2.182**.
 
 ## [0.2.180] — 2026-09-17
 

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { apiHttp } from "@/lib/api/client";
 import { fieldFuelApi } from "@/lib/api/resources/field-fuel";
@@ -24,7 +24,7 @@ const POLL_MS = 30_000;
 
 type MeUser = { role?: string };
 
-export default function VisitsTeamPage() {
+function VisitsTeamPageContent() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -333,5 +333,13 @@ export default function VisitsTeamPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function VisitsTeamPage() {
+  return (
+    <Suspense fallback={<div className="p-6 text-sm text-zinc-600">Завантаження…</div>}>
+      <VisitsTeamPageContent />
+    </Suspense>
   );
 }
