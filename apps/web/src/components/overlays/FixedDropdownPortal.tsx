@@ -16,11 +16,40 @@ export type FixedDropdownRect = {
   top: number;
   left: number;
   width: number;
+  maxHeightPx: number;
 };
+
+function parseCssLengthToPx(value: string, fallback: number): number {
+  const trimmed = value.trim();
+  if (trimmed.endsWith("rem")) {
+    const n = Number.parseFloat(trimmed);
+    if (!Number.isFinite(n)) return fallback;
+    const rem =
+      typeof window !== "undefined"
+        ? Number.parseFloat(getComputedStyle(document.documentElement).fontSize) || 16
+        : 16;
+    return n * rem;
+  }
+  if (trimmed.endsWith("dvh") || trimmed.endsWith("vh")) {
+    const n = Number.parseFloat(trimmed);
+    if (!Number.isFinite(n)) return fallback;
+    const vv = typeof window !== "undefined" ? window.visualViewport : null;
+    const h = vv?.height ?? (typeof window !== "undefined" ? window.innerHeight : 800);
+    return (n / 100) * h;
+  }
+  if (trimmed.endsWith("px")) {
+    const n = Number.parseFloat(trimmed);
+    return Number.isFinite(n) ? n : fallback;
+  }
+  const n = Number.parseFloat(trimmed);
+  return Number.isFinite(n) ? n : fallback;
+}
 
 export function useFixedDropdownRect(
   open: boolean,
   anchorRef: RefObject<HTMLElement | null>,
+  maxHeight: string,
+  minWidth: number,
 ) {
   const [rect, setRect] = useState<FixedDropdownRect | null>(null);
 
@@ -28,12 +57,32 @@ export function useFixedDropdownRect(
     const el = anchorRef.current;
     if (!el) return;
     const box = el.getBoundingClientRect();
-    setRect({
-      top: box.bottom + 4,
-      left: box.left,
-      width: box.width,
-    });
-  }, [anchorRef]);
+    const vv = typeof window !== "undefined" ? window.visualViewport : null;
+    const viewTop = vv?.offsetTop ?? 0;
+    const viewHeight = vv?.height ?? window.innerHeight;
+    const viewLeft = vv?.offsetLeft ?? 0;
+    const viewWidth = vv?.width ?? window.innerWidth;
+    const viewBottom = viewTop + viewHeight;
+
+    const preferredMax = parseCssLengthToPx(maxHeight, 224);
+    const gap = 4;
+    const edgePad = 8;
+    const spaceBelow = Math.max(0, viewBottom - box.bottom - edgePad);
+    const spaceAbove = Math.max(0, box.top - viewTop - edgePad);
+    const openUp = spaceBelow < Math.min(preferredMax, 140) && spaceAbove > spaceBelow;
+    const maxHeightPx = Math.max(
+      96,
+      Math.min(preferredMax, openUp ? spaceAbove : spaceBelow || preferredMax),
+    );
+
+    const width = Math.min(Math.max(box.width, minWidth), Math.max(120, viewWidth - edgePad * 2));
+    let left = box.left;
+    left = Math.min(Math.max(left, viewLeft + edgePad), viewLeft + viewWidth - width - edgePad);
+
+    const top = openUp ? Math.max(viewTop + edgePad, box.top - gap - maxHeightPx) : box.bottom + gap;
+
+    setRect({ top, left, width, maxHeightPx });
+  }, [anchorRef, maxHeight, minWidth]);
 
   useEffect(() => {
     if (!open) {
@@ -43,9 +92,14 @@ export function useFixedDropdownRect(
     updateRect();
     window.addEventListener("resize", updateRect);
     window.addEventListener("scroll", updateRect, true);
+    const vv = window.visualViewport;
+    vv?.addEventListener("resize", updateRect);
+    vv?.addEventListener("scroll", updateRect);
     return () => {
       window.removeEventListener("resize", updateRect);
       window.removeEventListener("scroll", updateRect, true);
+      vv?.removeEventListener("resize", updateRect);
+      vv?.removeEventListener("scroll", updateRect);
     };
   }, [open, updateRect]);
 
@@ -77,7 +131,7 @@ type FixedDropdownPortalProps = {
   anchorRef: RefObject<HTMLElement | null>;
   panelRef?: RefObject<HTMLDivElement | null>;
   minWidth?: number;
-  /** CSS length used inside min(..., calc(100dvh - top - 8px)). Default 14rem. */
+  /** CSS length preferred max height. Default 14rem. Clamped to visual viewport. */
   maxHeight?: string;
   className?: string;
   /**
@@ -121,7 +175,12 @@ export function FixedDropdownPortal({
 }: FixedDropdownPortalProps) {
   const localPanelRef = useRef<HTMLDivElement | null>(null);
   const panelRef = panelRefProp ?? localPanelRef;
-  const rect = useFixedDropdownRect(open && placement === "fixed", anchorRef);
+  const rect = useFixedDropdownRect(
+    open && placement === "fixed",
+    anchorRef,
+    maxHeight,
+    minWidth,
+  );
 
   if (!open) return null;
 
@@ -155,8 +214,8 @@ export function FixedDropdownPortal({
       style={{
         top: rect.top,
         left: rect.left,
-        width: Math.max(rect.width, minWidth),
-        maxHeight: `min(${maxHeight}, calc(100dvh - ${rect.top}px - 8px))`,
+        width: rect.width,
+        maxHeight: rect.maxHeightPx,
       }}
       {...stopOutsideDismiss}
     >

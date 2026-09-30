@@ -2669,13 +2669,16 @@ export function OrderModal({
                         }}
                         placeholder={t.productPlaceholder}
                         className="w-full rounded-md border border-zinc-300 px-2 py-1.5 text-sm"
+                        autoComplete="off"
+                        autoCorrect="off"
+                        spellCheck={false}
                       />
                       {!selectedProduct && searchResults.length > 0 ? (
                         <FixedDropdownPortal
                           open
                           anchorRef={searchWrapRef}
-                          maxHeight="9rem"
-                          minWidth={280}
+                          maxHeight={isNarrowViewport ? "40dvh" : "14rem"}
+                          minWidth={isNarrowViewport ? 0 : 280}
                         >
                           {searchResults.map((p) => (
                             <button
@@ -2727,6 +2730,7 @@ export function OrderModal({
                         <span className="mt-0.5 block text-[10px] text-red-600">{submitError}</span>
                       ) : null}
                     </div>
+                    {!isNarrowViewport || selectedProduct ? (
                     <div
                       className={cx(
                         isNarrowViewport ? "flex flex-wrap items-end gap-2" : "contents",
@@ -2820,11 +2824,19 @@ export function OrderModal({
                       </span>
                     ) : null}
                     </div>
+                    ) : null}
                   </div>
                 ) : null}
                 <ul className="divide-y divide-zinc-100">
                   {order.items.length === 0 ? (
-                    <li className="py-8 text-center text-sm text-zinc-500">{t.noItems}</li>
+                    <li
+                      className={cx(
+                        "py-8 text-center text-sm text-zinc-500",
+                        showAddForm && (searchResults.length > 0 || searchLoading) && "invisible",
+                      )}
+                    >
+                      {t.noItems}
+                    </li>
                   ) : (
                     order.items.map((it, index) => {
                       const returnedQty = returnedQtyByItemId.get(it.id) ?? 0;

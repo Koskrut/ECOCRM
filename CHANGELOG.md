@@ -4,7 +4,23 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.183**.)_
+_(планируемые изменения после **0.2.184**.)_
+
+## [0.2.184] — 2026-09-30
+
+### Summary
+
+Патч **0.2.184**: FixedDropdownPortal — clamp/flip у visual viewport; OrderModal mobile product search polish.
+
+### Changed
+
+- **FixedDropdownPortal:** parse rem/dvh maxHeight, open above when space below is tight, clamp width/left to visualViewport; listen to visualViewport resize/scroll.
+- **OrderModal:** taller mobile search dropdown; hide qty/add until product selected on narrow; hide empty-state while search results show; disable autocomplete on product search.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.184`**.
+- **Миграций нет.**
 
 ## [0.2.183] — 2026-09-30
 
