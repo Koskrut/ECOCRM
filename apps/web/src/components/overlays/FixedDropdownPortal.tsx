@@ -11,7 +11,6 @@ import {
   type RefObject,
 } from "react";
 import { createPortal } from "react-dom";
-import { useMaxWidthMedia } from "@/lib/use-max-width-media";
 
 export type FixedDropdownRect = {
   top: number;
@@ -81,7 +80,10 @@ type FixedDropdownPortalProps = {
   /** CSS length used inside min(..., calc(100dvh - top - 8px)). Default 14rem. */
   maxHeight?: string;
   className?: string;
-  /** fixed = portal to body; absolute = in-place under a relative parent; omit = auto (absolute on ≤767px). */
+  /**
+   * fixed = portal to body (default; escapes overflow:hidden/auto ancestors such as EntitySection / modal body).
+   * absolute = in-place under a relative parent (only when the parent does not clip overflow).
+   */
   placement?: "fixed" | "absolute";
   children: ReactNode;
 };
@@ -114,14 +116,12 @@ export function FixedDropdownPortal({
   minWidth = 240,
   maxHeight = "14rem",
   className,
-  placement,
+  placement = "fixed",
   children,
 }: FixedDropdownPortalProps) {
-  const isNarrowViewport = useMaxWidthMedia(767);
-  const effectivePlacement = placement ?? (isNarrowViewport ? "absolute" : "fixed");
   const localPanelRef = useRef<HTMLDivElement | null>(null);
   const panelRef = panelRefProp ?? localPanelRef;
-  const rect = useFixedDropdownRect(open && effectivePlacement === "fixed", anchorRef);
+  const rect = useFixedDropdownRect(open && placement === "fixed", anchorRef);
 
   if (!open) return null;
 
@@ -133,7 +133,7 @@ export function FixedDropdownPortal({
     onMouseDown: (e: ReactMouseEvent) => e.stopPropagation(),
   };
 
-  if (effectivePlacement === "absolute") {
+  if (placement === "absolute") {
     return (
       <div
         ref={panelRef}

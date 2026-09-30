@@ -166,16 +166,26 @@ export function PlanningSheetKitGroup(props: RowProps) {
             <QtyPresetInput
               value={produceVal}
               onChange={onProduceChange}
-              disabled={acting}
-              recommended={row.toWorkLot > 0 ? row.toWorkLot : null}
+              disabled={acting || !row.bottleneckComponentId}
+              recommended={
+                row.suggestedFactoryQty > 0 ? row.suggestedFactoryQty : null
+              }
               lotBase={row.minProduceLot}
             />
             <button
               type="button"
               className="rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] font-medium text-white disabled:opacity-50"
-              disabled={acting || !(Number(produceVal) > 0)}
+              disabled={
+                acting ||
+                !row.bottleneckComponentId ||
+                !(Number(produceVal) > 0)
+              }
               onClick={onCreateProduce}
-              title={sh.produceHint}
+              title={
+                row.bottleneckComponentId
+                  ? sh.produceHint
+                  : t.kitBoms.noBottleneck
+              }
             >
               +
             </button>
@@ -197,6 +207,11 @@ export function PlanningSheetKitGroup(props: RowProps) {
               </button>
             ) : null}
           </div>
+          {row.bottleneckSku ? (
+            <div className="mt-0.5 max-w-[10rem] truncate text-[10px] text-zinc-500" title={row.bottleneckName ?? row.bottleneckSku}>
+              {sh.producePart}: {row.bottleneckSku}
+            </div>
+          ) : null}
         </td>
       </tr>
 

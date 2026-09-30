@@ -28,6 +28,7 @@ type NpTtnDefaults = {
   payerType: NpPayerType;
   paymentMethod: NpPaymentMethod;
   codFeatureEnabled?: boolean;
+  hasOrderItems?: boolean;
   cod?: NpTtnCodDefaults;
 };
 
@@ -198,6 +199,7 @@ export function TtnModal({
   const [codEnabled, setCodEnabled] = useState(false);
   const [codAmountUah, setCodAmountUah] = useState("");
   const [codFeatureEnabled, setCodFeatureEnabled] = useState(false);
+  const [hasOrderItems, setHasOrderItems] = useState(false);
   const [codMeta, setCodMeta] = useState<{
     debtAmount: number;
     currency: string;
@@ -212,6 +214,7 @@ export function TtnModal({
         payerType?: string;
         paymentMethod?: string;
         codFeatureEnabled?: boolean;
+        hasOrderItems?: boolean;
         cod?: NpTtnCodDefaults;
       }>(`/np/ttn/defaults?orderId=${encodeURIComponent(orderId)}`, {
         headers: { "Cache-Control": "no-store" },
@@ -220,10 +223,16 @@ export function TtnModal({
         payerType: normalizeNpPayerType(res.data?.payerType),
         paymentMethod: normalizeNpPaymentMethod(res.data?.paymentMethod),
         codFeatureEnabled: res.data?.codFeatureEnabled === true,
+        hasOrderItems: res.data?.hasOrderItems === true,
         cod: res.data?.cod,
       };
     } catch {
-      return { payerType: "Recipient", paymentMethod: "Cash", codFeatureEnabled: false };
+      return {
+        payerType: "Recipient",
+        paymentMethod: "Cash",
+        codFeatureEnabled: false,
+        hasOrderItems: false,
+      };
     }
   }, [orderId]);
 
@@ -258,6 +267,7 @@ export function TtnModal({
     setPayerType(defaults.payerType ?? "Recipient");
     setPaymentMethod(defaults.paymentMethod ?? "Cash");
     setCodFeatureEnabled(defaults.codFeatureEnabled === true);
+    setHasOrderItems(defaults.hasOrderItems === true);
     if (defaults.codFeatureEnabled && defaults.cod) {
       setCodEnabled(defaults.cod.enabled);
       setCodAmountUah(
@@ -313,6 +323,7 @@ export function TtnModal({
   const loadTtnDetails = useCallback(async () => {
     const defaults = await loadTtnDefaults();
     setCodFeatureEnabled(defaults.codFeatureEnabled === true);
+    setHasOrderItems(defaults.hasOrderItems === true);
 
     const params = new URLSearchParams();
     if (ttnId?.trim()) params.set("ttnId", ttnId.trim());
@@ -568,6 +579,7 @@ export function TtnModal({
 
   const validateCod = (): string | null => {
     if (!codFeatureEnabled || !codEnabled) return null;
+    if (!isEdit && !hasOrderItems) return t.orders.modal.codSelectProduct;
     if (parseCodAmount() == null) return t.orders.modal.codAmountRequired;
     return null;
   };

@@ -4,7 +4,28 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.182**.)_
+_(планируемые изменения после **0.2.183**.)_
+
+## [0.2.183] — 2026-09-30
+
+### Summary
+
+Патч **0.2.183**: NP COD без товарів блокується; planning sheet «+» → WIP на вузьку деталь; OrderModal рядки + dropdown portal.
+
+### Added
+
+- NP TTN defaults `hasOrderItems`; create COD rejects empty order (`Оберіть товар!`) — web `TtnModal` + mobile order screen.
+
+### Changed
+
+- Planning sheet produce: batch on `bottleneckComponentId` / `suggestedFactoryQty` (not kit); UI shows bottleneck SKU.
+- OrderModal line editor layout (qty steppers, promo/discount, responsive rows).
+- `FixedDropdownPortal` defaults to `fixed`; `EntitySection` drops `overflow-hidden` so dropdowns are not clipped.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.183`**.
+- **Миграций нет.**
 
 ## [0.2.182] — 2026-09-23
 

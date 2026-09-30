@@ -795,6 +795,7 @@ export const uk = {
     codDebtHint: "Долг по замовленню — {debt} {currency} (≈ {uah} ₴)",
     codDebtHintUah: "Долг по замовленню — {debt} ₴",
     codAmountRequired: "Вкажіть суму наложеного платежу",
+    codSelectProduct: "Оберіть товар!",
     novaPoshta: "Nova Poshta",
     deliveryNp: "Доставка: Нова Пошта",
     selectAddressForTtn: "Оберіть адресу для створення ТТН",

@@ -80,8 +80,12 @@ export function PlanningSheetPanel({ onError }: Props) {
       setProduceDraft((prev) => {
         const next = { ...prev };
         for (const row of list) {
-          if (next[row.kitProductId] == null && row.toWorkLot > 0) {
-            next[row.kitProductId] = String(row.toWorkLot);
+          if (
+            next[row.kitProductId] == null &&
+            row.bottleneckComponentId &&
+            row.suggestedFactoryQty > 0
+          ) {
+            next[row.kitProductId] = String(row.suggestedFactoryQty);
           }
         }
         return next;
@@ -191,11 +195,17 @@ export function PlanningSheetPanel({ onError }: Props) {
 
   const createProduceBatch = async (row: KitBomListItem, qty: number) => {
     if (!(qty > 0)) return;
+    // Internal WIP batches are for bottleneck PARTS, not kits.
+    if (!row.bottleneckComponentId) {
+      onError(t.kitBoms.noBottleneck);
+      return;
+    }
     setActingId(row.kitProductId);
     try {
+      const partSku = row.bottleneckSku ?? row.sku;
       await planningApi.createBatch({
-        code: batchCodeFor(row.sku),
-        productId: row.kitProductId,
+        code: batchCodeFor(partSku),
+        productId: row.bottleneckComponentId,
         qtyPlanned: qty,
       });
       await load();
@@ -272,11 +282,13 @@ export function PlanningSheetPanel({ onError }: Props) {
     try {
       let wrote = 0;
       for (const row of targets) {
+        if (!row.bottleneckComponentId) continue;
         const qty = Number(produceDraft[row.kitProductId] ?? "");
         if (!(qty > 0)) continue;
+        const partSku = row.bottleneckSku ?? row.sku;
         await planningApi.createBatch({
-          code: batchCodeFor(row.sku),
-          productId: row.kitProductId,
+          code: batchCodeFor(partSku),
+          productId: row.bottleneckComponentId,
           qtyPlanned: qty,
         });
         wrote += 1;

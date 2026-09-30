@@ -90,17 +90,20 @@ export class NpTtnService {
         select: { paymentMethod: true, debtAmount: true, currency: true },
       });
       orderPaymentMethod = orderRow?.paymentMethod ?? null;
+      const hasOrderItems =
+        (await this.prisma.orderItem.count({ where: { orderId: oid } })) > 0;
 
       const resolvedFin = resolveNpFinancialFields({
         orderPaymentMethod,
         settingsPayerType: fin.payerType,
         settingsPaymentMethod: fin.paymentMethod,
       });
-      const base = { ...resolvedFin, codFeatureEnabled };
+      const base = { ...resolvedFin, codFeatureEnabled, hasOrderItems };
 
       if (!orderRow) {
         return {
           ...base,
+          hasOrderItems: false,
           cod: { enabled: false, suggestedAmountUah: 0, debtAmount: 0, currency: "UAH" },
         };
       }
@@ -136,6 +139,7 @@ export class NpTtnService {
     if (!order) throw new BadRequestException("order not found");
 
     await this.assertCodAllowed(dto);
+    await this.assertCodRequiresOrderItems(orderId, dto);
 
     // ✅ fallback: если contactId не задан — берём clientId
     const contactId = order.contactId ?? order.clientId ?? null;
@@ -735,6 +739,19 @@ export class NpTtnService {
       throw new BadRequestException(
         "Наложений платіж вимкнено в налаштуваннях Nova Poshta (Settings → Nova Poshta).",
       );
+    }
+  }
+
+  /** COD on create requires at least one order line — otherwise afterpayment stays stale/zero. */
+  private async assertCodRequiresOrderItems(orderId: string, dto: CreateNpTtnDto): Promise<void> {
+    const amount =
+      dto.afterpaymentOnGoodsCost != null && Number.isFinite(Number(dto.afterpaymentOnGoodsCost))
+        ? Number(dto.afterpaymentOnGoodsCost)
+        : 0;
+    if (amount <= 0) return;
+    const count = await this.prisma.orderItem.count({ where: { orderId } });
+    if (count === 0) {
+      throw new BadRequestException("Оберіть товар!");
     }
   }
 

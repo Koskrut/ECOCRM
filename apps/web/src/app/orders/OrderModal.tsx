@@ -832,7 +832,7 @@ export function OrderModal({
   const [searchError, setSearchError] = useState<string | null>(null);
   const [selectedProduct, setSelectedProduct] = useState<ProductSearchItem | null>(null);
   const isNarrowViewport = useMaxWidthMedia(767);
-  const [qty, setQty] = useState(1);
+  const [qty, setQty] = useState<number | "">(1);
   const [price, setPrice] = useState(0);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submittingItem, setSubmittingItem] = useState(false);
@@ -909,10 +909,9 @@ export function OrderModal({
   } | null>(null);
 
   const [statusUpdating, setStatusUpdating] = useState(false);
-  const [splittingByStock, setSplittingByStock] = useState(false);
   const [leftTab, setLeftTab] = useState<"main" | "items" | "activity" | "change-history" | "tasks">("main");
 
-  const canClose = !saving && !submittingItem && !statusUpdating && !deleting && !splittingByStock;
+  const canClose = !saving && !submittingItem && !statusUpdating && !deleting;
 
   const effectiveRole = userRoleProp ?? userRole;
   const isAdmin = effectiveRole != null && String(effectiveRole).trim().toUpperCase() === "ADMIN";
@@ -948,21 +947,6 @@ export function OrderModal({
     deferredRiskGate != null &&
     (deferredRiskGate.outcome === "BLOCK" ||
       (deferredRiskGate.outcome === "REQUIRE_APPROVAL" && !deferredRiskGate.approvalSatisfied));
-
-  const canSplitByStock = useMemo(() => {
-    if (!order?.items?.length) return false;
-    const blocked = new Set([
-      "SHIPPED",
-      "AWAITING_RECEIPT",
-      "RECEIVED",
-      "COMPLETED",
-      "CANCELED",
-      "REFUSED",
-      "RETURN_IN_PROGRESS",
-      "FULLY_RETURNED",
-    ]);
-    return !blocked.has(order.orderStage ?? "");
-  }, [order]);
 
   const fetchCompanies = useCallback(async () => {
     setLoadingCompanies(true);
@@ -1196,62 +1180,6 @@ export function OrderModal({
     },
     [updateReturnStatus],
   );
-
-  const splitOrderByStock = useCallback(async () => {
-    if (!orderId || !order) return;
-    const ok = await confirm({
-      title: "Розділити замовлення",
-      message:
-        "Розділити замовлення за залишками на складі? Нестача піде в нове дочірнє замовлення. Оплати залишаться на поточному замовленні.",
-      confirmText: "Розділити",
-    });
-    if (!ok) return;
-    setSplittingByStock(true);
-    try {
-      const r = await fetch(`${apiBaseUrl}/orders/${orderId}/split-by-stock`, {
-        method: "POST",
-        credentials: "include",
-      });
-      const body = (await r.json().catch(() => null)) as {
-        parent?: OrderDetails;
-        child?: OrderDetails;
-        message?: string | string[];
-      } | null;
-      if (!r.ok) {
-        const m = body?.message;
-        const msg = Array.isArray(m) ? m.join(", ") : m || `Помилка ${r.status}`;
-        throw new Error(msg);
-      }
-      if (body?.parent) applyOrderToState(body.parent);
-      await refreshTimeline();
-      onSaved?.();
-      const child = body?.child;
-      if (child?.id && onOpenOrder) {
-        const openChild = await confirm({
-          title: "Створено дочірнє замовлення",
-          message: `Створено дочірнє замовлення №${child.orderNumber}. Відкрити зараз?`,
-          confirmText: "Відкрити",
-        });
-        if (openChild) onOpenOrder(child.id);
-      } else if (child?.orderNumber) {
-        pushToast(`Створено дочірнє замовлення №${child.orderNumber}`, "success");
-      }
-    } catch (e) {
-      pushToast(e instanceof Error ? e.message : "Не вдалося розділити", "error");
-    } finally {
-      setSplittingByStock(false);
-    }
-  }, [
-    orderId,
-    order,
-    apiBaseUrl,
-    applyOrderToState,
-    refreshTimeline,
-    onSaved,
-    onOpenOrder,
-    confirm,
-    pushToast,
-  ]);
 
   useEffect(() => {
     if (!orderId || isCreate) {
@@ -1986,7 +1914,7 @@ export function OrderModal({
   const handleAddItemSubmit = async () => {
     if (!orderId || !selectedProduct) return;
 
-    if (!Number.isFinite(qty) || qty < 1) {
+    if (!Number.isFinite(Number(qty)) || Number(qty) < 1) {
       setSubmitError(t.qtyMinError);
       return;
     }
@@ -1998,7 +1926,7 @@ export function OrderModal({
     setSubmittingItem(true);
     setSubmitError(null);
     try {
-      await addItemToOrder(selectedProduct.id, qty, price);
+      await addItemToOrder(selectedProduct.id, Math.max(1, Number(qty) || 1), price);
       // Add & add another: keep form open, reset only product/search, keep qty/price
       setSelectedProduct(null);
       setSearch("");
@@ -2720,19 +2648,6 @@ export function OrderModal({
                     </button>
                   )}
                 </div>
-                {canSplitByStock ? (
-                  <div className="mb-4">
-                    <button
-                      type="button"
-                      disabled={splittingByStock || saving || statusUpdating}
-                      onClick={() => void splitOrderByStock()}
-                      className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-900 hover:bg-amber-100 disabled:opacity-50"
-                    >
-                      {splittingByStock ? t.splitting : t.splitByStock}
-                    </button>
-                    <p className="mt-1 text-xs text-zinc-500">{t.splitHint}</p>
-                  </div>
-                ) : null}
                 {showAddForm ? (
                   <div
                     className={cx(
@@ -2828,7 +2743,10 @@ export function OrderModal({
                         value={qty}
                         onChange={(e) => {
                           const onlyDigits = e.target.value.replace(/\D/g, "").slice(0, 3);
-                          setQty(Math.min(999, Math.max(1, Number(onlyDigits) || 1)));
+                          setQty(onlyDigits === "" ? "" : Math.min(999, Number(onlyDigits)));
+                        }}
+                        onBlur={() => {
+                          setQty((v) => Math.min(999, Math.max(1, Number(v) || 1)));
                         }}
                         onKeyDown={(e) => {
                           if (e.key === "Enter") {
@@ -2844,7 +2762,10 @@ export function OrderModal({
                         <button
                           ref={qtyIncBtnRef}
                           type="button"
-                          onClick={() => setQty((v) => Math.min(999, v + 1))}
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() =>
+                            setQty((v) => Math.min(999, (typeof v === "number" ? v : 0) + 1 || 1))
+                          }
                           aria-label={t.incQty}
                           className="flex flex-1 items-center justify-center border-b border-zinc-300 text-[10px] leading-none text-zinc-600 hover:bg-zinc-50"
                         >
@@ -2853,7 +2774,10 @@ export function OrderModal({
                         <button
                           ref={qtyDecBtnRef}
                           type="button"
-                          onClick={() => setQty((v) => Math.max(1, v - 1))}
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() =>
+                            setQty((v) => Math.max(1, (typeof v === "number" ? v : 1) - 1))
+                          }
                           aria-label={t.decQty}
                           className="flex flex-1 items-center justify-center text-[10px] leading-none text-zinc-600 hover:bg-zinc-50"
                         >
@@ -2898,267 +2822,65 @@ export function OrderModal({
                     </div>
                   </div>
                 ) : null}
-                <ul className="divide-y divide-zinc-100 text-sm">
+                <ul className="divide-y divide-zinc-100">
                   {order.items.length === 0 ? (
-                    <li className="py-2 text-zinc-500">{t.noItems}</li>
+                    <li className="py-8 text-center text-sm text-zinc-500">{t.noItems}</li>
                   ) : (
                     order.items.map((it, index) => {
                       const returnedQty = returnedQtyByItemId.get(it.id) ?? 0;
-                      return (
-                        <li
-                        key={it.id}
-                        className="flex flex-wrap items-start justify-between gap-x-2 gap-y-2 py-1.5 sm:items-center"
-                      >
-                        <span className="w-5 shrink-0 pt-0.5 text-xs tabular-nums text-zinc-400">
-                          {index + 1}.
-                        </span>
-                        <div className="min-w-0 flex-1 basis-[min(100%,12rem)]">
-                          {it.product?.sku ? (
-                            <div className="truncate text-[11px] text-zinc-500">{it.product.sku}</div>
-                          ) : null}
-                          <div className="flex min-w-0 items-center gap-1.5">
-                            <span className="min-w-0 truncate text-xs font-medium text-zinc-700">
-                              {it.product?.name || it.productName || it.productId}
-                            </span>
-                            {returnedQty > 0 ? (
-                              <Badge
-                                className="shrink-0 border-amber-200 bg-amber-50 text-amber-800"
-                                title={t.itemReturnedTitle(returnedQty)}
-                              >
-                                {t.itemReturnedBadge(returnedQty)}
-                              </Badge>
-                            ) : null}
-                          </div>
-                        </div>
-                        <div className="flex shrink-0 flex-wrap items-center justify-end gap-1">
-                          {editingItem?.itemId === it.id && editingItem?.field === "qty" ? (
-                            <div className="flex flex-col items-center gap-0.5">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  const cur = Math.max(1, Number(editingItem.value) || 1);
-                                  const next = cur + 1;
-                                  setEditingItem((prev) =>
-                                    prev ? { ...prev, value: String(next) } : null,
-                                  );
-                                  void patchOrderItem(it.id, { qty: next });
-                                }}
-                                aria-label={t.incQty}
-                                className="flex h-8 w-9 shrink-0 items-center justify-center rounded border border-zinc-300 bg-white text-zinc-600 hover:bg-zinc-50"
-                              >
-                                +
-                              </button>
-                              <input
-                                type="number"
-                                min={1}
-                                value={editingItem.value}
-                                onChange={(e) =>
-                                  setEditingItem((prev) =>
-                                    prev ? { ...prev, value: e.target.value } : null,
-                                  )
-                                }
-                                onBlur={async (e) => {
-                                  const val = Math.max(
-                                    1,
-                                    Number((e.target as HTMLInputElement).value) || 1,
-                                  );
-                                  await patchOrderItem(it.id, { qty: val });
-                                }}
-                                onKeyDown={(e) => {
-                                  if (e.key === "Enter") {
-                                    e.preventDefault();
-                                    const val = Math.max(
-                                      1,
-                                      Number((e.target as HTMLInputElement).value) || 1,
-                                    );
-                                    void patchOrderItem(it.id, { qty: val });
-                                  }
-                                  if (e.key === "Escape") setEditingItem(null);
-                                }}
-                                autoFocus
-                                className={`${isWarehouse ? "w-20" : "w-12"} rounded border border-zinc-300 px-1 py-0.5 text-right text-sm`}
-                              />
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  const cur = Math.max(1, Number(editingItem.value) || 1);
-                                  const next = Math.max(1, cur - 1);
-                                  setEditingItem((prev) =>
-                                    prev ? { ...prev, value: String(next) } : null,
-                                  );
-                                  void patchOrderItem(it.id, { qty: next });
-                                }}
-                                aria-label={t.decQty}
-                                className="flex h-8 w-9 shrink-0 items-center justify-center rounded border border-zinc-300 bg-white text-zinc-600 hover:bg-zinc-50 disabled:opacity-50"
-                              >
-                                −
-                              </button>
-                            </div>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setEditingItem({
-                                  itemId: it.id,
-                                  field: "qty",
-                                  value: String(it.qty),
-                                })
-                              }
-                              className="text-zinc-600 hover:underline"
-                            >
-                              {it.qty}
-                            </button>
-                          )}
-                          <span className="text-zinc-400">×</span>
-                          {editingItem?.itemId === it.id && editingItem?.field === "price" ? (
-                            <input
-                              type="number"
-                              min={0}
-                              step={0.01}
-                              value={editingItem.value}
-                              onChange={(e) =>
-                                setEditingItem((prev) =>
-                                  prev ? { ...prev, value: e.target.value } : null,
-                                )
-                              }
-                              onBlur={async (e) => {
-                                const val = Math.max(
-                                  0,
-                                  Number((e.target as HTMLInputElement).value) || 0,
-                                );
-                                await patchOrderItem(it.id, { price: val });
-                              }}
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter") {
-                                  e.preventDefault();
-                                  const val = Math.max(
-                                    0,
-                                    Number((e.target as HTMLInputElement).value) || 0,
-                                  );
-                                  void patchOrderItem(it.id, { price: val });
-                                }
-                                if (e.key === "Escape") setEditingItem(null);
-                              }}
-                              autoFocus
-                              className="w-14 rounded border border-zinc-300 px-1 py-0.5 text-right text-sm"
-                            />
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setEditingItem({
-                                  itemId: it.id,
-                                  field: "price",
-                                  value: String(it.price),
-                                })
-                              }
-                              className="text-zinc-600 hover:underline"
-                            >
-                              {it.price.toFixed(2)}
-                              {isForeignOrderCurrency(order.currency) &&
-                              order.exchangeRate != null &&
-                              order.exchangeRate > 0 ? (
-                                <span className="ml-1 text-zinc-500 font-normal">
-                                  ({Math.round(it.price * order.exchangeRate)} ₴)
-                                </span>
-                              ) : null}
-                            </button>
-                          )}
-                          {showDiscounts && canEditLineDiscounts ? (
-                            <>
-                              {promoOptions.length > 0 ? (
-                                <select
-                                  value={it.promoType ?? ""}
-                                  disabled={saving}
-                                  onChange={(e) => {
-                                    const v = e.target.value;
-                                    void patchOrderItem(it.id, {
-                                      promoType: v || "NONE",
-                                      discountPercent: v ? 0 : undefined,
-                                    });
-                                  }}
-                                  className="rounded border border-zinc-300 bg-white px-1 py-0.5 text-xs text-zinc-700"
-                                  aria-label={t.linePromoAria}
-                                >
-                                  <option value="">{t.promoNone}</option>
-                                  {promoOptions.map((p) => {
-                                    const elig = promoEligibilityQty(p, it, order.items);
-                                    const ok = isPromoApplicable(p, elig);
-                                    const label =
-                                      p === ORDER_PROMO_BUY_100_GET_30
-                                        ? t.promoBuy100Get30
-                                        : t.promoQty25Minus2;
-                                    return (
-                                      <option key={p} value={p} disabled={!ok}>
-                                        {label}
-                                        {!ok
-                                          ? ` (${t.promoNeedQty}${
-                                              p === ORDER_PROMO_BUY_100_GET_30
-                                                ? `: ${elig}/130`
-                                                : ""
-                                            })`
-                                          : p === ORDER_PROMO_BUY_100_GET_30 && elig !== it.qty
-                                            ? ` (${elig} шт)`
-                                            : ""}
-                                      </option>
-                                    );
-                                  })}
-                                </select>
-                              ) : null}
-                              <select
-                                value={it.promoType ? 0 : (it.discountPercent ?? 0)}
-                                disabled={saving || Boolean(it.promoType)}
-                                onChange={(e) =>
-                                  void patchOrderItem(it.id, {
-                                    discountPercent: Number(e.target.value),
-                                    promoType: "NONE",
-                                  })
-                                }
-                                className="rounded border border-zinc-300 bg-white px-1 py-0.5 text-xs text-zinc-700 disabled:opacity-50"
-                                aria-label={t.lineDiscountAria}
-                              >
-                                <option value={0}>—</option>
-                                {discountOptions.map((p) => (
-                                  <option key={p} value={p}>
-                                    −{p}%
-                                  </option>
-                                ))}
-                              </select>
-                            </>
-                          ) : null}
-                          <span className="text-zinc-500">=</span>
-                          <span className="w-14 text-right font-medium text-zinc-900">
-                            {it.lineTotal.toFixed(2)}
-                            {(it.discountPercent ?? 0) > 0 || it.promoType ? (
-                              <span className="ml-1 text-[10px] font-normal text-zinc-400 line-through">
-                                {(it.qty * it.price).toFixed(2)}
-                              </span>
-                            ) : null}
-                            {it.promoType ? (
-                              <span className="ml-1 block text-[10px] font-normal text-emerald-700">
-                                {t.promoEffectiveUnit}:{" "}
-                                {(it.lineTotal / Math.max(1, it.qty)).toFixed(2)}
-                              </span>
-                            ) : null}
-                            {isForeignOrderCurrency(order.currency) &&
-                            order.exchangeRate != null &&
-                            order.exchangeRate > 0 ? (
-                              <span className="ml-1 text-zinc-500 font-normal">
-                                ({Math.round(it.lineTotal * order.exchangeRate)} ₴)
-                              </span>
-                            ) : null}
-                          </span>
-                        </div>
+                      const editingQty =
+                        editingItem?.itemId === it.id && editingItem.field === "qty";
+                      const editingPrice =
+                        editingItem?.itemId === it.id && editingItem.field === "price";
+                      const displayQty = editingQty
+                        ? Math.max(1, Number(editingItem.value) || 1)
+                        : it.qty;
+                      const displayPrice = editingPrice
+                        ? Math.max(0, Number(editingItem.value) || 0)
+                        : it.price;
+                      const promo = parsePromoType(it.promoType);
+                      const draftItems = order.items.map((x) =>
+                        x.id === it.id
+                          ? { ...x, qty: displayQty, price: displayPrice }
+                          : x,
+                      );
+                      const eligibilityQty =
+                        promo === ORDER_PROMO_BUY_100_GET_30
+                          ? promoEligibilityQty(
+                              promo,
+                              { qty: displayQty, price: displayPrice },
+                              draftItems,
+                            )
+                          : undefined;
+                      const preview = computeLinePricing(
+                        displayQty,
+                        displayPrice,
+                        it.discountPercent ?? 0,
+                        promo,
+                        eligibilityQty,
+                      );
+                      const showUah =
+                        isForeignOrderCurrency(order.currency) &&
+                        order.exchangeRate != null &&
+                        order.exchangeRate > 0;
+                      const gross = displayQty * displayPrice;
+                      const hasDiscountLook =
+                        (it.discountPercent ?? 0) > 0 || Boolean(it.promoType);
+
+                      const deleteBtn = (className: string) => (
                         <button
                           type="button"
                           onClick={() => void deleteOrderItem(it.id)}
                           disabled={saving || !npModuleEffective}
-                          className="rounded p-1 text-zinc-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
+                          className={cx(
+                            "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-zinc-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-50",
+                            className,
+                          )}
                           title={t.deleteItem}
                           aria-label={t.deleteItem}
                         >
                           <svg
-                            className="h-3.5 w-3.5"
+                            className="h-4 w-4"
                             fill="none"
                             stroke="currentColor"
                             viewBox="0 0 24 24"
@@ -3171,6 +2893,297 @@ export function OrderModal({
                             />
                           </svg>
                         </button>
+                      );
+
+                      return (
+                        <li
+                          key={it.id}
+                          className="flex flex-col gap-2 py-3 first:pt-1 last:pb-1 sm:flex-row sm:items-center sm:gap-3"
+                        >
+                          <div className="flex min-w-0 flex-1 items-start gap-2">
+                            <span className="w-5 shrink-0 pt-0.5 text-xs tabular-nums text-zinc-400">
+                              {index + 1}.
+                            </span>
+                            <div className="min-w-0 flex-1">
+                              {it.product?.sku ? (
+                                <div className="text-[11px] tabular-nums text-zinc-500">
+                                  {it.product.sku}
+                                </div>
+                              ) : null}
+                              <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                                <span className="text-sm font-medium leading-snug text-zinc-900 [overflow-wrap:anywhere]">
+                                  {it.product?.name || it.productName || it.productId}
+                                </span>
+                                {returnedQty > 0 ? (
+                                  <Badge
+                                    className="shrink-0 border-amber-200 bg-amber-50 text-amber-800"
+                                    title={t.itemReturnedTitle(returnedQty)}
+                                  >
+                                    {t.itemReturnedBadge(returnedQty)}
+                                  </Badge>
+                                ) : null}
+                              </div>
+                            </div>
+                            {deleteBtn("sm:hidden")}
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-1.5 pl-7 sm:pl-0 sm:shrink-0">
+                            {editingQty ? (
+                              <div className="flex h-[34px] shrink-0 items-stretch overflow-hidden rounded-md border border-zinc-300 bg-white">
+                                <input
+                                  type="text"
+                                  inputMode="numeric"
+                                  pattern="[0-9]*"
+                                  value={editingItem.value}
+                                  onChange={(e) => {
+                                    const onlyDigits = e.target.value
+                                      .replace(/\D/g, "")
+                                      .slice(0, 3);
+                                    setEditingItem((prev) =>
+                                      prev
+                                        ? {
+                                            ...prev,
+                                            value:
+                                              onlyDigits === ""
+                                                ? ""
+                                                : String(Math.min(999, Number(onlyDigits))),
+                                          }
+                                        : null,
+                                    );
+                                  }}
+                                  onBlur={(e) => {
+                                    const val = Math.min(
+                                      999,
+                                      Math.max(
+                                        1,
+                                        Number((e.target as HTMLInputElement).value) || 1,
+                                      ),
+                                    );
+                                    if (val === it.qty) {
+                                      setEditingItem(null);
+                                      return;
+                                    }
+                                    void patchOrderItem(it.id, { qty: val });
+                                  }}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter") {
+                                      e.preventDefault();
+                                      const val = Math.min(
+                                        999,
+                                        Math.max(
+                                          1,
+                                          Number((e.target as HTMLInputElement).value) || 1,
+                                        ),
+                                      );
+                                      if (val === it.qty) {
+                                        setEditingItem(null);
+                                        return;
+                                      }
+                                      void patchOrderItem(it.id, { qty: val });
+                                    }
+                                    if (e.key === "Escape") setEditingItem(null);
+                                  }}
+                                  autoFocus
+                                  maxLength={3}
+                                  className={`${isWarehouse ? "w-16" : "w-10"} border-0 px-1 py-1.5 text-right text-sm focus:outline-none`}
+                                />
+                                <div className="flex w-6 flex-col border-l border-zinc-300">
+                                  <button
+                                    type="button"
+                                    onMouseDown={(e) => e.preventDefault()}
+                                    onClick={() => {
+                                      const cur = Math.max(1, Number(editingItem.value) || 1);
+                                      setEditingItem((prev) =>
+                                        prev
+                                          ? {
+                                              ...prev,
+                                              value: String(Math.min(999, cur + 1)),
+                                            }
+                                          : null,
+                                      );
+                                    }}
+                                    aria-label={t.incQty}
+                                    className="flex flex-1 items-center justify-center border-b border-zinc-300 text-[10px] leading-none text-zinc-600 hover:bg-zinc-50"
+                                  >
+                                    +
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onMouseDown={(e) => e.preventDefault()}
+                                    onClick={() => {
+                                      const cur = Math.max(1, Number(editingItem.value) || 1);
+                                      setEditingItem((prev) =>
+                                        prev
+                                          ? {
+                                              ...prev,
+                                              value: String(Math.max(1, cur - 1)),
+                                            }
+                                          : null,
+                                      );
+                                    }}
+                                    aria-label={t.decQty}
+                                    className="flex flex-1 items-center justify-center text-[10px] leading-none text-zinc-600 hover:bg-zinc-50"
+                                  >
+                                    −
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setEditingItem({
+                                    itemId: it.id,
+                                    field: "qty",
+                                    value: String(it.qty),
+                                  })
+                                }
+                                className="min-w-[2rem] rounded-md px-1.5 py-1 text-sm tabular-nums text-zinc-700 hover:bg-zinc-50 hover:underline"
+                              >
+                                {it.qty}
+                              </button>
+                            )}
+                            <span className="text-zinc-400">×</span>
+                            {editingPrice ? (
+                              <input
+                                type="number"
+                                min={0}
+                                step={0.01}
+                                value={editingItem.value}
+                                onChange={(e) =>
+                                  setEditingItem((prev) =>
+                                    prev ? { ...prev, value: e.target.value } : null,
+                                  )
+                                }
+                                onBlur={async (e) => {
+                                  const val = Math.max(
+                                    0,
+                                    Number((e.target as HTMLInputElement).value) || 0,
+                                  );
+                                  await patchOrderItem(it.id, { price: val });
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") {
+                                    e.preventDefault();
+                                    const val = Math.max(
+                                      0,
+                                      Number((e.target as HTMLInputElement).value) || 0,
+                                    );
+                                    void patchOrderItem(it.id, { price: val });
+                                  }
+                                  if (e.key === "Escape") setEditingItem(null);
+                                }}
+                                autoFocus
+                                className="w-16 rounded-md border border-zinc-300 px-1.5 py-1.5 text-right text-sm"
+                              />
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setEditingItem({
+                                    itemId: it.id,
+                                    field: "price",
+                                    value: String(it.price),
+                                  })
+                                }
+                                className="rounded-md px-1.5 py-1 text-sm tabular-nums text-zinc-700 hover:bg-zinc-50 hover:underline"
+                              >
+                                {it.price.toFixed(2)}
+                                {showUah ? (
+                                  <span className="ml-1 text-xs font-normal text-zinc-500">
+                                    ({Math.round(it.price * order.exchangeRate!)} ₴)
+                                  </span>
+                                ) : null}
+                              </button>
+                            )}
+                            {showDiscounts && canEditLineDiscounts ? (
+                              <>
+                                {promoOptions.length > 0 ? (
+                                  <select
+                                    value={it.promoType ?? ""}
+                                    disabled={saving}
+                                    onChange={(e) => {
+                                      const v = e.target.value;
+                                      void patchOrderItem(it.id, {
+                                        promoType: v || "NONE",
+                                        discountPercent: v ? 0 : undefined,
+                                      });
+                                    }}
+                                    className="max-w-[9rem] rounded-md border border-zinc-300 bg-white px-1.5 py-1.5 text-xs text-zinc-700"
+                                    aria-label={t.linePromoAria}
+                                  >
+                                    <option value="">{t.promoNone}</option>
+                                    {promoOptions.map((p) => {
+                                      const elig = promoEligibilityQty(p, it, order.items);
+                                      const ok = isPromoApplicable(p, elig);
+                                      const label =
+                                        p === ORDER_PROMO_BUY_100_GET_30
+                                          ? t.promoBuy100Get30
+                                          : t.promoQty25Minus2;
+                                      return (
+                                        <option key={p} value={p} disabled={!ok}>
+                                          {label}
+                                          {!ok
+                                            ? ` (${t.promoNeedQty}${
+                                                p === ORDER_PROMO_BUY_100_GET_30
+                                                  ? `: ${elig}/130`
+                                                  : ""
+                                              })`
+                                            : p === ORDER_PROMO_BUY_100_GET_30 &&
+                                                elig !== it.qty
+                                              ? ` (${elig} шт)`
+                                              : ""}
+                                        </option>
+                                      );
+                                    })}
+                                  </select>
+                                ) : null}
+                                <select
+                                  value={it.promoType ? 0 : (it.discountPercent ?? 0)}
+                                  disabled={saving || Boolean(it.promoType)}
+                                  onChange={(e) =>
+                                    void patchOrderItem(it.id, {
+                                      discountPercent: Number(e.target.value),
+                                      promoType: "NONE",
+                                    })
+                                  }
+                                  className="rounded-md border border-zinc-300 bg-white px-1.5 py-1.5 text-xs text-zinc-700 disabled:opacity-50"
+                                  aria-label={t.lineDiscountAria}
+                                >
+                                  <option value={0}>—</option>
+                                  {discountOptions.map((p) => (
+                                    <option key={p} value={p}>
+                                      −{p}%
+                                    </option>
+                                  ))}
+                                </select>
+                              </>
+                            ) : null}
+                          </div>
+
+                          <div className="flex items-center justify-end gap-2 pl-7 sm:pl-0 sm:shrink-0">
+                            <div className="min-w-[5.5rem] text-right">
+                              <div className="text-sm font-semibold tabular-nums text-zinc-900">
+                                {preview.lineTotal.toFixed(2)}
+                                {hasDiscountLook ? (
+                                  <span className="ml-1.5 text-[11px] font-normal text-zinc-400 line-through">
+                                    {gross.toFixed(2)}
+                                  </span>
+                                ) : null}
+                              </div>
+                              {it.promoType ? (
+                                <div className="text-[11px] text-emerald-700">
+                                  {t.promoEffectiveUnit}: {preview.effectiveUnitPrice.toFixed(2)}
+                                </div>
+                              ) : null}
+                              {showUah ? (
+                                <div className="text-[11px] tabular-nums text-zinc-500">
+                                  ≈ {Math.round(preview.lineTotal * order.exchangeRate!)} ₴
+                                </div>
+                              ) : null}
+                            </div>
+                            {deleteBtn("hidden sm:inline-flex")}
+                          </div>
                         </li>
                       );
                     })

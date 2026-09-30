@@ -191,6 +191,10 @@ export default function OrderDetailScreen() {
       profileId: selectedProfileId,
     };
     if (codEnabled && codFeatureEnabled) {
+      if ((order?.items ?? []).length === 0) {
+        Alert.alert(t("common.error"), t("orders.codSelectProduct"));
+        return;
+      }
       const n = parseFloat(codAmountUah.replace(/,/g, ".").trim());
       if (!Number.isFinite(n) || n <= 0) {
         Alert.alert(t("common.error"), t("orders.codAmountRequired"));
