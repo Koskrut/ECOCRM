@@ -4,7 +4,23 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.184**.)_
+_(планируемые изменения после **0.2.185**.)_
+
+## [0.2.185] — 2026-09-30
+
+### Summary
+
+Патч **0.2.185**: OrderModal product search — in-flow list (не portal); FixedDropdownPortal без «польоту» при scroll.
+
+### Changed
+
+- **OrderModal:** product search results as in-document `<ul>` (mobile-safe); `onMouseDown` preventDefault to keep focus.
+- **FixedDropdownPortal:** rAF-throttled reposition; drop capture document scroll (only visualViewport + window resize) so the panel does not fly while scrolling.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.185`**.
+- **Миграций нет.**
 
 ## [0.2.184] — 2026-09-30
 

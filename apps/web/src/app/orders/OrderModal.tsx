@@ -4,7 +4,6 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import { EntityModalShell } from "@/components/modals/EntityModalShell";
 import { EntitySection } from "@/components/sections/EntitySection";
 import { SearchableSelectLite, type Option } from "@/components/inputs/SearchableSelectLite";
-import { FixedDropdownPortal } from "@/components/overlays/FixedDropdownPortal";
 import { apiHttp } from "@/lib/api/client";
 import { useMaxWidthMedia } from "@/lib/use-max-width-media";
 import { formatOrderAmount } from "@/lib/formatOrderAmount";
@@ -819,7 +818,6 @@ export function OrderModal({
   // Add Item
   const [showAddForm, setShowAddForm] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
-  const searchWrapRef = useRef<HTMLDivElement>(null);
   const itemsCardRef = useRef<HTMLDivElement>(null);
   const qtyInputRef = useRef<HTMLInputElement>(null);
   const priceInputRef = useRef<HTMLInputElement>(null);
@@ -2655,7 +2653,6 @@ export function OrderModal({
                       isNarrowViewport ? "flex-col" : "flex-wrap items-end",
                     )}>
                     <div
-                      ref={searchWrapRef}
                       className={cx(
                         "relative",
                         isNarrowViewport ? "w-full" : "min-w-[8rem] flex-[1_1_12rem]",
@@ -2674,34 +2671,38 @@ export function OrderModal({
                         spellCheck={false}
                       />
                       {!selectedProduct && searchResults.length > 0 ? (
-                        <FixedDropdownPortal
-                          open
-                          anchorRef={searchWrapRef}
-                          maxHeight={isNarrowViewport ? "40dvh" : "14rem"}
-                          minWidth={isNarrowViewport ? 0 : 280}
+                        <ul
+                          className="mt-1 max-h-[min(40dvh,16rem)] overflow-auto overscroll-contain rounded-md border border-zinc-200 bg-white shadow-md"
+                          role="listbox"
                         >
                           {searchResults.map((p) => (
-                            <button
-                              key={p.id}
-                              type="button"
-                              onClick={() => handleSelectProduct(p)}
-                              onDoubleClick={(e) => {
-                                e.preventDefault();
-                                void handleAddItemQuick(p);
-                              }}
-                              className="flex w-full items-center justify-between gap-2 px-2 py-1.5 text-left text-sm hover:bg-zinc-50"
-                            >
-                              <span className="min-w-0 flex-1 truncate font-medium text-zinc-900">
-                                {p.sku ? `${p.sku} ${p.name}` : p.name}
-                              </span>
-                              <span className="shrink-0 text-xs text-zinc-500">
-                                {(stockAtWarehouse(p, order?.warehouseId) ?? p.stock) !== undefined
-                                  ? t.stockLeft(stockAtWarehouse(p, order?.warehouseId) ?? p.stock ?? 0)
-                                  : ""}
-                              </span>
-                            </button>
+                            <li key={p.id}>
+                              <button
+                                type="button"
+                                role="option"
+                                onMouseDown={(e) => e.preventDefault()}
+                                onClick={() => handleSelectProduct(p)}
+                                onDoubleClick={(e) => {
+                                  e.preventDefault();
+                                  void handleAddItemQuick(p);
+                                }}
+                                className="flex w-full items-center justify-between gap-2 px-2.5 py-2 text-left text-sm hover:bg-zinc-50 active:bg-zinc-100"
+                              >
+                                <span className="min-w-0 flex-1 truncate font-medium text-zinc-900">
+                                  {p.sku ? `${p.sku} ${p.name}` : p.name}
+                                </span>
+                                <span className="shrink-0 text-xs text-zinc-500">
+                                  {(stockAtWarehouse(p, order?.warehouseId) ?? p.stock) !==
+                                  undefined
+                                    ? t.stockLeft(
+                                        stockAtWarehouse(p, order?.warehouseId) ?? p.stock ?? 0,
+                                      )
+                                    : ""}
+                                </span>
+                              </button>
+                            </li>
                           ))}
-                        </FixedDropdownPortal>
+                        </ul>
                       ) : null}
                       {searchLoading ? (
                         <div className="mt-0.5 text-[10px] text-zinc-500">Пошук…</div>

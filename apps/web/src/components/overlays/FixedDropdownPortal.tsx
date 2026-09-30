@@ -89,17 +89,26 @@ export function useFixedDropdownRect(
       setRect(null);
       return;
     }
+    let raf = 0;
+    const schedule = () => {
+      if (raf) return;
+      raf = window.requestAnimationFrame(() => {
+        raf = 0;
+        updateRect();
+      });
+    };
     updateRect();
-    window.addEventListener("resize", updateRect);
-    window.addEventListener("scroll", updateRect, true);
+    window.addEventListener("resize", schedule);
     const vv = window.visualViewport;
-    vv?.addEventListener("resize", updateRect);
-    vv?.addEventListener("scroll", updateRect);
+    vv?.addEventListener("resize", schedule);
+    // Only follow visualViewport scroll (keyboard), not every scrollable ancestor —
+    // continuous document scroll updates make the panel "fly".
+    vv?.addEventListener("scroll", schedule);
     return () => {
-      window.removeEventListener("resize", updateRect);
-      window.removeEventListener("scroll", updateRect, true);
-      vv?.removeEventListener("resize", updateRect);
-      vv?.removeEventListener("scroll", updateRect);
+      if (raf) window.cancelAnimationFrame(raf);
+      window.removeEventListener("resize", schedule);
+      vv?.removeEventListener("resize", schedule);
+      vv?.removeEventListener("scroll", schedule);
     };
   }, [open, updateRect]);
 
