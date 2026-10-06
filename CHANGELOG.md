@@ -4,7 +4,28 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.186**.)_
+_(планируемые изменения после **0.2.187**.)_
+
+## [0.2.187] — 2026-10-06
+
+### Summary
+
+Патч **0.2.187**: склад — підказка замовлення за товаром при розборі посилки; відкриття картки unlinked TTN у Returns kanban.
+
+### Added
+
+- **`GET /return-packages/:id/suggest-lines`**: пошук returnable order lines за SKU/назвою (пріоритет клієнт/компанія з посилки).
+- Warehouse returns UI: блок «Знайти за позицією» → підбір замовлення → додати qty.
+- **ReturnPackageModal** для unlinked TTN-карток у Returns kanban.
+
+### Fixed
+
+- Клік по посилках «Без замовлення» у `/orders?view=returns` відкриває картку посилки (раніше `onClick` ігнорувався).
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.187`**.
+- **Миграций нет.**
 
 ## [0.2.186] — 2026-10-06
 

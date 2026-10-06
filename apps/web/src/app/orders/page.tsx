@@ -17,6 +17,7 @@ import { FinancialKanban } from "./FinancialKanban";
 import { OrdersKanban } from "./OrdersKanban";
 import { ReturnsKanban } from "./ReturnsKanban";
 import { IncomingReturnPackageModal } from "./IncomingReturnPackageModal";
+import { ReturnPackageModal } from "./ReturnPackageModal";
 import {
   OrdersFiltersPopover,
   type HasTtnFilter,
@@ -235,6 +236,7 @@ function OrdersPageContent() {
   const [returnsRefreshKey, setReturnsRefreshKey] = useState(0);
   const [returnsFocusToken, setReturnsFocusToken] = useState(0);
   const [showIncomingReturnPackage, setShowIncomingReturnPackage] = useState(false);
+  const [openPackageId, setOpenPackageId] = useState<string | null>(null);
   const [userRole, setUserRole] = useState<string | null>(null);
 
   const [creating, setCreating] = useState(false);
@@ -830,6 +832,7 @@ function OrdersPageContent() {
           <ReturnsKanban
             onOpenOrder={(orderId) => openExistingOrder(orderId)}
             onOpenReturn={(returnId) => openReturn(returnId)}
+            onOpenPackage={(packageId) => setOpenPackageId(packageId)}
             refreshKey={returnsRefreshKey}
             focusToken={returnsFocusToken}
             onRegisterIncoming={
@@ -1266,6 +1269,17 @@ function OrdersPageContent() {
           return res.data?.items ?? [];
         }}
       />
+      {openPackageId ? (
+        <ReturnPackageModal
+          packageId={openPackageId}
+          onClose={() => setOpenPackageId(null)}
+          onOpenReturn={(returnId) => {
+            setOpenPackageId(null);
+            openReturn(returnId);
+          }}
+          zIndex={60}
+        />
+      ) : null}
     </div>
   );
 }

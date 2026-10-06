@@ -16,6 +16,7 @@ import {
   ListReturnPackagesQueryDto,
   ListWarehouseQueueQueryDto,
   ReceiveReturnPackageDto,
+  SuggestReturnPackageLinesQueryDto,
   UpdateReturnPackageDispositionsDto,
   UpdateReturnPackageTtnDto,
 } from "./dto/return-package.dto";
@@ -50,6 +51,15 @@ export class ReturnPackagesController {
     @Req() req: Request & { user?: AuthUser },
   ) {
     return this.returnPackages.list(q, req.user);
+  }
+
+  @Get(":id/suggest-lines")
+  suggestLines(
+    @Param("id") id: string,
+    @Query() q: SuggestReturnPackageLinesQueryDto,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.returnPackages.suggestLines(id, q, req.user);
   }
 
   @Get(":id")

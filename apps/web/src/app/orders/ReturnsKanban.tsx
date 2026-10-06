@@ -176,6 +176,7 @@ function orderStageLabel(stage: string | null | undefined): string {
 export function ReturnsKanban({
   onOpenOrder,
   onOpenReturn,
+  onOpenPackage,
   refreshKey = 0,
   focusToken = 0,
   onRegisterIncoming,
@@ -184,6 +185,8 @@ export function ReturnsKanban({
 }: {
   onOpenOrder: (orderId: string) => void;
   onOpenReturn?: (returnId: string) => void;
+  /** Unlinked TTN parcels (no OrderReturn yet). */
+  onOpenPackage?: (packageId: string) => void;
   /** Increment to force refetch (e.g. after creating a return from order modal). */
   refreshKey?: number;
   /** Increment after registering a TTN so that column scrolls into view. */
@@ -529,7 +532,12 @@ export function ReturnsKanban({
                       key={r.id}
                       type="button"
                       onClick={() => {
-                        if (isTextSelected() || r.unlinkedPackage) return;
+                        if (isTextSelected()) return;
+                        if (r.unlinkedPackage) {
+                          const packageId = r.returnPackage?.id;
+                          if (packageId && onOpenPackage) onOpenPackage(packageId);
+                          return;
+                        }
                         if (onOpenReturn) {
                           onOpenReturn(r.id);
                           return;
@@ -575,10 +583,8 @@ export function ReturnsKanban({
                           setDragOver(null);
                         });
                       }}
-                      className={`w-full rounded-xl border bg-white p-3 text-left shadow-sm ${
-                        r.unlinkedPackage
-                          ? "cursor-default border-sky-200"
-                          : "border-zinc-200 hover:shadow-md"
+                      className={`w-full rounded-xl border bg-white p-3 text-left shadow-sm hover:shadow-md ${
+                        r.unlinkedPackage ? "border-sky-200" : "border-zinc-200"
                       } ${dragging?.returnId === r.id ? "opacity-60" : ""}`}
                     >
                       {r.unlinkedPackage ? (

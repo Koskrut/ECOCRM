@@ -16,6 +16,7 @@ import type {
   AddReturnPackageItemsDto,
   CreateReturnPackageDto,
   ListReturnPackagesQueryDto,
+  SuggestReturnPackageLinesQueryDto,
 } from "./dto/return-package.dto";
 import {
   assertManagerPackageCreate,
@@ -504,6 +505,172 @@ export class ReturnPackagesService {
     }
     await this.syncLinkedReturnsLogistics(id, "RECEIVED_BY_WAREHOUSE");
     return this.getById(id, actor);
+  }
+
+  /**
+   * When the warehouse does not know the order: search by product SKU/name and
+   * suggest returnable order lines (preferring the package contact / company).
+   */
+  async suggestLines(
+    id: string,
+    q: SuggestReturnPackageLinesQueryDto,
+    actor?: AuthUser,
+  ) {
+    assertWarehousePackageItems(actor);
+
+    const search = q?.q?.trim() ?? "";
+    const productId = q?.productId?.trim() ?? "";
+    if (!search && !productId) {
+      throw new BadRequestException("Provide q (SKU/name) or productId");
+    }
+
+    const pkg = await this.prisma.returnPackage.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        contactId: true,
+        contact: { select: { id: true, companyId: true } },
+      },
+    });
+    if (!pkg) throw new NotFoundException("Return package not found");
+
+    const limit = Math.min(Math.max(Number(q?.limit ?? 20), 1), 50);
+    const contactId = pkg.contactId ?? pkg.contact?.id ?? null;
+    const companyId = pkg.contact?.companyId ?? null;
+
+    const productFilter: Prisma.OrderItemWhereInput = productId
+      ? { productId }
+      : {
+          OR: [
+            { productNameSnapshot: { contains: search, mode: "insensitive" } },
+            { product: { is: { name: { contains: search, mode: "insensitive" } } } },
+            { product: { is: { sku: { contains: search, mode: "insensitive" } } } },
+            {
+              product: {
+                is: { externalCode: { contains: search, mode: "insensitive" } },
+              },
+            },
+          ],
+        };
+
+    const orderScope: Prisma.OrderWhereInput = {
+      orderStage: { in: RETURN_CREATE_STAGES },
+      ...(actor?.role === UserRole.MANAGER ? { ownerId: actor.id } : {}),
+    };
+
+    const preferContact: Prisma.OrderWhereInput[] = [];
+    if (contactId) {
+      preferContact.push({ clientId: contactId }, { contactId });
+    }
+    if (companyId) {
+      preferContact.push({ companyId });
+    }
+
+    const lineSelect = {
+      id: true,
+      qty: true,
+      productNameSnapshot: true,
+      productId: true,
+      product: { select: { id: true, name: true, sku: true } },
+      order: {
+        select: {
+          id: true,
+          orderNumber: true,
+          orderStage: true,
+          updatedAt: true,
+          clientId: true,
+          contactId: true,
+          companyId: true,
+          client: { select: { id: true, firstName: true, lastName: true } },
+          company: { select: { id: true, name: true } },
+        },
+      },
+    } as const;
+
+    const orderFilter = (extra?: Prisma.OrderWhereInput): Prisma.OrderItemWhereInput => ({
+      AND: [
+        productFilter,
+        {
+          order: {
+            is: extra ? { AND: [orderScope, extra] } : orderScope,
+          },
+        },
+      ],
+    });
+
+    const lines = await this.prisma.orderItem.findMany({
+      where: orderFilter(preferContact.length > 0 ? { OR: preferContact } : undefined),
+      take: limit * 3,
+      orderBy: { order: { updatedAt: "desc" } },
+      select: lineSelect,
+    });
+
+    // Fallback: if contact-scoped search is empty, search across returnable orders.
+    const scopedEmpty = lines.length === 0 && preferContact.length > 0;
+    const broadLines = scopedEmpty
+      ? await this.prisma.orderItem.findMany({
+          where: orderFilter(),
+          take: limit * 3,
+          orderBy: { order: { updatedAt: "desc" } },
+          select: lineSelect,
+        })
+      : lines;
+
+    const candidateIds = broadLines.map((l) => l.id);
+    const alreadyReturned =
+      candidateIds.length === 0
+        ? []
+        : await this.prisma.orderReturnItem.groupBy({
+            by: ["orderItemId"],
+            where: { orderItemId: { in: candidateIds } },
+            _sum: { qtyReturned: true },
+          });
+    const returnedByItem = new Map(
+      alreadyReturned.map((row) => [row.orderItemId, row._sum.qtyReturned ?? 0]),
+    );
+
+    const items = broadLines
+      .map((line) => {
+        const returned = returnedByItem.get(line.id) ?? 0;
+        const returnableQty = Math.max(0, line.qty - returned);
+        const contactMatch =
+          Boolean(contactId) &&
+          (line.order.clientId === contactId || line.order.contactId === contactId);
+        const companyMatch = Boolean(companyId) && line.order.companyId === companyId;
+        return {
+          orderItemId: line.id,
+          orderId: line.order.id,
+          orderNumber: line.order.orderNumber,
+          orderStage: line.order.orderStage,
+          productId: line.productId,
+          productName:
+            line.productNameSnapshot ?? line.product?.name ?? line.product?.sku ?? "—",
+          productSku: line.product?.sku ?? null,
+          qtyOrdered: line.qty,
+          qtyAlreadyReturned: returned,
+          returnableQty,
+          contactMatch,
+          companyMatch,
+          client: line.order.client,
+          company: line.order.company,
+          orderUpdatedAt: line.order.updatedAt,
+        };
+      })
+      .filter((row) => row.returnableQty > 0)
+      .sort((a, b) => {
+        if (a.contactMatch !== b.contactMatch) return a.contactMatch ? -1 : 1;
+        if (a.companyMatch !== b.companyMatch) return a.companyMatch ? -1 : 1;
+        return (
+          new Date(b.orderUpdatedAt).getTime() - new Date(a.orderUpdatedAt).getTime()
+        );
+      })
+      .slice(0, limit)
+      .map(({ orderUpdatedAt: _u, ...rest }) => rest);
+
+    return {
+      items,
+      scopedToContact: preferContact.length > 0 && !scopedEmpty,
+    };
   }
 
   async addItems(id: string, dto: AddReturnPackageItemsDto, actor?: AuthUser) {

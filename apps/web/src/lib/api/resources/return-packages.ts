@@ -60,6 +60,23 @@ export type ReturnPackage = {
   returns: ReturnPackageLinkedReturn[];
 };
 
+export type ReturnPackageLineSuggestion = {
+  orderItemId: string;
+  orderId: string;
+  orderNumber: string;
+  orderStage?: string | null;
+  productId?: string | null;
+  productName: string;
+  productSku?: string | null;
+  qtyOrdered: number;
+  qtyAlreadyReturned: number;
+  returnableQty: number;
+  contactMatch: boolean;
+  companyMatch: boolean;
+  client?: { id: string; firstName: string; lastName: string } | null;
+  company?: { id: string; name: string } | null;
+};
+
 export const returnPackagesApi = {
   listWarehouseQueue: async (warehouseIds?: string[]) => {
     const params =
@@ -99,6 +116,17 @@ export const returnPackagesApi = {
   getById: async (id: string) => {
     const res = await apiHttp.get<ReturnPackage>(`/return-packages/${id}`);
     return res.data;
+  },
+
+  suggestLines: async (
+    id: string,
+    params: { q?: string; productId?: string; limit?: number },
+  ) => {
+    const res = await apiHttp.get<{
+      items: ReturnPackageLineSuggestion[];
+      scopedToContact: boolean;
+    }>(`/return-packages/${id}/suggest-lines`, { params });
+    return res.data ?? { items: [], scopedToContact: false };
   },
 
   create: async (body: {

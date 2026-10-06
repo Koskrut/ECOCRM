@@ -178,6 +178,100 @@ describe("ReturnPackagesService", () => {
     });
   });
 
+  it("suggestLines prefers contact match and skips fully returned lines", async () => {
+    const prisma = {
+      returnPackage: {
+        findUnique: async () => ({
+          id: "pkg1",
+          contactId: "c1",
+          contact: { id: "c1", companyId: "co1" },
+        }),
+      },
+      orderItem: {
+        findMany: async () => [
+          {
+            id: "oi-other",
+            qty: 2,
+            productNameSnapshot: "Kit A",
+            productId: "p1",
+            product: { id: "p1", name: "Kit A", sku: "KIT-A" },
+            order: {
+              id: "o-other",
+              orderNumber: "O-OTHER",
+              orderStage: "RECEIVED",
+              updatedAt: new Date("2026-01-01"),
+              clientId: "c9",
+              contactId: null,
+              companyId: null,
+              client: { id: "c9", firstName: "Other", lastName: "Client" },
+              company: null,
+            },
+          },
+          {
+            id: "oi-match",
+            qty: 3,
+            productNameSnapshot: "Kit A",
+            productId: "p1",
+            product: { id: "p1", name: "Kit A", sku: "KIT-A" },
+            order: {
+              id: "o-match",
+              orderNumber: "O-MATCH",
+              orderStage: "RECEIVED",
+              updatedAt: new Date("2026-02-01"),
+              clientId: "c1",
+              contactId: null,
+              companyId: "co1",
+              client: { id: "c1", firstName: "Ivan", lastName: "Petrenko" },
+              company: { id: "co1", name: "Acme" },
+            },
+          },
+          {
+            id: "oi-done",
+            qty: 1,
+            productNameSnapshot: "Kit A",
+            productId: "p1",
+            product: { id: "p1", name: "Kit A", sku: "KIT-A" },
+            order: {
+              id: "o-done",
+              orderNumber: "O-DONE",
+              orderStage: "COMPLETED",
+              updatedAt: new Date("2026-03-01"),
+              clientId: "c1",
+              contactId: null,
+              companyId: "co1",
+              client: { id: "c1", firstName: "Ivan", lastName: "Petrenko" },
+              company: { id: "co1", name: "Acme" },
+            },
+          },
+        ],
+      },
+      orderReturnItem: {
+        groupBy: async () => [
+          { orderItemId: "oi-done", _sum: { qtyReturned: 1 } },
+          { orderItemId: "oi-match", _sum: { qtyReturned: 1 } },
+        ],
+      },
+    } as unknown as PrismaSvc;
+
+    const svc = new ReturnPackagesService(
+      prisma,
+      { syncOrderStateFromReturns: async () => {} } as unknown as OrderReturnsSvc,
+      { call: async () => ({}) } as never,
+    );
+
+    const result = await svc.suggestLines(
+      "pkg1",
+      { q: "KIT-A" },
+      { id: "w1", role: "WAREHOUSE" },
+    );
+
+    assert.equal(result.items.length, 2);
+    assert.equal(result.items[0]?.orderNumber, "O-MATCH");
+    assert.equal(result.items[0]?.returnableQty, 2);
+    assert.equal(result.items[0]?.contactMatch, true);
+    assert.equal(result.items.some((x) => x.orderItemId === "oi-done"), false);
+  });
+
   it("sync to in-transit does not demote a received package", async () => {
     const updates: Array<Record<string, unknown>> = [];
     const prisma = {

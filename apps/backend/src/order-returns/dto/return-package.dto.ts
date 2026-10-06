@@ -140,3 +140,20 @@ export class ListReturnPackagesQueryDto {
   @Min(1)
   pageSize?: number;
 }
+
+/** Suggest returnable order lines for a package by product SKU/name or productId. */
+export class SuggestReturnPackageLinesQueryDto {
+  @IsOptional()
+  @IsString()
+  q?: string;
+
+  @IsOptional()
+  @IsString()
+  productId?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  limit?: number;
+}

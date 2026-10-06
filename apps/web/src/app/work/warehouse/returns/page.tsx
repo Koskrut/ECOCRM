@@ -9,6 +9,7 @@ import { OrderModal } from "@/app/orders/OrderModal";
 import {
   returnPackagesApi,
   type ReturnPackage,
+  type ReturnPackageLineSuggestion,
   type ReturnPackageLinkedReturn,
   type ReturnPackageReturnItem,
 } from "@/lib/api/resources/return-packages";
@@ -160,6 +161,11 @@ function WarehouseReturnsPageContent() {
   const [orderSearchResults, setOrderSearchResults] = useState<SearchOrder[]>([]);
   const [orderSearchLoading, setOrderSearchLoading] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<SearchOrder | null>(null);
+  const [productSearch, setProductSearch] = useState("");
+  const [lineSuggestions, setLineSuggestions] = useState<ReturnPackageLineSuggestion[]>([]);
+  const [lineSuggestionsLoading, setLineSuggestionsLoading] = useState(false);
+  const [lineSuggestionsScoped, setLineSuggestionsScoped] = useState(false);
+  const [suggestQtyDrafts, setSuggestQtyDrafts] = useState<Record<string, string>>({});
   const [ordersById, setOrdersById] = useState<Record<string, SearchOrder>>({});
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [itemQtyDrafts, setItemQtyDrafts] = useState<Record<string, string>>({});
@@ -357,6 +363,79 @@ function WarehouseReturnsPageContent() {
     }
   }, [orderSearch]);
 
+  const searchLinesByProduct = useCallback(async () => {
+    if (!selectedId) return;
+    const q = productSearch.trim();
+    if (q.length < 2) {
+      setLineSuggestions([]);
+      setLineSuggestionsScoped(false);
+      return;
+    }
+    setLineSuggestionsLoading(true);
+    setErr(null);
+    try {
+      const data = await returnPackagesApi.suggestLines(selectedId, { q, limit: 20 });
+      setLineSuggestions(data.items ?? []);
+      setLineSuggestionsScoped(data.scopedToContact === true);
+      setSuggestQtyDrafts((prev) => {
+        const next = { ...prev };
+        for (const row of data.items ?? []) {
+          if (next[row.orderItemId] === undefined) {
+            next[row.orderItemId] = String(Math.min(1, row.returnableQty));
+          }
+        }
+        return next;
+      });
+    } catch (e) {
+      setLineSuggestions([]);
+      setLineSuggestionsScoped(false);
+      setErr(e instanceof Error ? e.message : "Не вдалося підібрати замовлення");
+    } finally {
+      setLineSuggestionsLoading(false);
+    }
+  }, [productSearch, selectedId]);
+
+  const handleAddSuggestedLine = (row: ReturnPackageLineSuggestion) => {
+    if (!selected) return;
+    const qty = Math.max(
+      0,
+      Math.min(row.returnableQty, Number(suggestQtyDrafts[row.orderItemId]) || 0),
+    );
+    if (qty <= 0) {
+      setErr("Вкажіть кількість для позиції");
+      return;
+    }
+    void (async () => {
+      const ok = await runAction(
+        () =>
+          returnPackagesApi.addItems(selected.id, {
+            orderId: row.orderId,
+            items: [{ orderItemId: row.orderItemId, qtyReturned: qty }],
+          }),
+        `Додано ${qty} од. з замовлення ${row.orderNumber}`,
+      );
+      if (!ok) return;
+      setSuggestQtyDrafts((prev) => {
+        const next = { ...prev };
+        delete next[row.orderItemId];
+        return next;
+      });
+      setLineSuggestions((prev) =>
+        prev
+          .map((x) =>
+            x.orderItemId === row.orderItemId
+              ? {
+                  ...x,
+                  returnableQty: x.returnableQty - qty,
+                  qtyAlreadyReturned: x.qtyAlreadyReturned + qty,
+                }
+              : x,
+          )
+          .filter((x) => x.returnableQty > 0),
+      );
+    })();
+  };
+
   const closeModal = () => {
     scheduleModalClose(() => {
       setSelectedId(null);
@@ -364,6 +443,10 @@ function WarehouseReturnsPageContent() {
       setOrderSearch("");
       setOrderSearchResults([]);
       setShowExtraOrderSearch(false);
+      setProductSearch("");
+      setLineSuggestions([]);
+      setLineSuggestionsScoped(false);
+      setSuggestQtyDrafts({});
     });
   };
 
@@ -375,8 +458,10 @@ function WarehouseReturnsPageContent() {
       await fn();
       setInfo(successMsg);
       await loadQueue();
+      return true;
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Помилка операції");
+      return false;
     } finally {
       setActionLoading(false);
     }
@@ -882,19 +967,141 @@ function WarehouseReturnsPageContent() {
 
               {selected.status === "RECEIVED_BY_WAREHOUSE" ? (
                 <div className="space-y-3 rounded-lg border border-zinc-200 p-3">
+                  {selected.returns.length === 0 || showExtraOrderSearch || packageNeedsBreakdown(selected) ? (
+                    <div className="space-y-2 rounded-lg border border-sky-100 bg-sky-50/50 p-3">
+                      <h3 className="text-sm font-medium text-zinc-800">
+                        Знайти за позицією
+                      </h3>
+                      <p className="text-xs text-zinc-600">
+                        Не знаєте замовлення — введіть SKU або назву товару з посилки. Система
+                        запропонує замовлення клієнта з цією позицією.
+                      </p>
+                      <div className="flex gap-2">
+                        <input
+                          type="search"
+                          value={productSearch}
+                          onChange={(e) => setProductSearch(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              void searchLinesByProduct();
+                            }
+                          }}
+                          placeholder="SKU або назва товару…"
+                          className="min-w-0 flex-1 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm"
+                        />
+                        <button
+                          type="button"
+                          disabled={lineSuggestionsLoading || actionLoading}
+                          onClick={() => void searchLinesByProduct()}
+                          className="inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm hover:bg-zinc-50 disabled:opacity-50"
+                        >
+                          <Search className="h-4 w-4" />
+                          Підібрати
+                        </button>
+                      </div>
+                      {lineSuggestionsLoading ? (
+                        <p className="text-xs text-zinc-500">Підбір замовлень…</p>
+                      ) : lineSuggestions.length > 0 ? (
+                        <div className="space-y-2">
+                          {lineSuggestionsScoped ? (
+                            <p className="text-[11px] text-sky-800">
+                              Спочатку замовлення цього клієнта / компанії
+                            </p>
+                          ) : selected.contactId ? (
+                            <p className="text-[11px] text-amber-800">
+                              У клієнта посилки збігів немає — показані інші замовлення з цим товаром
+                            </p>
+                          ) : null}
+                          {lineSuggestions.map((row) => {
+                            const client =
+                              row.client
+                                ? `${row.client.lastName ?? ""} ${row.client.firstName ?? ""}`.trim()
+                                : row.company?.name ?? "";
+                            return (
+                              <div
+                                key={row.orderItemId}
+                                className="rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm"
+                              >
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span className="font-medium text-zinc-900">
+                                    {row.productSku ? `${row.productSku} · ` : ""}
+                                    {row.productName}
+                                  </span>
+                                  {row.contactMatch ? (
+                                    <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-medium text-sky-800">
+                                      Клієнт посилки
+                                    </span>
+                                  ) : row.companyMatch ? (
+                                    <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-medium text-violet-800">
+                                      Компанія
+                                    </span>
+                                  ) : null}
+                                </div>
+                                <div className="mt-1 text-xs text-zinc-600">
+                                  Замовлення {row.orderNumber}
+                                  {client ? ` · ${client}` : ""}
+                                  {" · "}
+                                  можна {row.returnableQty} з {row.qtyOrdered}
+                                </div>
+                                <div className="mt-2 flex flex-wrap items-center gap-2">
+                                  <label className="text-xs text-zinc-500">
+                                    К-сть
+                                    <input
+                                      type="number"
+                                      min={1}
+                                      max={row.returnableQty}
+                                      value={suggestQtyDrafts[row.orderItemId] ?? "1"}
+                                      onChange={(e) =>
+                                        setSuggestQtyDrafts((prev) => ({
+                                          ...prev,
+                                          [row.orderItemId]: e.target.value,
+                                        }))
+                                      }
+                                      className="ml-1 w-16 rounded border border-zinc-300 px-1.5 py-1 text-sm tabular-nums"
+                                    />
+                                  </label>
+                                  <button
+                                    type="button"
+                                    disabled={actionLoading}
+                                    onClick={() => handleAddSuggestedLine(row)}
+                                    className="rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
+                                  >
+                                    Додати з цього замовлення
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setOrderModalId(row.orderId)}
+                                    className="text-xs font-medium text-zinc-600 underline"
+                                  >
+                                    Відкрити замовлення
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : productSearch.trim().length >= 2 && !lineSuggestionsLoading ? (
+                        <p className="text-xs text-zinc-500">
+                          Нічого не знайдено. Спробуйте інший SKU або пошу замовлення нижче.
+                        </p>
+                      ) : null}
+                    </div>
+                  ) : null}
+
                   {selected.returns.length > 0 && !showExtraOrderSearch ? (
                     <button
                       type="button"
                       onClick={() => setShowExtraOrderSearch(true)}
                       className="text-xs font-medium text-zinc-700 underline"
                     >
-                      Додати позиції з іншого замовлення
+                      Додати позиції з іншого замовлення / за товаром
                     </button>
                   ) : (
                     <>
                       <h3 className="text-sm font-medium text-zinc-800">
                         {selected.returns.length === 0
-                          ? "Знайти замовлення"
+                          ? "Або знайти замовлення за номером"
                           : "Додати з іншого замовлення"}
                       </h3>
                       <div className="flex gap-2">
