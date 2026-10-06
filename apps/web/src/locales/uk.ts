@@ -17,8 +17,6 @@ export const uk = {
   },
   nav: {
     dashboard: "Дашборд",
-    workPlan: "План роботи",
-    dayPlanKpi: "Норми дня",
     leads: "Ліди",
     orders: "Замовлення",
     companies: "Компанії",
@@ -144,6 +142,20 @@ export const uk = {
     instagramUnlinked: "Instagram-чат без прив’язки до контакту чи ліда",
     facebookUnlinked: "Facebook-чат без прив’язки до контакту чи ліда",
     settingsLink: "Налаштування підключення",
+  },
+  inboxPage: {
+    title: "Вхідні",
+    channelAll: "Усі",
+    channelTelegram: "Telegram",
+    channelInstagram: "Instagram",
+    channelFacebook: "Facebook",
+    telegramUnlinked: "Telegram-чат без прив’язки до контакту чи ліда",
+    instagramUnlinked: "Instagram-чат без прив’язки до контакту чи ліда",
+    facebookUnlinked: "Facebook-чат без прив’язки до контакту чи ліда",
+    metaSettingsLink: "Підключення Meta",
+    telegramSettingsLink: "Підключення Telegram",
+    empty: "Немає діалогів",
+    pickConversation: "Оберіть діалог зі списку",
   },
   modules: {
     unavailableTitle: "Модуль недоступний",
@@ -3106,6 +3118,9 @@ export const uk = {
     positionsUnits: (positions: number, units: number) => `${positions} поз. · ${units} од.`,
     ttnPrefix: "ТТН",
     returnsOrderStage: (stage: string) => `Замовлення: ${stage}`,
+    unlinkedReturnNoOrder: "Без замовлення",
+    unlinkedReturnHint:
+      "Посилка зареєстрована за ТТН. Після прибуття склад привʼяже замовлення і розкладе позиції.",
   },
   monitoring: {
     pageTitle: "Моніторинг співробітників",

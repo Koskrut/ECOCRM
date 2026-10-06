@@ -3,6 +3,7 @@ import { ForbiddenException, Injectable, NotFoundException } from "@nestjs/commo
 import { UserRole } from "@prisma/client";
 import type { Prisma } from "@prisma/client";
 import type { AuthUser } from "../auth/auth.types";
+import { kyivDayBounds, todayYmdKyiv } from "../crm-timezone";
 import { PrismaService } from "../prisma/prisma.service";
 import { ContactsInsightsService } from "./contacts-insights.service";
 import { ContactsPriorityService } from "./contacts-priority.service";
@@ -100,6 +101,7 @@ export class ContactsWorkQueueService {
     const skip = (page - 1) * pageSize;
 
     const where = this.buildWhere(query, actor);
+    const todayBounds = query.horizon === "today" ? kyivDayBounds(todayYmdKyiv()) : null;
     const rows = await this.prisma.contact.findMany({
       where,
       orderBy: { createdAt: "desc" },
@@ -138,6 +140,17 @@ export class ContactsWorkQueueService {
       if (!this.matchesPreset(pr.reasons, query.preset)) continue;
       if (!this.matchesReasonFilters(pr.reasons, query.reason)) continue;
       if (!this.matchesLegacyReasonFilters(pr.reasons, query)) continue;
+      if (
+        todayBounds &&
+        !this.matchesTodayHorizon(
+          row.nextActionAt,
+          signal.lastContactAt,
+          signal.overdueFollowupTasks,
+          todayBounds,
+        )
+      ) {
+        continue;
+      }
 
       items.push({
         contact: {
@@ -188,6 +201,7 @@ export class ContactsWorkQueueService {
 
   async getWorkQueueSummary(query: GetWorkQueueSummaryDto, actor?: AuthUser) {
     const where = this.buildWhere(query, actor);
+    const todayBounds = query.horizon === "today" ? kyivDayBounds(todayYmdKyiv()) : null;
     const rows = await this.prisma.contact.findMany({
       where,
       select: {
@@ -195,6 +209,7 @@ export class ContactsWorkQueueService {
         createdAt: true,
         status: true,
         marketingCallOptOut: true,
+        nextActionAt: true,
       },
     });
     const signalsById = await this.insights.buildSignalsForContacts(
@@ -229,6 +244,19 @@ export class ContactsWorkQueueService {
       const signal = signalsById.get(row.id);
       if (!signal) continue;
       const pr = this.priority.score(signal);
+      // Debt tile opens receivables, not the today work list, so keep the full count.
+      if (pr.reasons.includes("HAS_DEBT")) debtControl += 1;
+      if (
+        todayBounds &&
+        !this.matchesTodayHorizon(
+          row.nextActionAt,
+          signal.lastContactAt,
+          signal.overdueFollowupTasks,
+          todayBounds,
+        )
+      ) {
+        continue;
+      }
       if (this.matchesPreset(pr.reasons, "attention")) presetCounts.attention += 1;
       if (this.matchesPreset(pr.reasons, "overdue")) presetCounts.overdue += 1;
       if (this.matchesPreset(pr.reasons, "new-no-first-contact")) {
@@ -249,7 +277,6 @@ export class ContactsWorkQueueService {
       if (pr.reasons.includes("RETURN_TO_WORK") || pr.reasons.includes("DORMANT"))
         dormantReturn += 1;
       if (pr.reasons.includes("AT_RISK")) atRisk += 1;
-      if (pr.reasons.includes("HAS_DEBT")) debtControl += 1;
     }
 
     return {
@@ -314,10 +341,26 @@ export class ContactsWorkQueueService {
     }
   }
 
+  /**
+   * Still due today: skip a contact already touched today, and skip one whose next
+   * action is after today — unless an overdue follow-up task is still open.
+   */
+  private matchesTodayHorizon(
+    nextActionAt: Date | null,
+    lastContactAt: Date | null,
+    overdueFollowupTasks: number | undefined,
+    bounds: { from: Date; to: Date },
+  ): boolean {
+    if (lastContactAt && lastContactAt >= bounds.from && lastContactAt <= bounds.to) return false;
+    if (nextActionAt && nextActionAt > bounds.to && (overdueFollowupTasks ?? 0) <= 0) return false;
+    return true;
+  }
+
   private buildWhere(
     query: {
       ownerId?: string;
       q?: string;
+      horizon?: "today";
     },
     actor?: AuthUser,
   ): Prisma.ContactWhereInput {

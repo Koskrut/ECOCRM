@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DateTime } from "luxon";
 import { CreateLeadModal } from "@/app/leads/CreateLeadModal";
 import { LeadModal } from "@/app/leads/LeadModal";
@@ -74,6 +74,7 @@ export function ManagerDashboardView({ userName, userRole }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [scorecardError, setScorecardError] = useState<string | null>(null);
   const [morningOpen, setMorningOpen] = useState(false);
+  const morningDismissedRef = useRef(false);
 
   const [createLeadOpen, setCreateLeadOpen] = useState(false);
   const [openContactId, setOpenContactId] = useState<string | null>(null);
@@ -117,15 +118,19 @@ export function ManagerDashboardView({ userName, userRole }: Props) {
     }
   }, [period, compare]);
 
-  const loadQueue = useCallback(async () => {
-    setQueueLoading(true);
+  const loadQueue = useCallback(async (mode: "initial" | "refresh" = "initial") => {
+    if (mode === "initial") setQueueLoading(true);
     try {
-      const res = await contactsApi.getWorkQueue({ preset: "attention", pageSize: QUEUE_SIZE });
+      const res = await contactsApi.getWorkQueue({
+        preset: "attention",
+        horizon: "today",
+        pageSize: QUEUE_SIZE,
+      });
       setQueue(res.items);
     } catch {
-      setQueue([]);
+      if (mode === "initial") setQueue([]);
     } finally {
-      setQueueLoading(false);
+      if (mode === "initial") setQueueLoading(false);
     }
   }, []);
 
@@ -138,7 +143,13 @@ export function ManagerDashboardView({ userName, userRole }: Props) {
   }, [loadScorecard]);
 
   useEffect(() => {
-    void loadQueue();
+    void loadQueue("initial");
+  }, [loadQueue]);
+
+  useEffect(() => {
+    const onFocus = () => void loadQueue("refresh");
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
   }, [loadQueue]);
 
   const loadReceivables = useCallback(async () => {
@@ -165,6 +176,7 @@ export function ManagerDashboardView({ userName, userRole }: Props) {
   }, [loadReceivables]);
 
   useEffect(() => {
+    if (morningDismissedRef.current) return;
     if (agenda && agenda.plan?.status !== "COMMITTED") {
       setMorningOpen(true);
     }
@@ -243,27 +255,46 @@ export function ManagerDashboardView({ userName, userRole }: Props) {
     <div className="space-y-6">
       <ManagerDashboardHeader userName={userName} onNewLead={() => setCreateLeadOpen(true)} />
 
-      <section className="space-y-3">
-        <div>
-          <h2 className="text-lg font-semibold text-zinc-900">
-            {strings.dailyAgenda.widgetTitle}
-          </h2>
-          <p className="mt-0.5 text-sm text-zinc-500">
-            {strings.dailyAgenda.morningSubtitle}
-          </p>
-        </div>
-        <div className="grid gap-4 lg:grid-cols-3">
-          <div className="lg:col-span-2">
-            <DailyAgendaWidget
-              agenda={agenda}
-              loading={false}
-              error={null}
-              onCompose={() => setMorningOpen(true)}
-            />
+      {scorecardLoading && !scorecard ? (
+        <PulseSkeleton />
+      ) : scorecard ? (
+        <div className={scorecardLoading ? "opacity-60 transition-opacity" : "transition-opacity"}>
+          <div className="space-y-6">
+            {hasMonthPulse ? (
+              <ManagerMonthPulse pulse={scorecard.monthPulse} currency={currency} />
+            ) : null}
+            <section className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm sm:p-5">
+              <ManagerScorecard
+                scorecard={scorecard}
+                currency={currency}
+                compareEnabled={compare}
+                periodLabel={activityPeriodLabel}
+                controls={scorecardControls}
+                compact={hasMonthPulse}
+              />
+            </section>
+            {hasMonthPulse && hasGrowthLevers && hasPotential ? (
+              <div className="grid gap-6 lg:grid-cols-2">
+                <ManagerGrowthLevers
+                  levers={scorecard.growthLevers}
+                  currency={currency}
+                  financeEnabled={financeEnabled}
+                />
+                <ManagerPotentialPanel
+                  potential={scorecard.potential}
+                  currency={currency}
+                  financeEnabled={financeEnabled}
+                />
+              </div>
+            ) : null}
+            {hasMonthPulse && hasTrend ? (
+              <ManagerPerformanceTrend trend={scorecard.trend} currency={currency} />
+            ) : null}
           </div>
-          <DayPlanWidget plan={dayPlan} loading={false} error={null} detailHref="/work/day-plan" />
         </div>
-      </section>
+      ) : scorecardError ? (
+        <ErrorPanel message={scorecardError} onRetry={() => void loadScorecard()} />
+      ) : null}
 
       <ManagerInboxPanel tiles={inbox.tiles} financeEnabled={financeEnabled} />
 
@@ -282,6 +313,20 @@ export function ManagerDashboardView({ userName, userRole }: Props) {
         />
       </div>
 
+      <section>
+        <div className="grid gap-4 lg:grid-cols-3">
+          <div className="lg:col-span-2">
+            <DailyAgendaWidget
+              agenda={agenda}
+              loading={false}
+              error={null}
+              onCompose={() => setMorningOpen(true)}
+            />
+          </div>
+          <DayPlanWidget plan={dayPlan} loading={false} error={null} detailHref="/work/day-plan" />
+        </div>
+      </section>
+
       {financeEnabled ? (
         <DashboardReceivablesPanel
           data={receivables}
@@ -290,58 +335,16 @@ export function ManagerDashboardView({ userName, userRole }: Props) {
         />
       ) : null}
 
-      {scorecardLoading && !scorecard ? (
-        <PulseSkeleton />
-      ) : scorecard && hasMonthPulse ? (
-        <div className={scorecardLoading ? "opacity-60 transition-opacity" : "transition-opacity"}>
-          <div className="space-y-6">
-            <ManagerMonthPulse pulse={scorecard.monthPulse} currency={currency} />
-            {hasGrowthLevers && hasPotential ? (
-              <div className="grid gap-6 lg:grid-cols-2">
-                <ManagerGrowthLevers
-                  levers={scorecard.growthLevers}
-                  currency={currency}
-                  financeEnabled={financeEnabled}
-                />
-                <ManagerPotentialPanel
-                  potential={scorecard.potential}
-                  currency={currency}
-                  financeEnabled={financeEnabled}
-                />
-              </div>
-            ) : null}
-            {hasTrend ? (
-              <ManagerPerformanceTrend trend={scorecard.trend} currency={currency} />
-            ) : null}
-          </div>
-        </div>
-      ) : scorecardError ? (
-        <ErrorPanel message={scorecardError} onRetry={() => void loadScorecard()} />
-      ) : null}
-
-      {scorecard ? (
-        <section
-          className={`rounded-xl border border-zinc-200 bg-white p-4 shadow-sm sm:p-5 ${
-            scorecardLoading ? "opacity-60 transition-opacity" : "transition-opacity"
-          }`}
-        >
-          <ManagerScorecard
-            scorecard={scorecard}
-            currency={currency}
-            compareEnabled={compare}
-            periodLabel={activityPeriodLabel}
-            controls={scorecardControls}
-            compact={hasMonthPulse}
-          />
-        </section>
-      ) : null}
-
       {morningOpen && agenda ? (
         <MorningPlanModal
           open={morningOpen}
           agenda={agenda}
-          onClose={() => setMorningOpen(false)}
+          onClose={() => {
+            morningDismissedRef.current = true;
+            setMorningOpen(false);
+          }}
           onUpdated={(data) => {
+            morningDismissedRef.current = true;
             setAgenda(data);
             setMorningOpen(false);
           }}

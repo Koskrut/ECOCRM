@@ -158,14 +158,14 @@ export default function MetaMessagingSettingsPage() {
       actions={
         <div className="flex flex-wrap gap-2">
           <Link
-            href="/inbox/instagram"
+            href="/inbox?channel=INSTAGRAM"
             className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
           >
             <MessageCircle className="h-4 w-4" aria-hidden />
             {t.inboxInstagram}
           </Link>
           <Link
-            href="/inbox/facebook"
+            href="/inbox?channel=FACEBOOK"
             className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
           >
             <MessageCircle className="h-4 w-4" aria-hidden />

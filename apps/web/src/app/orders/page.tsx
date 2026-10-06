@@ -233,6 +233,7 @@ function OrdersPageContent() {
 
   const [kanbanRefreshKey, setKanbanRefreshKey] = useState(0);
   const [returnsRefreshKey, setReturnsRefreshKey] = useState(0);
+  const [returnsFocusToken, setReturnsFocusToken] = useState(0);
   const [showIncomingReturnPackage, setShowIncomingReturnPackage] = useState(false);
   const [userRole, setUserRole] = useState<string | null>(null);
 
@@ -773,7 +774,7 @@ function OrdersPageContent() {
                   onChange={(e) => setQInput(e.target.value)}
                   placeholder={
                     view === "returns"
-                      ? "Пошук за номером замовлення, ТТН, кодом"
+                      ? "Пошук за клієнтом, компанією, номером, ТТН, кодом"
                       : "Пошук за номером, клієнтом, компанією, ТТН, товаром"
                   }
                   className="min-w-0 flex-1 bg-transparent text-sm outline-none"
@@ -830,6 +831,7 @@ function OrdersPageContent() {
             onOpenOrder={(orderId) => openExistingOrder(orderId)}
             onOpenReturn={(returnId) => openReturn(returnId)}
             refreshKey={returnsRefreshKey}
+            focusToken={returnsFocusToken}
             onRegisterIncoming={
               isWarehouse ? undefined : () => setShowIncomingReturnPackage(true)
             }
@@ -1253,7 +1255,10 @@ function OrdersPageContent() {
       <IncomingReturnPackageModal
         open={showIncomingReturnPackage}
         onClose={() => setShowIncomingReturnPackage(false)}
-        onCreated={() => setReturnsRefreshKey((k) => k + 1)}
+        onCreated={() => {
+          setReturnsFocusToken((n) => n + 1);
+          setReturnsRefreshKey((k) => k + 1);
+        }}
         contactSearch={async (q) => {
           const res = await apiHttp.get<{
             items?: Array<{ id: string; firstName: string; lastName: string; phone: string }>;

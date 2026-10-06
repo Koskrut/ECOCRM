@@ -9,6 +9,7 @@ import {
 import type { OrderStage, Prisma, ReturnPackageStatus, ReturnStatus } from "@prisma/client";
 import { UserRole } from "@prisma/client";
 import type { AuthUser } from "../auth/auth.types";
+import { kyivInstantRangeFromQuery } from "../crm-timezone";
 import { PrismaService } from "../prisma/prisma.service";
 import type { CreateOrderReturnItemDto } from "./dto/create-order-return.dto";
 import type {
@@ -28,6 +29,7 @@ import {
   normalizeTtnNumber,
 } from "./return-package-np-status.utils";
 import { OrderReturnsService } from "./order-returns.service";
+import { contactSearchFilter } from "./return-search.utils";
 import { resolveReturnWarehouseId } from "./return-warehouse.utils";
 
 const WAREHOUSE_QUEUE_STATUSES: ReturnPackageStatus[] = [
@@ -169,13 +171,19 @@ export class ReturnPackagesService {
     });
     if (!pkg) throw new NotFoundException("Return package not found");
 
+    // Re-registering a TTN must not send an already received parcel back to transit.
+    const effective: ReturnPackageStatus =
+      target === "IN_TRANSIT_BACK" && pkg.status === "RECEIVED_BY_WAREHOUSE"
+        ? pkg.status
+        : target;
+
     await db.returnPackage.update({
       where: { id: packageId },
-      data: { status: target },
+      data: { status: effective },
     });
 
     const targetReturnStatus: ReturnStatus =
-      target === "RECEIVED_BY_WAREHOUSE" ? "RECEIVED_BY_WAREHOUSE" : "IN_TRANSIT_BACK";
+      effective === "RECEIVED_BY_WAREHOUSE" ? "RECEIVED_BY_WAREHOUSE" : "IN_TRANSIT_BACK";
 
     for (const ret of pkg.returns) {
       if (ret.status === "CLOSED") continue;
@@ -357,14 +365,36 @@ export class ReturnPackagesService {
     const page = Math.max(1, q?.page ?? 1);
     const pageSize = Math.min(100, Math.max(1, q?.pageSize ?? 50));
     const where: Prisma.ReturnPackageWhereInput = {};
+    const andWhere: Prisma.ReturnPackageWhereInput[] = [];
 
     if (q?.ttn) {
-      where.ttnNumber = { contains: normalizeTtnNumber(q.ttn) };
+      andWhere.push({
+        ttnNumber: { contains: normalizeTtnNumber(q.ttn), mode: "insensitive" },
+      });
     }
-    if (q?.contactId) where.contactId = q.contactId;
-    if (actor?.role === UserRole.MANAGER) {
-      where.returns = { some: { order: { ownerId: actor.id } } };
+    if (q?.contactId) andWhere.push({ contactId: q.contactId });
+    if (q?.status) andWhere.push({ status: q.status });
+    if (q?.unlinked) {
+      andWhere.push({ returns: { none: {} } });
+    } else if (actor?.role === UserRole.MANAGER) {
+      andWhere.push({ returns: { some: { order: { ownerId: actor.id } } } });
     }
+    const search = q?.q?.trim();
+    if (search) {
+      const ttn = normalizeTtnNumber(search);
+      andWhere.push({
+        OR: [
+          { ttnNumber: { contains: ttn, mode: "insensitive" } },
+          { note: { contains: search, mode: "insensitive" } },
+          { contact: { is: contactSearchFilter(search) } },
+        ],
+      });
+    }
+    const createdAt = kyivInstantRangeFromQuery(q?.dateFrom, q?.dateTo);
+    if (createdAt.gte || createdAt.lte) {
+      andWhere.push({ createdAt });
+    }
+    if (andWhere.length > 0) where.AND = andWhere;
 
     const [items, total] = await Promise.all([
       this.prisma.returnPackage.findMany({
@@ -626,7 +656,10 @@ export class ReturnPackagesService {
     const packages = await this.prisma.returnPackage.findMany({
       where: {
         status: "IN_TRANSIT_BACK",
-        returns: { some: { status: { not: "CLOSED" } } },
+        OR: [
+          { returns: { none: {} } },
+          { returns: { some: { status: { not: "CLOSED" } } } },
+        ],
       },
       orderBy: [{ ttnSyncedAt: { sort: "asc", nulls: "first" } }, { id: "asc" }],
       take: limit,

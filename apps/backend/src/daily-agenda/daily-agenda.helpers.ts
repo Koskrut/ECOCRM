@@ -13,6 +13,23 @@ export function actionLabel(type: string): string {
   return ACTION_LABELS[type] ?? type;
 }
 
+const PRIORITY_REASON_LABELS: Record<string, string> = {
+  OVERDUE_FOLLOWUP: "Прострочений фоллоуап",
+  NEW_LEAD_NO_FIRST_CONTACT: "Новий клієнт без першого контакту",
+  NO_CONTACT_14_DAYS: "Не було контакту 14+ днів",
+  NO_ORDER_30_DAYS: "Немає замовлень 30+ днів",
+  HAS_DEBT: "Є заборгованість",
+  HIGH_VALUE_CLIENT: "Цінний клієнт",
+  RETURN_TO_WORK: "Повернути в роботу",
+  AT_RISK: "Під ризиком втрати",
+  DORMANT: "Сплячий клієнт",
+};
+
+export function priorityReasonLabel(code: string | null | undefined): string {
+  if (!code) return "Пріоритетний контакт з черги";
+  return PRIORITY_REASON_LABELS[code] ?? "Пріоритетний контакт з черги";
+}
+
 export function daysBetween(dueAt: string | null, dayStart: Date): number | null {
   if (!dueAt) return null;
   const due = new Date(dueAt);

@@ -25,8 +25,6 @@ import {
   ShieldAlert,
   BookOpen,
   Factory,
-  CalendarCheck,
-  Target,
   type LucideIcon,
 } from "lucide-react";
 import { apiHttp } from "../lib/api/client";
@@ -49,24 +47,14 @@ type MenuItem = {
 
 type MeResponse = { user?: { role?: string } };
 
-const INBOX_TELEGRAM_HREF = "/inbox/telegram";
-const INBOX_INSTAGRAM_HREF = "/inbox/instagram";
-const INBOX_FACEBOOK_HREF = "/inbox/facebook";
+const INBOX_HREF = "/inbox";
 const LEADS_HREF = "/leads";
 const TASKS_HREF = "/tasks";
-
-const INBOX_UNREAD_HREFS = new Set([
-  INBOX_TELEGRAM_HREF,
-  INBOX_INSTAGRAM_HREF,
-  INBOX_FACEBOOK_HREF,
-]);
 
 function buildMenuItems() {
   const t = strings.nav;
   const base: MenuItem[] = [
     { label: t.dashboard, icon: LayoutDashboard, href: "/", exact: true },
-    { label: t.workPlan, icon: CalendarCheck, href: "/work/daily-agenda", exact: true },
-    { label: t.dayPlanKpi, icon: Target, href: "/work/day-plan", exact: true },
     { label: t.leads, icon: UserPlus, href: "/leads" },
     { label: t.orders, icon: Package, href: "/orders" },
     { label: t.companies, icon: Building2, href: "/companies" },
@@ -74,9 +62,7 @@ function buildMenuItems() {
     { label: t.tasks, icon: ListTodo, href: "/tasks" },
     { label: t.calls, icon: PhoneCall, href: "/work/calls", exact: true },
     { label: t.callsHistory, icon: Archive, href: "/work/calls/history" },
-    { label: t.inbox, icon: MessageCircle, href: INBOX_TELEGRAM_HREF },
-    { label: t.inboxInstagram, icon: MessageCircle, href: INBOX_INSTAGRAM_HREF },
-    { label: t.inboxFacebook, icon: MessageCircle, href: INBOX_FACEBOOK_HREF },
+    { label: t.inbox, icon: MessageCircle, href: INBOX_HREF },
     { label: t.catalog, icon: LayoutGrid, href: "/catalog" },
     { label: t.risk, icon: ShieldAlert, href: "/risk" },
     { label: t.help, icon: BookOpen, href: "/help" },
@@ -202,8 +188,16 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
 
   // Fail-closed gating: hide gated entries while loading and on API error;
   // show only when the module is explicitly effective. Non-gated entries always render.
+  // Unified inbox is shown when Telegram OR Meta Messaging is effective.
   const gatedMenuItems = useMemo(() => {
     return menuItems.filter((it) => {
+      if (it.href === INBOX_HREF) {
+        if (modulesStatus !== "ready") return false;
+        return (
+          moduleEffective(ModuleIds.IntegrationsTelegram) ||
+          moduleEffective(ModuleIds.IntegrationsMetaMessaging)
+        );
+      }
       const mod = sidebarHrefModuleId(it.href);
       if (!mod) return true;
       if (modulesStatus !== "ready") return false;
@@ -215,16 +209,14 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
     if (modulesStatus !== "ready") return false;
     if (!moduleEffective(ModuleIds.IntegrationsTelegram)) return false;
     if (role === "WAREHOUSE") return false;
-    return gatedMenuItems.some((it) => it.href === INBOX_TELEGRAM_HREF);
+    return gatedMenuItems.some((it) => it.href === INBOX_HREF);
   }, [gatedMenuItems, modulesStatus, moduleEffective, role]);
 
   const metaInboxPollEnabled = useMemo(() => {
     if (modulesStatus !== "ready") return false;
     if (!moduleEffective(ModuleIds.IntegrationsMetaMessaging)) return false;
     if (role === "WAREHOUSE") return false;
-    return gatedMenuItems.some(
-      (it) => it.href === INBOX_INSTAGRAM_HREF || it.href === INBOX_FACEBOOK_HREF,
-    );
+    return gatedMenuItems.some((it) => it.href === INBOX_HREF);
   }, [gatedMenuItems, modulesStatus, moduleEffective, role]);
 
   const leadsPollEnabled = useMemo(() => {
@@ -240,14 +232,10 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
   const telegramInboxHasUnread = useInboxUnread(telegramInboxPollEnabled, pathname);
   const instagramInboxHasUnread = useMetaInboxUnread("INSTAGRAM", metaInboxPollEnabled, pathname);
   const facebookInboxHasUnread = useMetaInboxUnread("FACEBOOK", metaInboxPollEnabled, pathname);
+  const inboxHasUnread =
+    telegramInboxHasUnread || instagramInboxHasUnread || facebookInboxHasUnread;
   const activeLeadsCount = useActiveLeadsCount(leadsPollEnabled, pathname);
   const activeTasksCount = useActiveTasksCount(tasksPollEnabled, pathname);
-
-  const inboxUnreadByHref: Record<string, boolean> = {
-    [INBOX_TELEGRAM_HREF]: telegramInboxHasUnread,
-    [INBOX_INSTAGRAM_HREF]: instagramInboxHasUnread,
-    [INBOX_FACEBOOK_HREF]: facebookInboxHasUnread,
-  };
 
   useEffect(() => {
     apiHttp
@@ -309,7 +297,7 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
     gatedMenuItems.map((item) => {
       const isActive = isHrefActive(pathname, item);
       const Icon = item.icon;
-      const showInboxDot = INBOX_UNREAD_HREFS.has(item.href) && inboxUnreadByHref[item.href];
+      const showInboxDot = item.href === INBOX_HREF && inboxHasUnread;
       const leadsBadge =
         item.href === LEADS_HREF ? formatCountBadge(activeLeadsCount) : null;
       const leadsBadgeAriaLabel = leadsBadge

@@ -1,5 +1,5 @@
-import { ReturnItemDisposition } from "@prisma/client";
-import { Type } from "class-transformer";
+import { ReturnItemDisposition, ReturnPackageStatus } from "@prisma/client";
+import { Transform, Type } from "class-transformer";
 import {
   IsArray,
   IsBoolean,
@@ -105,6 +105,28 @@ export class ListReturnPackagesQueryDto {
   @IsOptional()
   @IsString()
   contactId?: string;
+
+  /** Packages registered by TTN that are not linked to an order return yet. */
+  @IsOptional()
+  @Transform(({ value }) => value === "true" || value === true)
+  @IsBoolean()
+  unlinked?: boolean;
+
+  @IsOptional()
+  @IsEnum(ReturnPackageStatus)
+  status?: ReturnPackageStatus;
+
+  @IsOptional()
+  @IsString()
+  q?: string;
+
+  @IsOptional()
+  @IsString()
+  dateFrom?: string;
+
+  @IsOptional()
+  @IsString()
+  dateTo?: string;
 
   @IsOptional()
   @Type(() => Number)

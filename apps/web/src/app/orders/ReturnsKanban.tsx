@@ -2,6 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apiHttp } from "../../lib/api/client";
+import {
+  returnPackagesApi,
+  type ReturnPackage,
+} from "@/lib/api/resources/return-packages";
 import { formatOrderAmount } from "@/lib/formatOrderAmount";
 import { isTextSelected } from "@/lib/dom";
 import { formatDate } from "@/lib/crmDatetime";
@@ -73,6 +77,10 @@ type ReturnCard = {
     ttnStatusCode?: string | null;
     ttnStatusText?: string | null;
   } | null;
+  /** TTN parcel registered before it is linked to an order. */
+  unlinkedPackage?: boolean;
+  packageNote?: string | null;
+  warehouseName?: string | null;
 };
 
 type ReturnsListResponse = {
@@ -92,6 +100,73 @@ const ALL_COLUMN_ORDER: ReturnStatus[] = [
   "CLOSED",
 ];
 
+const PACKAGE_BOARD_STATUSES: ReturnStatus[] = ["IN_TRANSIT_BACK", "RECEIVED_BY_WAREHOUSE"];
+
+function mapUnlinkedPackage(pkg: ReturnPackage): ReturnCard {
+  const contact = pkg.contact;
+  const contactName = contact
+    ? `${contact.lastName ?? ""} ${contact.firstName ?? ""}`.trim()
+    : "";
+  return {
+    id: `pkg:${pkg.id}`,
+    status: pkg.status,
+    requestedAt: pkg.createdAt,
+    createdAt: pkg.createdAt,
+    itemsPending: true,
+    items: [],
+    unlinkedPackage: true,
+    packageNote: pkg.note ?? null,
+    warehouseName: pkg.warehouse?.name ?? null,
+    order: {
+      id: "",
+      orderNumber: "",
+      client: contact
+        ? {
+            id: contact.id,
+            firstName: contactName ? contact.firstName : contact.phone,
+            lastName: contactName ? contact.lastName : "",
+          }
+        : null,
+    },
+    returnPackage: {
+      id: pkg.id,
+      ttnNumber: pkg.ttnNumber,
+      status: pkg.status,
+      ttnStatusCode: pkg.ttnStatusCode,
+      ttnStatusText: pkg.ttnStatusText,
+    },
+  };
+}
+
+async function loadUnlinkedPackages(params: Record<string, string>): Promise<ReturnCard[]> {
+  const status = params.status;
+  if (!PACKAGE_BOARD_STATUSES.includes(status as ReturnStatus)) return [];
+  if (params.ownerId && !params.q?.trim()) return [];
+
+  const pageSize = 100;
+  const collected: ReturnPackage[] = [];
+  let page = 1;
+  let total = 0;
+  do {
+    const data = await returnPackagesApi.list({
+      unlinked: true,
+      status: status as ReturnPackage["status"],
+      q: params.q,
+      dateFrom: params.dateFrom,
+      dateTo: params.dateTo,
+      page,
+      pageSize,
+    });
+    const batch = data.items ?? [];
+    total = data.total ?? batch.length;
+    collected.push(...batch);
+    if (batch.length === 0) break;
+    page += 1;
+  } while (collected.length < total && page <= 5);
+
+  return collected.filter((pkg) => (pkg.returns?.length ?? 0) === 0).map(mapUnlinkedPackage);
+}
+
 function orderStageLabel(stage: string | null | undefined): string {
   if (!stage) return "—";
   const label = planningStages[stage as keyof typeof planningStages];
@@ -102,6 +177,7 @@ export function ReturnsKanban({
   onOpenOrder,
   onOpenReturn,
   refreshKey = 0,
+  focusToken = 0,
   onRegisterIncoming,
   warehouseMode = false,
   filters,
@@ -110,6 +186,8 @@ export function ReturnsKanban({
   onOpenReturn?: (returnId: string) => void;
   /** Increment to force refetch (e.g. after creating a return from order modal). */
   refreshKey?: number;
+  /** Increment after registering a TTN so that column scrolls into view. */
+  focusToken?: number;
   onRegisterIncoming?: () => void;
   /** Warehouse staff: limited columns and transitions. */
   warehouseMode?: boolean;
@@ -127,6 +205,7 @@ export function ReturnsKanban({
   } | null>(null);
 
   const [selectedColumnIndex, setSelectedColumnIndex] = useState(0);
+  const columnRefs = useRef<Partial<Record<ReturnStatus, HTMLDivElement | null>>>({});
 
   const columnOrder = warehouseMode ? WAREHOUSE_RETURN_COLUMNS : ALL_COLUMN_ORDER;
 
@@ -160,11 +239,15 @@ export function ReturnsKanban({
   );
 
   const fetchPage = useCallback(async (params: Record<string, string>) => {
-    const res = await apiHttp.get<ReturnsListResponse>("/order-returns", { params });
+    const [res, unlinked] = await Promise.all([
+      apiHttp.get<ReturnsListResponse>("/order-returns", { params }),
+      loadUnlinkedPackages(params),
+    ]);
     const data = res.data ?? { items: [] };
+    const returns = data.items ?? [];
     return {
-      items: data.items ?? [],
-      total: data.total ?? data.items?.length ?? 0,
+      items: [...unlinked, ...returns],
+      total: (data.total ?? returns.length) + unlinked.length,
     };
   }, []);
 
@@ -198,6 +281,14 @@ export function ReturnsKanban({
       setSelectedColumnIndex(Math.max(0, columns.length - 1));
     }
   }, [columns.length, selectedColumnIndex]);
+
+  useEffect(() => {
+    if (!focusToken) return;
+    const status: ReturnStatus = "IN_TRANSIT_BACK";
+    const idx = columnOrder.indexOf(status);
+    if (idx >= 0) setSelectedColumnIndex(idx);
+    columnRefs.current[status]?.scrollIntoView({ inline: "center", block: "nearest" });
+  }, [focusToken, columnOrder]);
 
   const findReturn = useCallback(
     (returnId: string): ReturnCard | undefined => {
@@ -256,6 +347,12 @@ export function ReturnsKanban({
 
   const handleDrop = useCallback(
     async (returnId: string, to: ReturnStatus) => {
+      if (returnId.startsWith("pkg:")) {
+        draggingRef.current = null;
+        setDragging(null);
+        return;
+      }
+
       const from = draggingRef.current?.from ?? dragging?.from;
       if (!from || from === to) {
         draggingRef.current = null;
@@ -371,6 +468,9 @@ export function ReturnsKanban({
           return (
           <div
             key={col.id}
+            ref={(node) => {
+              columnRefs.current[col.id] = node;
+            }}
             className={`w-full min-w-0 rounded-lg border bg-zinc-50/80 md:w-[220px] md:min-w-[220px] md:flex-shrink-0 ${
               isSelectedOnMobile ? "block" : "hidden md:block"
             } ${dragOver === col.id && dropAllowed ? "border-zinc-900" : "border-zinc-200"}`}
@@ -421,13 +521,15 @@ export function ReturnsKanban({
                   const clientName = r.order.client
                     ? `${r.order.client.lastName ?? ""} ${r.order.client.firstName ?? ""}`.trim() || "—"
                     : r.order.company?.name ?? "—";
-                  const canDrag = getReturnDragTargets(col.id, r, warehouseMode).length > 0;
+                  const canDrag =
+                    !r.unlinkedPackage &&
+                    getReturnDragTargets(col.id, r, warehouseMode).length > 0;
                   return (
                     <button
                       key={r.id}
                       type="button"
                       onClick={() => {
-                        if (isTextSelected()) return;
+                        if (isTextSelected() || r.unlinkedPackage) return;
                         if (onOpenReturn) {
                           onOpenReturn(r.id);
                           return;
@@ -473,12 +575,24 @@ export function ReturnsKanban({
                           setDragOver(null);
                         });
                       }}
-                      className={`w-full rounded-xl border border-zinc-200 bg-white p-3 text-left shadow-sm hover:shadow-md ${
-                        dragging?.returnId === r.id ? "opacity-60" : ""
-                      }`}
+                      className={`w-full rounded-xl border bg-white p-3 text-left shadow-sm ${
+                        r.unlinkedPackage
+                          ? "cursor-default border-sky-200"
+                          : "border-zinc-200 hover:shadow-md"
+                      } ${dragging?.returnId === r.id ? "opacity-60" : ""}`}
                     >
-                      <div className="font-medium text-zinc-900">{r.order.orderNumber}</div>
-                      {r.reason === "WRONG_ITEM" ? (
+                      {r.unlinkedPackage ? (
+                        <div className="font-medium text-zinc-900">
+                          {tr.ttnPrefix} {r.returnPackage?.ttnNumber}
+                        </div>
+                      ) : (
+                        <div className="font-medium text-zinc-900">{r.order.orderNumber}</div>
+                      )}
+                      {r.unlinkedPackage ? (
+                        <span className="mt-1 inline-block rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-medium text-sky-800">
+                          {tr.unlinkedReturnNoOrder}
+                        </span>
+                      ) : r.reason === "WRONG_ITEM" ? (
                         <span className="mt-1 inline-block rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-800">
                           {strings.returns.misPickBadge}
                         </span>
@@ -487,14 +601,39 @@ export function ReturnsKanban({
                           {returnReasonLabel(r.reason)}
                         </div>
                       ) : null}
-                      <div className="mt-0.5 text-xs text-zinc-500">{clientName}</div>
+                      {r.unlinkedPackage && clientName === "—" ? null : (
+                        <div className="mt-0.5 text-xs text-zinc-500">{clientName}</div>
+                      )}
+                      {r.unlinkedPackage &&
+                      (r.returnPackage?.ttnStatusCode || r.returnPackage?.ttnStatusText) ? (
+                        <div className="mt-1.5">
+                          <TtnStatusBadge
+                            statusCode={r.returnPackage?.ttnStatusCode}
+                            statusText={r.returnPackage?.ttnStatusText}
+                          />
+                        </div>
+                      ) : null}
                       <div className="mt-1.5 text-xs text-zinc-500">
-                        {formatDate(r.requestedAt)} ·{" "}
-                        {r.itemsPending && r.items.length === 0
-                          ? tr.itemsPendingBreakdown
-                          : tr.positionsUnits(r.items.length, totalUnits(r))}
+                        {r.unlinkedPackage
+                          ? formatDate(r.requestedAt)
+                          : `${formatDate(r.requestedAt)} · ${
+                              r.itemsPending && r.items.length === 0
+                                ? tr.itemsPendingBreakdown
+                                : tr.positionsUnits(r.items.length, totalUnits(r))
+                            }`}
                       </div>
-                      {r.returnPackage?.ttnNumber ? (
+                      {r.unlinkedPackage && r.packageNote ? (
+                        <div className="mt-1 text-[11px] text-zinc-600">{r.packageNote}</div>
+                      ) : null}
+                      {r.unlinkedPackage && r.warehouseName ? (
+                        <div className="mt-1 text-[11px] text-zinc-500">{r.warehouseName}</div>
+                      ) : null}
+                      {r.unlinkedPackage ? (
+                        <div className="mt-1.5 text-[11px] leading-snug text-zinc-500">
+                          {tr.unlinkedReturnHint}
+                        </div>
+                      ) : null}
+                      {!r.unlinkedPackage && r.returnPackage?.ttnNumber ? (
                         <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                           <span className="text-[11px] text-zinc-500">
                             {tr.ttnPrefix} {r.returnPackage.ttnNumber}
@@ -520,9 +659,11 @@ export function ReturnsKanban({
                           )}
                         </div>
                       ) : null}
-                      <div className="mt-1 text-xs text-zinc-400">
-                        {tr.returnsOrderStage(orderStageLabel(r.order.orderStage))}
-                      </div>
+                      {r.unlinkedPackage ? null : (
+                        <div className="mt-1 text-xs text-zinc-400">
+                          {tr.returnsOrderStage(orderStageLabel(r.order.orderStage))}
+                        </div>
+                      )}
                     </button>
                   );
                 })

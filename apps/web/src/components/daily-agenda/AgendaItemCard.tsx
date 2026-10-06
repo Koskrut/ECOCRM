@@ -2,11 +2,21 @@
 
 import Link from "next/link";
 import { ChevronDown, ChevronUp, ExternalLink, Minus } from "lucide-react";
+import { formatContactPriorityReason } from "@/app/contacts/contact-formatters";
+import type { ContactPriorityReasonCode } from "@/lib/api/resources/contacts";
 import type { AgendaPlanItem, AgendaPlanItemInput } from "@/lib/api/resources/daily-agenda";
 import { kindConfig, scoreTone } from "./agendaKindConfig";
 import { strings } from "@/locales";
 
 const t = strings.dailyAgenda;
+
+function displayReason(reason: string): string {
+  const labels = strings.contacts.labels.priorityReasons;
+  if (Object.prototype.hasOwnProperty.call(labels, reason)) {
+    return formatContactPriorityReason(reason as ContactPriorityReasonCode);
+  }
+  return reason;
+}
 
 function formatTime(iso: string | null | undefined): string {
   if (!iso) return "";
@@ -100,7 +110,7 @@ export function AgendaItemCard({
         ) : null}
 
         {item.metadata?.reason && !item.subtitle?.includes(item.metadata.reason) ? (
-          <div className="mt-1 text-xs text-zinc-400">{item.metadata.reason}</div>
+          <div className="mt-1 text-xs text-zinc-400">{displayReason(item.metadata.reason)}</div>
         ) : null}
       </div>
 

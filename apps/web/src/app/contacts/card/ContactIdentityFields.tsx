@@ -64,7 +64,7 @@ export function ContactIdentityFields({
             </span>
             {contact.telegramConversationId ? (
               <a
-                href={`/inbox/telegram?conversationId=${contact.telegramConversationId}`}
+                href={`/inbox?channel=TELEGRAM&conversationId=${contact.telegramConversationId}`}
                 className="inline-flex items-center rounded-md border border-zinc-200 px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
               >
                 {t.openTelegram}

@@ -548,10 +548,10 @@ describe("OrderReturnsService", () => {
     assert.equal(result.pageSize, 3);
     assert.equal(result.total, 3);
     assert.equal(result.items.length, 1);
-    assert.deepEqual(findManyArgs[0]?.where, { status: "REQUESTED" });
+    assert.deepEqual(findManyArgs[0]?.where, { AND: [{ status: "REQUESTED" }] });
     assert.equal(findManyArgs[0]?.take, 3);
     assert.equal(findManyArgs[0]?.skip, 0);
-    assert.deepEqual(countArgs[0]?.where, { status: "REQUESTED" });
+    assert.deepEqual(countArgs[0]?.where, { AND: [{ status: "REQUESTED" }] });
   });
 
   it("create rejects over-return considering previous returns", async () => {
@@ -701,5 +701,86 @@ describe("OrderReturnsService", () => {
     await svc.updateExternalCode("r1", "   ", { id: "u1", role: "MANAGER" });
 
     assert.equal(updatedData?.externalCode, null);
+  });
+
+  it("list search matches TTN without spaces", async () => {
+    let where: { AND?: Array<Record<string, unknown>> } | undefined;
+    const prisma = {
+      orderReturn: {
+        findMany: async (args: { where: { AND?: Array<Record<string, unknown>> } }) => {
+          where = args.where;
+          return [];
+        },
+        count: async () => 0,
+      },
+    } as unknown as PrismaSvc;
+
+    const svc = createService(prisma);
+    await svc.list({ q: "2045 0000 1234", status: "IN_TRANSIT_BACK", page: 1, pageSize: 20 });
+
+    const searchClause = where?.AND?.find((clause) => "OR" in clause) as {
+      OR: Array<Record<string, unknown>>;
+    };
+    const ttnClause = searchClause.OR.find((clause) => "returnPackage" in clause);
+    assert.deepEqual(ttnClause, {
+      returnPackage: {
+        ttnNumber: { contains: "204500001234", mode: "insensitive" },
+      },
+    });
+  });
+
+  it("list search matches client by first and last name", async () => {
+    let where: { AND?: Array<Record<string, unknown>> } | undefined;
+    const prisma = {
+      orderReturn: {
+        findMany: async (args: { where: { AND?: Array<Record<string, unknown>> } }) => {
+          where = args.where;
+          return [];
+        },
+        count: async () => 0,
+      },
+    } as unknown as PrismaSvc;
+
+    const svc = createService(prisma);
+    await svc.list({ q: "Іван Петренко", page: 1, pageSize: 20 });
+
+    const searchClause = where?.AND?.find((clause) => "OR" in clause) as {
+      OR: Array<Record<string, unknown>>;
+    };
+    const clientClause = searchClause.OR.find(
+      (clause) =>
+        typeof clause.order === "object" &&
+        clause.order !== null &&
+        "client" in (clause.order as object),
+    );
+    assert.deepEqual(clientClause, {
+      order: {
+        client: {
+          is: {
+            OR: [
+              { firstName: { contains: "Іван Петренко", mode: "insensitive" } },
+              { lastName: { contains: "Іван Петренко", mode: "insensitive" } },
+              {
+                AND: [
+                  {
+                    OR: [
+                      { firstName: { contains: "Іван", mode: "insensitive" } },
+                      { lastName: { contains: "Іван", mode: "insensitive" } },
+                    ],
+                  },
+                  {
+                    OR: [
+                      { firstName: { contains: "Петренко", mode: "insensitive" } },
+                      { lastName: { contains: "Петренко", mode: "insensitive" } },
+                    ],
+                  },
+                ],
+              },
+              { phone: { contains: "Іван Петренко", mode: "insensitive" } },
+            ],
+          },
+        },
+      },
+    });
   });
 });

@@ -16,8 +16,6 @@ export const en = {
   },
   nav: {
     dashboard: "Dashboard",
-    workPlan: "Work plan",
-    dayPlanKpi: "Day norms",
     leads: "Leads",
     orders: "Orders",
     companies: "Companies",
@@ -143,6 +141,20 @@ export const en = {
     instagramUnlinked: "Instagram chat not linked to contact or lead",
     facebookUnlinked: "Facebook chat not linked to contact or lead",
     settingsLink: "Connection settings",
+  },
+  inboxPage: {
+    title: "Inbox",
+    channelAll: "All",
+    channelTelegram: "Telegram",
+    channelInstagram: "Instagram",
+    channelFacebook: "Facebook",
+    telegramUnlinked: "Telegram chat not linked to contact or lead",
+    instagramUnlinked: "Instagram chat not linked to contact or lead",
+    facebookUnlinked: "Facebook chat not linked to contact or lead",
+    metaSettingsLink: "Meta connection",
+    telegramSettingsLink: "Telegram connection",
+    empty: "No conversations",
+    pickConversation: "Select a conversation from the list",
   },
   modules: {
     unavailableTitle: "Module unavailable",
@@ -3093,6 +3105,9 @@ export const en = {
     positionsUnits: (positions: number, units: number) => `${positions} lines · ${units} units`,
     ttnPrefix: "TTN",
     returnsOrderStage: (stage: string) => `Order: ${stage}`,
+    unlinkedReturnNoOrder: "No order linked",
+    unlinkedReturnHint:
+      "Parcel registered by TTN. Warehouse will link the order and break down items after it arrives.",
   },
   monitoring: {
     pageTitle: "Employee monitoring",

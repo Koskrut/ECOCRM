@@ -89,8 +89,13 @@ function ManagerQueuePageContent() {
     setError(null);
     try {
       const [queue, queueSummary] = await Promise.all([
-        contactsApi.getWorkQueue({ page, pageSize: PAGE_SIZE, q: q.trim() || undefined }),
-        contactsApi.getWorkQueueSummary({ q: q.trim() || undefined }),
+        contactsApi.getWorkQueue({
+          page,
+          pageSize: PAGE_SIZE,
+          q: q.trim() || undefined,
+          horizon: "today",
+        }),
+        contactsApi.getWorkQueueSummary({ q: q.trim() || undefined, horizon: "today" }),
       ]);
       setItems(queue.items);
       setTotal(queue.total);

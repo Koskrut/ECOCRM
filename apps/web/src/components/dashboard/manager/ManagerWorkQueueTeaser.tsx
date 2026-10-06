@@ -2,6 +2,10 @@
 
 import Link from "next/link";
 import { ChevronRight, ListChecks, Phone, Sparkles } from "lucide-react";
+import {
+  formatContactNextActionType,
+  formatContactPriorityReasonCompact,
+} from "@/app/contacts/contact-formatters";
 import type { ContactWorkQueueItem } from "@/lib/api/resources/contacts";
 import { strings } from "@/locales";
 
@@ -11,23 +15,10 @@ type Props = {
   onOpenContact: (id: string) => void;
 };
 
-function nextActionLabel(
-  value: ContactWorkQueueItem["suggestion"]["suggestedNextActionType"],
-): string {
-  switch (value) {
-    case "CALL":
-      return "CALL";
-    case "MESSAGE":
-      return "MESSAGE";
-    case "SEND_OFFER":
-      return "SEND_OFFER";
-    case "CONTROL_PAYMENT":
-      return "CONTROL_PAYMENT";
-    case "MEETING":
-      return "MEETING";
-    default:
-      return "—";
-  }
+function queueActionLabel(item: ContactWorkQueueItem): string {
+  const scheduled = item.contact.nextActionType;
+  if (scheduled && scheduled !== "NO_ACTION") return formatContactNextActionType(scheduled);
+  return formatContactNextActionType(item.suggestion.suggestedNextActionType);
 }
 
 function scoreTone(score: number): { badge: string; bar: string } {
@@ -72,7 +63,9 @@ export function ManagerWorkQueueTeaser({ items, loading, onOpenContact }: Props)
       ) : (
         <ul className="mt-3 -mx-1 divide-y divide-zinc-100">
           {items.map((item) => {
-            const reason = item.priorityReasons[0] ?? null;
+            const reason = item.priorityReasons[0]
+              ? formatContactPriorityReasonCompact(item.priorityReasons[0])
+              : null;
             const tone = scoreTone(item.priorityScore);
             return (
               <li
@@ -96,8 +89,8 @@ export function ManagerWorkQueueTeaser({ items, loading, onOpenContact }: Props)
                     {item.contact.fullName || "—"}
                   </div>
                   <div className="mt-0.5 flex items-center gap-1.5">
-                    <span className="inline-flex rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
-                      {nextActionLabel(item.suggestion.suggestedNextActionType)}
+                    <span className="inline-flex rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] font-semibold text-zinc-600">
+                      {queueActionLabel(item)}
                     </span>
                     {reason ? <span className="truncate text-xs text-zinc-400">{reason}</span> : null}
                   </div>

@@ -203,7 +203,7 @@ export function useContactCardShellHeader(args: Args): {
           <a
             href={
               telegramConversationId
-                ? `/inbox/telegram?conversationId=${telegramConversationId}`
+                ? `/inbox?channel=TELEGRAM&conversationId=${telegramConversationId}`
                 : undefined
             }
             className={`block rounded px-2 py-2 text-sm ${

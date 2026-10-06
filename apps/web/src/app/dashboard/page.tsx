@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { LayoutDashboard } from "lucide-react";
 import { apiGet } from "@/lib/api/client";
@@ -68,6 +68,11 @@ function DashboardPageContent() {
   const [managers, setManagers] = useState<ManagerOption[]>([]);
   const [leads, setLeads] = useState<ManagerOption[]>([]);
   const [morningOpen, setMorningOpen] = useState(false);
+  const morningDismissedRef = useRef(false);
+  const onMorningOpenChange = useCallback((open: boolean) => {
+    if (!open) morningDismissedRef.current = true;
+    setMorningOpen(open);
+  }, []);
   const [refreshKey, setRefreshKey] = useState(0);
   const [receivables, setReceivables] = useState<DashboardReceivablesData | null>(null);
   const [receivablesLoading, setReceivablesLoading] = useState(false);
@@ -192,6 +197,7 @@ function DashboardPageContent() {
   }, [loadReceivables, refreshKey]);
 
   useEffect(() => {
+    if (morningDismissedRef.current) return;
     if (
       userRole === "LEAD" &&
       data?.myWork.agenda &&
@@ -323,7 +329,7 @@ function DashboardPageContent() {
               myWork={data.myWork}
               userRole={userRole}
               morningOpen={morningOpen}
-              onMorningOpenChange={setMorningOpen}
+              onMorningOpenChange={onMorningOpenChange}
               onAgendaUpdated={handleAgendaUpdated}
               onTaskCompleted={handleTaskCompleted}
             />

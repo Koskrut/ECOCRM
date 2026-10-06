@@ -12,6 +12,8 @@ export type InboxListRowItem = {
   lastMessageAt: string | null;
   lastMessageText: string | null;
   lastMessageDirection?: "INBOUND" | "OUTBOUND" | "INTERNAL" | null;
+  /** Short channel badge (Telegram / Instagram / Facebook). */
+  channelLabel?: string | null;
 };
 
 type Props = {
@@ -75,8 +77,15 @@ export function InboxConversationRow({
               {preview}
             </p>
           ) : null}
-          <span className="mt-1 inline-block rounded bg-zinc-200/80 px-1.5 py-0.5 text-[10px] text-zinc-600">
-            {inboxStatusLabel(item.status)}
+          <span className="mt-1 flex flex-wrap items-center gap-1">
+            {item.channelLabel ? (
+              <span className="inline-block rounded bg-sky-100 px-1.5 py-0.5 text-[10px] font-medium text-sky-800">
+                {item.channelLabel}
+              </span>
+            ) : null}
+            <span className="inline-block rounded bg-zinc-200/80 px-1.5 py-0.5 text-[10px] text-zinc-600">
+              {inboxStatusLabel(item.status)}
+            </span>
           </span>
         </button>
         <button

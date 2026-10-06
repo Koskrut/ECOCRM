@@ -187,6 +187,7 @@ function ContactsPageContent() {
           const summaryPromise = contactsApi.getWorkQueueSummary({
             q: urlState.q.trim() || undefined,
             ownerId: urlState.ownerId || undefined,
+            horizon: "today",
           });
 
           if (urlState.workPreset === "all") {
@@ -238,6 +239,7 @@ function ContactsPageContent() {
                 q: urlState.q.trim() || undefined,
                 ownerId: urlState.ownerId || undefined,
                 preset: urlState.workPreset,
+                horizon: "today",
                 reasons: urlState.reasons.length > 0 ? urlState.reasons : undefined,
               }),
               summaryPromise,
@@ -272,6 +274,12 @@ function ContactsPageContent() {
 
   useEffect(() => {
     void reload();
+  }, [reload]);
+
+  useEffect(() => {
+    const onFocus = () => void reload({ silent: true });
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
   }, [reload]);
 
   const openContact = (id: string) => {

@@ -106,6 +106,7 @@ export type ContactWorkQueueFilters = {
   pageSize?: number;
   ownerId?: string;
   preset?: ContactWorkQueuePreset;
+  horizon?: "today";
   reasons?: ContactPriorityReasonCode[];
   onlyOverdue?: boolean;
   onlyDebt?: boolean;
@@ -117,6 +118,7 @@ export type ContactWorkQueueFilters = {
 export type ContactWorkQueueSummaryFilters = {
   ownerId?: string;
   preset?: ContactWorkQueuePreset;
+  horizon?: "today";
   q?: string;
 };
 
@@ -304,6 +306,7 @@ export const contactsApi = {
     if (params?.pageSize != null) searchParams.set("pageSize", String(params.pageSize));
     if (params?.ownerId) searchParams.set("ownerId", params.ownerId);
     if (params?.preset) searchParams.set("preset", params.preset);
+    if (params?.horizon) searchParams.set("horizon", params.horizon);
     for (const reason of params?.reasons ?? []) searchParams.append("reason", reason);
     if (params?.onlyOverdue != null) searchParams.set("onlyOverdue", String(params.onlyOverdue));
     if (params?.onlyDebt != null) searchParams.set("onlyDebt", String(params.onlyDebt));
@@ -327,6 +330,7 @@ export const contactsApi = {
     const searchParams = new URLSearchParams();
     if (params?.ownerId) searchParams.set("ownerId", params.ownerId);
     if (params?.preset) searchParams.set("preset", params.preset);
+    if (params?.horizon) searchParams.set("horizon", params.horizon);
     if (params?.q?.trim()) searchParams.set("q", params.q.trim());
     const qs = searchParams.toString();
     const res = await apiHttp.get<ContactWorkQueueSummaryResponse>(

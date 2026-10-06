@@ -104,7 +104,7 @@ export class ManagerDashboardService {
     const [diagnostics, summary, tasks, hotLeads, overdueTasks, overduePayments] =
       await Promise.all([
         this.loadSnapshotLeadDiagnostics(actor.id, now),
-        this.workQueue.getWorkQueueSummary({}, actor),
+        this.workQueue.getWorkQueueSummary({ horizon: "today" }, actor),
         this.loadGroupedTasks(actor.id, now),
         this.loadHotLeads(actor.id, now),
         this.prisma.task.count({
@@ -176,7 +176,7 @@ export class ManagerDashboardService {
       this.leadsService.getLeads(period, scope, { compare }),
       this.qualityService.getQuality(period, scope),
       this.dashboard.getDailyTeamActivity(today, actor),
-      this.workQueue.getWorkQueueSummary({}, actor),
+      this.workQueue.getWorkQueueSummary({ horizon: "today" }, actor),
       comparePeriod ? this.qualityService.getQuality(comparePeriod, scope) : Promise.resolve(null),
       this.collectShippedClients(actor.id, windows.currentMonthToDate, ownedIds),
       this.collectShippedClients(actor.id, windows.previousMonthFull, ownedIds),

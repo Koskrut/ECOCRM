@@ -6,23 +6,35 @@ import { ModuleGateSkeleton, ModuleUnavailable } from "@/components/ModuleUnavai
 
 export function ModuleGate({
   moduleId,
+  anyOf,
   children,
 }: {
-  moduleId: ModuleId;
+  /** Single required module (default). Ignored when `anyOf` is set. */
+  moduleId?: ModuleId;
+  /** Pass if any listed module is effective. */
+  anyOf?: ModuleId[];
   children: React.ReactNode;
 }) {
   const { status, effective, refreshModules } = useModules();
+  const required = anyOf?.length ? anyOf : moduleId ? [moduleId] : [];
+  const primaryId = required[0];
 
   if (status === "loading") {
     return <ModuleGateSkeleton />;
   }
 
   if (status === "error") {
-    return <ModuleUnavailable variant="api-error" moduleId={moduleId} onRetry={refreshModules} />;
+    return (
+      <ModuleUnavailable
+        variant="api-error"
+        moduleId={primaryId}
+        onRetry={refreshModules}
+      />
+    );
   }
 
-  if (!effective(moduleId)) {
-    return <ModuleUnavailable variant="not-effective" moduleId={moduleId} />;
+  if (required.length === 0 || !required.some((id) => effective(id))) {
+    return <ModuleUnavailable variant="not-effective" moduleId={primaryId} />;
   }
 
   return <>{children}</>;

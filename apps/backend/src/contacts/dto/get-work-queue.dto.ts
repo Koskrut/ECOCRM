@@ -57,6 +57,11 @@ export class GetWorkQueueDto {
   @IsIn(CONTACT_WORK_QUEUE_PRESETS)
   preset?: ContactWorkQueuePreset;
 
+  /** `today`: due through end of today, skip contacts already touched today. */
+  @IsOptional()
+  @IsIn(["today"])
+  horizon?: "today";
+
   /** Repeated query `reason=` (OR). Also accepts comma-separated. */
   @IsOptional()
   @Transform(({ value }) => normalizeReasonQuery(value))

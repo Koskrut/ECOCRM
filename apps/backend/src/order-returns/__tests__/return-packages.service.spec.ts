@@ -106,4 +106,102 @@ describe("ReturnPackagesService", () => {
       BadRequestException,
     );
   });
+
+  it("list unlinked packages does not require an owned order", async () => {
+    let where: unknown;
+    const prisma = {
+      returnPackage: {
+        findMany: async (args: { where: unknown }) => {
+          where = args.where;
+          return [];
+        },
+        count: async () => 0,
+      },
+    } as unknown as PrismaSvc;
+
+    const svc = new ReturnPackagesService(
+      prisma,
+      { syncOrderStateFromReturns: async () => {} } as unknown as OrderReturnsSvc,
+      { call: async () => ({}) } as never,
+    );
+
+    await svc.list(
+      { unlinked: true, status: "IN_TRANSIT_BACK", q: "2045 0000 1234", page: 1, pageSize: 20 },
+      { id: "m1", role: "MANAGER" },
+    );
+
+    assert.deepEqual(where, {
+      AND: [
+        { status: "IN_TRANSIT_BACK" },
+        { returns: { none: {} } },
+        {
+          OR: [
+            { ttnNumber: { contains: "204500001234", mode: "insensitive" } },
+            { note: { contains: "2045 0000 1234", mode: "insensitive" } },
+            {
+              contact: {
+                is: {
+                  OR: [
+                    { firstName: { contains: "2045 0000 1234", mode: "insensitive" } },
+                    { lastName: { contains: "2045 0000 1234", mode: "insensitive" } },
+                    {
+                      AND: [
+                        {
+                          OR: [
+                            { firstName: { contains: "2045", mode: "insensitive" } },
+                            { lastName: { contains: "2045", mode: "insensitive" } },
+                          ],
+                        },
+                        {
+                          OR: [
+                            { firstName: { contains: "0000", mode: "insensitive" } },
+                            { lastName: { contains: "0000", mode: "insensitive" } },
+                          ],
+                        },
+                        {
+                          OR: [
+                            { firstName: { contains: "1234", mode: "insensitive" } },
+                            { lastName: { contains: "1234", mode: "insensitive" } },
+                          ],
+                        },
+                      ],
+                    },
+                    { phone: { contains: "2045 0000 1234", mode: "insensitive" } },
+                    { phoneNormalized: { contains: "204500001234" } },
+                  ],
+                },
+              },
+            },
+          ],
+        },
+      ],
+    });
+  });
+
+  it("sync to in-transit does not demote a received package", async () => {
+    const updates: Array<Record<string, unknown>> = [];
+    const prisma = {
+      returnPackage: {
+        findUnique: async () => ({
+          id: "pkg1",
+          status: "RECEIVED_BY_WAREHOUSE",
+          returns: [{ id: "r1", orderId: "o1", status: "RECEIVED_BY_WAREHOUSE" }],
+        }),
+        update: async (args: { data: Record<string, unknown> }) => {
+          updates.push(args.data);
+          return {};
+        },
+      },
+    } as unknown as PrismaSvc;
+
+    const svc = new ReturnPackagesService(
+      prisma,
+      { syncOrderStateFromReturns: async () => {} } as unknown as OrderReturnsSvc,
+      { call: async () => ({}) } as never,
+    );
+
+    await svc.syncLinkedReturnsLogistics("pkg1", "IN_TRANSIT_BACK");
+
+    assert.deepEqual(updates, [{ status: "RECEIVED_BY_WAREHOUSE" }]);
+  });
 });

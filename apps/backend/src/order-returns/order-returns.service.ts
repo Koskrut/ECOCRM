@@ -36,6 +36,7 @@ import {
   isWarehouseRole,
 } from "./order-return-warehouse-role";
 import { normalizeTtnNumber } from "./return-package-np-status.utils";
+import { contactSearchFilter } from "./return-search.utils";
 import { ReturnPackagesService } from "./return-packages.service";
 import { resolveReturnWarehouseId } from "./return-warehouse.utils";
 import { kyivInstantRangeFromQuery } from "../crm-timezone";
@@ -395,11 +396,20 @@ export class OrderReturnsService {
     }
     const search = q?.q?.trim();
     if (search) {
+      const ttnSearch = normalizeTtnNumber(search);
+      const person = contactSearchFilter(search);
       andWhere.push({
         OR: [
           { externalCode: { contains: search, mode: "insensitive" } },
           { order: { orderNumber: { contains: search, mode: "insensitive" } } },
-          { returnPackage: { ttnNumber: { contains: search, mode: "insensitive" } } },
+          { order: { company: { is: { name: { contains: search, mode: "insensitive" } } } } },
+          { order: { client: { is: person } } },
+          { order: { contact: { is: person } } },
+          {
+            returnPackage: {
+              ttnNumber: { contains: ttnSearch || search, mode: "insensitive" },
+            },
+          },
         ],
       });
     }

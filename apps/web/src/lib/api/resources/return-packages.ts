@@ -73,6 +73,29 @@ export const returnPackagesApi = {
     return res.data ?? { items: [] };
   },
 
+  list: async (params?: {
+    unlinked?: boolean;
+    status?: ReturnPackageStatus;
+    q?: string;
+    dateFrom?: string;
+    dateTo?: string;
+    page?: number;
+    pageSize?: number;
+  }) => {
+    const res = await apiHttp.get<{ items: ReturnPackage[]; total: number }>(
+      "/return-packages",
+      {
+        params: params
+          ? {
+              ...params,
+              unlinked: params.unlinked ? "true" : undefined,
+            }
+          : undefined,
+      },
+    );
+    return res.data ?? { items: [], total: 0 };
+  },
+
   getById: async (id: string) => {
     const res = await apiHttp.get<ReturnPackage>(`/return-packages/${id}`);
     return res.data;

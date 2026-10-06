@@ -11,6 +11,7 @@ function manager(): AuthUser {
 function buildService(opts?: {
   findMany?: (args: { where?: unknown; select?: unknown; take?: number }) => Promise<unknown[]>;
   scoreReasons?: string[];
+  signals?: Map<string, { lastContactAt: Date | null; overdueFollowupTasks?: number }>;
 }) {
   const captured: { where?: unknown; take?: number; select?: unknown } = {};
   const prisma = {
@@ -44,8 +45,18 @@ function buildService(opts?: {
 
   const insights = {
     buildExclusionSet: () => [],
-    buildSignalsForContacts: async () =>
-      new Map([
+    buildSignalsForContacts: async (contacts: Array<{ id: string }>) => {
+      if (opts?.signals) {
+        const mapped = new Map<
+          string,
+          { lastContactAt: Date | null; overdueFollowupTasks?: number }
+        >();
+        for (const c of contacts) {
+          mapped.set(c.id, opts.signals.get(c.id) ?? { lastContactAt: null });
+        }
+        return mapped;
+      }
+      return new Map([
         [
           "c1",
           {
@@ -58,7 +69,8 @@ function buildService(opts?: {
             lastOrderAt: new Date("2026-08-20T10:00:00Z"),
           },
         ],
-      ]),
+      ]);
+    },
   };
 
   const priority = {
@@ -148,4 +160,52 @@ test("getWorkQueue reasons filter uses OR and intersects with preset", async () 
     manager(),
   );
   assert.equal(debtOnlyPresetMiss.items.length, 0);
+});
+
+test("getWorkQueue horizon=today keeps only contacts still due today", async () => {
+  const now = new Date();
+  const postponed = new Date(now.getTime() + 36 * 60 * 60 * 1000);
+  const touchedToday = new Date(now.getTime() - 30 * 60 * 1000);
+  const overdue = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000);
+  const row = {
+    firstName: "Ivan",
+    lastName: "Petrov",
+    phone: "+380501112233",
+    email: null,
+    ownerId: "mgr-1",
+    status: "Клієнт",
+    clientStage: "ACTIVE_CLIENT",
+    nextActionType: "CALL",
+    marketingCallOptOut: false,
+    createdAt: new Date("2026-08-01T10:00:00Z"),
+    owner: { fullName: "Manager" },
+    company: { name: "Clinic A" },
+  };
+  const { service, captured } = buildService({
+    findMany: async () => [
+      { ...row, id: "later", nextActionAt: postponed },
+      { ...row, id: "touched", nextActionAt: overdue },
+      { ...row, id: "due", nextActionAt: overdue },
+      { ...row, id: "overdueLater", nextActionAt: postponed },
+    ],
+    signals: new Map([
+      ["later", { lastContactAt: new Date("2026-09-01T10:00:00Z") }],
+      ["touched", { lastContactAt: touchedToday }],
+      ["due", { lastContactAt: new Date("2026-09-01T10:00:00Z") }],
+      [
+        "overdueLater",
+        { lastContactAt: new Date("2026-09-01T10:00:00Z"), overdueFollowupTasks: 1 },
+      ],
+    ]),
+  });
+
+  const result = await service.getWorkQueue({ horizon: "today", preset: "attention" }, manager());
+  assert.deepEqual(
+    result.items.map((item) => item.contact.id),
+    ["due", "overdueLater"],
+  );
+  const where = captured.where as { AND?: Array<Record<string, unknown>> };
+  assert.deepEqual(where.AND?.[0], {
+    OR: [{ ownerId: "mgr-1" }, { ownerId: null }],
+  });
 });

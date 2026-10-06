@@ -616,7 +616,7 @@ export class DailyAgendaService {
   private async loadQueueContacts(actor: AuthUser) {
     try {
       const result = await this.workQueue.getWorkQueue(
-        { preset: "attention", page: 1, pageSize: 10, ownerId: actor.id },
+        { preset: "attention", horizon: "today", page: 1, pageSize: 10, ownerId: actor.id },
         actor,
       );
       const items = Array.isArray(result.items) ? result.items : [];
@@ -778,7 +778,7 @@ export class DailyAgendaService {
   private async loadDebtContacts(actor: AuthUser) {
     try {
       const result = await this.workQueue.getWorkQueue(
-        { preset: "debt-control", page: 1, pageSize: 5, ownerId: actor.id },
+        { preset: "debt-control", horizon: "today", page: 1, pageSize: 5, ownerId: actor.id },
         actor,
       );
       const items = Array.isArray(result.items) ? result.items : [];
@@ -879,13 +879,19 @@ export class DailyAgendaService {
       }
       if (item.contactId) {
         const c = await this.prisma.contact.findFirst({
-          where: { id: item.contactId, ownerId: userId },
+          where: {
+            id: item.contactId,
+            OR: [{ ownerId: userId }, { ownerId: null }],
+          },
         });
         if (!c) throw new BadRequestException(`Contact ${item.contactId} not found`);
       }
       if (item.leadId) {
         const l = await this.prisma.lead.findFirst({
-          where: { id: item.leadId, ownerId: userId },
+          where: {
+            id: item.leadId,
+            OR: [{ ownerId: userId }, { ownerId: null }],
+          },
         });
         if (!l) throw new BadRequestException(`Lead ${item.leadId} not found`);
       }

@@ -4,7 +4,32 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.185**.)_
+_(планируемые изменения после **0.2.186**.)_
+
+## [0.2.186] — 2026-10-06
+
+### Summary
+
+Патч **0.2.186**: єдиний inbox `/inbox` (Telegram + Meta); work-queue `horizon=today`; повернення — unlinked TTN + пошук.
+
+### Added
+
+- **UnifiedInboxPage** at `/inbox` (channel filter Telegram / Instagram / Facebook); `/inbox/telegram|instagram|facebook` redirect with channel query.
+- Contacts work-queue / summary query `horizon=today` (due through today, skip already-touched); daily agenda + manager dashboard use it.
+- Return packages list: `unlinked`, `status`, `q`, `dateFrom`/`dateTo`; ReturnsKanban shows unlinked TTN parcels.
+- Agenda `priorityReasonLabel` for queue suggestion reasons.
+
+### Changed
+
+- Sidebar: single Inbox entry (Telegram **or** Meta effective); module gating for `/inbox`.
+- Return package NP sync does not demote `RECEIVED_BY_WAREHOUSE` back to `IN_TRANSIT_BACK`; transit sync includes unlinked packages.
+- Create order return preserves `reason` / `replacementMode` / `warehouseId` / `externalCode` from raw body.
+- Daily agenda contact/lead ownership allows `ownerId` null.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.186`**.
+- **Миграций нет.**
 
 ## [0.2.185] — 2026-09-30
 

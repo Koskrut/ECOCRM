@@ -16,6 +16,7 @@ import type {
 } from "./daily-agenda.types";
 import {
   actionLabel,
+  priorityReasonLabel,
   contactEntitySnapshot,
   taskEntitySnapshot,
   taskSubtitle,
@@ -126,7 +127,7 @@ export function buildSuggestions(input: {
         contactId: q.contactId,
         title: `Черга · ${q.fullName}`,
         subtitle: [q.companyName, q.phone].filter(Boolean).join(" · ") || null,
-        reason: q.priorityReasons[0] ?? "Пріоритетний контакт з черги",
+        reason: priorityReasonLabel(q.priorityReasons[0]),
         metadata: {
           actionHref: "/work/calls/queue",
           entityHref: `/contacts?open=${q.contactId}`,

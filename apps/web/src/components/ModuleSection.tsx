@@ -9,8 +9,10 @@ import { PageShell, type PageShellTab } from "@/components/PageShell";
 export type ModuleSectionTab = PageShellTab;
 
 type ModuleSectionProps = {
-  /** Module id used for licensing/enabled gating. */
-  moduleId: ModuleId;
+  /** Module id used for licensing/enabled gating. Ignored when `anyOf` is set. */
+  moduleId?: ModuleId;
+  /** Pass if any listed module is effective. */
+  anyOf?: ModuleId[];
   /** Optional page header rendered inside a max-width container. */
   title?: string;
   subtitle?: string;
@@ -26,6 +28,7 @@ type ModuleSectionProps = {
 
 export function ModuleSection({
   moduleId,
+  anyOf,
   title,
   subtitle,
   icon,
@@ -35,7 +38,7 @@ export function ModuleSection({
   children,
 }: ModuleSectionProps) {
   return (
-    <ModuleGate moduleId={moduleId}>
+    <ModuleGate moduleId={moduleId} anyOf={anyOf}>
       <PageShell
         title={title}
         subtitle={subtitle}

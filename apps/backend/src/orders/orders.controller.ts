@@ -134,7 +134,7 @@ export class OrdersController {
   createReturn(
     @Param("id") id: string,
     @Body() dto: CreateOrderReturnDto,
-    @Req() req: Request & { user?: AuthUser; body?: { items?: Array<{ orderItemId: string; qtyReturned: number }>; itemsPending?: boolean; ttnNumber?: string } },
+    @Req() req: Request & { user?: AuthUser; body?: Partial<CreateOrderReturnDto> },
   ) {
     // Workaround: ValidationPipe/class-transformer can strip nested items; use raw body fallback
     const raw = req.body ?? {};
@@ -147,6 +147,10 @@ export class OrdersController {
         items,
         itemsPending: dto.itemsPending ?? raw.itemsPending,
         ttnNumber: dto.ttnNumber ?? raw.ttnNumber,
+        reason: dto.reason ?? raw.reason,
+        replacementMode: dto.replacementMode ?? raw.replacementMode,
+        warehouseId: dto.warehouseId ?? raw.warehouseId,
+        externalCode: dto.externalCode ?? raw.externalCode,
       },
       req.user,
     );

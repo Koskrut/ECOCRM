@@ -108,7 +108,7 @@ export function notificationHref(n: UserNotification): string | null {
     case "CONTACT":
       return `/contacts?contactId=${encodeURIComponent(n.entityId)}`;
     case "CONVERSATION":
-      return `/inbox/telegram?conversationId=${encodeURIComponent(n.entityId)}`;
+      return `/inbox?channel=TELEGRAM&conversationId=${encodeURIComponent(n.entityId)}`;
     case "FIELD_SHIFT":
       return "/visits";
     case "FACTORY_ORDER":
