@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Package, Search, X } from "lucide-react";
 import { TtnStatusBadge } from "@/components/TtnStatusBadge";
@@ -174,6 +174,16 @@ function WarehouseReturnsPageContent() {
   >({});
   const [orderModalId, setOrderModalId] = useState<string | null>(null);
   const [showExtraOrderSearch, setShowExtraOrderSearch] = useState(false);
+  const loadGen = useRef(0);
+  const packageIdRef = useRef<string | null>(null);
+  const ignorePackageUntilCleared = useRef(false);
+  const packageFromUrl = searchParams.get("package");
+  if (ignorePackageUntilCleared.current) {
+    if (!packageFromUrl) ignorePackageUntilCleared.current = false;
+    packageIdRef.current = null;
+  } else {
+    packageIdRef.current = packageFromUrl;
+  }
 
   const selected = useMemo(
     () => items.find((p) => p.id === selectedId) ?? null,
@@ -190,6 +200,7 @@ function WarehouseReturnsPageContent() {
   }, [selected]);
 
   const loadQueue = useCallback(async () => {
+    const gen = ++loadGen.current;
     setLoading(true);
     setErr(null);
     try {
@@ -198,16 +209,32 @@ function WarehouseReturnsPageContent() {
           ? selectedWarehouseIds
           : undefined;
       const data = await returnPackagesApi.listWarehouseQueue(filterIds);
-      setItems(data.items ?? []);
+      if (gen !== loadGen.current) return;
+      let list = data.items ?? [];
+      const packageId = packageIdRef.current;
+      if (packageId && !list.some((p) => p.id === packageId)) {
+        try {
+          const extra = await returnPackagesApi.getById(packageId);
+          if (gen !== loadGen.current) return;
+          if (extra) list = [extra, ...list];
+        } catch {
+          /* parcel is outside the queue; leave the list as loaded */
+        }
+      }
+      if (gen !== loadGen.current) return;
+      setItems(list);
       setSelectedId((prev) => {
-        if (prev && data.items?.some((p) => p.id === prev)) return prev;
+        const wanted = packageIdRef.current;
+        if (wanted && list.some((p) => p.id === wanted)) return wanted;
+        if (prev && list.some((p) => p.id === prev)) return prev;
         return null;
       });
     } catch (e) {
+      if (gen !== loadGen.current) return;
       setErr(e instanceof Error ? e.message : "Не вдалося завантажити чергу");
       setItems([]);
     } finally {
-      setLoading(false);
+      if (gen === loadGen.current) setLoading(false);
     }
   }, [selectedWarehouseIds, warehouses.length]);
 
@@ -437,6 +464,15 @@ function WarehouseReturnsPageContent() {
   };
 
   const closeModal = () => {
+    ignorePackageUntilCleared.current = true;
+    packageIdRef.current = null;
+    setSelectedId(null);
+    const params = new URLSearchParams(searchParams.toString());
+    if (params.has("package")) {
+      params.delete("package");
+      const q = params.toString();
+      router.replace(q ? `${pathname}?${q}` : pathname, { scroll: false });
+    }
     scheduleModalClose(() => {
       setSelectedId(null);
       setSelectedOrder(null);

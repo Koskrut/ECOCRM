@@ -4,7 +4,28 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.187**.)_
+_(планируемые изменения после **0.2.188**.)_
+
+## [0.2.188] — 2026-10-06
+
+### Summary
+
+Патч **0.2.188**: admin/склад — deep-link на розбір посилки (`?package=`), пункт «Повернення на склад» у меню.
+
+### Added
+
+- Sidebar: **Повернення на склад** для ADMIN (після Замовлення).
+- ReturnModal: «Прийом і розбір» → `/work/warehouse/returns?package=…` (ADMIN/WAREHOUSE).
+- Returns kanban: unlinked TTN для ADMIN/WAREHOUSE відкриває складський розбір.
+
+### Changed
+
+- Warehouse returns: відкриття посилки з URL, довантаження поза чергою, очищення `package` при закритті картки.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.188`**.
+- **Миграций нет.**
 
 ## [0.2.187] — 2026-10-06
 

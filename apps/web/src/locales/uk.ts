@@ -40,6 +40,7 @@ export const uk = {
     planning: "Виробництво",
     warehouseWork: "Склад",
     warehouseReturns: "Повернення",
+    warehouseReturnsWork: "Повернення на склад",
     monitoring: "Моніторинг",
     activeLeadsCount: "{count} активних лідів",
     activeTasksCount: "{count} активних завдань",
@@ -3120,7 +3121,7 @@ export const uk = {
     returnsOrderStage: (stage: string) => `Замовлення: ${stage}`,
     unlinkedReturnNoOrder: "Без замовлення",
     unlinkedReturnHint:
-      "Посилка зареєстрована за ТТН. Після прибуття склад привʼяже замовлення і розкладе позиції.",
+      "Відкрийте посилку, щоб прийняти її на склад і розкласти позиції.",
   },
   monitoring: {
     pageTitle: "Моніторинг співробітників",
@@ -3400,6 +3401,7 @@ export const uk = {
     returnReasonLabel: "Причина повернення",
     replacementModeLabel: "Режим",
     returnWarehouseLabel: "Склад прийому",
+    openWarehouseReturn: "Прийом і розбір",
     returnWarehouseHint: "Куди кладовщик прийме товар",
     externalCodeLabel: "Документ 1С",
     externalCodePlaceholder: "Номер документа повернення в 1С…",

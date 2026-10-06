@@ -39,6 +39,7 @@ export const en = {
     planning: "Production",
     warehouseWork: "Warehouse",
     warehouseReturns: "Returns",
+    warehouseReturnsWork: "Warehouse returns",
     monitoring: "Monitoring",
     activeLeadsCount: "{count} active leads",
     activeTasksCount: "{count} active tasks",
@@ -3107,7 +3108,7 @@ export const en = {
     returnsOrderStage: (stage: string) => `Order: ${stage}`,
     unlinkedReturnNoOrder: "No order linked",
     unlinkedReturnHint:
-      "Parcel registered by TTN. Warehouse will link the order and break down items after it arrives.",
+      "Open the parcel to receive it and break down the items.",
   },
   monitoring: {
     pageTitle: "Employee monitoring",
@@ -3388,6 +3389,7 @@ export const en = {
     returnReasonLabel: "Return reason",
     replacementModeLabel: "Workflow",
     returnWarehouseLabel: "Receiving warehouse",
+    openWarehouseReturn: "Receive and unpack",
     returnWarehouseHint: "Where warehouse staff will receive the goods",
     externalCodeLabel: "1C return document",
     externalCodePlaceholder: "Enter 1C document number…",

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { EntityModalShell } from "@/components/modals/EntityModalShell";
 import { TtnStatusBadge } from "@/components/TtnStatusBadge";
 import { formatOrderAmount } from "@/lib/formatOrderAmount";
@@ -149,14 +150,18 @@ export function ReturnModal({
   onClose,
   onSaved,
   onOpenOrder,
+  allowWarehouseWork = false,
   zIndex,
 }: {
   returnId: string;
   onClose: () => void;
   onSaved?: () => void;
   onOpenOrder: (orderId: string) => void;
+  /** Admin and warehouse can receive the parcel and break down items. */
+  allowWarehouseWork?: boolean;
   zIndex?: number;
 }) {
+  const router = useRouter();
   const [ret, setRet] = useState<ReturnDetails | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -460,6 +465,17 @@ export function ReturnModal({
               statusText={ret.returnPackage.ttnStatusText}
             />
           </div>
+          {allowWarehouseWork ? (
+            <button
+              type="button"
+              onClick={() =>
+                router.push(`/work/warehouse/returns?package=${ret.returnPackage!.id}`)
+              }
+              className="mt-2 text-xs font-medium text-zinc-800 underline"
+            >
+              {tr.openWarehouseReturn}
+            </button>
+          ) : null}
         </div>
       ) : null}
 

@@ -136,6 +136,7 @@ export function EntityModalStackLayers({
               onClose={onClose}
               onSaved={refreshOrders}
               onOpenOrder={openOrder}
+              allowWarehouseWork={userRole === "ADMIN" || userRole === "WAREHOUSE"}
             />
           );
         }

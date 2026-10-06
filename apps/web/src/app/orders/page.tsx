@@ -832,7 +832,13 @@ function OrdersPageContent() {
           <ReturnsKanban
             onOpenOrder={(orderId) => openExistingOrder(orderId)}
             onOpenReturn={(returnId) => openReturn(returnId)}
-            onOpenPackage={(packageId) => setOpenPackageId(packageId)}
+            onOpenPackage={(packageId) => {
+              if (userRole === "ADMIN" || userRole === "WAREHOUSE") {
+                router.push(`/work/warehouse/returns?package=${packageId}`);
+                return;
+              }
+              setOpenPackageId(packageId);
+            }}
             refreshKey={returnsRefreshKey}
             focusToken={returnsFocusToken}
             onRegisterIncoming={
