@@ -29,3 +29,14 @@ test("filterPlanningRelevantEntries keeps kits and BOM parts only", () => {
     ["KIT-001", "PART-A", "PART-B"],
   );
 });
+
+test("filterPlanningRelevantEntries matches article case", () => {
+  const relevant = new Set(["SF2040"]);
+  const { kept, skippedIrrelevant } = filterPlanningRelevantEntries(
+    [{ skuNormalized: "sf2040" }, { skuNormalized: "other" }],
+    relevant,
+  );
+  assert.equal(kept.length, 1);
+  assert.equal(skippedIrrelevant, 1);
+  assert.equal(kept[0]?.skuNormalized, "sf2040");
+});

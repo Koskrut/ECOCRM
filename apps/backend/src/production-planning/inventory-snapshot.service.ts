@@ -30,14 +30,20 @@ function normalizeHeader(v: unknown): string {
  * Keep only rows whose SKU is a planning kit or an active-BOM component (semi-finished).
  * Irrelevant 1C stock lines are dropped.
  */
+/** Case-insensitive key so a 1C article matches the catalog SKU. */
+export function snapshotSkuKey(value: string): string {
+  return normalizeSnapshotSku(value).toLowerCase();
+}
+
 export function filterPlanningRelevantEntries<T extends { skuNormalized: string }>(
   entries: T[],
   relevantSkus: Set<string>,
 ): { kept: T[]; skippedIrrelevant: number } {
+  const keys = new Set([...relevantSkus].map((sku) => snapshotSkuKey(sku)));
   const kept: T[] = [];
   let skippedIrrelevant = 0;
   for (const entry of entries) {
-    if (relevantSkus.has(entry.skuNormalized)) {
+    if (keys.has(snapshotSkuKey(entry.skuNormalized))) {
       kept.push(entry);
     } else {
       skippedIrrelevant += 1;
@@ -115,29 +121,35 @@ export class InventorySnapshotService {
   }
 
   /**
-   * SKUs used by planning: active kits + components of active BOMs (полуфабрикаты).
+   * Active kits and BOM components, keyed by lowercase article / 1C code.
+   * SKU wins over another product's external code when both normalize the same.
    */
-  async getPlanningRelevantSkus(): Promise<Set<string>> {
+  async getPlanningProductIndex(): Promise<Map<string, string>> {
     const [kits, bomLines] = await Promise.all([
       this.prisma.product.findMany({
         where: { kind: ProductKind.KIT, isActive: true },
-        select: { sku: true, externalCode: true },
+        select: { id: true, sku: true, externalCode: true },
       }),
       this.prisma.kitBomLine.findMany({
         where: { bom: { isActive: true } },
-        select: { component: { select: { sku: true, externalCode: true } } },
+        select: { component: { select: { id: true, sku: true, externalCode: true } } },
       }),
     ]);
-    const relevant = new Set<string>();
-    const add = (sku: string | null | undefined, externalCode?: string | null) => {
-      const normalizedSku = sku ? normalizeSnapshotSku(sku) : "";
-      if (normalizedSku) relevant.add(normalizedSku);
-      const code = externalCode?.trim();
-      if (code) relevant.add(code);
-    };
-    for (const kit of kits) add(kit.sku, kit.externalCode);
-    for (const line of bomLines) add(line.component.sku, line.component.externalCode);
-    return relevant;
+    const index = new Map<string, string>();
+    const skus: Array<{ id: string; sku: string; externalCode: string | null }> = [];
+    for (const kit of kits) skus.push(kit);
+    for (const line of bomLines) skus.push(line.component);
+    for (const product of skus) {
+      const key = snapshotSkuKey(product.sku);
+      if (key) index.set(key, product.id);
+    }
+    for (const product of skus) {
+      const code = product.externalCode?.trim();
+      if (!code) continue;
+      const key = snapshotSkuKey(code);
+      if (key && !index.has(key)) index.set(key, product.id);
+    }
+    return index;
   }
 
   async createStagedFromFile(params: {
@@ -148,8 +160,8 @@ export class InventorySnapshotService {
     const allEntries = this.parseFile(params.fileBuffer);
     if (allEntries.length === 0) throw new BadRequestException("No valid rows found");
 
-    const relevantSkus = await this.getPlanningRelevantSkus();
-    if (relevantSkus.size === 0) {
+    const productByKey = await this.getPlanningProductIndex();
+    if (productByKey.size === 0) {
       throw new BadRequestException(
         "No planning SKUs configured. Import kit BOMs first (kits + component parts).",
       );
@@ -157,7 +169,7 @@ export class InventorySnapshotService {
 
     const { kept: filteredEntries, skippedIrrelevant } = filterPlanningRelevantEntries(
       allEntries,
-      relevantSkus,
+      new Set(productByKey.keys()),
     );
     if (filteredEntries.length === 0) {
       throw new BadRequestException(
@@ -180,20 +192,6 @@ export class InventorySnapshotService {
       }
     }
     const entries = Array.from(merged.values());
-
-    const skuSet = Array.from(new Set(entries.map((e) => e.skuNormalized)));
-    const products = await this.prisma.product.findMany({
-      where: {
-        OR: [{ sku: { in: skuSet } }, { externalCode: { in: skuSet } }],
-      },
-      select: { id: true, sku: true, externalCode: true },
-    });
-    const productBySku = new Map<string, string>();
-    const productByExternalCode = new Map<string, string>();
-    for (const p of products) {
-      productBySku.set(normalizeSnapshotSku(p.sku), p.id);
-      if (p.externalCode) productByExternalCode.set(p.externalCode.trim(), p.id);
-    }
 
     const whRawSet = Array.from(
       new Set(
@@ -229,7 +227,7 @@ export class InventorySnapshotService {
             return {
               skuRaw: e.skuNormalized,
               qty: e.qty,
-              productId: productBySku.get(e.skuNormalized) ?? productByExternalCode.get(e.skuNormalized) ?? null,
+              productId: productByKey.get(snapshotSkuKey(e.skuNormalized)) ?? null,
               warehouseRaw,
               warehouseId: warehouseRaw ? (warehouseByRaw.get(warehouseRaw) ?? null) : null,
             };
@@ -240,10 +238,7 @@ export class InventorySnapshotService {
     });
 
     const unresolvedSku = entries
-      .filter(
-        (e) =>
-          !productBySku.has(e.skuNormalized) && !productByExternalCode.has(e.skuNormalized),
-      )
+      .filter((e) => !productByKey.has(snapshotSkuKey(e.skuNormalized)))
       .map((e) => e.skuNormalized);
     const unresolvedWarehouses = entries
       .filter((e) => {
@@ -257,7 +252,7 @@ export class InventorySnapshotService {
       rowsInFile: allEntries.length,
       keptRows: entries.length,
       skippedIrrelevant,
-      relevantSkuCount: relevantSkus.size,
+      relevantSkuCount: productByKey.size,
       unresolvedSku: Array.from(new Set(unresolvedSku)),
       unresolvedWarehouses: Array.from(new Set(unresolvedWarehouses)),
     };

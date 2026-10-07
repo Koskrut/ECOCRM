@@ -112,9 +112,8 @@ export function notificationHref(n: UserNotification): string | null {
     case "FIELD_SHIFT":
       return "/visits";
     case "FACTORY_ORDER":
-      return `/planning?tab=make`;
     case "PACKING_LIST":
-      return `/planning?tab=pack`;
+      return "/planning";
     default:
       return null;
   }

@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Logger,
   Delete,
   Get,
   Param,
@@ -40,6 +41,7 @@ import { ProductionService } from "./production.service";
 import { SalesHistoryService } from "./sales-history.service";
 import { PlanningTodayService } from "./planning-today.service";
 import { WeeklyPlanningJob } from "./weekly-planning.job";
+import { KitBoardService } from "./kit-board.service";
 import { KitPortfolioService } from "./kit-portfolio.service";
 import { KitBomListService } from "./kit-bom-list.service";
 import { PlanningProductParamsService } from "./planning-product-params.service";
@@ -49,6 +51,8 @@ import { ModuleIds } from "../modules/module-ids";
 @Controller("planning")
 @RequireModule(ModuleIds.ProductionPlanning)
 export class ProductionPlanningController {
+  private readonly logger = new Logger(ProductionPlanningController.name);
+
   constructor(
     private readonly demandRules: DemandRulesService,
     private readonly demandForecast: DemandForecastService,
@@ -68,6 +72,7 @@ export class ProductionPlanningController {
     private readonly today: PlanningTodayService,
     private readonly weeklyJob: WeeklyPlanningJob,
     private readonly kitPortfolio: KitPortfolioService,
+    private readonly kitBoard: KitBoardService,
     private readonly productParams: PlanningProductParamsService,
   ) {}
 
@@ -169,6 +174,12 @@ export class ProductionPlanningController {
     return this.kitPortfolio.getBoard();
   }
 
+  @Get("kit-board")
+  getKitBoard(@Query("coverMonths") coverMonths?: string) {
+    const parsed = coverMonths == null || coverMonths === "" ? undefined : Number(coverMonths);
+    return this.kitBoard.getBoard(parsed);
+  }
+
   @Get("product-params")
   listProductParams(
     @Query("kind") kind?: string,
@@ -268,13 +279,12 @@ export class ProductionPlanningController {
     const userId = req.user?.id;
     if (!userId) throw new BadRequestException("User not found in request");
     const snapshot = await this.snapshots.postSnapshot(id, userId);
-    // Self-cycle: posting fresh 1C stock always refreshes MRP so the desk stays consistent.
-    const mrpRun = await this.planningRuns.runAndPersist(PlanningRunMode.FULL);
-    return {
-      ...snapshot,
-      mrpRunId: mrpRun.id,
-      mrpSummary: mrpRun.summary,
-    };
+    // Stock must be visible even if the MRP refresh is slow or fails.
+    void this.planningRuns.runAndPersist(PlanningRunMode.FULL).catch((err: unknown) => {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.error(`MRP refresh after snapshot ${id} failed: ${msg}`);
+    });
+    return snapshot;
   }
 
   @Get("availability/:productId")

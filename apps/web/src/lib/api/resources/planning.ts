@@ -19,7 +19,19 @@ function throwOnUploadFailure(status: number, body: string, fallback: string): n
   if (text.startsWith("<") || text.includes("<html")) {
     throw new PlanningUploadError("generic", `${fallback} (HTTP ${status})`);
   }
-  throw new PlanningUploadError("generic", text || `${fallback} (HTTP ${status})`);
+  let message = text;
+  if (text.startsWith("{")) {
+    try {
+      const parsed = JSON.parse(text) as { message?: string | string[] };
+      if (typeof parsed.message === "string" && parsed.message) message = parsed.message;
+      else if (Array.isArray(parsed.message) && parsed.message.length > 0) {
+        message = parsed.message.join(", ");
+      }
+    } catch {
+      message = text;
+    }
+  }
+  throw new PlanningUploadError("generic", message || `${fallback} (HTTP ${status})`);
 }
 
 export function resolvePlanningUploadError(
@@ -722,6 +734,43 @@ async function downloadBlob(path: string, filename: string) {
   URL.revokeObjectURL(url);
 }
 
+export type KitBoardTone = "pack" | "enough" | "missing_parts" | "parts_shared" | "no_sales";
+
+export type KitBoardPartRow = {
+  productId: string;
+  sku: string;
+  name: string;
+  qtyPerKit: number;
+  constrains: boolean;
+  qtyByWarehouse: Record<string, number>;
+  qtyTotal: number;
+};
+
+export type KitBoardRow = {
+  productId: string;
+  sku: string;
+  name: string;
+  qtyByWarehouse: Record<string, number>;
+  qtyTotal: number;
+  avgMonthlySold: number;
+  need: number;
+  canAssemble: number;
+  canAssembleWarehouseId: string | null;
+  assembleByWarehouse: Record<string, number>;
+  toPack: number;
+  toPackWarehouseId: string | null;
+  tone: KitBoardTone;
+  parts: KitBoardPartRow[];
+};
+
+export type KitBoardView = {
+  coverMonths: number;
+  lookbackMonths: number;
+  snapshotPostedAt: string | null;
+  warehouses: Array<{ id: string; name: string }>;
+  rows: KitBoardRow[];
+};
+
 export const planningApi = {
   getDemandRules: async (): Promise<DemandRules> => {
     const res = await apiHttp.get<DemandRules>("/planning/config/demand-rules");
@@ -749,6 +798,12 @@ export const planningApi = {
   },
   getKitPortfolio: async (): Promise<KitPortfolioView> => {
     const res = await apiHttp.get<KitPortfolioView>("/planning/kit-portfolio");
+    return res.data;
+  },
+  getKitBoard: async (coverMonths = 1): Promise<KitBoardView> => {
+    const res = await apiHttp.get<KitBoardView>("/planning/kit-board", {
+      params: { coverMonths },
+    });
     return res.data;
   },
   listProductParams: async (params?: {

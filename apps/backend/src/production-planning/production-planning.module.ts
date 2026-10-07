@@ -24,6 +24,7 @@ import { PlanningTodayService } from "./planning-today.service";
 import { PlanningRemindersService } from "./planning-reminders.service";
 import { PlanningRemindersCron } from "./planning-reminders.cron";
 import { WeeklyPlanningJob } from "./weekly-planning.job";
+import { KitBoardService } from "./kit-board.service";
 import { KitPortfolioService } from "./kit-portfolio.service";
 import { KitBomListService } from "./kit-bom-list.service";
 import { PlanningProductParamsService } from "./planning-product-params.service";
@@ -53,6 +54,7 @@ import { PlanningProductParamsService } from "./planning-product-params.service"
     PlanningRemindersCron,
     WeeklyPlanningJob,
     KitPortfolioService,
+    KitBoardService,
     KitBomListService,
     PlanningProductParamsService,
   ],
