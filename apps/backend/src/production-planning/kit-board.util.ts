@@ -57,6 +57,66 @@ export function isExcludedPlanningWarehouse(name: string | null | undefined): bo
   return EXCLUDED_WAREHOUSE_KEYS.has(warehouseMatchKey(name));
 }
 
+function isDmtWarehouse(key: string): boolean {
+  return /\bдмт\b/.test(key) || /\bdmt\b/.test(key);
+}
+
+function isVirtualOtkWarehouse(key: string): boolean {
+  return (
+    key.includes("на проверку") ||
+    key.includes("виртуальн") ||
+    key.includes("віртуальн")
+  );
+}
+
+/**
+ * Kit leftover / sales cover: warehouse 44 + regional Suprex.
+ * Central «12 Склад Suprex», DMT and excluded personal managers do not count.
+ */
+export function isKitStockWarehouse(name: string | null | undefined): boolean {
+  if (!name?.trim()) return false;
+  if (isExcludedPlanningWarehouse(name)) return false;
+  const key = warehouseMatchKey(name);
+  if (isDmtWarehouse(key) || isVirtualOtkWarehouse(key)) return false;
+  // Central Suprex warehouse — not used for kit leftover / Увага.
+  if (/^12\b/.test(key)) return false;
+  if (/^44\b/.test(key)) return true;
+  return /suprex|супрекс/.test(key);
+}
+
+/**
+ * Pack assembly: only 39 ПФ ABM and 40 ГП ABM.
+ * DMT and virtual ОТК do not participate.
+ */
+export function isPackRecommendationWarehouse(name: string | null | undefined): boolean {
+  if (!name?.trim()) return false;
+  const key = warehouseMatchKey(name);
+  if (isDmtWarehouse(key) || isVirtualOtkWarehouse(key)) return false;
+  const isAbm = /\babm\b/.test(key);
+  if (!isAbm) return false;
+  return /^39\b/.test(key) || /^40\b/.test(key);
+}
+
+export function filterPackWarehouses(warehouses: KitBoardWarehouse[]): KitBoardWarehouse[] {
+  return warehouses.filter((w) => isPackRecommendationWarehouse(w.name));
+}
+
+export function filterKitStockWarehouses(warehouses: KitBoardWarehouse[]): KitBoardWarehouse[] {
+  return warehouses.filter((w) => isKitStockWarehouse(w.name));
+}
+
+function sumQtyOnWarehouses(
+  qtyByWarehouse: Record<string, number>,
+  warehouseIds: ReadonlySet<string>,
+): number {
+  let total = 0;
+  for (const [id, qty] of Object.entries(qtyByWarehouse)) {
+    if (!warehouseIds.has(id) || !Number.isFinite(qty)) continue;
+    total += qty;
+  }
+  return total;
+}
+
 export function productGroupNameFromSku(sku: string): string {
   const s = sku.trim();
   const prefix = s.length >= 2 ? s.slice(0, 2) : s || "";
@@ -185,13 +245,21 @@ export type KitBoardRow = {
   sku: string;
   name: string;
   qtyByWarehouse: Record<string, number>;
+  /** All company warehouses (display / hover). */
   qtyTotal: number;
+  /** Kit leftover on 44 + Suprex — used for sales cover / Увага. */
+  qtyStockTotal: number;
   avgMonthlySold: number;
   need: number;
   /** Best single-warehouse build from current part stock, before other kits take parts. */
   canAssemble: number;
   canAssembleWarehouseId: string | null;
   assembleByWarehouse: Record<string, number>;
+  /**
+   * How many kits can still be built on 39/40 after higher-need kits took shared parts.
+   * Safer default for «можна» → заявка than raw canAssemble.
+   */
+  canAssembleRemaining: number;
   /** Suggested pack qty after higher-need kits consume shared parts. */
   toPack: number;
   toPackWarehouseId: string | null;
@@ -417,10 +485,18 @@ export function buildKitBoard(input: {
   const monthKeys = input.monthKeys ?? recentYearMonthKeys(new Date(), KIT_BOARD_CLASS_LOOKBACK_MONTHS);
   const kitClass = classifyKits(input.kits, monthKeys);
   const partClass = classifyParts(input.kits, monthKeys);
+  const packWarehouses = filterPackWarehouses(input.warehouses);
+  const stockWarehouses = filterKitStockWarehouses(input.warehouses);
+  const stockWarehouseIds = new Set(stockWarehouses.map((w) => w.id));
 
   const ranked = input.kits.map((kit) => ({
     kit,
-    need: kitNeed(kit.avgMonthlySold, sumQty(kit.qtyByWarehouse), coverMonths),
+    // Cover / Увага: kits on 44 + Suprex. Pack capacity uses 39/40 ABM separately.
+    need: kitNeed(
+      kit.avgMonthlySold,
+      sumQtyOnWarehouses(kit.qtyByWarehouse, stockWarehouseIds),
+      coverMonths,
+    ),
   }));
   ranked.sort(
     (a, b) => b.need - a.need || a.kit.sku.localeCompare(b.kit.sku),
@@ -430,8 +506,8 @@ export function buildKitBoard(input: {
   const rows: KitBoardRow[] = [];
 
   for (const { kit, need } of ranked) {
-    const physical = bestWarehouse(kit.parts, input.warehouses, null);
-    const remainingBuild = bestWarehouse(kit.parts, input.warehouses, remaining);
+    const physical = bestWarehouse(kit.parts, packWarehouses, null);
+    const remainingBuild = bestWarehouse(kit.parts, packWarehouses, remaining);
     const toPack =
       kit.avgMonthlySold > 0 ? Math.min(need, remainingBuild.qty) : 0;
     const toPackWarehouseId = toPack > 0 ? remainingBuild.warehouseId : null;
@@ -467,11 +543,13 @@ export function buildKitBoard(input: {
       name: kit.name,
       qtyByWarehouse: kit.qtyByWarehouse,
       qtyTotal: sumQty(kit.qtyByWarehouse),
+      qtyStockTotal: sumQtyOnWarehouses(kit.qtyByWarehouse, stockWarehouseIds),
       avgMonthlySold: kit.avgMonthlySold,
       need,
       canAssemble: physical.qty,
       canAssembleWarehouseId: physical.qty > 0 ? physical.warehouseId : null,
       assembleByWarehouse: physical.byWarehouse,
+      canAssembleRemaining: remainingBuild.qty,
       toPack,
       toPackWarehouseId,
       toProduce,

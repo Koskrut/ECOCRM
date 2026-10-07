@@ -4,6 +4,8 @@ import {
   buildKitBoard,
   groupSnapshotStock,
   isExcludedPlanningWarehouse,
+  isKitStockWarehouse,
+  isPackRecommendationWarehouse,
   kitNeed,
   kitsOnWarehouse,
   productGroupNameFromSku,
@@ -11,9 +13,12 @@ import {
   resolveKitSystem,
 } from "../kit-board.util";
 
+/** Pack = 39/40 ABM; kit stock = 44 + Suprex. */
 const warehouses = [
-  { id: "a", name: "A" },
-  { id: "b", name: "B" },
+  { id: "pf", name: "39 ABM Склад Напівфабрикатів" },
+  { id: "gp", name: "40 ABM Склад Готової продукції" },
+  { id: "s44", name: "44 Склад Готової продукції (СУПРЕКС)" },
+  { id: "sky", name: "Склад Suprex Киев" },
 ];
 
 const monthKeys = [
@@ -53,7 +58,7 @@ test("parts on different warehouses do not add up into one kit", () => {
       qtyPerKit: 1,
       scrapPct: 0,
       constrains: true,
-      qtyByWarehouse: { a: 5, b: 0 },
+      qtyByWarehouse: { pf: 5, gp: 0 },
     },
     {
       productId: "p2",
@@ -62,11 +67,11 @@ test("parts on different warehouses do not add up into one kit", () => {
       qtyPerKit: 1,
       scrapPct: 0,
       constrains: true,
-      qtyByWarehouse: { a: 0, b: 5 },
+      qtyByWarehouse: { pf: 0, gp: 5 },
     },
   ];
-  assert.equal(kitsOnWarehouse(parts, "a"), 0);
-  assert.equal(kitsOnWarehouse(parts, "b"), 0);
+  assert.equal(kitsOnWarehouse(parts, "pf"), 0);
+  assert.equal(kitsOnWarehouse(parts, "gp"), 0);
 });
 
 test("packaging does not limit how many kits one warehouse can build", () => {
@@ -78,7 +83,7 @@ test("packaging does not limit how many kits one warehouse can build", () => {
       qtyPerKit: 1,
       scrapPct: 0,
       constrains: true,
-      qtyByWarehouse: { a: 4 },
+      qtyByWarehouse: { pf: 4 },
     },
     {
       productId: "pkg",
@@ -87,10 +92,10 @@ test("packaging does not limit how many kits one warehouse can build", () => {
       qtyPerKit: 1,
       scrapPct: 0,
       constrains: false,
-      qtyByWarehouse: { a: 0 },
+      qtyByWarehouse: { pf: 0 },
     },
   ];
-  assert.equal(kitsOnWarehouse(parts, "a"), 4);
+  assert.equal(kitsOnWarehouse(parts, "pf"), 4);
 });
 
 test("board packs only the sales gap and gives a shared part to the larger need", () => {
@@ -101,7 +106,7 @@ test("board packs only the sales gap and gives a shared part to the larger need"
     qtyPerKit: 1,
     scrapPct: 0,
     constrains: true,
-    qtyByWarehouse: { a: 100, b: 0 },
+    qtyByWarehouse: { pf: 100, gp: 0 },
   };
   const rows = buildKitBoard({
     coverMonths: 1,
@@ -112,7 +117,7 @@ test("board packs only the sales gap and gives a shared part to the larger need"
         productId: "kit-b",
         sku: "B",
         name: "Kit B",
-        qtyByWarehouse: { a: 0, b: 0 },
+        qtyByWarehouse: { pf: 0, gp: 0 },
         avgMonthlySold: 50,
         revenue: 500,
         monthlySold: flatMonthly(50),
@@ -124,7 +129,7 @@ test("board packs only the sales gap and gives a shared part to the larger need"
         productId: "kit-a",
         sku: "A",
         name: "Kit A",
-        qtyByWarehouse: { a: 0, b: 0 },
+        qtyByWarehouse: { pf: 0, gp: 0 },
         avgMonthlySold: 80,
         revenue: 8000,
         monthlySold: flatMonthly(80),
@@ -136,7 +141,7 @@ test("board packs only the sales gap and gives a shared part to the larger need"
         productId: "kit-ok",
         sku: "OK",
         name: "Covered",
-        qtyByWarehouse: { a: 40, b: 0 },
+        qtyByWarehouse: { s44: 40, sky: 0 },
         avgMonthlySold: 10,
         revenue: 100,
         monthlySold: flatMonthly(10),
@@ -148,7 +153,7 @@ test("board packs only the sales gap and gives a shared part to the larger need"
         productId: "kit-nosales",
         sku: "Z",
         name: "No sales",
-        qtyByWarehouse: { a: 0, b: 0 },
+        qtyByWarehouse: { s44: 0, sky: 0 },
         avgMonthlySold: 0,
         revenue: 0,
         monthlySold: {},
@@ -162,16 +167,21 @@ test("board packs only the sales gap and gives a shared part to the larger need"
   const bySku = new Map(rows.map((row) => [row.sku, row]));
   assert.equal(bySku.get("A")?.need, 80);
   assert.equal(bySku.get("A")?.canAssemble, 100);
+  assert.equal(bySku.get("A")?.canAssembleRemaining, 100);
   assert.equal(bySku.get("A")?.toPack, 80);
   assert.equal(bySku.get("A")?.toProduce, 0);
   assert.equal(bySku.get("A")?.tone, "pack");
-  assert.equal(bySku.get("A")?.toPackWarehouseId, "a");
+  assert.equal(bySku.get("A")?.toPackWarehouseId, "pf");
   assert.equal(bySku.get("A")?.paretoClass, "A");
+  assert.equal(bySku.get("A")?.qtyStockTotal, 0);
 
   assert.equal(bySku.get("B")?.canAssemble, 100);
+  assert.equal(bySku.get("B")?.canAssembleRemaining, 20);
   assert.equal(bySku.get("B")?.toPack, 20);
   assert.equal(bySku.get("B")?.toProduce, 30);
   assert.equal(bySku.get("B")?.tone, "pack");
+
+  assert.equal(bySku.get("OK")?.qtyStockTotal, 40);
 
   assert.equal(bySku.get("OK")?.need, 0);
   assert.equal(bySku.get("OK")?.toPack, 0);
@@ -192,7 +202,7 @@ test("toProduce is the gap after packing what parts can cover", () => {
     qtyPerKit: 1,
     scrapPct: 0,
     constrains: true,
-    qtyByWarehouse: { a: 8, b: 0 },
+    qtyByWarehouse: { pf: 8, gp: 0 },
   };
   const rows = buildKitBoard({
     coverMonths: 3,
@@ -203,7 +213,7 @@ test("toProduce is the gap after packing what parts can cover", () => {
         productId: "kit",
         sku: "K1",
         name: "Kit",
-        qtyByWarehouse: { a: 4, b: 0 },
+        qtyByWarehouse: { s44: 4 },
         avgMonthlySold: 10,
         revenue: 1000,
         monthlySold: flatMonthly(10),
@@ -215,6 +225,7 @@ test("toProduce is the gap after packing what parts can cover", () => {
   });
   // need = ceil(10*3 - 4) = 26; can assemble 8 → pack 8, produce 18
   assert.equal(rows[0]?.need, 26);
+  assert.equal(rows[0]?.qtyStockTotal, 4);
   assert.equal(rows[0]?.toPack, 8);
   assert.equal(rows[0]?.toProduce, 18);
 });
@@ -227,7 +238,7 @@ test("stock covering 3 months leaves pack and produce at zero", () => {
     qtyPerKit: 1,
     scrapPct: 0,
     constrains: true,
-    qtyByWarehouse: { a: 50, b: 0 },
+    qtyByWarehouse: { pf: 50, gp: 0 },
   };
   const rows = buildKitBoard({
     coverMonths: 3,
@@ -238,7 +249,7 @@ test("stock covering 3 months leaves pack and produce at zero", () => {
         productId: "kit",
         sku: "K2",
         name: "Kit",
-        qtyByWarehouse: { a: 40, b: 0 },
+        qtyByWarehouse: { s44: 40 },
         avgMonthlySold: 10,
         revenue: 1000,
         monthlySold: flatMonthly(10),
@@ -249,6 +260,7 @@ test("stock covering 3 months leaves pack and produce at zero", () => {
     ],
   });
   assert.equal(rows[0]?.need, 0);
+  assert.equal(rows[0]?.qtyStockTotal, 40);
   assert.equal(rows[0]?.toPack, 0);
   assert.equal(rows[0]?.toProduce, 0);
 });
@@ -261,7 +273,7 @@ test("part with larger exploded demand gets A and sorts above C", () => {
     qtyPerKit: 50,
     scrapPct: 0,
     constrains: true,
-    qtyByWarehouse: { a: 500 },
+    qtyByWarehouse: { pf: 500 },
   };
   const low = {
     productId: "low",
@@ -270,7 +282,7 @@ test("part with larger exploded demand gets A and sorts above C", () => {
     qtyPerKit: 1,
     scrapPct: 0,
     constrains: true,
-    qtyByWarehouse: { a: 100 },
+    qtyByWarehouse: { pf: 100 },
   };
   const rows = buildKitBoard({
     coverMonths: 3,
@@ -281,7 +293,7 @@ test("part with larger exploded demand gets A and sorts above C", () => {
         productId: "kit",
         sku: "01-KIT",
         name: "Kit",
-        qtyByWarehouse: { a: 0 },
+        qtyByWarehouse: { pf: 0 },
         avgMonthlySold: 20,
         revenue: 5000,
         monthlySold: flatMonthly(20),
@@ -296,6 +308,104 @@ test("part with larger exploded demand gets A and sorts above C", () => {
   assert.equal(parts[0]?.paretoClass, "A");
   assert.equal(parts[1]?.sku, "LOW");
   assert.equal(parts[1]?.paretoClass, "C");
+});
+
+test("kit stock is 44+Suprex; pack is 39/40 ABM only; DMT excluded", () => {
+  assert.equal(isPackRecommendationWarehouse("39 ABM Склад Напівфабрикатів"), true);
+  assert.equal(isPackRecommendationWarehouse("40 ABM Склад Готової продукції"), true);
+  assert.equal(isPackRecommendationWarehouse("39 ДМТ Склад Напівфабрикатів"), false);
+  assert.equal(isPackRecommendationWarehouse("40 ДМТ Склад Готової продукції"), false);
+  assert.equal(
+    isPackRecommendationWarehouse("40 ГП  (на проверку ОТК) - виртуальный"),
+    false,
+  );
+  assert.equal(isPackRecommendationWarehouse("12 Склад Suprex"), false);
+  assert.equal(isPackRecommendationWarehouse("44 Склад Готової продукції (СУПРЕКС)"), false);
+
+  assert.equal(isKitStockWarehouse("44 Склад Готової продукції (СУПРЕКС)"), true);
+  assert.equal(isKitStockWarehouse("Склад Suprex Киев"), true);
+  assert.equal(isKitStockWarehouse("12 Склад Suprex"), false);
+  assert.equal(isKitStockWarehouse("40 ABM Склад Готової продукції"), false);
+  assert.equal(isKitStockWarehouse("40 ДМТ Склад Готової продукції"), false);
+
+  const part = {
+    productId: "bolt",
+    sku: "BOLT",
+    name: "Bolt",
+    qtyPerKit: 1,
+    scrapPct: 0,
+    constrains: true,
+    qtyByWarehouse: {
+      pf: 0,
+      gp: 0,
+      dmt: 100,
+    },
+  };
+  const rows = buildKitBoard({
+    coverMonths: 1,
+    monthKeys,
+    warehouses: [
+      ...warehouses,
+      { id: "dmt", name: "40 ДМТ Склад Готової продукції" },
+    ],
+    kits: [
+      {
+        productId: "kit",
+        sku: "K3",
+        name: "Kit",
+        // no kits on 44/Suprex → need = sales; DMT parts do not allow pack
+        qtyByWarehouse: { s44: 0, sky: 0, dmt: 50 },
+        avgMonthlySold: 10,
+        revenue: 1000,
+        monthlySold: flatMonthly(10),
+        system: "Straumann RC",
+        category: "Абатмент",
+        parts: [part],
+      },
+    ],
+  });
+  assert.equal(rows[0]?.qtyStockTotal, 0);
+  assert.equal(rows[0]?.need, 10);
+  assert.equal(rows[0]?.canAssemble, 0);
+  assert.equal(rows[0]?.toPack, 0);
+  assert.equal(rows[0]?.toProduce, 10);
+});
+
+test("kit stock on Suprex closes sales cover; pack still needs ABM parts", () => {
+  const part = {
+    productId: "bolt",
+    sku: "BOLT",
+    name: "Bolt",
+    qtyPerKit: 1,
+    scrapPct: 0,
+    constrains: true,
+    qtyByWarehouse: { pf: 5, gp: 0 },
+  };
+  const rows = buildKitBoard({
+    coverMonths: 1,
+    monthKeys,
+    warehouses,
+    kits: [
+      {
+        productId: "kit",
+        sku: "K4",
+        name: "Kit",
+        qtyByWarehouse: { sky: 3, s44: 2 },
+        avgMonthlySold: 10,
+        revenue: 1000,
+        monthlySold: flatMonthly(10),
+        system: "Straumann RC",
+        category: "Абатмент",
+        parts: [part],
+      },
+    ],
+  });
+  // stock 5 on Suprex/44 → need = 10-5 = 5; pack min(5,5)=5
+  assert.equal(rows[0]?.qtyStockTotal, 5);
+  assert.equal(rows[0]?.need, 5);
+  assert.equal(rows[0]?.canAssemble, 5);
+  assert.equal(rows[0]?.toPack, 5);
+  assert.equal(rows[0]?.toProduce, 0);
 });
 
 test("system falls back to SKU group; category from characteristics", () => {
@@ -397,10 +507,10 @@ test("scrap reduces how many kits a part can cover", () => {
         qtyPerKit: 2,
         scrapPct: 50,
         constrains: true,
-        qtyByWarehouse: { a: 10 },
+        qtyByWarehouse: { pf: 10 },
       },
     ],
-    "a",
+    "pf",
   );
   assert.equal(n, 3);
 });

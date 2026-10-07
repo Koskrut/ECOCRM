@@ -756,11 +756,14 @@ export type KitBoardRow = {
   name: string;
   qtyByWarehouse: Record<string, number>;
   qtyTotal: number;
+  /** Kits on 44 + Suprex (sales cover). */
+  qtyStockTotal: number;
   avgMonthlySold: number;
   need: number;
   canAssemble: number;
   canAssembleWarehouseId: string | null;
   assembleByWarehouse: Record<string, number>;
+  canAssembleRemaining: number;
   toPack: number;
   toPackWarehouseId: string | null;
   toProduce: number;
@@ -778,6 +781,8 @@ export type KitBoardView = {
   classLookbackMonths?: number;
   snapshotPostedAt: string | null;
   warehouses: Array<{ id: string; name: string }>;
+  stockWarehouses?: Array<{ id: string; name: string }>;
+  packWarehouses?: Array<{ id: string; name: string }>;
   rows: KitBoardRow[];
 };
 

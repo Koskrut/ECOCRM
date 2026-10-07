@@ -8,6 +8,8 @@ import { crmVelocityQty } from "./crm-demand-velocity.util";
 import { monthKeyUtc } from "./forecast-history-merge.util";
 import {
   buildKitBoard,
+  filterKitStockWarehouses,
+  filterPackWarehouses,
   groupSnapshotStock,
   KIT_BOARD_CLASS_LOOKBACK_MONTHS,
   KIT_BOARD_COVER_MONTHS,
@@ -35,6 +37,10 @@ export type KitBoardView = {
   classLookbackMonths: number;
   snapshotPostedAt: string | null;
   warehouses: KitBoardWarehouse[];
+  /** 44 + Suprex — kit leftover / Увага. */
+  stockWarehouses: KitBoardWarehouse[];
+  /** 39 ABM + 40 ABM — pack assembly. */
+  packWarehouses: KitBoardWarehouse[];
   rows: KitBoardRow[];
 };
 
@@ -199,6 +205,8 @@ export class KitBoardService {
       classLookbackMonths,
       snapshotPostedAt: posted?.postedAt?.toISOString() ?? null,
       warehouses,
+      stockWarehouses: filterKitStockWarehouses(warehouses),
+      packWarehouses: filterPackWarehouses(warehouses),
       rows: buildKitBoard({ warehouses, kits: boardKits, coverMonths, monthKeys }),
     };
   }
