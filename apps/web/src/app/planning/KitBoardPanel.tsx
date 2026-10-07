@@ -1,27 +1,25 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { strings } from "@/locales";
 import { apiHttp } from "@/lib/api/client";
 import {
   planningApi,
   resolvePlanningUploadError,
+  type KitBoardPartRow,
   type KitBoardRow,
   type KitBoardTone,
   type KitBoardView,
 } from "@/lib/api/resources/planning";
 
 const UNASSIGNED_WAREHOUSE_ID = "__unassigned__";
+const NO_CATEGORY = "__none__";
 
-type Filter = "all" | "pack" | "missing";
+type AttentionFilter = "all" | "attention";
 
 function warehouseLabel(id: string, name: string): string {
   if (id === UNASSIGNED_WAREHOUSE_ID) return strings.planning.kitBoard.unassigned;
   return name;
-}
-
-function qtyText(value: number): string {
-  return value > 0 ? String(value) : "—";
 }
 
 function toneClass(tone: KitBoardTone): string {
@@ -30,29 +28,44 @@ function toneClass(tone: KitBoardTone): string {
   return "";
 }
 
-function toneLabel(tone: KitBoardTone): string {
-  const t = strings.planning.kitBoard;
-  if (tone === "pack") return t.tonePack;
-  if (tone === "enough") return t.toneEnough;
-  if (tone === "missing_parts") return t.toneMissing;
-  if (tone === "parts_shared") return t.toneShared;
-  return t.toneNoSales;
-}
-
 function formatAvg(value: number): string {
   if (!(value > 0)) return "—";
   return value.toLocaleString("uk-UA", { maximumFractionDigits: 1 });
 }
 
+function stockTitle(
+  qtyByWarehouse: Record<string, number>,
+  warehouseName: Map<string, string>,
+): string {
+  const lines = Object.entries(qtyByWarehouse)
+    .filter(([, qty]) => qty > 0)
+    .map(([id, qty]) => `${warehouseName.get(id) ?? id}: ${qty}`);
+  return lines.length > 0 ? lines.join("\n") : "";
+}
+
+function partStockLine(
+  part: KitBoardPartRow,
+  warehouseName: Map<string, string>,
+): string {
+  const bits = Object.entries(part.qtyByWarehouse)
+    .filter(([, qty]) => qty > 0)
+    .map(([id, qty]) => {
+      const name = warehouseName.get(id) ?? id;
+      const short = name.replace(/^(\d+\s+)?Склад\s+/i, "").slice(0, 24);
+      return `${short} ${qty}`;
+    });
+  return bits.length > 0 ? bits.join(" · ") : "—";
+}
+
 export function KitBoardPanel() {
   const t = strings.planning.kitBoard;
-  const [coverMonths, setCoverMonths] = useState(1);
   const [board, setBoard] = useState<KitBoardView | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState<Filter>("all");
-  const [openId, setOpenId] = useState<string | null>(null);
+  const [attention, setAttention] = useState<AttentionFilter>("all");
+  const [system, setSystem] = useState("");
+  const [category, setCategory] = useState("");
   const [canUpload, setCanUpload] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadNote, setUploadNote] = useState<string | null>(null);
@@ -63,7 +76,7 @@ export function KitBoardPanel() {
     setLoading(true);
     setError(null);
     planningApi
-      .getKitBoard(coverMonths)
+      .getKitBoard()
       .then((next) => {
         if (!cancelled) setBoard(next);
       })
@@ -76,7 +89,7 @@ export function KitBoardPanel() {
     return () => {
       cancelled = true;
     };
-  }, [coverMonths, refreshKey, t.loadError]);
+  }, [refreshKey, t.loadError]);
 
   useEffect(() => {
     void apiHttp
@@ -96,11 +109,34 @@ export function KitBoardPanel() {
     return map;
   }, [board]);
 
+  const systems = useMemo(() => {
+    const set = new Set<string>();
+    for (const row of board?.rows ?? []) {
+      if (row.system) set.add(row.system);
+    }
+    return [...set].sort((a, b) => a.localeCompare(b, "uk"));
+  }, [board]);
+
+  const categories = useMemo(() => {
+    const set = new Set<string>();
+    let hasEmpty = false;
+    for (const row of board?.rows ?? []) {
+      if (row.category) set.add(row.category);
+      else hasEmpty = true;
+    }
+    const list = [...set].sort((a, b) => a.localeCompare(b, "uk"));
+    if (hasEmpty) list.push(NO_CATEGORY);
+    return list;
+  }, [board]);
+
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase();
     return (board?.rows ?? []).filter((row) => {
-      if (filter === "pack" && row.tone !== "pack") return false;
-      if (filter === "missing" && row.tone !== "missing_parts" && row.tone !== "parts_shared") {
+      if (attention === "attention" && !(row.toPack > 0 || row.toProduce > 0)) return false;
+      if (system && row.system !== system) return false;
+      if (category === NO_CATEGORY) {
+        if (row.category) return false;
+      } else if (category && row.category !== category) {
         return false;
       }
       if (!q) return true;
@@ -109,10 +145,11 @@ export function KitBoardPanel() {
         .toLowerCase();
       return hay.includes(q);
     });
-  }, [board, filter, query]);
+  }, [attention, board, category, query, system]);
 
-  const packCount = (board?.rows ?? []).filter((row) => row.tone === "pack").length;
-  const warehouses = board?.warehouses ?? [];
+  const attentionCount = (board?.rows ?? []).filter(
+    (row) => row.toPack > 0 || row.toProduce > 0,
+  ).length;
 
   const upload = async (file: File) => {
     setUploading(true);
@@ -158,24 +195,9 @@ export function KitBoardPanel() {
           </span>
         ) : null}
         <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-medium text-emerald-800">
-          {t.packCount(packCount)}
+          {t.packCount(attentionCount)}
         </span>
         <div className="ml-auto flex flex-wrap items-center gap-2">
-          <span className="text-xs text-zinc-500">{t.cover}</span>
-          {[1, 2, 3].map((months) => (
-            <button
-              key={months}
-              type="button"
-              onClick={() => setCoverMonths(months)}
-              className={
-                coverMonths === months
-                  ? "rounded-full bg-cyan-600 px-3 py-1 text-xs font-medium text-white"
-                  : "rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs text-zinc-700"
-              }
-            >
-              {t.monthShort(months)}
-            </button>
-          ))}
           {canUpload ? (
             <label className="cursor-pointer rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-sm text-zinc-800">
               {uploading ? t.uploading : t.upload}
@@ -201,7 +223,7 @@ export function KitBoardPanel() {
         <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>
       ) : null}
 
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
@@ -211,16 +233,15 @@ export function KitBoardPanel() {
         {(
           [
             ["all", t.filterAll],
-            ["pack", t.filterPack],
-            ["missing", t.filterMissing],
+            ["attention", t.filterAttention],
           ] as const
         ).map(([key, label]) => (
           <button
             key={key}
             type="button"
-            onClick={() => setFilter(key)}
+            onClick={() => setAttention(key)}
             className={
-              filter === key
+              attention === key
                 ? "rounded-full bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white"
                 : "rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs text-zinc-700"
             }
@@ -228,6 +249,36 @@ export function KitBoardPanel() {
             {label}
           </button>
         ))}
+        <label className="flex items-center gap-1.5 text-xs text-zinc-600">
+          <span className="sr-only">{t.filterSystem}</span>
+          <select
+            value={system}
+            onChange={(e) => setSystem(e.target.value)}
+            className="rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-xs text-zinc-800"
+          >
+            <option value="">{t.filterSystemAll}</option>
+            {systems.map((name) => (
+              <option key={name} value={name}>
+                {name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex items-center gap-1.5 text-xs text-zinc-600">
+          <span className="sr-only">{t.filterCategory}</span>
+          <select
+            value={category}
+            onChange={(e) => setCategory(e.target.value)}
+            className="rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-xs text-zinc-800"
+          >
+            <option value="">{t.filterCategoryAll}</option>
+            {categories.map((name) => (
+              <option key={name} value={name}>
+                {name === NO_CATEGORY ? t.noCategory : name}
+              </option>
+            ))}
+          </select>
+        </label>
       </div>
 
       <div className="overflow-x-auto rounded-2xl border border-zinc-200 bg-white shadow-sm">
@@ -235,41 +286,29 @@ export function KitBoardPanel() {
           <thead>
             <tr className="border-b border-zinc-200 bg-zinc-50 text-left text-xs font-medium text-zinc-600">
               <th className="sticky left-0 z-20 bg-zinc-50 px-3 py-2">{t.colKit}</th>
-              {warehouses.map((warehouse) => (
-                <th key={warehouse.id} className="px-3 py-2 whitespace-nowrap">
-                  {warehouseLabel(warehouse.id, warehouse.name)}
-                </th>
-              ))}
-              <th className="px-3 py-2">{t.colTotal}</th>
+              <th className="px-3 py-2">{t.colStock}</th>
+              <th className="min-w-[18rem] px-3 py-2">{t.colParts}</th>
               <th className="px-3 py-2">{t.colSales}</th>
-              <th className="px-3 py-2">{t.colNeed}</th>
-              <th className="px-3 py-2">{t.colCan}</th>
               <th className="px-3 py-2">{t.colPack}</th>
+              <th className="px-3 py-2">{t.colProduce}</th>
             </tr>
           </thead>
           <tbody>
             {loading && !board ? (
               <tr>
-                <td className="px-3 py-6 text-zinc-500" colSpan={6 + warehouses.length}>
+                <td className="px-3 py-6 text-zinc-500" colSpan={6}>
                   {strings.common.loading}
                 </td>
               </tr>
             ) : rows.length === 0 ? (
               <tr>
-                <td className="px-3 py-6 text-zinc-500" colSpan={6 + warehouses.length}>
+                <td className="px-3 py-6 text-zinc-500" colSpan={6}>
                   {(board?.rows.length ?? 0) > 0 ? t.noMatches : t.empty}
                 </td>
               </tr>
             ) : (
               rows.map((row) => (
-                <BoardRow
-                  key={row.productId}
-                  row={row}
-                  warehouses={warehouses}
-                  open={openId === row.productId}
-                  warehouseName={warehouseName}
-                  onToggle={() => setOpenId(openId === row.productId ? null : row.productId)}
-                />
+                <BoardRow key={row.productId} row={row} warehouseName={warehouseName} />
               ))
             )}
           </tbody>
@@ -281,99 +320,67 @@ export function KitBoardPanel() {
 
 function BoardRow({
   row,
-  warehouses,
-  open,
   warehouseName,
-  onToggle,
 }: {
   row: KitBoardRow;
-  warehouses: Array<{ id: string; name: string }>;
-  open: boolean;
   warehouseName: Map<string, string>;
-  onToggle: () => void;
 }) {
   const t = strings.planning.kitBoard;
-  const where = row.canAssembleWarehouseId
-    ? warehouseName.get(row.canAssembleWarehouseId)
-    : null;
-  const packWhere = row.toPackWarehouseId ? warehouseName.get(row.toPackWarehouseId) : null;
-  const colSpan = 6 + warehouses.length;
+  const badge = t.classBadge(row.paretoClass, row.xyzClass);
+  const stockTip = stockTitle(row.qtyByWarehouse, warehouseName);
 
   return (
-    <Fragment>
-      <tr className={`border-b border-zinc-100 ${toneClass(row.tone)}`}>
-        <td className={`sticky left-0 z-10 px-3 py-2 ${toneClass(row.tone) || "bg-white"}`}>
-          <button type="button" className="text-left" onClick={onToggle}>
-            <span className="font-medium text-zinc-900">{row.sku}</span>
-            <span className="mt-0.5 block text-xs text-zinc-500">{row.name}</span>
-            <span className="mt-1 inline-flex rounded-full bg-white/80 px-2 py-0.5 text-[11px] text-zinc-600">
-              {toneLabel(row.tone)}
-            </span>
-          </button>
-        </td>
-        {warehouses.map((warehouse) => (
-          <td key={warehouse.id} className="px-3 py-2 tabular-nums text-zinc-800">
-            {qtyText(row.qtyByWarehouse[warehouse.id] ?? 0)}
-          </td>
-        ))}
-        <td className="px-3 py-2 font-medium tabular-nums">{row.qtyTotal}</td>
-        <td className="px-3 py-2 tabular-nums">{formatAvg(row.avgMonthlySold)}</td>
-        <td className="px-3 py-2 tabular-nums">{row.need > 0 ? row.need : "—"}</td>
-        <td className="px-3 py-2 tabular-nums">
-          {row.canAssemble > 0 ? row.canAssemble : "—"}
-          {where ? <span className="mt-0.5 block text-[11px] text-zinc-500">{where}</span> : null}
-        </td>
-        <td className="px-3 py-2 font-semibold tabular-nums text-emerald-800">
-          {row.toPack > 0 ? row.toPack : "—"}
-          {packWhere && row.toPack > 0 ? (
-            <span className="mt-0.5 block text-[11px] font-normal text-zinc-500">{packWhere}</span>
-          ) : null}
-        </td>
-      </tr>
-      {open ? (
-        <tr className="border-b border-zinc-100 bg-zinc-50/80">
-          <td colSpan={colSpan} className="px-3 py-3">
-            {row.parts.length === 0 ? (
-              <p className="text-sm text-zinc-500">{t.noParts}</p>
-            ) : (
-              <table className="min-w-full text-xs">
-                <thead>
-                  <tr className="text-left text-zinc-500">
-                    <th className="px-2 py-1 font-medium">{t.colPart}</th>
-                    <th className="px-2 py-1 font-medium">{t.perKit}</th>
-                    {warehouses.map((warehouse) => (
-                      <th key={warehouse.id} className="px-2 py-1 font-medium whitespace-nowrap">
-                        {warehouseLabel(warehouse.id, warehouse.name)}
-                      </th>
-                    ))}
-                    <th className="px-2 py-1 font-medium">{t.colTotal}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {row.parts.map((part) => (
-                    <tr key={part.productId} className="border-t border-zinc-200">
-                      <td className="px-2 py-1">
-                        <span className="font-medium text-zinc-800">{part.sku}</span>
-                        <span className="ml-2 text-zinc-500">{part.name}</span>
-                        {!part.constrains ? (
-                          <span className="ml-2 text-zinc-400">{t.packaging}</span>
-                        ) : null}
-                      </td>
-                      <td className="px-2 py-1 tabular-nums">{part.qtyPerKit}</td>
-                      {warehouses.map((warehouse) => (
-                        <td key={warehouse.id} className="px-2 py-1 tabular-nums">
-                          {qtyText(part.qtyByWarehouse[warehouse.id] ?? 0)}
-                        </td>
-                      ))}
-                      <td className="px-2 py-1 tabular-nums">{part.qtyTotal}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </td>
-        </tr>
-      ) : null}
-    </Fragment>
+    <tr className={`border-b border-zinc-100 align-top ${toneClass(row.tone)}`}>
+      <td className={`sticky left-0 z-10 px-3 py-2 ${toneClass(row.tone) || "bg-white"}`}>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="font-medium text-zinc-900">{row.sku}</span>
+          <span className="rounded bg-zinc-200/80 px-1.5 py-0.5 text-[10px] font-semibold tracking-wide text-zinc-700">
+            {badge}
+          </span>
+        </div>
+        <span className="mt-0.5 block text-xs text-zinc-500">{row.name}</span>
+        {row.system ? (
+          <span className="mt-1 block text-[11px] text-zinc-400">{row.system}</span>
+        ) : null}
+      </td>
+      <td className="px-3 py-2 tabular-nums" title={stockTip || undefined}>
+        <span className="font-medium text-zinc-900">{row.qtyTotal}</span>
+      </td>
+      <td className="px-3 py-2">
+        {row.parts.length === 0 ? (
+          <span className="text-xs text-zinc-400">{t.noParts}</span>
+        ) : (
+          <ul className="space-y-1.5">
+            {row.parts.map((part) => (
+              <li key={part.productId} className="text-xs leading-snug text-zinc-800">
+                <span className="font-medium">{part.sku}</span>
+                <span className="ml-1 rounded bg-zinc-100 px-1 py-0.5 text-[10px] font-semibold text-zinc-600">
+                  {t.classBadge(part.paretoClass, part.xyzClass)}
+                </span>
+                <span className="ml-1 text-zinc-400">×{part.qtyPerKit}</span>
+                {!part.constrains ? (
+                  <span className="ml-1 text-zinc-400">({t.packaging})</span>
+                ) : null}
+                <span className="mt-0.5 block text-[11px] text-zinc-500">
+                  {partStockLine(part, warehouseName)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </td>
+      <td className="px-3 py-2 tabular-nums">
+        <span>{formatAvg(row.avgMonthlySold)}</span>
+        {row.need > 0 ? (
+          <span className="mt-0.5 block text-[11px] text-zinc-500">{t.needHint(row.need)}</span>
+        ) : null}
+      </td>
+      <td className="px-3 py-2 font-semibold tabular-nums text-emerald-800">
+        {row.toPack > 0 ? row.toPack : "—"}
+      </td>
+      <td className="px-3 py-2 font-semibold tabular-nums text-amber-900">
+        {row.toProduce > 0 ? row.toProduce : "—"}
+      </td>
+    </tr>
   );
 }

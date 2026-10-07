@@ -1,5 +1,89 @@
+import {
+  assignParetoClasses,
+  assignXyzClass,
+  fillPeriodSeries,
+  recentYearMonthKeys,
+} from "./kit-portfolio.util";
+
 /** Snapshot lines with no warehouse. */
 export const KIT_BOARD_UNASSIGNED_WAREHOUSE_ID = "__unassigned__";
+
+/** Sales / cover window for pack & produce recommendations. */
+export const KIT_BOARD_COVER_MONTHS = 3;
+export const KIT_BOARD_SALES_LOOKBACK_MONTHS = 3;
+/** History depth for ABC/XYZ (months). */
+export const KIT_BOARD_CLASS_LOOKBACK_MONTHS = 12;
+
+/**
+ * Personal manager stocks, returns, and hardening — not company warehouses.
+ * Matched after collapsing spaces and case.
+ */
+const EXCLUDED_WAREHOUSE_NAMES = [
+  "ВОЗВРАТЫ",
+  "Закалка",
+  "Склад Алифанов Александр ( менеджер Херсон)",
+  "Склад Бауэрс-Амел (Киев)",
+  "Склад Букань Неля (менеджер Черкассы)",
+  "Склад Кульбашная Янина ( менеджер Полтава)",
+  "Склад Міліянчук Ярина (Львів)",
+  "Склад Мущій Віталій (менеджер Чернівці)",
+  "Склад Петраш Евгения ( Харьков) Демонабор",
+  "Склад Яромщук Альбіна (Харків)",
+] as const;
+
+/** SKU prefix → implant system / product group (aligned with web product-groups). */
+const PRODUCT_GROUP_NAMES: Record<string, string> = {
+  "00": "Викрутки SUPREX",
+  "01": "Straumann RC",
+  "02": "Straumann NC",
+  "03": "MegaGen AnyRidge",
+  "04": "MegaGen AnyOne",
+  "05": "MIS Seven",
+  "06": "ICX",
+  "07": "Straumann BLX",
+  "08": "NeoDent",
+  "09": "Straumann RN",
+  "10": "OSSTEM Regular",
+};
+
+function warehouseMatchKey(name: string): string {
+  return name.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+const EXCLUDED_WAREHOUSE_KEYS = new Set(EXCLUDED_WAREHOUSE_NAMES.map(warehouseMatchKey));
+
+export function isExcludedPlanningWarehouse(name: string | null | undefined): boolean {
+  if (!name?.trim()) return false;
+  return EXCLUDED_WAREHOUSE_KEYS.has(warehouseMatchKey(name));
+}
+
+export function productGroupNameFromSku(sku: string): string {
+  const s = sku.trim();
+  const prefix = s.length >= 2 ? s.slice(0, 2) : s || "";
+  return PRODUCT_GROUP_NAMES[prefix] ?? (prefix || "—");
+}
+
+export function charString(
+  characteristics: unknown,
+  key: string,
+): string | null {
+  if (!characteristics || typeof characteristics !== "object" || Array.isArray(characteristics)) {
+    return null;
+  }
+  const value = (characteristics as Record<string, unknown>)[key];
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+/** Implant system: characteristics first, else SKU prefix group name. */
+export function resolveKitSystem(sku: string, characteristics: unknown): string {
+  return charString(characteristics, "implant_system") ?? productGroupNameFromSku(sku);
+}
+
+export function resolveKitCategory(characteristics: unknown): string | null {
+  return charString(characteristics, "category_name");
+}
 
 export type SnapshotStockLine = {
   productId: string | null;
@@ -25,10 +109,11 @@ export function groupSnapshotStock(lines: SnapshotStockLine[]): {
   for (const line of lines) {
     if (!line.productId || !(line.qty > 0)) continue;
     const raw = line.warehouseRaw?.trim() ?? "";
+    const name = raw || line.warehouseName?.trim() || KIT_BOARD_UNASSIGNED_WAREHOUSE_ID;
+    if (isExcludedPlanningWarehouse(name)) continue;
     const id = raw
       ? `raw:${raw}`
       : line.warehouseId || KIT_BOARD_UNASSIGNED_WAREHOUSE_ID;
-    const name = raw || line.warehouseName?.trim() || KIT_BOARD_UNASSIGNED_WAREHOUSE_ID;
     if (!seen.has(id)) {
       seen.add(id);
       warehouses.push({ id, name });
@@ -49,6 +134,9 @@ export function groupSnapshotStock(lines: SnapshotStockLine[]): {
 
 export type KitBoardTone = "pack" | "enough" | "missing_parts" | "parts_shared" | "no_sales";
 
+export type ParetoClass = "A" | "B" | "C";
+export type XyzClass = "X" | "Y" | "Z";
+
 export type KitBoardPartInput = {
   productId: string;
   sku: string;
@@ -64,8 +152,14 @@ export type KitBoardKitInput = {
   sku: string;
   name: string;
   qtyByWarehouse: Record<string, number>;
-  /** Average kits sold per month from CRM orders. 0 means no sales history. */
+  /** Average kits sold per month from CRM orders (recommendation window). */
   avgMonthlySold: number;
+  /** CRM revenue over classification window (kit ABC). */
+  revenue: number;
+  /** Monthly shipped qty keyed by YYYY-MM (classification window). */
+  monthlySold: Record<string, number>;
+  system: string;
+  category: string | null;
   parts: KitBoardPartInput[];
 };
 
@@ -82,6 +176,8 @@ export type KitBoardPartRow = {
   constrains: boolean;
   qtyByWarehouse: Record<string, number>;
   qtyTotal: number;
+  paretoClass: ParetoClass;
+  xyzClass: XyzClass | null;
 };
 
 export type KitBoardRow = {
@@ -99,7 +195,13 @@ export type KitBoardRow = {
   /** Suggested pack qty after higher-need kits consume shared parts. */
   toPack: number;
   toPackWarehouseId: string | null;
+  /** Gap that cannot be closed by packing parts already on hand. */
+  toProduce: number;
   tone: KitBoardTone;
+  paretoClass: ParetoClass;
+  xyzClass: XyzClass | null;
+  system: string;
+  category: string | null;
   parts: KitBoardPartRow[];
 };
 
@@ -208,20 +310,114 @@ function toneFor(input: {
   return "parts_shared";
 }
 
-const TONE_RANK: Record<KitBoardTone, number> = {
-  pack: 0,
-  missing_parts: 1,
-  parts_shared: 2,
-  enough: 3,
-  no_sales: 4,
-};
+function abcRank(c: ParetoClass): number {
+  return c === "A" ? 0 : c === "B" ? 1 : 2;
+}
+
+function xyzRank(c: XyzClass | null): number {
+  if (c === "X") return 0;
+  if (c === "Y") return 1;
+  if (c === "Z") return 2;
+  return 3;
+}
+
+function classBadge(pareto: ParetoClass, xyz: XyzClass | null): string {
+  return xyz ? `${pareto}${xyz}` : pareto;
+}
+
+export { abcRank, xyzRank, classBadge };
+
+function sumMonthly(monthly: Record<string, number>): number {
+  let total = 0;
+  for (const qty of Object.values(monthly)) {
+    if (Number.isFinite(qty) && qty > 0) total += qty;
+  }
+  return total;
+}
+
+function classifyKits(
+  kits: KitBoardKitInput[],
+  monthKeys: string[],
+): Map<string, { paretoClass: ParetoClass; xyzClass: XyzClass | null }> {
+  const kitById = new Map(kits.map((kit) => [kit.productId, kit]));
+  const ranked = assignParetoClasses(
+    kits.map((kit) => ({ productId: kit.productId, revenue: Math.max(0, kit.revenue) })),
+  );
+  const byId = new Map<string, { paretoClass: ParetoClass; xyzClass: XyzClass | null }>();
+  for (const row of ranked) {
+    const kit = kitById.get(row.productId);
+    const series = fillPeriodSeries(kit?.monthlySold ?? {}, monthKeys);
+    const xyz = assignXyzClass(series, { source: "sales_months" });
+    byId.set(row.productId, {
+      paretoClass: row.paretoClass,
+      xyzClass: xyz.xyzClass,
+    });
+  }
+  return byId;
+}
+
+function classifyParts(
+  kits: KitBoardKitInput[],
+  monthKeys: string[],
+): Map<string, { paretoClass: ParetoClass; xyzClass: XyzClass | null }> {
+  const volumeByPart = new Map<string, number>();
+  const monthlyByPart = new Map<string, Record<string, number>>();
+
+  for (const kit of kits) {
+    for (const part of kit.parts) {
+      const per = Math.max(0, part.qtyPerKit);
+      if (!(per > 0)) continue;
+      volumeByPart.set(
+        part.productId,
+        (volumeByPart.get(part.productId) ?? 0) + sumMonthly(kit.monthlySold) * per,
+      );
+      const monthRow = monthlyByPart.get(part.productId) ?? {};
+      for (const key of monthKeys) {
+        const kitQty = kit.monthlySold[key] ?? 0;
+        if (kitQty > 0) monthRow[key] = (monthRow[key] ?? 0) + kitQty * per;
+      }
+      monthlyByPart.set(part.productId, monthRow);
+    }
+  }
+
+  const ranked = assignParetoClasses(
+    [...volumeByPart.entries()].map(([productId, revenue]) => ({ productId, revenue })),
+  );
+  const byId = new Map<string, { paretoClass: ParetoClass; xyzClass: XyzClass | null }>();
+  for (const row of ranked) {
+    const series = fillPeriodSeries(monthlyByPart.get(row.productId) ?? {}, monthKeys);
+    const xyz = assignXyzClass(series, { source: "sales_months" });
+    byId.set(row.productId, {
+      paretoClass: row.paretoClass,
+      xyzClass: xyz.xyzClass,
+    });
+  }
+  return byId;
+}
+
+function sortParts(
+  parts: KitBoardPartRow[],
+): KitBoardPartRow[] {
+  return [...parts].sort(
+    (a, b) =>
+      abcRank(a.paretoClass) - abcRank(b.paretoClass) ||
+      xyzRank(a.xyzClass) - xyzRank(b.xyzClass) ||
+      a.sku.localeCompare(b.sku),
+  );
+}
 
 export function buildKitBoard(input: {
   warehouses: KitBoardWarehouse[];
   kits: KitBoardKitInput[];
-  coverMonths: number;
+  coverMonths?: number;
+  /** Classification month keys (YYYY-MM). Defaults to last 12 calendar months. */
+  monthKeys?: string[];
 }): KitBoardRow[] {
-  const coverMonths = Math.max(0, input.coverMonths);
+  const coverMonths = Math.max(0, input.coverMonths ?? KIT_BOARD_COVER_MONTHS);
+  const monthKeys = input.monthKeys ?? recentYearMonthKeys(new Date(), KIT_BOARD_CLASS_LOOKBACK_MONTHS);
+  const kitClass = classifyKits(input.kits, monthKeys);
+  const partClass = classifyParts(input.kits, monthKeys);
+
   const ranked = input.kits.map((kit) => ({
     kit,
     need: kitNeed(kit.avgMonthlySold, sumQty(kit.qtyByWarehouse), coverMonths),
@@ -242,6 +438,28 @@ export function buildKitBoard(input: {
     if (toPack > 0 && toPackWarehouseId) {
       consumeParts(kit.parts, toPackWarehouseId, toPack, remaining);
     }
+    const toProduce = Math.max(0, need - toPack);
+    const cls = kitClass.get(kit.productId) ?? { paretoClass: "C" as const, xyzClass: null };
+
+    const parts = sortParts(
+      kit.parts.map((part) => {
+        const pCls = partClass.get(part.productId) ?? {
+          paretoClass: "C" as const,
+          xyzClass: null,
+        };
+        return {
+          productId: part.productId,
+          sku: part.sku,
+          name: part.name,
+          qtyPerKit: part.qtyPerKit,
+          constrains: part.constrains,
+          qtyByWarehouse: part.qtyByWarehouse,
+          qtyTotal: sumQty(part.qtyByWarehouse),
+          paretoClass: pCls.paretoClass,
+          xyzClass: pCls.xyzClass,
+        };
+      }),
+    );
 
     rows.push({
       productId: kit.productId,
@@ -256,28 +474,25 @@ export function buildKitBoard(input: {
       assembleByWarehouse: physical.byWarehouse,
       toPack,
       toPackWarehouseId,
+      toProduce,
       tone: toneFor({
         avgMonthlySold: kit.avgMonthlySold,
         need,
         canAssemble: physical.qty,
         toPack,
       }),
-      parts: kit.parts.map((part) => ({
-        productId: part.productId,
-        sku: part.sku,
-        name: part.name,
-        qtyPerKit: part.qtyPerKit,
-        constrains: part.constrains,
-        qtyByWarehouse: part.qtyByWarehouse,
-        qtyTotal: sumQty(part.qtyByWarehouse),
-      })),
+      paretoClass: cls.paretoClass,
+      xyzClass: cls.xyzClass,
+      system: kit.system,
+      category: kit.category,
+      parts,
     });
   }
 
   rows.sort(
     (a, b) =>
-      TONE_RANK[a.tone] - TONE_RANK[b.tone] ||
-      b.toPack - a.toPack ||
+      abcRank(a.paretoClass) - abcRank(b.paretoClass) ||
+      xyzRank(a.xyzClass) - xyzRank(b.xyzClass) ||
       b.need - a.need ||
       a.sku.localeCompare(b.sku),
   );

@@ -1,8 +1,25 @@
 import { Injectable } from "@nestjs/common";
 import { InventorySnapshotStatus, OrderStage, ProductKind } from "@prisma/client";
+import { toBaseCurrency } from "../common/currency.util";
 import { PrismaService } from "../prisma/prisma.service";
+import { SettingsService } from "../settings/settings.service";
 import { constrainsKitCapacity } from "./bom-part.util";
 import { crmVelocityQty } from "./crm-demand-velocity.util";
+import { monthKeyUtc } from "./forecast-history-merge.util";
+import {
+  buildKitBoard,
+  groupSnapshotStock,
+  KIT_BOARD_CLASS_LOOKBACK_MONTHS,
+  KIT_BOARD_COVER_MONTHS,
+  KIT_BOARD_SALES_LOOKBACK_MONTHS,
+  resolveKitCategory,
+  resolveKitSystem,
+  type KitBoardKitInput,
+  type KitBoardRow,
+  type KitBoardWarehouse,
+} from "./kit-board.util";
+import { recentYearMonthKeys } from "./kit-portfolio.util";
+import { monthsAgoUtc } from "./planning-safety.util";
 
 /** Shipped and closed orders. Open pipeline is still on the shelf, so it is not sales history. */
 const KIT_BOARD_SALES_STAGES: OrderStage[] = [
@@ -11,42 +28,30 @@ const KIT_BOARD_SALES_STAGES: OrderStage[] = [
   OrderStage.RECEIVED,
   OrderStage.COMPLETED,
 ];
-import {
-  buildKitBoard,
-  groupSnapshotStock,
-  type KitBoardKitInput,
-  type KitBoardRow,
-  type KitBoardWarehouse,
-} from "./kit-board.util";
-import { MrpConfigService } from "./mrp-config.service";
-import { monthsAgoUtc } from "./planning-safety.util";
 
 export type KitBoardView = {
   coverMonths: number;
   lookbackMonths: number;
+  classLookbackMonths: number;
   snapshotPostedAt: string | null;
   warehouses: KitBoardWarehouse[];
   rows: KitBoardRow[];
 };
 
-function clampCoverMonths(value: number | undefined): number {
-  if (value == null || !Number.isFinite(value)) return 1;
-  return Math.min(6, Math.max(1, Math.round(value)));
-}
-
 @Injectable()
 export class KitBoardService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly mrpConfig: MrpConfigService,
+    private readonly settings: SettingsService,
   ) {}
 
-  async getBoard(coverMonthsInput?: number): Promise<KitBoardView> {
-    const horizon = await this.mrpConfig.getHorizon();
-    const coverMonths = clampCoverMonths(coverMonthsInput);
-    const lookbackMonths = horizon.velocityLookbackMonths;
+  async getBoard(_coverMonthsInput?: number): Promise<KitBoardView> {
+    const coverMonths = KIT_BOARD_COVER_MONTHS;
+    const lookbackMonths = KIT_BOARD_SALES_LOOKBACK_MONTHS;
+    const classLookbackMonths = KIT_BOARD_CLASS_LOOKBACK_MONTHS;
+    const monthKeys = recentYearMonthKeys(new Date(), classLookbackMonths);
 
-    const [posted, kits] = await Promise.all([
+    const [posted, kits, rates] = await Promise.all([
       this.prisma.inventorySnapshot.findFirst({
         where: { status: InventorySnapshotStatus.POSTED },
         orderBy: { postedAt: "desc" },
@@ -54,9 +59,10 @@ export class KitBoardService {
       }),
       this.prisma.product.findMany({
         where: { kind: ProductKind.KIT, isActive: true },
-        select: { id: true, sku: true, name: true },
+        select: { id: true, sku: true, name: true, characteristics: true },
         orderBy: { sku: "asc" },
       }),
+      this.settings.getExchangeRates(),
     ]);
 
     const kitIds = kits.map((kit) => kit.id);
@@ -110,39 +116,68 @@ export class KitBoardService {
       warehouses = grouped.warehouses;
     }
 
-    const since = monthsAgoUtc(lookbackMonths);
+    const classSince = monthsAgoUtc(classLookbackMonths);
+    const salesSince = monthsAgoUtc(lookbackMonths);
     const orderItems = kitIds.length
       ? await this.prisma.orderItem.findMany({
           where: {
             productId: { in: kitIds },
             qty: { gt: 0 },
             order: {
-              createdAt: { gte: since },
+              createdAt: { gte: classSince },
               orderStage: { in: KIT_BOARD_SALES_STAGES },
             },
           },
-          select: { productId: true, qty: true },
+          select: {
+            productId: true,
+            qty: true,
+            price: true,
+            order: { select: { createdAt: true, currency: true } },
+          },
         })
       : [];
 
-    const soldByKit = new Map<string, number>();
+    const soldLast3ByKit = new Map<string, number>();
+    const monthlyByKit = new Map<string, Record<string, number>>();
+    const revenueByKit = new Map<string, number>();
+
     for (const item of orderItems) {
       if (!item.productId) continue;
-      soldByKit.set(
+      const qty = crmVelocityQty(item.qty);
+      if (!(qty > 0)) continue;
+      const createdAt = item.order.createdAt;
+      const ym = monthKeyUtc(createdAt);
+      const monthRow = monthlyByKit.get(item.productId) ?? {};
+      monthRow[ym] = (monthRow[ym] ?? 0) + qty;
+      monthlyByKit.set(item.productId, monthRow);
+
+      revenueByKit.set(
         item.productId,
-        (soldByKit.get(item.productId) ?? 0) + crmVelocityQty(item.qty),
+        (revenueByKit.get(item.productId) ?? 0) +
+          toBaseCurrency(item.price * qty, item.order.currency, rates),
       );
+
+      if (createdAt >= salesSince) {
+        soldLast3ByKit.set(
+          item.productId,
+          (soldLast3ByKit.get(item.productId) ?? 0) + qty,
+        );
+      }
     }
 
     const boardKits: KitBoardKitInput[] = kits.map((kit) => {
       const bom = bomByKit.get(kit.id);
-      const sold = soldByKit.get(kit.id) ?? 0;
+      const sold = soldLast3ByKit.get(kit.id) ?? 0;
       return {
         productId: kit.id,
         sku: kit.sku,
         name: kit.name,
         qtyByWarehouse: qtyByProduct.get(kit.id) ?? {},
         avgMonthlySold: sold / Math.max(1, lookbackMonths),
+        revenue: Math.round((revenueByKit.get(kit.id) ?? 0) * 100) / 100,
+        monthlySold: monthlyByKit.get(kit.id) ?? {},
+        system: resolveKitSystem(kit.sku, kit.characteristics),
+        category: resolveKitCategory(kit.characteristics),
         parts: (bom?.lines ?? []).map((line) => ({
           productId: line.componentProductId,
           sku: line.component?.sku ?? "",
@@ -161,9 +196,10 @@ export class KitBoardService {
     return {
       coverMonths,
       lookbackMonths,
+      classLookbackMonths,
       snapshotPostedAt: posted?.postedAt?.toISOString() ?? null,
       warehouses,
-      rows: buildKitBoard({ warehouses, kits: boardKits, coverMonths }),
+      rows: buildKitBoard({ warehouses, kits: boardKits, coverMonths, monthKeys }),
     };
   }
 }

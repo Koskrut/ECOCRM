@@ -735,6 +735,8 @@ async function downloadBlob(path: string, filename: string) {
 }
 
 export type KitBoardTone = "pack" | "enough" | "missing_parts" | "parts_shared" | "no_sales";
+export type KitBoardParetoClass = "A" | "B" | "C";
+export type KitBoardXyzClass = "X" | "Y" | "Z";
 
 export type KitBoardPartRow = {
   productId: string;
@@ -744,6 +746,8 @@ export type KitBoardPartRow = {
   constrains: boolean;
   qtyByWarehouse: Record<string, number>;
   qtyTotal: number;
+  paretoClass: KitBoardParetoClass;
+  xyzClass: KitBoardXyzClass | null;
 };
 
 export type KitBoardRow = {
@@ -759,13 +763,19 @@ export type KitBoardRow = {
   assembleByWarehouse: Record<string, number>;
   toPack: number;
   toPackWarehouseId: string | null;
+  toProduce: number;
   tone: KitBoardTone;
+  paretoClass: KitBoardParetoClass;
+  xyzClass: KitBoardXyzClass | null;
+  system: string;
+  category: string | null;
   parts: KitBoardPartRow[];
 };
 
 export type KitBoardView = {
   coverMonths: number;
   lookbackMonths: number;
+  classLookbackMonths?: number;
   snapshotPostedAt: string | null;
   warehouses: Array<{ id: string; name: string }>;
   rows: KitBoardRow[];
@@ -800,10 +810,8 @@ export const planningApi = {
     const res = await apiHttp.get<KitPortfolioView>("/planning/kit-portfolio");
     return res.data;
   },
-  getKitBoard: async (coverMonths = 1): Promise<KitBoardView> => {
-    const res = await apiHttp.get<KitBoardView>("/planning/kit-board", {
-      params: { coverMonths },
-    });
+  getKitBoard: async (): Promise<KitBoardView> => {
+    const res = await apiHttp.get<KitBoardView>("/planning/kit-board");
     return res.data;
   },
   listProductParams: async (params?: {
