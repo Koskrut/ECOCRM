@@ -512,7 +512,13 @@ function WeekFillBar({ used, limit }: { used: number; limit: number }) {
   );
 }
 
-export function PackingPanel({ onError }: { onError: (msg: string) => void }) {
+export function PackingPanel({
+  onError,
+  focusId,
+}: {
+  onError: (msg: string) => void;
+  focusId?: string | null;
+}) {
   const t = strings.planning;
   const reportError = useStableErrorHandler(onError);
   const [packCapacityFallback, setPackCapacityFallback] = useState(2500);
@@ -558,12 +564,14 @@ export function PackingPanel({ onError }: { onError: (msg: string) => void }) {
     void (async () => {
       try {
         const next = await reloadLists();
-        if (next[0]) applyActive(await planningApi.getPackingList(next[0].id));
+        const preferredId =
+          (focusId && next.some((l) => l.id === focusId) ? focusId : null) ?? next[0]?.id ?? null;
+        if (preferredId) applyActive(await planningApi.getPackingList(preferredId));
       } catch (e) {
         reportError(e instanceof Error ? e.message : t.errors.packing);
       }
     })();
-  }, [applyActive, reloadLists, reportError, t.errors.packing]);
+  }, [applyActive, focusId, reloadLists, reportError, t.errors.packing]);
 
   const lines = active?.lines ?? [];
   const weekNeed = lines.reduce((s, l) => s + (l.targetPack ?? 0), 0);
@@ -1018,7 +1026,13 @@ function TrackingBadge({ status }: { status: FactoryLineTrackingStatus | undefin
   );
 }
 
-export function FactoryPanel({ onError }: { onError: (msg: string) => void }) {
+export function FactoryPanel({
+  onError,
+  focusId,
+}: {
+  onError: (msg: string) => void;
+  focusId?: string | null;
+}) {
   const t = strings.planning;
   const reportError = useStableErrorHandler(onError);
   const highlightSku = (useSearchParams().get("sku") ?? "").trim().toLowerCase();
@@ -1083,9 +1097,18 @@ export function FactoryPanel({ onError }: { onError: (msg: string) => void }) {
       .getFreshness()
       .then((f) => setFreshness(f.snapshot))
       .catch(() => undefined);
-    void reloadOrders().catch((e) => reportError(e instanceof Error ? e.message : t.errors.factory));
+    void (async () => {
+      try {
+        const next = await reloadOrders();
+        if (focusId && next.some((o) => o.id === focusId)) {
+          applyActive(await planningApi.getFactoryOrder(focusId));
+        }
+      } catch (e) {
+        reportError(e instanceof Error ? e.message : t.errors.factory);
+      }
+    })();
     void reloadTracking();
-  }, [reportError, reloadOrders, reloadTracking, t.errors.factory]);
+  }, [applyActive, focusId, reportError, reloadOrders, reloadTracking, t.errors.factory]);
 
   useEffect(() => {
     if (partSearch.trim().length < 2) {

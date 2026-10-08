@@ -28,16 +28,14 @@ function batchCodeFor(sku: string): string {
   return `PB-${slug}-${Date.now().toString(36).toUpperCase()}`;
 }
 
+/** Current pack-cycle draft only — never an older leftover from listPackingLists. */
 async function ensurePackingDraft() {
-  let list = (await planningApi.listPackingLists(5))[0] ?? null;
-  if (list?.status === "APPROVED") {
+  const proposed = await planningApi.proposePackingList();
+  let list = proposed.list;
+  if (list.status === "APPROVED") {
     list = await planningApi.reopenPackingList(list.id);
   }
-  if (!list || list.status !== "DRAFT") {
-    const proposed = await planningApi.proposePackingList();
-    list = proposed.list;
-  }
-  return list?.status === "DRAFT" ? list : null;
+  return list.status === "DRAFT" ? list : null;
 }
 
 type Props = {
@@ -221,9 +219,9 @@ export function PlanningSheetPanel({ onError }: Props) {
     setActingId(row.kitProductId);
     try {
       const orders = await planningApi.listFactoryOrders(10);
-      const draft = orders.find((o) => o.status === "DRAFT");
-      if (draft) {
-        await planningApi.addFactoryLine(draft.id, {
+      const newest = orders[0] ?? null;
+      if (newest?.status === "DRAFT") {
+        await planningApi.addFactoryLine(newest.id, {
           partProductId: row.bottleneckComponentId,
           qtyOrdered: row.suggestedFactoryQty,
         });

@@ -12,6 +12,7 @@ export type AuditLogItem = {
   entityId: string;
   action: string;
   changedBy: string;
+  changedByName?: string | null;
   changedByRole?: string | null;
   before?: unknown;
   after?: unknown;

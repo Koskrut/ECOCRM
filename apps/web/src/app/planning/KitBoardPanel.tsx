@@ -20,6 +20,7 @@ type AttentionFilter = "all" | "attention";
 type SortKey = "class" | "sku" | "stock" | "sales" | "pack" | "produce";
 type SortDir = "asc" | "desc";
 type RequestKind = "pack" | "produce";
+type MainTab = "board" | "pack" | "factory";
 type AbcFilter = "A" | "B" | "C";
 type XyzFilter = "X" | "Y" | "Z" | "none";
 
@@ -85,24 +86,20 @@ function partStockLine(
   return bits.length > 0 ? bits.join(" · ") : "—";
 }
 
+/**
+ * Current pack-cycle draft only. Do not attach to an older cycle's leftover DRAFT/APPROVED
+ * from listPackingLists (that reopened stale weeks when adding from the kit board).
+ */
 async function ensurePackingDraft() {
-  const lists = await planningApi.listPackingLists(10);
-  let list =
-    lists.find((l) => l.status === "DRAFT") ??
-    lists.find((l) => l.status === "APPROVED") ??
-    lists[0] ??
-    null;
-  if (list?.status === "APPROVED") {
+  const proposed = await planningApi.proposePackingList();
+  let list = proposed.list;
+  if (list.status === "APPROVED") {
     list = await planningApi.reopenPackingList(list.id);
   }
-  if (!list || list.status !== "DRAFT") {
-    const proposed = await planningApi.proposePackingList();
-    list = proposed.list;
-  }
-  if (!list || list.status !== "DRAFT") {
+  if (list.status !== "DRAFT") {
     throw new Error(strings.planning.errors.packing);
   }
-  // listPackingLists often omits lines — always load full draft before reading qtyApproved.
+  // propose payload may omit lines — load full draft before reading qtyApproved.
   return planningApi.getPackingList(list.id);
 }
 
@@ -111,6 +108,7 @@ async function addKitToPackingRequest(kitProductId: string, qty: number) {
   const already =
     list.lines?.find((line) => line.kitProductId === kitProductId)?.qtyApproved ?? 0;
   await planningApi.setPackingKitQty(list.id, kitProductId, already + qty);
+  return list.id;
 }
 
 async function addKitPartsToFactoryRequest(row: KitBoardRow, kitQty: number) {
@@ -124,14 +122,16 @@ async function addKitPartsToFactoryRequest(row: KitBoardRow, kitQty: number) {
     throw new Error(strings.planning.kitBoard.noParts);
   }
   const orders = await planningApi.listFactoryOrders(10);
-  const draft = orders.find((o) => o.status === "DRAFT");
-  if (draft) {
+  // Only reuse the newest order when it is still a draft — never an older abandoned DRAFT.
+  const newest = orders[0] ?? null;
+  if (newest?.status === "DRAFT") {
     for (const line of lines) {
-      await planningApi.addFactoryLine(draft.id, line);
+      await planningApi.addFactoryLine(newest.id, line);
     }
-    return;
+    return newest.id;
   }
-  await planningApi.createFactoryOrder({ lines });
+  const created = await planningApi.createFactoryOrder({ lines });
+  return created.id;
 }
 
 export function KitBoardPanel() {
@@ -157,8 +157,9 @@ export function KitBoardPanel() {
   const [pending, setPending] = useState<PendingAdd | null>(null);
   const [confirmQty, setConfirmQty] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [showRequests, setShowRequests] = useState(true);
-  const [requestsKind, setRequestsKind] = useState<"pack" | "factory">("pack");
+  const [mainTab, setMainTab] = useState<MainTab>("board");
+  /** After add-to-request, open this packing/factory id in the embedded panel. */
+  const [focusRequestId, setFocusRequestId] = useState<string | null>(null);
 
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) {
@@ -327,16 +328,17 @@ export function KitBoardPanel() {
     setError(null);
     try {
       if (pending.kind === "pack") {
-        await addKitToPackingRequest(pending.row.productId, qty);
+        const listId = await addKitToPackingRequest(pending.row.productId, qty);
+        setFocusRequestId(listId);
         setToast(t.addedPack(pending.row.sku, qty));
-        setRequestsKind("pack");
+        setMainTab("pack");
       } else {
-        await addKitPartsToFactoryRequest(pending.row, qty);
+        const orderId = await addKitPartsToFactoryRequest(pending.row, qty);
+        setFocusRequestId(orderId);
         setToast(t.addedProduce(pending.row.sku, qty));
-        setRequestsKind("factory");
+        setMainTab("factory");
       }
       setPending(null);
-      setShowRequests(true);
       setRequestsKey((key) => key + 1);
       setRefreshKey((key) => key + 1);
     } catch (e: unknown) {
@@ -377,38 +379,35 @@ export function KitBoardPanel() {
     }
   };
 
+  const packRequest = board?.packRequest;
+  const capacityUsed = packRequest?.capacityUsed ?? 0;
+  const capacityLimit = packRequest?.capacityLimit ?? 0;
+  const capacityLeft = Math.max(0, capacityLimit - capacityUsed);
+  const capacityPct =
+    capacityLimit > 0 ? Math.min(100, Math.round((capacityUsed / capacityLimit) * 100)) : 0;
+
+  const tabBtn = (id: MainTab, label: string) => (
+    <button
+      key={id}
+      type="button"
+      onClick={() => setMainTab(id)}
+      className={
+        mainTab === id
+          ? "rounded-full bg-cyan-600 px-4 py-2 text-sm font-medium text-white"
+          : "rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
+      }
+    >
+      {label}
+    </button>
+  );
+
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-2 text-sm">
-        <span
-          className={`rounded-full px-3 py-1 text-xs font-medium ${
-            board?.snapshotPostedAt ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-900"
-          }`}
-        >
-          {t.snapshot}:{" "}
-          {board?.snapshotPostedAt
-            ? new Date(board.snapshotPostedAt).toLocaleString("uk-UA")
-            : t.noSnapshot}
-        </span>
-        {board ? (
-          <span className="rounded-full bg-zinc-100 px-3 py-1 text-xs text-zinc-700">
-            {t.salesHint(board.lookbackMonths)}
-          </span>
-        ) : null}
-        <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-medium text-amber-900">
-          {t.attentionCount(attentionCount)}
-        </span>
-        <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-medium text-emerald-800">
-          {t.packCount(packReadyCount)}
-        </span>
+      <div className="flex flex-wrap items-center gap-2">
+        {tabBtn("board", t.tabBoard)}
+        {tabBtn("pack", t.tabPack)}
+        {tabBtn("factory", t.tabFactory)}
         <div className="ml-auto flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setShowRequests((v) => !v)}
-            className="rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-sm text-zinc-800"
-          >
-            {showRequests ? t.hideRequests : t.showRequests}
-          </button>
           {canUpload ? (
             <label className="cursor-pointer rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-sm text-zinc-800">
               {uploading ? t.uploading : t.upload}
@@ -428,218 +427,275 @@ export function KitBoardPanel() {
         </div>
       </div>
 
-      <p className="text-sm text-zinc-500">{t.sharedHint}</p>
-      <p className="text-sm text-zinc-500">{t.addHint}</p>
+      {capacityLimit > 0 ? (
+        <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+            <span className="font-medium text-zinc-800">{t.capacityTitle}</span>
+            <span className="tabular-nums text-zinc-700">
+              {capacityUsed} / {capacityLimit}
+              <span className="ml-2 text-xs font-normal text-zinc-500">
+                {t.capacityLeft(capacityLeft)}
+              </span>
+            </span>
+          </div>
+          <div className="mt-2 h-2 overflow-hidden rounded-full bg-zinc-100">
+            <div
+              className={
+                capacityPct >= 90
+                  ? "h-full bg-emerald-500"
+                  : capacityPct >= 50
+                    ? "h-full bg-cyan-600"
+                    : "h-full bg-amber-500"
+              }
+              style={{ width: `${capacityPct}%` }}
+            />
+          </div>
+        </div>
+      ) : null}
+
+      <div className="flex flex-wrap items-center gap-2 text-sm">
+        <span
+          className={`rounded-full px-3 py-1 text-xs font-medium ${
+            board?.snapshotPostedAt ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-900"
+          }`}
+        >
+          {t.snapshot}:{" "}
+          {board?.snapshotPostedAt
+            ? new Date(board.snapshotPostedAt).toLocaleString("uk-UA")
+            : t.noSnapshot}
+        </span>
+        {board ? (
+          <span className="rounded-full bg-zinc-100 px-3 py-1 text-xs text-zinc-700">
+            {t.salesHint(board.lookbackMonths)}
+          </span>
+        ) : null}
+        {mainTab === "board" ? (
+          <>
+            <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-medium text-amber-900">
+              {t.attentionCount(attentionCount)}
+            </span>
+            <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-medium text-emerald-800">
+              {t.packCount(packReadyCount)}
+            </span>
+          </>
+        ) : null}
+      </div>
+
       {uploadNote ? <p className="text-sm text-cyan-800">{uploadNote}</p> : null}
       {toast ? <p className="text-sm text-emerald-800">{toast}</p> : null}
       {error ? (
         <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>
       ) : null}
 
-      <div className="flex flex-wrap items-center gap-2">
-        <input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder={t.search}
-          className="w-full max-w-sm rounded-lg border border-zinc-200 px-3 py-2 text-sm"
-        />
-        {(
-          [
-            ["all", t.filterAll],
-            ["attention", t.filterAttention],
-          ] as const
-        ).map(([key, label]) => (
-          <button
-            key={key}
-            type="button"
-            title={key === "attention" ? t.filterAttentionHint : undefined}
-            onClick={() => setAttention(key)}
-            className={
-              attention === key
-                ? "rounded-full bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white"
-                : "rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs text-zinc-700"
-            }
-          >
-            {key === "attention" ? `${label}${attentionCount > 0 ? ` (${attentionCount})` : ""}` : label}
-          </button>
-        ))}
-        <div className="flex flex-wrap items-center gap-1">
-          <span className="text-[11px] font-medium uppercase tracking-wide text-zinc-500">{t.filterAbc}</span>
-          {ABC_OPTIONS.map((cls) => (
-            <button
-              key={cls}
-              type="button"
-              onClick={() => setAbcFilter((prev) => toggleInSet(prev, cls))}
-              className={
-                abcFilter.has(cls)
-                  ? "rounded-full bg-cyan-700 px-2.5 py-1 text-xs font-semibold text-white"
-                  : "rounded-full border border-zinc-200 bg-white px-2.5 py-1 text-xs text-zinc-700"
-              }
-            >
-              {cls}
-            </button>
-          ))}
-        </div>
-        <div className="flex flex-wrap items-center gap-1">
-          <span className="text-[11px] font-medium uppercase tracking-wide text-zinc-500">{t.filterXyz}</span>
-          {XYZ_OPTIONS.map((cls) => (
-            <button
-              key={cls}
-              type="button"
-              onClick={() => setXyzFilter((prev) => toggleInSet(prev, cls))}
-              className={
-                xyzFilter.has(cls)
-                  ? "rounded-full bg-violet-700 px-2.5 py-1 text-xs font-semibold text-white"
-                  : "rounded-full border border-zinc-200 bg-white px-2.5 py-1 text-xs text-zinc-700"
-              }
-            >
-              {cls === "none" ? t.filterXyzNone : cls}
-            </button>
-          ))}
-        </div>
-        <label className="flex items-center gap-1.5 text-xs text-zinc-600">
-          <span className="sr-only">{t.filterSystem}</span>
-          <select
-            value={system}
-            onChange={(e) => setSystem(e.target.value)}
-            className="rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-xs text-zinc-800"
-          >
-            <option value="">{t.filterSystemAll}</option>
-            {systems.map((name) => (
-              <option key={name} value={name}>
-                {name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="flex items-center gap-1.5 text-xs text-zinc-600">
-          <span className="sr-only">{t.filterCategory}</span>
-          <select
-            value={category}
-            onChange={(e) => setCategory(e.target.value)}
-            className="rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-xs text-zinc-800"
-          >
-            <option value="">{t.filterCategoryAll}</option>
-            {categories.map((name) => (
-              <option key={name} value={name}>
-                {name === NO_CATEGORY ? t.noCategory : name}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
+      {mainTab === "board" ? (
+        <>
+          <p className="text-sm text-zinc-500">{t.sharedHint}</p>
+          <p className="text-sm text-zinc-500">{t.addHint}</p>
 
-      <div className="overflow-x-auto rounded-2xl border border-zinc-200 bg-white shadow-sm">
-        <table className="min-w-full text-sm">
-          <thead>
-            <tr className="border-b border-zinc-200 bg-zinc-50 text-left text-xs font-medium text-zinc-600">
-              <th className="sticky left-0 z-20 bg-zinc-50 px-3 py-2">
-                <button type="button" className="font-medium hover:text-zinc-900" onClick={() => toggleSort("sku")}>
-                  {t.colKit}
-                  {sortMark("sku")}
-                </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder={t.search}
+              className="w-full max-w-sm rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+            />
+            {(
+              [
+                ["all", t.filterAll],
+                ["attention", t.filterAttention],
+              ] as const
+            ).map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                title={key === "attention" ? t.filterAttentionHint : undefined}
+                onClick={() => setAttention(key)}
+                className={
+                  attention === key
+                    ? "rounded-full bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white"
+                    : "rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs text-zinc-700"
+                }
+              >
+                {key === "attention"
+                  ? `${label}${attentionCount > 0 ? ` (${attentionCount})` : ""}`
+                  : label}
+              </button>
+            ))}
+            <div className="flex flex-wrap items-center gap-1">
+              <span className="text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+                {t.filterAbc}
+              </span>
+              {ABC_OPTIONS.map((cls) => (
                 <button
+                  key={cls}
                   type="button"
-                  className="ml-2 text-[10px] font-normal text-zinc-400 hover:text-zinc-700"
-                  onClick={() => toggleSort("class")}
+                  onClick={() => setAbcFilter((prev) => toggleInSet(prev, cls))}
+                  className={
+                    abcFilter.has(cls)
+                      ? "rounded-full bg-cyan-700 px-2.5 py-1 text-xs font-semibold text-white"
+                      : "rounded-full border border-zinc-200 bg-white px-2.5 py-1 text-xs text-zinc-700"
+                  }
                 >
-                  ABC{sortMark("class")}
+                  {cls}
                 </button>
-              </th>
-              <th className="px-3 py-2">
-                <button type="button" className="font-medium hover:text-zinc-900" onClick={() => toggleSort("stock")}>
-                  {t.colStock}
-                  {sortMark("stock")}
-                </button>
-              </th>
-              <th className="min-w-[18rem] px-3 py-2">{t.colParts}</th>
-              <th className="px-3 py-2">
-                <button type="button" className="font-medium hover:text-zinc-900" onClick={() => toggleSort("sales")}>
-                  {t.colSales}
-                  {sortMark("sales")}
-                </button>
-              </th>
-              <th className="px-3 py-2">
-                <button type="button" className="font-medium hover:text-zinc-900" onClick={() => toggleSort("pack")}>
-                  {t.colPack}
-                  {sortMark("pack")}
-                </button>
-              </th>
-              <th className="px-3 py-2">
-                <button type="button" className="font-medium hover:text-zinc-900" onClick={() => toggleSort("produce")}>
-                  {t.colProduce}
-                  {sortMark("produce")}
-                </button>
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading && !board ? (
-              <tr>
-                <td className="px-3 py-6 text-zinc-500" colSpan={6}>
-                  {strings.common.loading}
-                </td>
-              </tr>
-            ) : rows.length === 0 ? (
-              <tr>
-                <td className="px-3 py-6 text-zinc-500" colSpan={6}>
-                  {(board?.rows.length ?? 0) > 0 ? t.noMatches : t.empty}
-                </td>
-              </tr>
-            ) : (
-              rows.map((row) => (
-                <BoardRow
-                  key={row.productId}
-                  row={row}
-                  warehouseName={warehouseName}
-                  stockWarehouseIds={stockWarehouseIds}
-                  packWarehouseIds={packWarehouseIds}
-                  activeQty={activeQty}
-                  onSelectQty={setActiveQty}
-                  onAdd={(next) => openConfirm(next)}
-                />
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      {showRequests ? (
-        <section id="planning-requests" className="space-y-3 rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="text-sm font-semibold text-zinc-900">{t.requestsTitle}</h2>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => setRequestsKind("pack")}
-                className={
-                  requestsKind === "pack"
-                    ? "rounded-full bg-cyan-600 px-3 py-1 text-xs font-medium text-white"
-                    : "rounded-full border border-zinc-200 px-3 py-1 text-xs text-zinc-700"
-                }
-              >
-                {strings.planning.requests.packingTab}
-              </button>
-              <button
-                type="button"
-                onClick={() => setRequestsKind("factory")}
-                className={
-                  requestsKind === "factory"
-                    ? "rounded-full bg-cyan-600 px-3 py-1 text-xs font-medium text-white"
-                    : "rounded-full border border-zinc-200 px-3 py-1 text-xs text-zinc-700"
-                }
-              >
-                {strings.planning.requests.factoryTab}
-              </button>
+              ))}
             </div>
+            <div className="flex flex-wrap items-center gap-1">
+              <span className="text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+                {t.filterXyz}
+              </span>
+              {XYZ_OPTIONS.map((cls) => (
+                <button
+                  key={cls}
+                  type="button"
+                  onClick={() => setXyzFilter((prev) => toggleInSet(prev, cls))}
+                  className={
+                    xyzFilter.has(cls)
+                      ? "rounded-full bg-violet-700 px-2.5 py-1 text-xs font-semibold text-white"
+                      : "rounded-full border border-zinc-200 bg-white px-2.5 py-1 text-xs text-zinc-700"
+                  }
+                >
+                  {cls === "none" ? t.filterXyzNone : cls}
+                </button>
+              ))}
+            </div>
+            <label className="flex items-center gap-1.5 text-xs text-zinc-600">
+              <span className="sr-only">{t.filterSystem}</span>
+              <select
+                value={system}
+                onChange={(e) => setSystem(e.target.value)}
+                className="rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-xs text-zinc-800"
+              >
+                <option value="">{t.filterSystemAll}</option>
+                {systems.map((name) => (
+                  <option key={name} value={name}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex items-center gap-1.5 text-xs text-zinc-600">
+              <span className="sr-only">{t.filterCategory}</span>
+              <select
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
+                className="rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-xs text-zinc-800"
+              >
+                <option value="">{t.filterCategoryAll}</option>
+                {categories.map((name) => (
+                  <option key={name} value={name}>
+                    {name === NO_CATEGORY ? t.noCategory : name}
+                  </option>
+                ))}
+              </select>
+            </label>
           </div>
+
+          <div className="overflow-x-auto rounded-2xl border border-zinc-200 bg-white shadow-sm">
+            <table className="min-w-full text-sm">
+              <thead>
+                <tr className="border-b border-zinc-200 bg-zinc-50 text-left text-xs font-medium text-zinc-600">
+                  <th className="sticky left-0 z-20 bg-zinc-50 px-3 py-2">
+                    <button
+                      type="button"
+                      className="font-medium hover:text-zinc-900"
+                      onClick={() => toggleSort("sku")}
+                    >
+                      {t.colKit}
+                      {sortMark("sku")}
+                    </button>
+                    <button
+                      type="button"
+                      className="ml-2 text-[10px] font-normal text-zinc-400 hover:text-zinc-700"
+                      onClick={() => toggleSort("class")}
+                    >
+                      ABC{sortMark("class")}
+                    </button>
+                  </th>
+                  <th className="px-3 py-2">
+                    <button
+                      type="button"
+                      className="font-medium hover:text-zinc-900"
+                      onClick={() => toggleSort("stock")}
+                    >
+                      {t.colStock}
+                      {sortMark("stock")}
+                    </button>
+                  </th>
+                  <th className="min-w-[18rem] px-3 py-2">{t.colParts}</th>
+                  <th className="px-3 py-2">
+                    <button
+                      type="button"
+                      className="font-medium hover:text-zinc-900"
+                      onClick={() => toggleSort("sales")}
+                    >
+                      {t.colSales}
+                      {sortMark("sales")}
+                    </button>
+                  </th>
+                  <th className="px-3 py-2">
+                    <button
+                      type="button"
+                      className="font-medium hover:text-zinc-900"
+                      onClick={() => toggleSort("pack")}
+                    >
+                      {t.colPack}
+                      {sortMark("pack")}
+                    </button>
+                  </th>
+                  <th className="px-3 py-2">
+                    <button
+                      type="button"
+                      className="font-medium hover:text-zinc-900"
+                      onClick={() => toggleSort("produce")}
+                    >
+                      {t.colProduce}
+                      {sortMark("produce")}
+                    </button>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {loading && !board ? (
+                  <tr>
+                    <td className="px-3 py-6 text-zinc-500" colSpan={6}>
+                      {strings.common.loading}
+                    </td>
+                  </tr>
+                ) : rows.length === 0 ? (
+                  <tr>
+                    <td className="px-3 py-6 text-zinc-500" colSpan={6}>
+                      {(board?.rows.length ?? 0) > 0 ? t.noMatches : t.empty}
+                    </td>
+                  </tr>
+                ) : (
+                  rows.map((row) => (
+                    <BoardRow
+                      key={row.productId}
+                      row={row}
+                      warehouseName={warehouseName}
+                      stockWarehouseIds={stockWarehouseIds}
+                      packWarehouseIds={packWarehouseIds}
+                      activeQty={activeQty}
+                      onSelectQty={setActiveQty}
+                      onAdd={(next) => openConfirm(next)}
+                    />
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </>
+      ) : (
+        <section id="planning-requests" className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
           <RequestsPanel
-            key={`${requestsKey}-${requestsKind}`}
-            forcedKind={requestsKind}
+            key={`${requestsKey}-${mainTab}-${focusRequestId ?? ""}`}
+            forcedKind={mainTab === "pack" ? "pack" : "factory"}
+            focusId={focusRequestId}
             onError={(msg) => setError(msg)}
           />
         </section>
-      ) : null}
+      )}
 
       {pending ? (
         <ConfirmDialog
@@ -740,6 +796,7 @@ function BoardRow({
   const betterId = `${row.productId}:better`;
   const canId = `${row.productId}:can`;
   const produceId = `${row.productId}:produce`;
+  const alreadyInRequest = row.alreadyInRequest ?? 0;
 
   return (
     <tr className={`border-b border-zinc-100 align-top ${toneClass(row.tone)}`}>
@@ -749,6 +806,11 @@ function BoardRow({
           <span className="rounded bg-zinc-200/80 px-1.5 py-0.5 text-[10px] font-semibold tracking-wide text-zinc-700">
             {badge}
           </span>
+          {alreadyInRequest > 0 ? (
+            <span className="rounded-full bg-cyan-100 px-1.5 py-0.5 text-[10px] font-semibold text-cyan-800">
+              {t.inRequest(alreadyInRequest)}
+            </span>
+          ) : null}
         </div>
         <span className="mt-0.5 block text-xs text-zinc-500">{row.name}</span>
         {row.system ? (
@@ -795,8 +857,16 @@ function BoardRow({
         ) : null}
       </td>
       <td className="px-3 py-2">
-        {row.toPack > 0 || row.canAssembleRemaining > 0 || row.canAssemble > 0 ? (
+        {row.toPack > 0 ||
+        row.canAssembleRemaining > 0 ||
+        row.canAssemble > 0 ||
+        alreadyInRequest > 0 ? (
           <div className="flex flex-col gap-2">
+            {alreadyInRequest > 0 ? (
+              <span className="text-[11px] font-medium text-cyan-800">
+                {t.inRequest(alreadyInRequest)}
+              </span>
+            ) : null}
             <QtyAction
               id={betterId}
               active={activeQty === betterId}
@@ -839,7 +909,7 @@ function BoardRow({
                   row,
                   defaultQty: Math.min(
                     row.canAssembleRemaining ?? row.canAssemble,
-                    row.need || row.toPack,
+                    row.toPack || Math.max(0, row.need - alreadyInRequest),
                   ),
                   source: "can",
                 })
@@ -926,6 +996,11 @@ function ConfirmDialog({
         <p className="mt-2 text-sm text-zinc-600">
           {pending.row.sku} · {pending.row.name}
         </p>
+        {isPack && (pending.row.alreadyInRequest ?? 0) > 0 ? (
+          <p className="mt-1 text-xs font-medium text-cyan-800">
+            {t.confirmAlreadyInRequest(pending.row.alreadyInRequest ?? 0)}
+          </p>
+        ) : null}
         {partsHint ? <p className="mt-1 text-xs text-zinc-500">{partsHint}</p> : null}
         <label className="mt-4 block text-sm text-zinc-700">
           {t.confirmQtyLabel}

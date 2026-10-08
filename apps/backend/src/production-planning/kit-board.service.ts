@@ -1,5 +1,10 @@
 import { Injectable } from "@nestjs/common";
-import { InventorySnapshotStatus, OrderStage, ProductKind } from "@prisma/client";
+import {
+  InventorySnapshotStatus,
+  OrderStage,
+  PackingListStatus,
+  ProductKind,
+} from "@prisma/client";
 import { toBaseCurrency } from "../common/currency.util";
 import { PrismaService } from "../prisma/prisma.service";
 import { SettingsService } from "../settings/settings.service";
@@ -20,8 +25,9 @@ import {
   type KitBoardRow,
   type KitBoardWarehouse,
 } from "./kit-board.util";
-import { recentYearMonthKeys } from "./kit-portfolio.util";
+import { isOpenPackingStatus, recentYearMonthKeys } from "./kit-portfolio.util";
 import { monthsAgoUtc } from "./planning-safety.util";
+import { PlanningSettingsService } from "./planning-settings.service";
 
 /** Shipped and closed orders. Open pipeline is still on the shelf, so it is not sales history. */
 const KIT_BOARD_SALES_STAGES: OrderStage[] = [
@@ -30,6 +36,19 @@ const KIT_BOARD_SALES_STAGES: OrderStage[] = [
   OrderStage.RECEIVED,
   OrderStage.COMPLETED,
 ];
+
+export type KitBoardPackRequestSummary = {
+  listId: string | null;
+  status: "DRAFT" | "APPROVED" | null;
+  capacityUsed: number;
+  capacityLimit: number;
+};
+
+export type KitBoardViewRow = KitBoardRow & {
+  /** Qty already on the open packing list (DRAFT/APPROVED). */
+  alreadyInRequest: number;
+  inPackingStatus: "DRAFT" | "APPROVED" | null;
+};
 
 export type KitBoardView = {
   coverMonths: number;
@@ -41,7 +60,9 @@ export type KitBoardView = {
   stockWarehouses: KitBoardWarehouse[];
   /** 39 ABM + 40 ABM — pack assembly. */
   packWarehouses: KitBoardWarehouse[];
-  rows: KitBoardRow[];
+  /** Current open packing request capacity (week limit). */
+  packRequest: KitBoardPackRequestSummary;
+  rows: KitBoardViewRow[];
 };
 
 @Injectable()
@@ -49,6 +70,7 @@ export class KitBoardService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly settings: SettingsService,
+    private readonly planningSettings: PlanningSettingsService,
   ) {}
 
   async getBoard(_coverMonthsInput?: number): Promise<KitBoardView> {
@@ -57,7 +79,7 @@ export class KitBoardService {
     const classLookbackMonths = KIT_BOARD_CLASS_LOOKBACK_MONTHS;
     const monthKeys = recentYearMonthKeys(new Date(), classLookbackMonths);
 
-    const [posted, kits, rates] = await Promise.all([
+    const [posted, kits, rates, packing, planningCfg] = await Promise.all([
       this.prisma.inventorySnapshot.findFirst({
         where: { status: InventorySnapshotStatus.POSTED },
         orderBy: { postedAt: "desc" },
@@ -69,6 +91,14 @@ export class KitBoardService {
         orderBy: { sku: "asc" },
       }),
       this.settings.getExchangeRates(),
+      this.prisma.packingList.findFirst({
+        where: { status: { in: [PackingListStatus.DRAFT, PackingListStatus.APPROVED] } },
+        orderBy: { cycleStart: "desc" },
+        include: {
+          lines: { select: { kitProductId: true, qtyApproved: true } },
+        },
+      }),
+      this.planningSettings.getSettings(),
     ]);
 
     const kitIds = kits.map((kit) => kit.id);
@@ -199,6 +229,46 @@ export class KitBoardService {
       };
     });
 
+    const baseRows = buildKitBoard({ warehouses, kits: boardKits, coverMonths, monthKeys });
+    const packingOpen = isOpenPackingStatus(packing?.status);
+    const alreadyByKit = new Map(
+      packingOpen
+        ? (packing?.lines ?? []).map((line) => [line.kitProductId, line.qtyApproved] as const)
+        : [],
+    );
+    const capacityUsed = packingOpen
+      ? (packing?.lines ?? []).reduce((sum, line) => sum + line.qtyApproved, 0)
+      : 0;
+    const capacityLimit =
+      packing?.capacityLimit ?? planningCfg.packCapacityPerCycle;
+    const packingStatus =
+      packingOpen && (packing?.status === "DRAFT" || packing?.status === "APPROVED")
+        ? packing.status
+        : null;
+
+    const rows: KitBoardViewRow[] = baseRows.map((row) => {
+      const alreadyInRequest = packingOpen ? (alreadyByKit.get(row.productId) ?? 0) : 0;
+      // Remaining pack suggestion after qty already sent to this week's packing request.
+      const toPack = Math.max(0, row.toPack - alreadyInRequest);
+      const remainingNeed = Math.max(0, row.need - alreadyInRequest);
+      const toProduce = Math.max(0, remainingNeed - toPack);
+      let tone = row.tone;
+      if (!(row.avgMonthlySold > 0)) tone = "no_sales";
+      else if (toPack > 0) tone = "pack";
+      else if (remainingNeed === 0) tone = "enough";
+      else if (row.canAssemble === 0) tone = "missing_parts";
+      else tone = "parts_shared";
+      return {
+        ...row,
+        toPack,
+        toPackWarehouseId: toPack > 0 ? row.toPackWarehouseId : null,
+        toProduce,
+        tone,
+        alreadyInRequest,
+        inPackingStatus: alreadyInRequest > 0 ? packingStatus : null,
+      };
+    });
+
     return {
       coverMonths,
       lookbackMonths,
@@ -207,7 +277,13 @@ export class KitBoardService {
       warehouses,
       stockWarehouses: filterKitStockWarehouses(warehouses),
       packWarehouses: filterPackWarehouses(warehouses),
-      rows: buildKitBoard({ warehouses, kits: boardKits, coverMonths, monthKeys }),
+      packRequest: {
+        listId: packingOpen ? (packing?.id ?? null) : null,
+        status: packingStatus,
+        capacityUsed,
+        capacityLimit,
+      },
+      rows,
     };
   }
 }

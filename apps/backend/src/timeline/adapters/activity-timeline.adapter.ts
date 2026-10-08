@@ -22,10 +22,10 @@ const ACTIVITY_TYPE_TO_KIND: Record<ActivityType, TimelineKind> = {
 };
 
 const TITLE_FALLBACKS: Record<ActivityType, string> = {
-  CALL: "Звонок",
-  COMMENT: "Комментарий",
-  MEETING: "Встреча",
-  MANUAL_CALL: "Ручной звонок",
+  CALL: "Дзвінок",
+  COMMENT: "Коментар",
+  MEETING: "Зустріч",
+  MANUAL_CALL: "Ручний дзвінок",
 };
 
 const ENTITY_TO_FIELD: Record<TimelineEntityType, "orderId" | "contactId" | "leadId" | "companyId"> = {

@@ -74,6 +74,27 @@ export class AuditService {
       }),
       this.prisma.auditLog.count({ where }),
     ]);
-    return { items, total, page, pageSize };
+    const changedByName = await this.resolveActorNames(items.map((item) => item.changedBy));
+    return {
+      items: items.map((item) => ({
+        ...item,
+        changedByName: changedByName.get(item.changedBy) ?? null,
+      })),
+      total,
+      page,
+      pageSize,
+    };
+  }
+
+  private async resolveActorNames(ids: string[]): Promise<Map<string, string>> {
+    const userIds = [
+      ...new Set(ids.filter((id) => Boolean(id) && id !== "system" && !id.includes(":"))),
+    ];
+    if (userIds.length === 0) return new Map();
+    const users = await this.prisma.user.findMany({
+      where: { id: { in: userIds } },
+      select: { id: true, fullName: true },
+    });
+    return new Map(users.filter((user) => user.fullName.trim()).map((user) => [user.id, user.fullName]));
   }
 }

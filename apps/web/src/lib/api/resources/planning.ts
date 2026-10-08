@@ -773,6 +773,16 @@ export type KitBoardRow = {
   system: string;
   category: string | null;
   parts: KitBoardPartRow[];
+  /** Qty already on the open packing list (DRAFT/APPROVED). */
+  alreadyInRequest?: number;
+  inPackingStatus?: "DRAFT" | "APPROVED" | null;
+};
+
+export type KitBoardPackRequest = {
+  listId: string | null;
+  status: "DRAFT" | "APPROVED" | null;
+  capacityUsed: number;
+  capacityLimit: number;
 };
 
 export type KitBoardView = {
@@ -783,6 +793,7 @@ export type KitBoardView = {
   warehouses: Array<{ id: string; name: string }>;
   stockWarehouses?: Array<{ id: string; name: string }>;
   packWarehouses?: Array<{ id: string; name: string }>;
+  packRequest?: KitBoardPackRequest;
   rows: KitBoardRow[];
 };
 

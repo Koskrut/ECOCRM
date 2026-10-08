@@ -8,9 +8,11 @@ import { FactoryPanel, PackingPanel } from "./PlanningOpsPanels";
 function RequestsPanelInner({
   onError,
   forcedKind,
+  focusId,
 }: {
   onError: (msg: string) => void;
   forcedKind?: "pack" | "factory";
+  focusId?: string | null;
 }) {
   const t = strings.planning;
   const kindParam = (useSearchParams().get("kind") ?? "pack").toLowerCase();
@@ -45,7 +47,11 @@ function RequestsPanelInner({
         </div>
       ) : null}
 
-      {activeKind === "pack" ? <PackingPanel onError={onError} /> : <FactoryPanel onError={onError} />}
+      {activeKind === "pack" ? (
+        <PackingPanel onError={onError} focusId={focusId} />
+      ) : (
+        <FactoryPanel onError={onError} focusId={focusId} />
+      )}
     </div>
   );
 }
@@ -53,13 +59,15 @@ function RequestsPanelInner({
 export function RequestsPanel({
   onError,
   forcedKind,
+  focusId,
 }: {
   onError: (msg: string) => void;
   forcedKind?: "pack" | "factory";
+  focusId?: string | null;
 }) {
   return (
     <Suspense fallback={<p className="text-sm text-zinc-500">{strings.common.loading}</p>}>
-      <RequestsPanelInner onError={onError} forcedKind={forcedKind} />
+      <RequestsPanelInner onError={onError} forcedKind={forcedKind} focusId={focusId} />
     </Suspense>
   );
 }

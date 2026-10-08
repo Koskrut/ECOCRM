@@ -4,7 +4,28 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.192**.)_
+_(планируемые изменения после **0.2.193**.)_
+
+## [0.2.193] — 2026-10-08
+
+### Summary
+
+Патч **0.2.193**: Kit Board — вкладки дошка/упаковка/завод + ємність заявки; історія змін і timeline — зрозуміліші підписи.
+
+### Added
+
+- Kit board: **packRequest** (capacity used/limit), **alreadyInRequest** / перерахунок toPack·toProduce; вкладки Board / Packing / Factory.
+- Audit list: **changedByName**; web helpers **changeHistoryDisplay** / **timelineDisplay** / **crmValueLabels**.
+
+### Changed
+
+- Додавання в упаковку через **proposePackingList** (поточний цикл), не через старий DRAFT з list.
+- Activity timeline titles → українською; CanonicalTimeline / EntityChangeHistoryPanel — читабельніші лейбли.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.193`**.
+- **Миграций нет.**
 
 ## [0.2.192] — 2026-10-08
 
