@@ -1433,6 +1433,9 @@ export const en = {
     order: "Order",
     /** Contact / client shown for linked payment row */
     orderClient: "Contact",
+    copyExternalCodeTitle: (code: string) => `1C code: ${code}. Click to copy`,
+    externalCodeCopied: (code: string) => `1C code copied: ${code}`,
+    noExternalCode: "This contact has no 1C code",
     source: "Source",
     fopCol: "FOP",
     amount: "Amount",
@@ -1589,6 +1592,7 @@ export const en = {
       noAmountsSplit: "No amounts to distribute",
       invalidAmount: "Invalid amount",
       unallocateFailed: "Failed to cancel allocation",
+      copyFailed: "Failed to copy the 1C code",
     },
   },
   receivables: {

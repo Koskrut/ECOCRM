@@ -52,13 +52,27 @@ function convertToUsd(amount: number, currency: string, rates: ExchangeRates): n
   return toUsd(amount, currency, rates);
 }
 
+type OrderPartyRef = {
+  firstName: string;
+  lastName: string;
+  phone: string;
+  externalCode?: string | null;
+} | null;
+
 /** Prefer TTN contact, fallback to legacy client on order. */
-function formatOrderContactLabel(order: {
-  contact: { firstName: string; lastName: string; phone: string } | null;
-  client: { firstName: string; lastName: string; phone: string } | null;
-} | null): string | null {
+function orderParty(order: {
+  contact: OrderPartyRef;
+  client: OrderPartyRef;
+} | null): NonNullable<OrderPartyRef> | null {
   if (!order) return null;
-  const c = order.contact ?? order.client;
+  return order.contact ?? order.client;
+}
+
+function formatOrderContactLabel(order: {
+  contact: OrderPartyRef;
+  client: OrderPartyRef;
+} | null): string | null {
+  const c = orderParty(order);
   if (!c) return null;
   const name = [c.lastName, c.firstName].filter(Boolean).join(" ").trim();
   const phone = (c.phone ?? "").trim();
@@ -66,6 +80,14 @@ function formatOrderContactLabel(order: {
   if (name) return name;
   if (phone) return phone;
   return null;
+}
+
+function formatOrderContactExternalCode(order: {
+  contact: OrderPartyRef;
+  client: OrderPartyRef;
+} | null): string | null {
+  const code = orderParty(order)?.externalCode?.trim();
+  return code || null;
 }
 
 type ListPaymentsParams = {
@@ -292,8 +314,12 @@ export class PaymentsService {
               select: {
                 id: true,
                 orderNumber: true,
-                contact: { select: { firstName: true, lastName: true, phone: true } },
-                client: { select: { firstName: true, lastName: true, phone: true } },
+                contact: {
+                  select: { firstName: true, lastName: true, phone: true, externalCode: true },
+                },
+                client: {
+                  select: { firstName: true, lastName: true, phone: true, externalCode: true },
+                },
               },
             },
             bankTransaction: {
@@ -348,6 +374,7 @@ export class PaymentsService {
           orderId: p.orderId,
           orderNumber: p.order?.orderNumber ?? null,
           contactLabel: formatOrderContactLabel(p.order),
+          contactExternalCode: formatOrderContactExternalCode(p.order),
           sameTransactionOrderNumbers,
           sourceType: p.sourceType,
           amount,

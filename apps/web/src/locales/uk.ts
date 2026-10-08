@@ -1417,6 +1417,9 @@ export const uk = {
     date: "Дата",
     order: "Замовлення",
     orderClient: "Контакт",
+    copyExternalCodeTitle: (code: string) => `Код 1С: ${code}. Натисніть, щоб скопіювати`,
+    externalCodeCopied: (code: string) => `Код 1С скопійовано: ${code}`,
+    noExternalCode: "У контакта немає коду 1С",
     source: "Джерело",
     fopCol: "ФОП",
     amount: "Сума",
@@ -1599,6 +1602,7 @@ export const uk = {
       splitTotal: (total: string, expected: string, cur: string) =>
         `Разом ${total} має дорівнювати ${expected} ${cur}`,
       unallocateFailed: "Не вдалося скасувати прив’язку",
+      copyFailed: "Не вдалося скопіювати код 1С",
     },
   },
   receivables: {

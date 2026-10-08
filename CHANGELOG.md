@@ -4,18 +4,19 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.193**.)_
+_(планируемые изменения после **0.2.194**.)_
 
-## [0.2.193] — 2026-10-08
+## [0.2.194] — 2026-10-08
 
 ### Summary
 
-Патч **0.2.193**: Kit Board — вкладки дошка/упаковка/завод + ємність заявки; історія змін і timeline — зрозуміліші підписи.
+Патч **0.2.194**: замість скасованого **0.2.193** — Kit Board (вкладки + ємність заявки), історія/timeline, payments — код 1С контакту.
 
 ### Added
 
 - Kit board: **packRequest** (capacity used/limit), **alreadyInRequest** / перерахунок toPack·toProduce; вкладки Board / Packing / Factory.
 - Audit list: **changedByName**; web helpers **changeHistoryDisplay** / **timelineDisplay** / **crmValueLabels**.
+- Payments list: **contactExternalCode**; клік по контакту копіює код 1С.
 
 ### Changed
 
@@ -24,8 +25,15 @@ _(планируемые изменения после **0.2.193**.)_
 
 ### Upgrade notes
 
-- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.193`**.
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.194`**.
+- **Не використовувати `0.2.193`** (тег знято, Publish Registry скасовано).
 - **Миграций нет.**
+
+## [0.2.193] — 2026-10-08 (cancelled)
+
+### Summary
+
+**Скасовано.** Тег `v0.2.193` видалено до завершення Publish Registry Release; зміни увійшли в **0.2.194**.
 
 ## [0.2.192] — 2026-10-08
 

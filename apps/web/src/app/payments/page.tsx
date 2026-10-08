@@ -49,6 +49,8 @@ type PaymentItem = {
   orderNumber: string | null;
   /** Display: contact on order (contact ?? client). */
   contactLabel?: string | null;
+  /** 1C code of the contact the payment is allocated to. */
+  contactExternalCode?: string | null;
   /** For bank payments: all order numbers that share this bank transaction (split). */
   sameTransactionOrderNumbers?: string[] | null;
   sourceType: string;
@@ -198,14 +200,59 @@ type BankPaymentGroup = {
   primary: PaymentItem;
 };
 
+function groupContactLabels(group: BankPaymentGroup): string[] {
+  return [
+    ...new Set(
+      group.payments.map((p) => p.contactLabel?.trim()).filter((label): label is string => Boolean(label)),
+    ),
+  ];
+}
+
 function getGroupContactLabel(group: BankPaymentGroup): string {
-  const labels = group.payments
-    .map((p) => p.contactLabel?.trim())
-    .filter(Boolean) as string[];
-  if (labels.length === 0) return t.payments.dash;
-  const unique = [...new Set(labels)];
+  const unique = groupContactLabels(group);
+  if (unique.length === 0) return t.payments.dash;
   if (unique.length === 1) return unique[0]!;
   return t.payments.multipleContacts;
+}
+
+function getGroupContactExternalCode(group: BankPaymentGroup): string | null {
+  if (groupContactLabels(group).length !== 1) return null;
+  const codes = [
+    ...new Set(
+      group.payments
+        .map((p) => p.contactExternalCode?.trim())
+        .filter((code): code is string => Boolean(code)),
+    ),
+  ];
+  return codes[0] ?? null;
+}
+
+function ContactExternalCodeButton({
+  label,
+  code,
+  copyable = true,
+  onCopy,
+}: {
+  label?: string | null;
+  code?: string | null;
+  copyable?: boolean;
+  onCopy: (code: string | null) => void;
+}) {
+  const display = label?.trim() ? label.trim() : t.payments.dash;
+  const trimmed = code?.trim() || null;
+  if (!copyable || display === t.payments.dash) {
+    return <span title={display}>{display}</span>;
+  }
+  return (
+    <button
+      type="button"
+      className="block max-w-full cursor-pointer truncate text-left hover:underline"
+      title={trimmed ? t.payments.copyExternalCodeTitle(trimmed) : t.payments.noExternalCode}
+      onClick={() => onCopy(trimmed)}
+    >
+      {display}
+    </button>
+  );
 }
 
 function filterBySearch<T>(items: T[], search: string, getText: (t: T) => string): T[] {
@@ -344,6 +391,19 @@ export default function PaymentsPage() {
 
 function PaymentsContent() {
   const { pushToast } = useToast();
+  const copyContactExternalCode = useCallback(async (code: string | null) => {
+    const value = code?.trim();
+    if (!value) {
+      pushToast(t.payments.noExternalCode, "error");
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(value);
+      pushToast(t.payments.externalCodeCopied(value), "success");
+    } catch {
+      pushToast(t.payments.errors.copyFailed, "error");
+    }
+  }, [pushToast]);
   const { effective: moduleEffective } = useModules();
   const oneCPaymentsEnabled = moduleEffective(ModuleIds.OneCPayments);
   const router = useRouter();
@@ -1876,8 +1936,12 @@ function PaymentsContent() {
                         p.orderId
                       )}
                     </td>
-                    <td className="px-4 py-3 max-w-[14rem] truncate text-zinc-700" title={p.contactLabel ?? ""}>
-                      {p.contactLabel?.trim() ? p.contactLabel : t.payments.dash}
+                    <td className="px-4 py-3 max-w-[14rem] truncate text-zinc-700">
+                      <ContactExternalCodeButton
+                        label={p.contactLabel}
+                        code={p.contactExternalCode}
+                        onCopy={(code) => void copyContactExternalCode(code)}
+                      />
                     </td>
                     <td className="px-4 py-3">{t.payments.sourceCash}</td>
                     <td className="px-4 py-3">{t.payments.dash}</td>
@@ -1959,11 +2023,12 @@ function PaymentsContent() {
                               p.orderId
                             )}
                           </td>
-                          <td
-                            className="px-4 py-3 max-w-[14rem] truncate text-zinc-700"
-                            title={p.contactLabel ?? ""}
-                          >
-                            {p.contactLabel?.trim() ? p.contactLabel : t.payments.dash}
+                          <td className="px-4 py-3 max-w-[14rem] truncate text-zinc-700">
+                            <ContactExternalCodeButton
+                              label={p.contactLabel}
+                              code={p.contactExternalCode}
+                              onCopy={(code) => void copyContactExternalCode(code)}
+                            />
                           </td>
                           <td className="px-4 py-3">{t.payments.bankKind}</td>
                           <td className="px-4 py-3">
@@ -2023,11 +2088,13 @@ function PaymentsContent() {
                               <span>{t.payments.ordersCount(group.payments.length)}</span>
                             </button>
                           </td>
-                          <td
-                            className="px-4 py-3 max-w-[14rem] truncate text-zinc-700"
-                            title={getGroupContactLabel(group)}
-                          >
-                            {getGroupContactLabel(group)}
+                          <td className="px-4 py-3 max-w-[14rem] truncate text-zinc-700">
+                            <ContactExternalCodeButton
+                              label={getGroupContactLabel(group)}
+                              code={getGroupContactExternalCode(group)}
+                              copyable={groupContactLabels(group).length === 1}
+                              onCopy={(code) => void copyContactExternalCode(code)}
+                            />
                           </td>
                           <td className="px-4 py-3">{t.payments.bankKind}</td>
                           <td className="px-4 py-3">
@@ -2081,11 +2148,12 @@ function PaymentsContent() {
                                   child.orderId
                                 )}
                               </td>
-                              <td
-                                className="px-4 py-2 max-w-[14rem] truncate text-zinc-600"
-                                title={child.contactLabel ?? ""}
-                              >
-                                {child.contactLabel?.trim() ? child.contactLabel : t.payments.dash}
+                              <td className="px-4 py-2 max-w-[14rem] truncate text-zinc-600">
+                                <ContactExternalCodeButton
+                                  label={child.contactLabel}
+                                  code={child.contactExternalCode}
+                                  onCopy={(code) => void copyContactExternalCode(code)}
+                                />
                               </td>
                               <td className="px-4 py-2 text-zinc-400">{t.payments.dash}</td>
                               <td className="px-4 py-2 text-zinc-400">{t.payments.dash}</td>
@@ -3319,7 +3387,11 @@ function PaymentsContent() {
                   <div>
                     <span className="text-zinc-500">{t.payments.editCurrentContact}</span>
                     <p className="mt-0.5 font-medium text-zinc-800">
-                      {editPayment.contactLabel?.trim() ? editPayment.contactLabel : t.payments.dash}
+                      <ContactExternalCodeButton
+                        label={editPayment.contactLabel}
+                        code={editPayment.contactExternalCode}
+                        onCopy={(code) => void copyContactExternalCode(code)}
+                      />
                     </p>
                   </div>
                   <div>
