@@ -6,7 +6,9 @@ import {
   isExcludedPlanningWarehouse,
   isKitStockWarehouse,
   isPackRecommendationWarehouse,
+  KIT_BOARD_PACK_POOL_ID,
   kitNeed,
+  kitsOnPackPool,
   kitsOnWarehouse,
   productGroupNameFromSku,
   resolveKitCategory,
@@ -49,7 +51,7 @@ test("kitNeed is zero without sales and does not double-count stock", () => {
   assert.equal(kitNeed(10.2, 10, 1), 1);
 });
 
-test("parts on different warehouses do not add up into one kit", () => {
+test("single-warehouse build ignores parts on another warehouse", () => {
   const parts = [
     {
       productId: "p1",
@@ -72,6 +74,30 @@ test("parts on different warehouses do not add up into one kit", () => {
   ];
   assert.equal(kitsOnWarehouse(parts, "pf"), 0);
   assert.equal(kitsOnWarehouse(parts, "gp"), 0);
+});
+
+test("pack pool sums constraining parts across 39 and 40 ABM", () => {
+  const parts = [
+    {
+      productId: "p1",
+      sku: "P1",
+      name: "P1",
+      qtyPerKit: 1,
+      scrapPct: 0,
+      constrains: true,
+      qtyByWarehouse: { pf: 5, gp: 0 },
+    },
+    {
+      productId: "p2",
+      sku: "P2",
+      name: "P2",
+      qtyPerKit: 1,
+      scrapPct: 0,
+      constrains: true,
+      qtyByWarehouse: { pf: 0, gp: 5 },
+    },
+  ];
+  assert.equal(kitsOnPackPool(parts, ["pf", "gp"]), 5);
 });
 
 test("packaging does not limit how many kits one warehouse can build", () => {
@@ -171,7 +197,8 @@ test("board packs only the sales gap and gives a shared part to the larger need"
   assert.equal(bySku.get("A")?.toPack, 80);
   assert.equal(bySku.get("A")?.toProduce, 0);
   assert.equal(bySku.get("A")?.tone, "pack");
-  assert.equal(bySku.get("A")?.toPackWarehouseId, "pf");
+  assert.equal(bySku.get("A")?.toPackWarehouseId, KIT_BOARD_PACK_POOL_ID);
+  assert.equal(bySku.get("A")?.canAssembleWarehouseId, KIT_BOARD_PACK_POOL_ID);
   assert.equal(bySku.get("A")?.paretoClass, "A");
   assert.equal(bySku.get("A")?.qtyStockTotal, 0);
 
@@ -513,4 +540,112 @@ test("scrap reduces how many kits a part can cover", () => {
     "pf",
   );
   assert.equal(n, 3);
+});
+
+test("08.042-style split across 39/40 packs from the pool", () => {
+  // Sales 547 / 3 mo, kit leftover 25 → need 522; pool min(2120, 232) → pack 232, produce 290.
+  const rows = buildKitBoard({
+    coverMonths: 3,
+    monthKeys,
+    warehouses,
+    kits: [
+      {
+        productId: "kit-08042",
+        sku: "08.042",
+        name: "ND-SF-TB kit",
+        qtyByWarehouse: { s44: 25 },
+        avgMonthlySold: 547 / 3,
+        revenue: 5000,
+        monthlySold: flatMonthly(547 / 3),
+        system: "NeoDent",
+        category: "Абатмент",
+        parts: [
+          {
+            productId: "nd-sf-tb",
+            sku: "ND-SF-TB",
+            name: "ND-SF-TB",
+            qtyPerKit: 1,
+            scrapPct: 0,
+            constrains: true,
+            qtyByWarehouse: { pf: 2120, gp: 0 },
+          },
+          {
+            productId: "nd-tb",
+            sku: "ND-TB-2.5x3.5mm",
+            name: "ND-TB-2.5x3.5mm",
+            qtyPerKit: 1,
+            scrapPct: 0,
+            constrains: true,
+            qtyByWarehouse: { pf: 30, gp: 202 },
+          },
+        ],
+      },
+    ],
+  });
+
+  assert.equal(rows[0]?.need, 522);
+  assert.equal(rows[0]?.canAssemble, 232);
+  assert.equal(rows[0]?.toPack, 232);
+  assert.equal(rows[0]?.toProduce, 290);
+  assert.equal(rows[0]?.toPackWarehouseId, KIT_BOARD_PACK_POOL_ID);
+});
+
+test("pack pool gives a shared split part to the larger need first", () => {
+  const shared = {
+    productId: "shared",
+    sku: "SHARED",
+    name: "Shared",
+    qtyPerKit: 1,
+    scrapPct: 0,
+    constrains: true,
+    qtyByWarehouse: { pf: 40, gp: 60 },
+  };
+  const other = {
+    productId: "other",
+    sku: "OTHER",
+    name: "Other",
+    qtyPerKit: 1,
+    scrapPct: 0,
+    constrains: true,
+    qtyByWarehouse: { pf: 200, gp: 0 },
+  };
+  const rows = buildKitBoard({
+    coverMonths: 1,
+    monthKeys,
+    warehouses,
+    kits: [
+      {
+        productId: "kit-hi",
+        sku: "HI",
+        name: "High need",
+        qtyByWarehouse: { s44: 0 },
+        avgMonthlySold: 80,
+        revenue: 8000,
+        monthlySold: flatMonthly(80),
+        system: "NeoDent",
+        category: "Абатмент",
+        parts: [shared, other],
+      },
+      {
+        productId: "kit-lo",
+        sku: "LO",
+        name: "Low need",
+        qtyByWarehouse: { s44: 0 },
+        avgMonthlySold: 50,
+        revenue: 500,
+        monthlySold: flatMonthly(50),
+        system: "NeoDent",
+        category: "Абатмент",
+        parts: [shared, other],
+      },
+    ],
+  });
+
+  const bySku = new Map(rows.map((row) => [row.sku, row]));
+  // Pool can assemble min(100, 200) = 100; HI takes 80, LO gets 20.
+  assert.equal(bySku.get("HI")?.toPack, 80);
+  assert.equal(bySku.get("HI")?.toProduce, 0);
+  assert.equal(bySku.get("LO")?.canAssembleRemaining, 20);
+  assert.equal(bySku.get("LO")?.toPack, 20);
+  assert.equal(bySku.get("LO")?.toProduce, 30);
 });

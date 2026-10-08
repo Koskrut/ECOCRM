@@ -8,6 +8,9 @@ import {
 /** Snapshot lines with no warehouse. */
 export const KIT_BOARD_UNASSIGNED_WAREHOUSE_ID = "__unassigned__";
 
+/** Synthetic id: 39 ПФ ABM + 40 ГП ABM act as one pack pool. */
+export const KIT_BOARD_PACK_POOL_ID = "__pack_abm_pool__";
+
 /** Sales / cover window for pack & produce recommendations. */
 export const KIT_BOARD_COVER_MONTHS = 3;
 export const KIT_BOARD_SALES_LOOKBACK_MONTHS = 3;
@@ -251,17 +254,20 @@ export type KitBoardRow = {
   qtyStockTotal: number;
   avgMonthlySold: number;
   need: number;
-  /** Best single-warehouse build from current part stock, before other kits take parts. */
+  /** Pack pool (39+40 ABM) build from current part stock, before other kits take parts. */
   canAssemble: number;
+  /** {@link KIT_BOARD_PACK_POOL_ID} when canAssemble > 0. */
   canAssembleWarehouseId: string | null;
+  /** Per-warehouse build for display; pack qty uses the pooled total. */
   assembleByWarehouse: Record<string, number>;
   /**
-   * How many kits can still be built on 39/40 after higher-need kits took shared parts.
+   * How many kits can still be built from the 39+40 ABM pool after higher-need kits took shared parts.
    * Safer default for «можна» → заявка than raw canAssemble.
    */
   canAssembleRemaining: number;
   /** Suggested pack qty after higher-need kits consume shared parts. */
   toPack: number;
+  /** {@link KIT_BOARD_PACK_POOL_ID} when toPack > 0. */
   toPackWarehouseId: string | null;
   /** Gap that cannot be closed by packing parts already on hand. */
   toProduce: number;
@@ -313,6 +319,39 @@ export function kitsOnWarehouse(
   return Number.isFinite(min) ? Math.max(0, min) : 0;
 }
 
+function partQtyInWarehouses(
+  stock: Map<string, Record<string, number>> | null,
+  part: KitBoardPartInput,
+  warehouseIds: string[],
+): number {
+  let total = 0;
+  for (const warehouseId of warehouseIds) {
+    total += partQty(stock, part, warehouseId);
+  }
+  return total;
+}
+
+/**
+ * How many kits the 39+40 ABM pack pool can build.
+ * Constraining parts sum across the pool; min over BOM limits capacity.
+ */
+export function kitsOnPackPool(
+  parts: KitBoardPartInput[],
+  warehouseIds: string[],
+  stock: Map<string, Record<string, number>> | null = null,
+): number {
+  if (warehouseIds.length === 0) return 0;
+  const constraining = parts.filter((part) => part.constrains);
+  if (constraining.length === 0) return 0;
+  let min = Number.POSITIVE_INFINITY;
+  for (const part of constraining) {
+    const per = effectivePerKit(part.qtyPerKit, part.scrapPct);
+    if (!(per > 0)) return 0;
+    min = Math.min(min, Math.floor(partQtyInWarehouses(stock, part, warehouseIds) / per));
+  }
+  return Number.isFinite(min) ? Math.max(0, min) : 0;
+}
+
 export function kitNeed(avgMonthlySold: number, kitStock: number, coverMonths: number): number {
   if (!(avgMonthlySold > 0) || !(coverMonths > 0)) return 0;
   return Math.max(0, Math.ceil(avgMonthlySold * coverMonths - Math.max(0, kitStock)));
@@ -329,40 +368,43 @@ function initPartStock(kits: KitBoardKitInput[]): Map<string, Record<string, num
   return stock;
 }
 
-function consumeParts(
+/** Deduct constraining parts from the pack pool (walk warehouses until each part's need is met). */
+function consumePartsFromPool(
   parts: KitBoardPartInput[],
-  warehouseId: string,
+  warehouseIds: string[],
   kitsQty: number,
   stock: Map<string, Record<string, number>>,
 ): void {
-  if (kitsQty <= 0) return;
+  if (kitsQty <= 0 || warehouseIds.length === 0) return;
   for (const part of parts) {
     if (!part.constrains) continue;
     const row = stock.get(part.productId);
     if (!row) continue;
-    const per = effectivePerKit(part.qtyPerKit, part.scrapPct);
-    const prev = row[warehouseId] ?? 0;
-    row[warehouseId] = Math.max(0, prev - per * kitsQty);
+    let left = effectivePerKit(part.qtyPerKit, part.scrapPct) * kitsQty;
+    for (const warehouseId of warehouseIds) {
+      if (!(left > 0)) break;
+      const have = Math.max(0, row[warehouseId] ?? 0);
+      const take = Math.min(have, left);
+      row[warehouseId] = have - take;
+      left -= take;
+    }
   }
 }
 
-function bestWarehouse(
+function packPoolCapacity(
   parts: KitBoardPartInput[],
   warehouses: KitBoardWarehouse[],
   stock: Map<string, Record<string, number>> | null,
-): { qty: number; warehouseId: string | null; byWarehouse: Record<string, number> } {
+): { qty: number; byWarehouse: Record<string, number> } {
+  const warehouseIds = warehouses.map((w) => w.id);
   const byWarehouse: Record<string, number> = {};
-  let qty = 0;
-  let warehouseId: string | null = null;
   for (const warehouse of warehouses) {
-    const n = kitsOnWarehouse(parts, warehouse.id, stock);
-    byWarehouse[warehouse.id] = n;
-    if (n > qty) {
-      qty = n;
-      warehouseId = warehouse.id;
-    }
+    byWarehouse[warehouse.id] = kitsOnWarehouse(parts, warehouse.id, stock);
   }
-  return { qty, warehouseId, byWarehouse };
+  return {
+    qty: kitsOnPackPool(parts, warehouseIds, stock),
+    byWarehouse,
+  };
 }
 
 function toneFor(input: {
@@ -505,14 +547,16 @@ export function buildKitBoard(input: {
   const remaining = initPartStock(input.kits);
   const rows: KitBoardRow[] = [];
 
+  const packWarehouseIds = packWarehouses.map((w) => w.id);
+
   for (const { kit, need } of ranked) {
-    const physical = bestWarehouse(kit.parts, packWarehouses, null);
-    const remainingBuild = bestWarehouse(kit.parts, packWarehouses, remaining);
+    const physical = packPoolCapacity(kit.parts, packWarehouses, null);
+    const remainingBuild = packPoolCapacity(kit.parts, packWarehouses, remaining);
     const toPack =
       kit.avgMonthlySold > 0 ? Math.min(need, remainingBuild.qty) : 0;
-    const toPackWarehouseId = toPack > 0 ? remainingBuild.warehouseId : null;
-    if (toPack > 0 && toPackWarehouseId) {
-      consumeParts(kit.parts, toPackWarehouseId, toPack, remaining);
+    const toPackWarehouseId = toPack > 0 ? KIT_BOARD_PACK_POOL_ID : null;
+    if (toPack > 0) {
+      consumePartsFromPool(kit.parts, packWarehouseIds, toPack, remaining);
     }
     const toProduce = Math.max(0, need - toPack);
     const cls = kitClass.get(kit.productId) ?? { paretoClass: "C" as const, xyzClass: null };
@@ -547,7 +591,7 @@ export function buildKitBoard(input: {
       avgMonthlySold: kit.avgMonthlySold,
       need,
       canAssemble: physical.qty,
-      canAssembleWarehouseId: physical.qty > 0 ? physical.warehouseId : null,
+      canAssembleWarehouseId: physical.qty > 0 ? KIT_BOARD_PACK_POOL_ID : null,
       assembleByWarehouse: physical.byWarehouse,
       canAssembleRemaining: remainingBuild.qty,
       toPack,
