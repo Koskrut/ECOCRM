@@ -11,17 +11,18 @@ import { NpClient } from "./np-client.service";
 import type { CreateNpTtnDto, NpParcelDto } from "./dto/create-np-ttn.dto";
 import { NpDeliveryType, NpRecipientType } from "./dto/create-np-ttn.dto";
 import { Prisma } from "@prisma/client";
-import type {
-  Carrier,
-  OrderStage,
-  OrderStatus as PrismaOrderStatus,
-  ShipmentStatus,
-} from "@prisma/client";
+import type { Carrier, OrderStage, ShipmentStatus } from "@prisma/client";
 import {
   computeFinancialStatusFromOrder,
   legacyStatusToOrderUpdate,
   orderStageToLegacyStatus,
 } from "../orders/order-status-sync.mapper";
+import {
+  legacyStatusForNpSync,
+  mapNpTrackingToLegacyStatus,
+  orderStageAfterFirstTtnFromNew,
+  resolveNpOrderStageUpdate,
+} from "./np-order-stage.util";
 import {
   assertContactExternalCodeToLeaveNew,
   isNewOrderStage,
@@ -33,6 +34,14 @@ import { kyivWallToUtc } from "../crm-timezone";
 import { orderAmountToUah } from "../common/currency.util";
 import { resolveNpFinancialFields } from "./np-financial.util";
 
+function npSyncHistoryReason(status: Record<string, unknown>): string {
+  const text = status?.Status != null ? String(status.Status).trim() : "";
+  const code = status?.StatusCode != null ? String(status.StatusCode).trim() : "";
+  if (text) return `НП: ${text}`.slice(0, 500);
+  if (code) return `НП: код ${code}`;
+  return "Синхронізація ТТН Нової Пошти";
+}
+
 type SenderCache = {
   senderCityRef: string;
   senderWarehouseRef: string;
@@ -41,30 +50,6 @@ type SenderCache = {
   senderPhone: string;
   senderAddressName?: string; // только для debug, в payload не отправляем
 };
-
-/** First TTN on a NEW order: advance stage without using CONFIRMED (that comes after stock). */
-function orderStageAfterFirstTtnFromNew(order: {
-  paymentType: string | null;
-  paidAmount: unknown;
-  totalAmount: unknown;
-}): OrderStage {
-  if (order.paymentType === "PREPAYMENT") {
-    const total = Number(order.totalAmount ?? 0);
-    const paid = Number(order.paidAmount ?? 0);
-    if (total > 0.00001 && paid < total - 0.00001) return "AWAITING_PAYMENT";
-  }
-  return "AWAITING_STOCK";
-}
-
-type OrderStatus =
-  | "NEW"
-  | "IN_WORK"
-  | "READY_TO_SHIP"
-  | "SHIPPED"
-  | "CONTROL_PAYMENT"
-  | "SUCCESS"
-  | "RETURNING"
-  | "CANCELED";
 
 @Injectable()
 export class NpTtnService {
@@ -336,7 +321,7 @@ export class NpTtnService {
       });
     });
 
-    // 4.5) persist TTN into Order.deliveryData (+ move NEW -> IN_WORK)
+    // 4.5) persist TTN into Order.deliveryData (+ move NEW -> AWAITING_PAYMENT or AWAITING_STOCK)
     await this.persistOrderDeliveryDataWithTtn(
       order,
       resolved as { data: Record<string, unknown> },
@@ -1824,82 +1809,7 @@ export class NpTtnService {
   }
 
   // ======================
-  // PRIVATE: map NP -> OrderStatus (Variant A + SUCCESS rule)
-  // ======================
-  private mapNpToOrderStatus(args: {
-    npCode?: string | number;
-    npText?: string;
-    debtAmount?: number | null;
-  }): OrderStatus | null {
-    const code = String(args.npCode ?? "").trim();
-    const text = String(args.npText ?? "").toLowerCase();
-    const debt = Number(args.debtAmount ?? 0);
-
-    // 1) отмена/удаление
-    if (code === "2" || text.includes("видал") || text.includes("удален")) return "CANCELED";
-
-    // 2) возврат/отказ/не вручено — по тексту надежнее всего
-    if (
-      text.includes("повернен") ||
-      text.includes("повернення") ||
-      text.includes("возврат") ||
-      text.includes("відмова") ||
-      text.includes("отказ") ||
-      text.includes("не вруч") ||
-      text.includes("не вручен")
-    ) {
-      return "RETURNING";
-    }
-
-    // 3) получено (часто 9/10/11)
-    if (["9", "10", "11"].includes(code) || text.includes("отрим") || text.includes("получено")) {
-      return debt <= 0.00001 ? "SUCCESS" : "CONTROL_PAYMENT";
-    }
-
-    // 4) в пути / принято / прибыло / перемещение
-    if (
-      ["3", "4", "41", "5", "6", "7", "8", "101"].includes(code) ||
-      text.includes("в дороз") ||
-      text.includes("в пути") ||
-      text.includes("прямує") ||
-      text.includes("прибул") ||
-      text.includes("прийнят") ||
-      text.includes("принят")
-    ) {
-      return "SHIPPED";
-    }
-
-    // 5) создана, но не передана
-    if (code === "1" || text.includes("створив") || text.includes("создан")) return "IN_WORK";
-
-    return null;
-  }
-
-  private shouldAdvanceOrderStatus(current: OrderStatus, next: OrderStatus) {
-    // terminal guards
-    if (current === "CANCELED") return false;
-    if (current === "SUCCESS" && next !== "SUCCESS") return false;
-
-    // RETURNING/CANCELED перебивают почти всегда (кроме SUCCESS выше)
-    if (next === "CANCELED") return true;
-    if (next === "RETURNING") return true;
-
-    const rank: Record<OrderStatus, number> = {
-      NEW: 10,
-      IN_WORK: 20,
-      READY_TO_SHIP: 30,
-      SHIPPED: 40,
-      CONTROL_PAYMENT: 50,
-      SUCCESS: 60,
-      RETURNING: 70,
-      CANCELED: 80,
-    };
-
-    return (rank[next] ?? 0) > (rank[current] ?? 0);
-  }
-
-  // ======================
-  // PRIVATE: persist NP tracking status & map to order.status
+  // PRIVATE: persist NP tracking status onto the order
   // ======================
   private async persistOrderNpStatus(orderId: string, status: Record<string, unknown>) {
     const order = await this.prisma.order.findUnique({
@@ -1938,12 +1848,22 @@ export class NpTtnService {
       },
     };
 
-    // Phase 7: when status is null, derive current from orderStage so we don't overwrite COMPLETED with older NP status
-    const currentStatus = (order.status ? String(order.status) : orderStageToLegacyStatus(order.orderStage ?? "NEW", { debtAmount: order.debtAmount })) as OrderStatus;
-    const mappedLegacy = this.mapNpToOrderStatus({
+    // orderStage is the source of truth. A leftover Order.status = NEW must not
+    // turn «создана, не сдана» into CONFIRMED.
+    const currentLegacy = legacyStatusForNpSync({
+      status: order.status,
+      orderStage: order.orderStage,
+      debtAmount: order.debtAmount,
+    });
+    const mappedLegacy = mapNpTrackingToLegacyStatus({
       npCode: status?.StatusCode != null ? String(status.StatusCode) : undefined,
       npText: status?.Status != null ? String(status.Status) : undefined,
       debtAmount: order.debtAmount,
+    });
+    const stageLegacy = resolveNpOrderStageUpdate({
+      currentStage: order.orderStage,
+      currentLegacy,
+      mappedLegacy,
     });
 
     const updateData: Prisma.OrderUpdateInput = {
@@ -1951,27 +1871,42 @@ export class NpTtnService {
       lastNpStatusSyncAt: new Date(),
     };
 
-    if (
-      mappedLegacy &&
-      mappedLegacy !== currentStatus &&
-      this.shouldAdvanceOrderStatus(currentStatus, mappedLegacy)
-    ) {
-      const newFields = legacyStatusToOrderUpdate(mappedLegacy as PrismaOrderStatus, {
+    // CONFIRMED is manual via setOrderStage. Code 1 does not change orderStage.
+    // History is written only when the stage value actually changes.
+    let nextStage: OrderStage | null = null;
+    if (stageLegacy) {
+      const newFields = legacyStatusToOrderUpdate(stageLegacy, {
         paymentType: order.paymentType,
         paidAmount: order.paidAmount,
         totalAmount: order.totalAmount,
         debtAmount: order.debtAmount,
         paymentDueDate: order.paymentDueDate,
       });
-      updateData.orderStage = newFields.orderStage;
-      updateData.deliveryStatus = newFields.deliveryStatus;
-      updateData.financialStatus = newFields.financialStatus;
+      if (newFields.orderStage !== "CONFIRMED" && newFields.orderStage !== order.orderStage) {
+        nextStage = newFields.orderStage;
+        updateData.orderStage = newFields.orderStage;
+        updateData.deliveryStatus = newFields.deliveryStatus;
+        updateData.financialStatus = newFields.financialStatus;
+      }
     }
 
-    const nextStage =
-      typeof updateData.orderStage === "string" ? (updateData.orderStage as OrderStage) : null;
+    const historyReason = npSyncHistoryReason(status);
 
     await this.prisma.$transaction(async (tx) => {
+      if (nextStage) {
+        await tx.orderStatusHistory.create({
+          data: {
+            orderId: order.id,
+            fromStatus: currentLegacy,
+            toStatus: orderStageToLegacyStatus(nextStage, { debtAmount: order.debtAmount }),
+            fromOrderStage: order.orderStage,
+            toOrderStage: nextStage,
+            changedBy: "system",
+            reason: historyReason,
+          },
+        });
+      }
+
       await tx.order.update({
         where: { id: order.id },
         data: updateData,

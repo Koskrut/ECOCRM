@@ -289,6 +289,10 @@ export function NpCitySelect({
         onBlur={() => setTimeout(() => setOpen(false), 200)}
         placeholder={inputPlaceholder}
         disabled={disabled}
+        autoComplete="off"
+        autoCorrect="off"
+        autoCapitalize="off"
+        spellCheck={false}
         className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none"
       />
       <NpSelectDropdown open={open} anchorRef={anchorRef}>
@@ -390,6 +394,10 @@ export function NpWarehouseSelect({
         onBlur={() => setTimeout(() => setOpen(false), 200)}
         placeholder={!cityRef ? t.selectCityFirst : inputPlaceholder}
         disabled={disabled || !cityRef}
+        autoComplete="off"
+        autoCorrect="off"
+        autoCapitalize="off"
+        spellCheck={false}
         className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none"
       />
       <NpSelectDropdown open={open && !!cityRef} anchorRef={anchorRef}>
@@ -703,6 +711,10 @@ export function NpStreetSelect({
         onBlur={() => setTimeout(() => setOpen(false), 200)}
         placeholder={!cityRef ? t.selectCityFirst : inputPlaceholder}
         disabled={disabled || !cityRef}
+        autoComplete="off"
+        autoCorrect="off"
+        autoCapitalize="off"
+        spellCheck={false}
         className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none"
       />
       

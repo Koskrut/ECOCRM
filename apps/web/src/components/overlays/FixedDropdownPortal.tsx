@@ -11,13 +11,9 @@ import {
   type RefObject,
 } from "react";
 import { createPortal } from "react-dom";
+import { computeFixedDropdownRect, type FixedDropdownRect } from "./fixed-dropdown-rect";
 
-export type FixedDropdownRect = {
-  top: number;
-  left: number;
-  width: number;
-  maxHeightPx: number;
-};
+export type { FixedDropdownRect };
 
 function parseCssLengthToPx(value: string, fallback: number): number {
   const trimmed = value.trim();
@@ -45,6 +41,32 @@ function parseCssLengthToPx(value: string, fallback: number): number {
   return Number.isFinite(n) ? n : fallback;
 }
 
+/** Visual position of `position:fixed; top:0; left:0`. Reused so measuring does not thrash layout. */
+let fixedOriginProbe: HTMLDivElement | null = null;
+
+function readFixedOrigin(): { x: number; y: number } {
+  if (typeof document === "undefined") return { x: 0, y: 0 };
+  if (!fixedOriginProbe) {
+    fixedOriginProbe = document.createElement("div");
+    fixedOriginProbe.setAttribute("aria-hidden", "true");
+    fixedOriginProbe.style.cssText =
+      "position:fixed;top:0;left:0;width:0;height:0;margin:0;padding:0;border:0;pointer-events:none;visibility:hidden";
+    document.body.appendChild(fixedOriginProbe);
+  }
+  const origin = fixedOriginProbe.getBoundingClientRect();
+  return { x: origin.left, y: origin.top };
+}
+
+function sameRect(a: FixedDropdownRect, b: FixedDropdownRect): boolean {
+  return (
+    a.openedUp === b.openedUp &&
+    Math.abs(a.top - b.top) < 0.5 &&
+    Math.abs(a.left - b.left) < 0.5 &&
+    Math.abs(a.width - b.width) < 0.5 &&
+    Math.abs(a.maxHeightPx - b.maxHeightPx) < 0.5
+  );
+}
+
 export function useFixedDropdownRect(
   open: boolean,
   anchorRef: RefObject<HTMLElement | null>,
@@ -52,40 +74,38 @@ export function useFixedDropdownRect(
   minWidth: number,
 ) {
   const [rect, setRect] = useState<FixedDropdownRect | null>(null);
+  const preferUpRef = useRef(false);
 
   const updateRect = useCallback(() => {
     const el = anchorRef.current;
     if (!el) return;
     const box = el.getBoundingClientRect();
     const vv = typeof window !== "undefined" ? window.visualViewport : null;
-    const viewTop = vv?.offsetTop ?? 0;
-    const viewHeight = vv?.height ?? window.innerHeight;
-    const viewLeft = vv?.offsetLeft ?? 0;
-    const viewWidth = vv?.width ?? window.innerWidth;
-    const viewBottom = viewTop + viewHeight;
-
-    const preferredMax = parseCssLengthToPx(maxHeight, 224);
-    const gap = 4;
-    const edgePad = 8;
-    const spaceBelow = Math.max(0, viewBottom - box.bottom - edgePad);
-    const spaceAbove = Math.max(0, box.top - viewTop - edgePad);
-    const openUp = spaceBelow < Math.min(preferredMax, 140) && spaceAbove > spaceBelow;
-    const maxHeightPx = Math.max(
-      96,
-      Math.min(preferredMax, openUp ? spaceAbove : spaceBelow || preferredMax),
-    );
-
-    const width = Math.min(Math.max(box.width, minWidth), Math.max(120, viewWidth - edgePad * 2));
-    let left = box.left;
-    left = Math.min(Math.max(left, viewLeft + edgePad), viewLeft + viewWidth - width - edgePad);
-
-    const top = openUp ? Math.max(viewTop + edgePad, box.top - gap - maxHeightPx) : box.bottom + gap;
-
-    setRect({ top, left, width, maxHeightPx });
+    const origin = readFixedOrigin();
+    const next = computeFixedDropdownRect({
+      box: { top: box.top, left: box.left, bottom: box.bottom, width: box.width },
+      viewportWidth: vv?.width ?? window.innerWidth,
+      viewportHeight: vv?.height ?? window.innerHeight,
+      fixedOriginX: origin.x,
+      fixedOriginY: origin.y,
+      preferredMaxPx: parseCssLengthToPx(maxHeight, 224),
+      minWidth,
+      preferUp: preferUpRef.current,
+    });
+    preferUpRef.current = next.openedUp;
+    const placed: FixedDropdownRect = {
+      top: next.top,
+      left: next.left,
+      width: next.width,
+      maxHeightPx: next.maxHeightPx,
+      openedUp: next.openedUp,
+    };
+    setRect((prev) => (prev && sameRect(prev, placed) ? prev : placed));
   }, [anchorRef, maxHeight, minWidth]);
 
   useEffect(() => {
     if (!open) {
+      preferUpRef.current = false;
       setRect(null);
       return;
     }
@@ -97,16 +117,22 @@ export function useFixedDropdownRect(
         updateRect();
       });
     };
+    const onScroll = (event: Event) => {
+      const target = event.target;
+      // Scrolling the list itself must not reposition it (that feedback is the "fly").
+      if (target instanceof Element && target.closest("[data-fixed-dropdown-portal]")) return;
+      schedule();
+    };
     updateRect();
     window.addEventListener("resize", schedule);
+    window.addEventListener("scroll", onScroll, true);
     const vv = window.visualViewport;
     vv?.addEventListener("resize", schedule);
-    // Only follow visualViewport scroll (keyboard), not every scrollable ancestor —
-    // continuous document scroll updates make the panel "fly".
     vv?.addEventListener("scroll", schedule);
     return () => {
       if (raf) window.cancelAnimationFrame(raf);
       window.removeEventListener("resize", schedule);
+      window.removeEventListener("scroll", onScroll, true);
       vv?.removeEventListener("resize", schedule);
       vv?.removeEventListener("scroll", schedule);
     };
@@ -152,7 +178,7 @@ type FixedDropdownPortalProps = {
 };
 
 const FIXED_CLASS =
-  "fixed z-[100] overflow-auto rounded-md border border-zinc-200 bg-white shadow-lg";
+  "fixed z-[100] overflow-auto overscroll-contain rounded-md border border-zinc-200 bg-white shadow-lg";
 
 const ABSOLUTE_CLASS =
   "absolute left-0 right-0 top-full z-[100] mt-1 overflow-auto rounded-md border border-zinc-200 bg-white shadow-lg";
@@ -225,6 +251,7 @@ export function FixedDropdownPortal({
         left: rect.left,
         width: rect.width,
         maxHeight: rect.maxHeightPx,
+        transform: rect.openedUp ? "translateY(-100%)" : undefined,
       }}
       {...stopOutsideDismiss}
     >

@@ -4,7 +4,29 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.197**.)_
+_(планируемые изменения после **0.2.198**.)_
+
+## [0.2.198] — 2026-10-09
+
+### Summary
+
+Патч **0.2.198**: NP sync стадій ТТН без хибного CONFIRMED/IN_WORK; FixedDropdown на iOS з клавіатурою.
+
+### Added
+
+- **`np-order-stage.util`**: мапінг tracking → legacy/stage; unit-тести.
+- **`fixed-dropdown-rect`**: розрахунок позиції з урахуванням fixed-origin / visual viewport.
+
+### Changed
+
+- Перша ТТН з NEW → **AWAITING_PAYMENT** / **AWAITING_STOCK** (не CONFIRMED).
+- NP код «накладна створена» не змінює orderStage; sync бере stage з orderStage, не зі stale NEW.
+- FixedDropdownPortal: стабільніше позиціонування при клавіатурі; NP city/warehouse/street — `autoComplete=off`.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.198`**.
+- **Миграций нет.**
 
 ## [0.2.197] — 2026-10-09
 
