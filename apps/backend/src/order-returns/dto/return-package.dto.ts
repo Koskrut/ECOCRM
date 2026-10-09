@@ -13,6 +13,19 @@ import {
 } from "class-validator";
 import { CreateOrderReturnItemDto } from "./create-order-return.dto";
 
+export class CreateReturnPackageLineDto {
+  @IsString()
+  orderId!: string;
+
+  @IsString()
+  orderItemId!: string;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  qtyReturned!: number;
+}
+
 export class CreateReturnPackageDto {
   @IsString()
   @MinLength(4)
@@ -39,6 +52,13 @@ export class CreateReturnPackageDto {
   @ValidateNested({ each: true })
   @Type(() => CreateOrderReturnItemDto)
   items?: CreateOrderReturnItemDto[];
+
+  /** Positions from one or more orders, attached to this single parcel. */
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CreateReturnPackageLineDto)
+  lines?: CreateReturnPackageLineDto[];
 
   @IsOptional()
   @IsArray()
@@ -150,6 +170,10 @@ export class SuggestReturnPackageLinesQueryDto {
   @IsOptional()
   @IsString()
   productId?: string;
+
+  @IsOptional()
+  @IsString()
+  contactId?: string;
 
   @IsOptional()
   @Type(() => Number)

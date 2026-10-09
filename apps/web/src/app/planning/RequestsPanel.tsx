@@ -9,10 +9,12 @@ function RequestsPanelInner({
   onError,
   forcedKind,
   focusId,
+  onRequestsChanged,
 }: {
   onError: (msg: string) => void;
   forcedKind?: "pack" | "factory";
   focusId?: string | null;
+  onRequestsChanged?: (info?: { clearedId?: string }) => void;
 }) {
   const t = strings.planning;
   const kindParam = (useSearchParams().get("kind") ?? "pack").toLowerCase();
@@ -48,9 +50,9 @@ function RequestsPanelInner({
       ) : null}
 
       {activeKind === "pack" ? (
-        <PackingPanel onError={onError} focusId={focusId} />
+        <PackingPanel onError={onError} focusId={focusId} onRequestsChanged={onRequestsChanged} />
       ) : (
-        <FactoryPanel onError={onError} focusId={focusId} />
+        <FactoryPanel onError={onError} focusId={focusId} onRequestsChanged={onRequestsChanged} />
       )}
     </div>
   );
@@ -60,14 +62,21 @@ export function RequestsPanel({
   onError,
   forcedKind,
   focusId,
+  onRequestsChanged,
 }: {
   onError: (msg: string) => void;
   forcedKind?: "pack" | "factory";
   focusId?: string | null;
+  onRequestsChanged?: (info?: { clearedId?: string }) => void;
 }) {
   return (
     <Suspense fallback={<p className="text-sm text-zinc-500">{strings.common.loading}</p>}>
-      <RequestsPanelInner onError={onError} forcedKind={forcedKind} focusId={focusId} />
+      <RequestsPanelInner
+        onError={onError}
+        forcedKind={forcedKind}
+        focusId={focusId}
+        onRequestsChanged={onRequestsChanged}
+      />
     </Suspense>
   );
 }

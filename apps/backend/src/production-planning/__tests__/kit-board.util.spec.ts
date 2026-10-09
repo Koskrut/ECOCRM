@@ -590,6 +590,59 @@ test("08.042-style split across 39/40 packs from the pool", () => {
   assert.equal(rows[0]?.toPackWarehouseId, KIT_BOARD_PACK_POOL_ID);
 });
 
+test("alreadyInRequest reduces need/toPack and frees shared pool parts", () => {
+  const shared = {
+    productId: "shared",
+    sku: "SHARED",
+    name: "Shared",
+    qtyPerKit: 1,
+    scrapPct: 0,
+    constrains: true,
+    qtyByWarehouse: { pf: 100, gp: 0 },
+  };
+  const rows = buildKitBoard({
+    coverMonths: 1,
+    monthKeys,
+    warehouses,
+    alreadyInRequestByKit: { "kit-hi": 60 },
+    kits: [
+      {
+        productId: "kit-hi",
+        sku: "HI",
+        name: "High need",
+        qtyByWarehouse: { s44: 0 },
+        avgMonthlySold: 80,
+        revenue: 8000,
+        monthlySold: flatMonthly(80),
+        system: "NeoDent",
+        category: "Абатмент",
+        parts: [shared],
+      },
+      {
+        productId: "kit-lo",
+        sku: "LO",
+        name: "Low need",
+        qtyByWarehouse: { s44: 0 },
+        avgMonthlySold: 50,
+        revenue: 500,
+        monthlySold: flatMonthly(50),
+        system: "NeoDent",
+        category: "Абатмент",
+        parts: [shared],
+      },
+    ],
+  });
+
+  const bySku = new Map(rows.map((row) => [row.sku, row]));
+  // Pool 100: reserve 60 for HI already-in-request, HI packs +20, LO gets 20.
+  assert.equal(bySku.get("HI")?.alreadyInRequest, 60);
+  assert.equal(bySku.get("HI")?.need, 20);
+  assert.equal(bySku.get("HI")?.toPack, 20);
+  assert.equal(bySku.get("HI")?.toProduce, 0);
+  assert.equal(bySku.get("LO")?.toPack, 20);
+  assert.equal(bySku.get("LO")?.toProduce, 30);
+});
+
 test("pack pool gives a shared split part to the larger need first", () => {
   const shared = {
     productId: "shared",

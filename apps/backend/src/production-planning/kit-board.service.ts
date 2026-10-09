@@ -26,6 +26,7 @@ import {
   type KitBoardWarehouse,
 } from "./kit-board.util";
 import { isOpenPackingStatus, recentYearMonthKeys } from "./kit-portfolio.util";
+import { packCycleStartUtc } from "./pack-cycle.util";
 import { monthsAgoUtc } from "./planning-safety.util";
 import { PlanningSettingsService } from "./planning-settings.service";
 
@@ -92,8 +93,11 @@ export class KitBoardService {
       }),
       this.settings.getExchangeRates(),
       this.prisma.packingList.findFirst({
-        where: { status: { in: [PackingListStatus.DRAFT, PackingListStatus.APPROVED] } },
-        orderBy: { cycleStart: "desc" },
+        where: {
+          cycleStart: packCycleStartUtc(),
+          status: { in: [PackingListStatus.DRAFT, PackingListStatus.APPROVED] },
+        },
+        orderBy: { createdAt: "desc" },
         include: {
           lines: { select: { kitProductId: true, qtyApproved: true } },
         },
@@ -229,9 +233,8 @@ export class KitBoardService {
       };
     });
 
-    const baseRows = buildKitBoard({ warehouses, kits: boardKits, coverMonths, monthKeys });
     const packingOpen = isOpenPackingStatus(packing?.status);
-    const alreadyByKit = new Map(
+    const alreadyByKit = new Map<string, number>(
       packingOpen
         ? (packing?.lines ?? []).map((line) => [line.kitProductId, line.qtyApproved] as const)
         : [],
@@ -246,28 +249,18 @@ export class KitBoardService {
         ? packing.status
         : null;
 
-    const rows: KitBoardViewRow[] = baseRows.map((row) => {
-      const alreadyInRequest = packingOpen ? (alreadyByKit.get(row.productId) ?? 0) : 0;
-      // Remaining pack suggestion after qty already sent to this week's packing request.
-      const toPack = Math.max(0, row.toPack - alreadyInRequest);
-      const remainingNeed = Math.max(0, row.need - alreadyInRequest);
-      const toProduce = Math.max(0, remainingNeed - toPack);
-      let tone = row.tone;
-      if (!(row.avgMonthlySold > 0)) tone = "no_sales";
-      else if (toPack > 0) tone = "pack";
-      else if (remainingNeed === 0) tone = "enough";
-      else if (row.canAssemble === 0) tone = "missing_parts";
-      else tone = "parts_shared";
-      return {
-        ...row,
-        toPack,
-        toPackWarehouseId: toPack > 0 ? row.toPackWarehouseId : null,
-        toProduce,
-        tone,
-        alreadyInRequest,
-        inPackingStatus: alreadyInRequest > 0 ? packingStatus : null,
-      };
+    const baseRows = buildKitBoard({
+      warehouses,
+      kits: boardKits,
+      coverMonths,
+      monthKeys,
+      alreadyInRequestByKit: alreadyByKit,
     });
+
+    const rows: KitBoardViewRow[] = baseRows.map((row) => ({
+      ...row,
+      inPackingStatus: row.alreadyInRequest > 0 ? packingStatus : null,
+    }));
 
     return {
       coverMonths,

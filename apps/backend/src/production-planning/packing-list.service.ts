@@ -228,6 +228,53 @@ export class PackingListService {
     return { skipped: false as const, ...(await this.propose()) };
   }
 
+  /** Open packing list for the current Friday cycle, or null. */
+  async getCurrentCycleList() {
+    const existing = await this.prisma.packingList.findFirst({
+      where: {
+        cycleStart: packCycleStartUtc(),
+        status: { in: [PackingListStatus.DRAFT, PackingListStatus.APPROVED] },
+      },
+      orderBy: { createdAt: "desc" },
+      select: { id: true },
+    });
+    return existing ? this.get(existing.id) : null;
+  }
+
+  /**
+   * Current-cycle draft for manual kit-board adds.
+   * Reuses DRAFT/APPROVED if present; otherwise creates an empty list.
+   * Never runs full week propose (that revived deleted drafts with all MRP lines).
+   */
+  async ensureManualDraft() {
+    const existing = await this.getCurrentCycleList();
+    if (existing) {
+      return existing;
+    }
+
+    const settings = await this.settings.getSettings();
+    const cycleStart = packCycleStartUtc();
+    const posted = await this.prisma.inventorySnapshot.findFirst({
+      where: { status: InventorySnapshotStatus.POSTED },
+      orderBy: { postedAt: "desc" },
+    });
+    const freshness = evaluateSnapshotFreshness(posted, settings.snapshotMaxAgeDays);
+    assertFreshSnapshot(freshness);
+
+    const cycleEnd = packCycleEndUtc(instantToKyivYmd(cycleStart), settings.packCycleDays);
+    const created = await this.prisma.packingList.create({
+      data: {
+        cycleStart,
+        cycleEnd,
+        status: PackingListStatus.DRAFT,
+        capacityUsed: 0,
+        capacityLimit: settings.packCapacityPerCycle,
+        snapshotId: posted!.id,
+      },
+    });
+    return this.get(created.id);
+  }
+
   async propose(cycleStartIso?: string) {
     const settings = await this.settings.getSettings();
     const posted = await this.prisma.inventorySnapshot.findFirst({

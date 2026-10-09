@@ -226,9 +226,9 @@ export function KitPortfolioPanel({
         status = reopened.status;
       }
       if (!listId) {
-        const proposed = await planningApi.proposePackingList();
-        listId = proposed.list.id;
-        status = proposed.list.status;
+        const ensured = await planningApi.ensurePackingDraft();
+        listId = ensured.id;
+        status = ensured.status;
       }
       if (!listId || status !== "DRAFT") {
         reportError(t.errors.packing);

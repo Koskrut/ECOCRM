@@ -53,6 +53,14 @@ export class ReturnPackagesController {
     return this.returnPackages.list(q, req.user);
   }
 
+  @Get("suggest-lines")
+  suggestLinesPreview(
+    @Query() q: SuggestReturnPackageLinesQueryDto,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.returnPackages.suggestLinesPreview(q, req.user);
+  }
+
   @Get(":id/suggest-lines")
   suggestLines(
     @Param("id") id: string,

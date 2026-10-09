@@ -386,6 +386,12 @@ export class ProductionPlanningController {
     return this.packingLists.list(limit ? Number(limit) : 20);
   }
 
+  /** Current Friday-cycle open list, or null (does not create). Before :id route. */
+  @Get("packing-lists/current")
+  getCurrentPackingList() {
+    return this.packingLists.getCurrentCycleList();
+  }
+
   @Get("packing-lists/:id")
   getPackingList(@Param("id") id: string) {
     return this.packingLists.get(id);
@@ -395,6 +401,13 @@ export class ProductionPlanningController {
   @Roles(UserRole.ADMIN, UserRole.LEAD)
   proposePackingList(@Body() body: { cycleStart?: string }) {
     return this.packingLists.propose(body?.cycleStart);
+  }
+
+  /** Empty/current-cycle draft for incremental adds — does not run full week propose. */
+  @Post("packing-lists/ensure-draft")
+  @Roles(UserRole.ADMIN, UserRole.LEAD)
+  ensurePackingDraft() {
+    return this.packingLists.ensureManualDraft();
   }
 
   @Patch("packing-lists/:id/lines")

@@ -1084,6 +1084,16 @@ export const planningApi = {
     const res = await apiHttp.post("/planning/packing-lists/propose", { cycleStart });
     return res.data;
   },
+  /** Current Friday-cycle open packing list, or null. */
+  getCurrentPackingList: async (): Promise<PackingList | null> => {
+    const res = await apiHttp.get<PackingList | null>("/planning/packing-lists/current");
+    return res.data;
+  },
+  /** Current-cycle draft for incremental adds (empty if none). Does not run full week propose. */
+  ensurePackingDraft: async (): Promise<PackingList> => {
+    const res = await apiHttp.post<PackingList>("/planning/packing-lists/ensure-draft");
+    return res.data;
+  },
   updatePackingLines: async (
     id: string,
     lines: Array<{ kitProductId: string; qtyApproved: number; dueAt?: string | null }>,

@@ -272,6 +272,82 @@ describe("ReturnPackagesService", () => {
     assert.equal(result.items.some((x) => x.orderItemId === "oi-done"), false);
   });
 
+  it("create attaches lines from several orders to one package", async () => {
+    const createdOrders: string[] = [];
+    const prisma = {
+      order: {
+        findUnique: async (args: { where: { id: string } }) => ({
+          id: args.where.id,
+          ownerId: "m1",
+          orderStage: "RECEIVED",
+          warehouseId: null,
+          items: [{ id: `${args.where.id}-i`, qty: 4 }],
+        }),
+      },
+      orderReturnItem: { groupBy: async () => [] },
+      $transaction: async (
+        cb: (tx: {
+          returnPackage: {
+            findUnique: (args: { where: { ttnNumber?: string; id?: string } }) => Promise<unknown>;
+            create: (args: unknown) => Promise<unknown>;
+            update: (args: unknown) => Promise<unknown>;
+          };
+          orderReturn: {
+            findFirst: () => Promise<null>;
+            create: (args: { data: { orderId: string } }) => Promise<unknown>;
+          };
+        }) => Promise<unknown>,
+      ) =>
+        cb({
+          returnPackage: {
+            findUnique: async (args: { where: { ttnNumber?: string; id?: string } }) => {
+              if (args.where.ttnNumber) return null;
+              return {
+                id: "pkg1",
+                status: "IN_TRANSIT_BACK",
+                contactId: null,
+                warehouseId: null,
+                returns: [],
+              };
+            },
+            create: async () => ({
+              id: "pkg1",
+              status: "IN_TRANSIT_BACK",
+              contactId: null,
+              warehouseId: null,
+            }),
+            update: async () => ({}),
+          },
+          orderReturn: {
+            findFirst: async () => null,
+            create: async (args: { data: { orderId: string } }) => {
+              createdOrders.push(args.data.orderId);
+              return { id: `r-${args.data.orderId}` };
+            },
+          },
+        }),
+    } as unknown as PrismaSvc;
+
+    const svc = new ReturnPackagesService(
+      prisma,
+      { syncOrderStateFromReturns: async () => {} } as unknown as OrderReturnsSvc,
+      { call: async () => ({}) } as never,
+    );
+
+    await svc.create(
+      {
+        ttnNumber: "20450000000001",
+        lines: [
+          { orderId: "o1", orderItemId: "o1-i", qtyReturned: 1 },
+          { orderId: "o2", orderItemId: "o2-i", qtyReturned: 2 },
+        ],
+      },
+      { id: "m1", role: "MANAGER" },
+    );
+
+    assert.deepEqual(createdOrders.sort(), ["o1", "o2"]);
+  });
+
   it("sync to in-transit does not demote a received package", async () => {
     const updates: Array<Record<string, unknown>> = [];
     const prisma = {

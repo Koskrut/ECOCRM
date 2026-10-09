@@ -632,7 +632,8 @@ export const en = {
       filterPack: "Pack now",
       filterMissing: "Missing parts",
       filterAttention: "Attention",
-      filterAttentionHint: "Stock on 44/Suprex is below 3-month sales need",
+      filterAttentionHint:
+        "Stock on 44/Suprex plus qty already on the packing request still does not cover 3-month sales",
       filterSystem: "System",
       filterCategory: "Category",
       filterSystemAll: "All systems",
@@ -703,7 +704,7 @@ export const en = {
       upload: "Upload 1C stock",
       uploading: "Publishing stock…",
       sharedHint:
-        "Kit stock = warehouse 44 + regional Suprex (not 12). Pack = 39 PF ABM and 40 FG ABM only (no DMT). “Better” covers 3-month sales; “can pack” is assemblable from parts. Attention = stock below sales need.",
+        "Kit stock = warehouse 44 + regional Suprex (not 12). Pack = 39 PF ABM and 40 FG ABM only (no DMT). “Better” covers 3-month sales; “can pack” is assemblable from parts. Attention = stock + packing request still below sales need.",
       addHint:
         "Click a “better” / “can pack” or produce qty — a “+” appears. After confirm the line is added to the request (tabs above).",
       addToRequestAction: "Add to request",
@@ -3068,7 +3069,8 @@ export const en = {
       returnItemsPending: "Warehouse will identify items",
       returnItemsPendingHint: "Client sent a parcel — warehouse will unpack",
       incomingReturnPackageTitle: "Incoming return parcel",
-      incomingReturnPackageHint: "TTN from client; items can be added later at warehouse",
+      incomingReturnPackageHint:
+        "TTN from the client. Search a product to see which orders it came from and add lines from several orders.",
       createIncomingPackage: "Register parcel",
       returnContactHint: "Client (hint)",
       maxQty: (n: number) => `max ${n}`,

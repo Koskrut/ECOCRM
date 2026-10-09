@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { strings } from "@/locales";
 import { apiHttp } from "@/lib/api/client";
 import {
@@ -87,19 +87,17 @@ function partStockLine(
 }
 
 /**
- * Current pack-cycle draft only. Do not attach to an older cycle's leftover DRAFT/APPROVED
- * from listPackingLists (that reopened stale weeks when adding from the kit board).
+ * Current pack-cycle draft only. Empty if none — never runs full week propose
+ * (propose revived deleted drafts with all MRP lines).
  */
 async function ensurePackingDraft() {
-  const proposed = await planningApi.proposePackingList();
-  let list = proposed.list;
+  let list = await planningApi.ensurePackingDraft();
   if (list.status === "APPROVED") {
     list = await planningApi.reopenPackingList(list.id);
   }
   if (list.status !== "DRAFT") {
     throw new Error(strings.planning.errors.packing);
   }
-  // propose payload may omit lines — load full draft before reading qtyApproved.
   return planningApi.getPackingList(list.id);
 }
 
@@ -243,7 +241,7 @@ export function KitBoardPanel() {
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase();
     const filtered = (board?.rows ?? []).filter((row) => {
-      // Увага = не вистачає запасу на покриття продажів (дірка need > 0).
+      // Увага = ще є дірка після заявки на упаковку (need уже мінус alreadyInRequest).
       if (attention === "attention" && !(row.need > 0)) return false;
       if (abcFilter.size > 0 && !abcFilter.has(row.paretoClass)) return false;
       if (xyzFilter.size > 0) {
@@ -386,11 +384,22 @@ export function KitBoardPanel() {
   const capacityPct =
     capacityLimit > 0 ? Math.min(100, Math.round((capacityUsed / capacityLimit) * 100)) : 0;
 
+  const handleRequestsChanged = useCallback((info?: { clearedId?: string }) => {
+    if (info?.clearedId) {
+      setFocusRequestId((prev) => (prev === info.clearedId ? null : prev));
+    }
+    // Refresh board badges / capacity after packing or factory mutations.
+    setRefreshKey((key) => key + 1);
+  }, []);
+
   const tabBtn = (id: MainTab, label: string) => (
     <button
       key={id}
       type="button"
-      onClick={() => setMainTab(id)}
+      onClick={() => {
+        setMainTab(id);
+        if (id === "board") setRefreshKey((key) => key + 1);
+      }}
       className={
         mainTab === id
           ? "rounded-full bg-cyan-600 px-4 py-2 text-sm font-medium text-white"
@@ -692,6 +701,7 @@ export function KitBoardPanel() {
             key={`${requestsKey}-${mainTab}-${focusRequestId ?? ""}`}
             forcedKind={mainTab === "pack" ? "pack" : "factory"}
             focusId={focusRequestId}
+            onRequestsChanged={handleRequestsChanged}
             onError={(msg) => setError(msg)}
           />
         </section>
@@ -909,7 +919,8 @@ function BoardRow({
                   row,
                   defaultQty: Math.min(
                     row.canAssembleRemaining ?? row.canAssemble,
-                    row.toPack || Math.max(0, row.need - alreadyInRequest),
+                    // need/toPack already exclude alreadyInRequest from the API.
+                    row.toPack || row.need,
                   ),
                   source: "can",
                 })

@@ -26,10 +26,7 @@ import { InboxComposer } from "@/components/inbox/InboxComposer";
 import { InboxClientCard } from "@/components/inbox/InboxClientCard";
 import { InboxSelectionToolbar } from "@/components/inbox/InboxSelectionToolbar";
 import { TaskCreateModal } from "@/components/tasks/TaskCreateModal";
-import {
-  useEntityModalStack,
-  type EntityModalFrame,
-} from "@/lib/modal/useEntityModalStack";
+import { useEntityModalStack, type EntityModalFrame } from "@/lib/modal/useEntityModalStack";
 import { EntityModalStackLayers } from "@/components/modals/EntityModalStackLayers";
 import { strings } from "@/locales";
 import { useModules } from "@/lib/modules/useModules";
@@ -235,7 +232,9 @@ function UnifiedInboxContent() {
     return "OPEN";
   });
   const [hideNoise, setHideNoise] = useState(true);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesScrollRef = useRef<HTMLDivElement>(null);
+  const messagesScrollKeyRef = useRef("");
+  const listScrollRef = useRef<HTMLDivElement>(null);
   const [linkModalOpen, setLinkModalOpen] = useState(false);
   const [linkSearch, setLinkSearch] = useState("");
   const [linkResults, setLinkResults] = useState<Contact[]>([]);
@@ -258,21 +257,44 @@ function UnifiedInboxContent() {
   const [orderRoot, setOrderRoot] = useState<EntityModalFrame | null>(null);
   const orderStack = useEntityModalStack(orderRoot);
 
-  const selected = useMemo(() => {
+  const selectedFromList = useMemo(() => {
     if (!selectedId) return undefined;
-    const found = conversations.find((c) => c.id === selectedId);
-    if (found) return found;
-    if (selectedSource) {
-      return conversations.find((c) => c.id === selectedId && c.source === selectedSource);
-    }
-    return undefined;
+    return conversations.find(
+      (c) => c.id === selectedId && (!selectedSource || c.source === selectedSource),
+    );
   }, [conversations, selectedId, selectedSource]);
+
+  // Keep the open thread when the channel filter hides it, so the chat column
+  // does not unmount and the page does not jump.
+  const [openedConversation, setOpenedConversation] = useState<UnifiedConversation | null>(null);
+  useEffect(() => {
+    if (!selectedId) {
+      setOpenedConversation(null);
+      return;
+    }
+    if (selectedFromList) setOpenedConversation(selectedFromList);
+  }, [selectedId, selectedFromList]);
+
+  const selected = selectedFromList ?? openedConversation ?? undefined;
 
   const effectiveSource: InboxSource | null =
     selected?.source ?? selectedSource ?? (channelFilter !== "ALL" ? channelFilter : null);
 
   useEffect(() => {
     setHideNoise(readHideNoise());
+  }, []);
+
+  useEffect(() => {
+    const html = document.documentElement;
+    const body = document.body;
+    const prevHtml = html.style.overflow;
+    const prevBody = body.style.overflow;
+    html.style.overflow = "hidden";
+    body.style.overflow = "hidden";
+    return () => {
+      html.style.overflow = prevHtml;
+      body.style.overflow = prevBody;
+    };
   }, []);
 
   useEffect(() => {
@@ -398,7 +420,18 @@ function UnifiedInboxContent() {
     const next = params.toString();
     const current = searchParams.toString();
     if (next !== current) {
+      const scrollY = window.scrollY;
       router.replace(`${pathname}${next ? `?${next}` : ""}`, { scroll: false });
+      // Search-param updates can still reset the window scroll and shift the inbox.
+      const restore = () => {
+        if (window.scrollY !== scrollY) window.scrollTo(0, scrollY);
+      };
+      const raf = requestAnimationFrame(restore);
+      const timeoutId = window.setTimeout(restore, 50);
+      return () => {
+        cancelAnimationFrame(raf);
+        window.clearTimeout(timeoutId);
+      };
     }
   }, [statusFilter, channelFilter, selectedId, pathname, router, searchParams]);
 
@@ -535,8 +568,23 @@ function UnifiedInboxContent() {
   }, [selectedId, effectiveSource, loadMessages]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+    listScrollRef.current?.scrollTo({ top: 0 });
+  }, [channelFilter]);
+
+  useEffect(() => {
+    const el = messagesScrollRef.current;
+    if (!el || messagesLoading) return;
+    const lastId = messages[messages.length - 1]?.id ?? "";
+    const key = `${selectedId ?? ""}:${messages.length}:${lastId}`;
+    if (key === messagesScrollKeyRef.current) return;
+    const previousConversationId = messagesScrollKeyRef.current.split(":")[0] ?? "";
+    messagesScrollKeyRef.current = key;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    const switchedConversation = previousConversationId !== (selectedId ?? "");
+    if (switchedConversation || distanceFromBottom < 160) {
+      el.scrollTop = el.scrollHeight;
+    }
+  }, [messages, messagesLoading, selectedId]);
 
   const handleSend = useCallback(async () => {
     const text = sendText.trim();
@@ -618,9 +666,7 @@ function UnifiedInboxContent() {
           if (status !== statusFilter) {
             return prev.filter((c) => !(c.id === convId && c.source === source));
           }
-          return prev.map((c) =>
-            c.id === convId && c.source === source ? { ...c, status } : c,
-          );
+          return prev.map((c) => (c.id === convId && c.source === source ? { ...c, status } : c));
         });
       } catch {
         // keep UI
@@ -721,9 +767,7 @@ function UnifiedInboxContent() {
         leadId: selected.contactId ? null : selected.leadId,
         linkLabel: conversationTitle(selected),
         initialBody: opts?.initialBody,
-        initialTitle: opts?.initialBody
-          ? `Чат: ${conversationTitle(selected)}`
-          : undefined,
+        initialTitle: opts?.initialBody ? `Чат: ${conversationTitle(selected)}` : undefined,
       });
       setTaskModalOpen(true);
     },
@@ -813,10 +857,15 @@ function UnifiedInboxContent() {
     return chips;
   }, [availableChannels, t]);
 
+  const channelListStale =
+    conversationsLoading &&
+    channelFilter !== "ALL" &&
+    conversations.some((c) => c.source !== channelFilter);
+
   return (
-    <div className="space-y-3">
+    <div className="flex h-[calc(100dvh-3.5rem-2rem)] min-h-0 flex-col gap-3 overflow-hidden">
       {(telegramEnabled || metaEnabled) && (
-        <div className="flex flex-wrap justify-end gap-3">
+        <div className="flex shrink-0 flex-wrap justify-end gap-3">
           {telegramEnabled ? (
             <Link
               href="/settings/telegram"
@@ -838,13 +887,13 @@ function UnifiedInboxContent() {
         </div>
       )}
 
-      <div className="flex h-[calc(100dvh-5rem)] max-w-full min-w-0 gap-0 overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm">
+      <div className="flex min-h-0 flex-1 max-w-full min-w-0 gap-0 overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm">
         <aside
-          className={`flex w-full flex-shrink-0 flex-col border-r border-zinc-200 bg-zinc-50/50 md:w-80 ${
+          className={`flex w-full min-h-0 flex-shrink-0 flex-col border-r border-zinc-200 bg-zinc-50/50 md:w-80 ${
             mobilePanel === "list" ? "flex" : "hidden md:flex"
           }`}
         >
-          <div className="border-b border-zinc-200 p-3">
+          <div className="shrink-0 border-b border-zinc-200 p-3">
             <h2 className="flex items-center gap-2 text-lg font-semibold text-zinc-900">
               <MessageCircle className="h-5 w-5" />
               {t.title}
@@ -857,7 +906,6 @@ function UnifiedInboxContent() {
                     type="button"
                     onClick={() => {
                       setChannelFilter(chip.id);
-                      if (chip.id !== "ALL") setSelectedSource(chip.id);
                     }}
                     className={`rounded px-2 py-1 text-xs font-medium ${
                       channelFilter === chip.id
@@ -882,20 +930,22 @@ function UnifiedInboxContent() {
               />
             </div>
           </div>
-          <div className="flex-1 overflow-y-auto">
-            {conversationsLoading || modulesStatus === "loading" ? (
-              <div className="p-4 text-center text-sm text-zinc-500">{strings.common.loading}</div>
+          <div ref={listScrollRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+            {modulesStatus === "loading" ||
+            (conversationsLoading && (conversations.length === 0 || channelListStale)) ? (
+              <div className="flex min-h-full items-center justify-center p-4 text-center text-sm text-zinc-500">
+                {strings.common.loading}
+              </div>
             ) : conversationsError ? (
               <div className="p-3">
-                <ErrorPanel
-                  message={conversationsError}
-                  onRetry={() => void loadConversations()}
-                />
+                <ErrorPanel message={conversationsError} onRetry={() => void loadConversations()} />
               </div>
             ) : conversations.length === 0 ? (
               <div className="p-4 text-center text-sm text-zinc-500">{t.empty}</div>
             ) : (
-              <ul className="divide-y divide-zinc-100">
+              <ul
+                className={`divide-y divide-zinc-100 ${conversationsLoading ? "opacity-60" : ""}`}
+              >
                 {conversations.map((c) => (
                   <InboxConversationRow
                     key={`${c.source}:${c.id}`}
@@ -904,13 +954,15 @@ function UnifiedInboxContent() {
                       title: conversationTitle(c),
                       status: c.status,
                       pinnedAt: c.pinnedAt,
-                      unreadCount: selectedId === c.id ? 0 : c.unreadCount ?? 0,
+                      unreadCount: selectedId === c.id ? 0 : (c.unreadCount ?? 0),
                       lastMessageAt: c.lastMessageAt,
                       lastMessageText: c.lastMessage?.text ?? null,
                       lastMessageDirection: c.lastMessage?.direction ?? null,
                       channelLabel: channelLabel(c.source),
                     }}
-                    selected={selectedId === c.id && (!selectedSource || selectedSource === c.source)}
+                    selected={
+                      selectedId === c.id && (!selectedSource || selectedSource === c.source)
+                    }
                     timeLabel={c.lastMessageAt ? formatTime(c.lastMessageAt) : ""}
                     onSelect={() => selectConversation(c)}
                     onTogglePin={() => void handleTogglePin(c.id, c.source, !!c.pinnedAt)}
@@ -922,7 +974,7 @@ function UnifiedInboxContent() {
         </aside>
 
         <section
-          className={`min-w-0 flex-1 flex-col bg-white ${
+          className={`min-h-0 min-w-0 flex-1 flex-col bg-white ${
             mobilePanel === "chat" ? "flex" : "hidden md:flex"
           }`}
         >
@@ -935,7 +987,7 @@ function UnifiedInboxContent() {
             </div>
           ) : (
             <>
-              <div className="border-b border-zinc-200 px-4 py-2">
+              <div className="shrink-0 border-b border-zinc-200 px-4 py-2">
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
@@ -970,7 +1022,10 @@ function UnifiedInboxContent() {
                 ) : null}
               </div>
 
-              <div className="relative flex-1 overflow-y-auto p-4">
+              <div
+                ref={messagesScrollRef}
+                className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain p-4"
+              >
                 {messagesLoading ? (
                   <div className="flex justify-center py-8 text-zinc-500">
                     {strings.common.loading}
@@ -1025,7 +1080,6 @@ function UnifiedInboxContent() {
                         </div>
                       );
                     })}
-                    <div ref={messagesEndRef} />
                   </div>
                 )}
                 <InboxSelectionToolbar
@@ -1033,26 +1087,28 @@ function UnifiedInboxContent() {
                 />
               </div>
 
-              <InboxComposer
-                value={sendText}
-                onChange={setSendText}
-                onSend={() => void handleSend()}
-                onSendNote={() => void handleSendNote()}
-                sending={sending}
-                placeholderContext={placeholderContext}
-                showAiSuggest={effectiveSource === "TELEGRAM"}
-                onSuggestReplies={
-                  effectiveSource === "TELEGRAM" ? handleSuggestReplies : undefined
-                }
-                suggestLoading={suggestLoading}
-                suggestions={suggestions}
-              />
+              <div className="shrink-0">
+                <InboxComposer
+                  value={sendText}
+                  onChange={setSendText}
+                  onSend={() => void handleSend()}
+                  onSendNote={() => void handleSendNote()}
+                  sending={sending}
+                  placeholderContext={placeholderContext}
+                  showAiSuggest={effectiveSource === "TELEGRAM"}
+                  onSuggestReplies={
+                    effectiveSource === "TELEGRAM" ? handleSuggestReplies : undefined
+                  }
+                  suggestLoading={suggestLoading}
+                  suggestions={suggestions}
+                />
+              </div>
             </>
           )}
         </section>
 
         <aside
-          className={`flex w-full flex-shrink-0 flex-col border-l border-zinc-200 bg-zinc-50/50 p-4 md:w-72 ${
+          className={`flex w-full min-h-0 flex-shrink-0 flex-col overflow-y-auto overscroll-contain border-l border-zinc-200 bg-zinc-50/50 p-4 md:w-72 ${
             mobilePanel === "card" ? "flex" : "hidden md:flex"
           }`}
         >
@@ -1097,9 +1153,7 @@ function UnifiedInboxContent() {
               onCreateTask={() => openTaskModal()}
               onCreateOrder={selected.contactId ? handleCreateOrder : undefined}
               unlinkedLabel={unlinkedLabel(selected.source)}
-              mobileBack={
-                mobilePanel === "card" ? () => setMobilePanel("chat") : undefined
-              }
+              mobileBack={mobilePanel === "card" ? () => setMobilePanel("chat") : undefined}
             />
           )}
         </aside>

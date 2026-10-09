@@ -4,7 +4,31 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.194**.)_
+_(планируемые изменения после **0.2.195**.)_
+
+## [0.2.195] — 2026-10-09
+
+### Summary
+
+Патч **0.2.195**: повернення з кількох замовлень у одну посилку; packing draft без повного propose; inbox без стрибків скролу.
+
+### Added
+
+- **`GET /return-packages/suggest-lines`** (preview) + create з **`lines[]`** (кілька orderItem з різних orders).
+- Incoming return modal: підбір позицій / контакт до створення посилки.
+- **`GET /planning/packing-lists/current`**, **`POST /planning/packing-lists/ensure-draft`** — порожній draft поточного циклу.
+- Kit board: **alreadyInRequest** резервує деталі пулу до toPack; BFF route suggest-lines.
+
+### Changed
+
+- Packing add з дошки не викликає full week propose (не відроджує видалені MRP-рядки).
+- Unified inbox: фіксація відкритого чату при фільтрі каналу, lock window scroll, збереження позиції списку/повідомлень.
+- Planning panels: актуальний packing list циклу.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.195`**.
+- **Миграций нет.**
 
 ## [0.2.194] — 2026-10-08
 

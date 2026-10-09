@@ -18,6 +18,7 @@ import { MrpConfigService } from "./mrp-config.service";
 import { PlanningCalculationService } from "./planning-calculation.service";
 import { PlanningSettingsService } from "./planning-settings.service";
 import { SalesHistoryService } from "./sales-history.service";
+import { packCycleStartUtc } from "./pack-cycle.util";
 import { monthsAgoUtc } from "./planning-safety.util";
 import {
   assignParetoClasses,
@@ -270,8 +271,11 @@ export class KitPortfolioService {
         this.calculations.getPackDemandByProduct(),
         this.salesHistory.latestPosted(),
         this.prisma.packingList.findFirst({
-          where: { status: { in: [PackingListStatus.DRAFT, PackingListStatus.APPROVED] } },
-          orderBy: { cycleStart: "desc" },
+          where: {
+            cycleStart: packCycleStartUtc(),
+            status: { in: [PackingListStatus.DRAFT, PackingListStatus.APPROVED] },
+          },
+          orderBy: { createdAt: "desc" },
           include: {
             lines: { select: { kitProductId: true, qtyApproved: true, dueAt: true } },
           },

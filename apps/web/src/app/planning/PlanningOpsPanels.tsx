@@ -515,9 +515,11 @@ function WeekFillBar({ used, limit }: { used: number; limit: number }) {
 export function PackingPanel({
   onError,
   focusId,
+  onRequestsChanged,
 }: {
   onError: (msg: string) => void;
   focusId?: string | null;
+  onRequestsChanged?: (info?: { clearedId?: string }) => void;
 }) {
   const t = strings.planning;
   const reportError = useStableErrorHandler(onError);
@@ -547,10 +549,23 @@ export function PackingPanel({
     );
   }, []);
 
+  const clearActive = useCallback(() => {
+    setActive(null);
+    setQtys({});
+    setLineDues({});
+    setCycleEndEdit("");
+  }, []);
+
   const reloadLists = useCallback(async () => {
     const next = await planningApi.listPackingLists(30);
     setLists(next);
     return next;
+  }, []);
+
+  const onRequestsChangedRef = useRef(onRequestsChanged);
+  onRequestsChangedRef.current = onRequestsChanged;
+  const notifyChanged = useCallback((info?: { clearedId?: string }) => {
+    onRequestsChangedRef.current?.(info);
   }, []);
 
   useEffect(() => {
@@ -564,14 +579,23 @@ export function PackingPanel({
     void (async () => {
       try {
         const next = await reloadLists();
-        const preferredId =
-          (focusId && next.some((l) => l.id === focusId) ? focusId : null) ?? next[0]?.id ?? null;
-        if (preferredId) applyActive(await planningApi.getPackingList(preferredId));
+        if (focusId && next.some((l) => l.id === focusId)) {
+          applyActive(await planningApi.getPackingList(focusId));
+          return;
+        }
+        if (focusId) {
+          notifyChanged({ clearedId: focusId });
+        }
+        // Only auto-open this week's draft/approved — never an older leftover after delete.
+        // Do not depend on parent callback identity — that reset opened "previous weeks" lists.
+        const current = await planningApi.getCurrentPackingList();
+        if (current) applyActive(current);
+        else clearActive();
       } catch (e) {
         reportError(e instanceof Error ? e.message : t.errors.packing);
       }
     })();
-  }, [applyActive, focusId, reloadLists, reportError, t.errors.packing]);
+  }, [applyActive, clearActive, focusId, notifyChanged, reloadLists, reportError, t.errors.packing]);
 
   const lines = active?.lines ?? [];
   const weekNeed = lines.reduce((s, l) => s + (l.targetPack ?? 0), 0);
@@ -624,6 +648,7 @@ export function PackingPanel({
                 const res = await planningApi.proposePackingList();
                 applyActive(res.list);
                 await reloadLists();
+                notifyChanged();
               } catch (e) {
                 reportError(e instanceof Error ? e.message : t.errors.packing);
               } finally {
@@ -652,6 +677,7 @@ export function PackingPanel({
                     const updated = await planningApi.updatePackingLines(active.id, nextLines);
                     applyActive(updated);
                     await reloadLists();
+                    notifyChanged();
                   } catch (e) {
                     reportError(e instanceof Error ? e.message : t.errors.packing);
                   } finally {
@@ -672,6 +698,7 @@ export function PackingPanel({
                   try {
                     applyActive(await planningApi.approvePackingList(active.id));
                     await reloadLists();
+                    notifyChanged();
                   } catch (e) {
                     reportError(e instanceof Error ? e.message : t.errors.packing);
                   } finally {
@@ -701,6 +728,7 @@ export function PackingPanel({
                     }));
                     applyActive(await planningApi.updatePackingLines(active.id, nextLines));
                     await reloadLists();
+                    notifyChanged();
                   } catch (e) {
                     reportError(e instanceof Error ? e.message : t.errors.packing);
                   } finally {
@@ -721,6 +749,7 @@ export function PackingPanel({
                   try {
                     applyActive(await planningApi.markPackingDone(active.id));
                     await reloadLists();
+                    notifyChanged();
                   } catch (e) {
                     reportError(e instanceof Error ? e.message : t.errors.packing);
                   } finally {
@@ -742,6 +771,7 @@ export function PackingPanel({
                   try {
                     applyActive(await planningApi.reopenPackingList(active.id));
                     await reloadLists();
+                    notifyChanged();
                   } catch (e) {
                     reportError(e instanceof Error ? e.message : t.errors.packing);
                   } finally {
@@ -764,10 +794,11 @@ export function PackingPanel({
               void (async () => {
                 setBusy(true);
                 try {
-                  await planningApi.deletePackingList(active.id);
-                  setActive(null);
-                  const next = await reloadLists();
-                  if (next[0]) applyActive(await planningApi.getPackingList(next[0].id));
+                  const deletedId = active.id;
+                  await planningApi.deletePackingList(deletedId);
+                  clearActive();
+                  await reloadLists();
+                  notifyChanged({ clearedId: deletedId });
                 } catch (e) {
                   reportError(e instanceof Error ? e.message : t.errors.packing);
                 } finally {
@@ -837,6 +868,7 @@ export function PackingPanel({
                     try {
                       applyActive(await planningApi.updatePackingDueAt(active.id, cycleEndEdit));
                       await reloadLists();
+                      notifyChanged();
                     } catch (e) {
                       reportError(e instanceof Error ? e.message : t.errors.packing);
                     } finally {
@@ -942,6 +974,7 @@ export function PackingPanel({
                         try {
                           applyActive(await planningApi.deletePackingLine(active.id, line.id));
                           await reloadLists();
+                          notifyChanged();
                         } catch (e) {
                           reportError(e instanceof Error ? e.message : t.errors.packing);
                         } finally {
@@ -971,20 +1004,34 @@ export function PackingPanel({
             t.labels.actions,
           ]}
           rows={lists.map((list) => [
-            planningDocStatusLabel(list.status),
+            <span
+              key={`st-${list.id}`}
+              className={list.id === active?.id ? "font-semibold text-cyan-900" : undefined}
+            >
+              {planningDocStatusLabel(list.status)}
+              {list.id === active?.id ? " · ✓" : ""}
+            </span>,
             formatDateTime(list.cycleEnd),
             `${list.capacityUsed} / ${list.capacityLimit}`,
             formatDateTime(list.createdAt),
             <button
               key={list.id}
               type="button"
-              className="text-cyan-700 underline"
+              disabled={busy || list.id === active?.id}
+              className={
+                list.id === active?.id
+                  ? "font-medium text-cyan-800"
+                  : "text-cyan-700 underline disabled:opacity-50"
+              }
               onClick={() => {
                 void (async () => {
+                  setBusy(true);
                   try {
                     applyActive(await planningApi.getPackingList(list.id));
                   } catch (e) {
                     reportError(e instanceof Error ? e.message : t.errors.packing);
+                  } finally {
+                    setBusy(false);
                   }
                 })();
               }}
@@ -1029,9 +1076,11 @@ function TrackingBadge({ status }: { status: FactoryLineTrackingStatus | undefin
 export function FactoryPanel({
   onError,
   focusId,
+  onRequestsChanged,
 }: {
   onError: (msg: string) => void;
   focusId?: string | null;
+  onRequestsChanged?: (info?: { clearedId?: string }) => void;
 }) {
   const t = strings.planning;
   const reportError = useStableErrorHandler(onError);
@@ -1077,6 +1126,17 @@ export function FactoryPanel({
     setAddDue(toDateInputValue(order.dueAt));
   }, []);
 
+  const clearActive = useCallback(() => {
+    setActive(null);
+    setActiveDueEdit("");
+    setExternalCodeEdit("");
+    setLineQtys({});
+    setLineDues({});
+    setLineReceived({});
+    setAddDue("");
+    setSelectedPartId(null);
+  }, []);
+
   const reloadOrders = useCallback(async () => {
     const next = await planningApi.listFactoryOrders(30);
     setOrders(next);
@@ -1092,6 +1152,12 @@ export function FactoryPanel({
     }
   }, []);
 
+  const onRequestsChangedRef = useRef(onRequestsChanged);
+  onRequestsChangedRef.current = onRequestsChanged;
+  const notifyChanged = useCallback((info?: { clearedId?: string }) => {
+    onRequestsChangedRef.current?.(info);
+  }, []);
+
   useEffect(() => {
     void planningApi
       .getFreshness()
@@ -1102,13 +1168,27 @@ export function FactoryPanel({
         const next = await reloadOrders();
         if (focusId && next.some((o) => o.id === focusId)) {
           applyActive(await planningApi.getFactoryOrder(focusId));
+        } else if (focusId) {
+          // focusId pointed at a deleted order
+          clearActive();
+          notifyChanged({ clearedId: focusId });
         }
+        // No focusId: leave empty (do not auto-open an older draft).
       } catch (e) {
         reportError(e instanceof Error ? e.message : t.errors.factory);
       }
     })();
     void reloadTracking();
-  }, [applyActive, focusId, reportError, reloadOrders, reloadTracking, t.errors.factory]);
+  }, [
+    applyActive,
+    clearActive,
+    focusId,
+    notifyChanged,
+    reportError,
+    reloadOrders,
+    reloadTracking,
+    t.errors.factory,
+  ]);
 
   useEffect(() => {
     if (partSearch.trim().length < 2) {
@@ -1175,6 +1255,7 @@ export function FactoryPanel({
               applyActive(created);
               await reloadOrders();
               await reloadTracking();
+              notifyChanged();
             })
           }
         >
@@ -1318,7 +1399,13 @@ export function FactoryPanel({
             t.labels.actions,
           ]}
           rows={orders.map((o) => [
-            planningDocStatusLabel(o.status),
+            <span
+              key={`st-${o.id}`}
+              className={o.id === active?.id ? "font-semibold text-cyan-900" : undefined}
+            >
+              {planningDocStatusLabel(o.status)}
+              {o.id === active?.id ? " · ✓" : ""}
+            </span>,
             o.externalCode ?? "—",
             <span
               key={`due-${o.id}`}
@@ -1340,7 +1427,12 @@ export function FactoryPanel({
             <span key={o.id} className="flex flex-wrap gap-2">
               <button
                 type="button"
-                className="text-cyan-700 underline"
+                disabled={busy || o.id === active?.id}
+                className={
+                  o.id === active?.id
+                    ? "font-medium text-cyan-800"
+                    : "text-cyan-700 underline disabled:opacity-50"
+                }
                 onClick={() =>
                   void runBusy(async () => {
                     applyActive(await planningApi.getFactoryOrder(o.id));
@@ -1447,10 +1539,11 @@ export function FactoryPanel({
                   onClick={() => {
                     if (!window.confirm(t.confirm.deleteFactory)) return;
                     void runBusy(async () => {
-                      await planningApi.deleteFactoryOrder(active.id);
-                      setActive(null);
-                      const next = await reloadOrders();
-                      if (next[0]) applyActive(await planningApi.getFactoryOrder(next[0].id));
+                      const deletedId = active.id;
+                      await planningApi.deleteFactoryOrder(deletedId);
+                      clearActive();
+                      await reloadOrders();
+                      notifyChanged({ clearedId: deletedId });
                     });
                   }}
                 >

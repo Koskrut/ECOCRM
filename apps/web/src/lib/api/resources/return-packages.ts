@@ -118,6 +118,19 @@ export const returnPackagesApi = {
     return res.data;
   },
 
+  suggestLinesPreview: async (params: {
+    q?: string;
+    productId?: string;
+    contactId?: string;
+    limit?: number;
+  }) => {
+    const res = await apiHttp.get<{
+      items: ReturnPackageLineSuggestion[];
+      scopedToContact: boolean;
+    }>("/return-packages/suggest-lines", { params });
+    return res.data ?? { items: [], scopedToContact: false };
+  },
+
   suggestLines: async (
     id: string,
     params: { q?: string; productId?: string; limit?: number },
@@ -137,6 +150,7 @@ export const returnPackagesApi = {
     warehouseId?: string;
     itemsPending?: boolean;
     items?: Array<{ orderItemId: string; qtyReturned: number }>;
+    lines?: Array<{ orderId: string; orderItemId: string; qtyReturned: number }>;
   }) => {
     const res = await apiHttp.post<ReturnPackage>("/return-packages", body);
     return res.data;

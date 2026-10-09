@@ -407,8 +407,7 @@ export function KitBomsPanel({ onError }: { onError: (msg: string) => void }) {
     if (qty < row.minPackLot) return;
     setActingId(row.kitProductId);
     try {
-      const proposed = await planningApi.proposePackingList();
-      let list = proposed.list;
+      let list = await planningApi.ensurePackingDraft();
       if (list.status === "APPROVED") {
         list = await planningApi.reopenPackingList(list.id);
       }

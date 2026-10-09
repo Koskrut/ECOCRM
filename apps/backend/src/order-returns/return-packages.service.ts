@@ -213,36 +213,56 @@ export class ReturnPackagesService {
     assertManagerPackageCreate(actor);
 
     const ttnNumber = normalizeTtnNumber(dto.ttnNumber);
+    const lineInputs = dto.lines ?? [];
+    const hasLines = lineInputs.length > 0;
     const hasItems = (dto.items?.length ?? 0) > 0;
-    const itemsPending = dto.itemsPending ?? (!hasItems && !!dto.orderId);
+    const itemsPending = dto.itemsPending ?? (!hasItems && !hasLines && !!dto.orderId);
 
-    if (hasItems && itemsPending) {
+    if ((hasItems || hasLines) && itemsPending) {
       throw new BadRequestException("Cannot set itemsPending when items are provided");
     }
-    if (dto.orderId) {
-      await this.ensureOrderCanReturn(dto.orderId, actor);
+    if (hasLines && hasItems) {
+      throw new BadRequestException("Use either lines or a single order item list");
     }
     if (hasItems && !dto.orderId) {
       throw new BadRequestException("orderId is required when items are provided");
     }
 
-    let orderWarehouseId: string | null = null;
-    if (dto.orderId) {
-      const order = await this.prisma.order.findUnique({
-        where: { id: dto.orderId },
-        select: { warehouseId: true },
-      });
-      orderWarehouseId = order?.warehouseId ?? null;
+    const groups = new Map<string, CreateOrderReturnItemDto[]>();
+    if (hasLines) {
+      for (const line of lineInputs) {
+        const bucket = groups.get(line.orderId) ?? [];
+        bucket.push({ orderItemId: line.orderItemId, qtyReturned: line.qtyReturned });
+        groups.set(line.orderId, bucket);
+      }
+    } else if (hasItems && dto.orderId) {
+      groups.set(dto.orderId, dto.items!);
     }
+
+    const prepared = new Map<
+      string,
+      { items: { orderItemId: string; qtyReturned: number }[]; warehouseId: string | null }
+    >();
+    for (const [orderId, items] of groups) {
+      const order = await this.ensureOrderCanReturn(orderId, actor);
+      prepared.set(orderId, {
+        items: await this.validateReturnItems(orderId, items),
+        warehouseId: order.warehouseId ?? null,
+      });
+    }
+    if (!hasLines && !hasItems && dto.orderId) {
+      const order = await this.ensureOrderCanReturn(dto.orderId, actor);
+      prepared.set(dto.orderId, { items: [], warehouseId: order.warehouseId ?? null });
+    }
+
+    const primaryOrderId = dto.orderId ?? lineInputs[0]?.orderId;
+    const orderWarehouseId = primaryOrderId
+      ? (prepared.get(primaryOrderId)?.warehouseId ?? null)
+      : null;
     const warehouseId = await resolveReturnWarehouseId(this.prisma, {
       warehouseId: dto.warehouseId,
-      orderId: dto.orderId,
+      orderId: primaryOrderId,
     });
-
-    let returnItems: { orderItemId: string; qtyReturned: number }[] = [];
-    if (hasItems && dto.orderId) {
-      returnItems = await this.validateReturnItems(dto.orderId, dto.items!);
-    }
 
     const created = await this.prisma.$transaction(async (tx) => {
       const pkg = await this.findOrCreatePackageByTtn(
@@ -266,35 +286,71 @@ export class ReturnPackagesService {
         });
       }
 
-      let orderReturn = null;
-      if (dto.orderId) {
-        const initialStatus: ReturnStatus = itemsPending || returnItems.length === 0
-          ? "IN_TRANSIT_BACK"
-          : "REQUESTED";
-
-        orderReturn = await tx.orderReturn.create({
-          data: {
-            orderId: dto.orderId,
+      for (const [orderId, preparedOrder] of prepared) {
+        const returnItems = preparedOrder.items;
+        const pending = returnItems.length === 0 && itemsPending;
+        const initialStatus: ReturnStatus =
+          pending || returnItems.length === 0 ? "IN_TRANSIT_BACK" : "REQUESTED";
+        const existing = await tx.orderReturn.findFirst({
+          where: {
             returnPackageId: pkg.id,
-            itemsPending,
-            status: initialStatus,
-            warehouseId: warehouseId ?? orderWarehouseId,
-            ...(returnItems.length
-              ? {
-                  items: {
-                    create: returnItems.map((r) => ({
-                      orderItemId: r.orderItemId,
-                      qtyReturned: r.qtyReturned,
-                    })),
-                  },
-                }
-              : {}),
-          },
-          include: {
-            items: { include: { orderItem: true } },
-            order: { select: { id: true, orderNumber: true } },
+            orderId,
+            status: { not: "CLOSED" },
           },
         });
+
+        if (!existing) {
+          await tx.orderReturn.create({
+            data: {
+              orderId,
+              returnPackageId: pkg.id,
+              itemsPending: pending,
+              status: initialStatus,
+              warehouseId: warehouseId ?? preparedOrder.warehouseId ?? orderWarehouseId,
+              ...(returnItems.length
+                ? {
+                    items: {
+                      create: returnItems.map((r) => ({
+                        orderItemId: r.orderItemId,
+                        qtyReturned: r.qtyReturned,
+                      })),
+                    },
+                  }
+                : {}),
+            },
+          });
+          continue;
+        }
+
+        if (returnItems.length === 0) continue;
+        await tx.orderReturn.update({
+          where: { id: existing.id },
+          data: { itemsPending: false },
+        });
+        for (const item of returnItems) {
+          const current = await tx.orderReturnItem.findUnique({
+            where: {
+              orderReturnId_orderItemId: {
+                orderReturnId: existing.id,
+                orderItemId: item.orderItemId,
+              },
+            },
+          });
+          if (current) {
+            await tx.orderReturnItem.update({
+              where: { id: current.id },
+              data: { qtyReturned: current.qtyReturned + item.qtyReturned },
+            });
+          } else {
+            await tx.orderReturnItem.create({
+              data: {
+                orderReturnId: existing.id,
+                orderItemId: item.orderItemId,
+                qtyReturned: item.qtyReturned,
+              },
+            });
+          }
+        }
       }
 
       if (dto.returnIds?.length) {
@@ -338,8 +394,10 @@ export class ReturnPackagesService {
       });
     });
 
-    if (dto.orderId) {
-      await this.orderReturns.syncOrderStateFromReturns(dto.orderId);
+    const syncedOrders = new Set<string>(prepared.keys());
+    if (dto.orderId) syncedOrders.add(dto.orderId);
+    for (const orderId of syncedOrders) {
+      await this.orderReturns.syncOrderStateFromReturns(orderId);
     }
 
     return created;
@@ -511,6 +569,31 @@ export class ReturnPackagesService {
    * When the warehouse does not know the order: search by product SKU/name and
    * suggest returnable order lines (preferring the package contact / company).
    */
+  async suggestLinesPreview(q: SuggestReturnPackageLinesQueryDto, actor?: AuthUser) {
+    const search = q?.q?.trim() ?? "";
+    const productId = q?.productId?.trim() ?? "";
+    if (!search && !productId) {
+      throw new BadRequestException("Provide q (SKU/name) or productId");
+    }
+    const contactId = q?.contactId?.trim() || null;
+    let companyId: string | null = null;
+    if (contactId) {
+      const contact = await this.prisma.contact.findUnique({
+        where: { id: contactId },
+        select: { companyId: true },
+      });
+      companyId = contact?.companyId ?? null;
+    }
+    return this.collectReturnableLines({
+      search,
+      productId,
+      contactId,
+      companyId,
+      limit: q?.limit,
+      actor,
+    });
+  }
+
   async suggestLines(
     id: string,
     q: SuggestReturnPackageLinesQueryDto,
@@ -534,9 +617,28 @@ export class ReturnPackagesService {
     });
     if (!pkg) throw new NotFoundException("Return package not found");
 
-    const limit = Math.min(Math.max(Number(q?.limit ?? 20), 1), 50);
-    const contactId = pkg.contactId ?? pkg.contact?.id ?? null;
-    const companyId = pkg.contact?.companyId ?? null;
+    return this.collectReturnableLines({
+      search,
+      productId,
+      contactId: pkg.contactId ?? pkg.contact?.id ?? null,
+      companyId: pkg.contact?.companyId ?? null,
+      limit: q?.limit,
+      actor,
+    });
+  }
+
+  private async collectReturnableLines(opts: {
+    search: string;
+    productId: string;
+    contactId: string | null;
+    companyId: string | null;
+    limit?: number;
+    actor?: AuthUser;
+  }) {
+    const { search, productId, actor } = opts;
+    const contactId = opts.contactId;
+    const companyId = opts.companyId;
+    const limit = Math.min(Math.max(Number(opts.limit ?? 20), 1), 50);
 
     const productFilter: Prisma.OrderItemWhereInput = productId
       ? { productId }

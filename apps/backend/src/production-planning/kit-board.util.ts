@@ -271,6 +271,8 @@ export type KitBoardRow = {
   toPackWarehouseId: string | null;
   /** Gap that cannot be closed by packing parts already on hand. */
   toProduce: number;
+  /** Qty already on the open packing list; need/toPack/toProduce are net of this. */
+  alreadyInRequest: number;
   tone: KitBoardTone;
   paretoClass: ParetoClass;
   xyzClass: XyzClass | null;
@@ -522,6 +524,8 @@ export function buildKitBoard(input: {
   coverMonths?: number;
   /** Classification month keys (YYYY-MM). Defaults to last 12 calendar months. */
   monthKeys?: string[];
+  /** Open packing-list qty by kit — reserved from the pack pool before allocating toPack. */
+  alreadyInRequestByKit?: Map<string, number> | Record<string, number>;
 }): KitBoardRow[] {
   const coverMonths = Math.max(0, input.coverMonths ?? KIT_BOARD_COVER_MONTHS);
   const monthKeys = input.monthKeys ?? recentYearMonthKeys(new Date(), KIT_BOARD_CLASS_LOOKBACK_MONTHS);
@@ -531,25 +535,47 @@ export function buildKitBoard(input: {
   const stockWarehouses = filterKitStockWarehouses(input.warehouses);
   const stockWarehouseIds = new Set(stockWarehouses.map((w) => w.id));
 
-  const ranked = input.kits.map((kit) => ({
-    kit,
+  const alreadyOf = (productId: string): number => {
+    const map = input.alreadyInRequestByKit;
+    if (!map) return 0;
+    const raw = map instanceof Map ? map.get(productId) : map[productId];
+    return Math.max(0, Math.floor(raw ?? 0));
+  };
+
+  const ranked = input.kits.map((kit) => {
     // Cover / Увага: kits on 44 + Suprex. Pack capacity uses 39/40 ABM separately.
-    need: kitNeed(
+    const rawNeed = kitNeed(
       kit.avgMonthlySold,
       sumQtyOnWarehouses(kit.qtyByWarehouse, stockWarehouseIds),
       coverMonths,
-    ),
-  }));
+    );
+    const alreadyInRequest = alreadyOf(kit.productId);
+    return {
+      kit,
+      rawNeed,
+      alreadyInRequest,
+      // Remaining gap after qty already on this week's packing request.
+      need: Math.max(0, rawNeed - alreadyInRequest),
+    };
+  });
+  // Priority by full sales gap (not remaining) so partially-requested kits keep rank.
   ranked.sort(
-    (a, b) => b.need - a.need || a.kit.sku.localeCompare(b.kit.sku),
+    (a, b) => b.rawNeed - a.rawNeed || a.kit.sku.localeCompare(b.kit.sku),
   );
 
   const remaining = initPartStock(input.kits);
-  const rows: KitBoardRow[] = [];
-
   const packWarehouseIds = packWarehouses.map((w) => w.id);
 
-  for (const { kit, need } of ranked) {
+  // Parts for qty already on the packing list must not be offered again as toPack.
+  for (const { kit, alreadyInRequest } of ranked) {
+    if (alreadyInRequest > 0) {
+      consumePartsFromPool(kit.parts, packWarehouseIds, alreadyInRequest, remaining);
+    }
+  }
+
+  const rows: KitBoardRow[] = [];
+
+  for (const { kit, need, alreadyInRequest } of ranked) {
     const physical = packPoolCapacity(kit.parts, packWarehouses, null);
     const remainingBuild = packPoolCapacity(kit.parts, packWarehouses, remaining);
     const toPack =
@@ -597,6 +623,7 @@ export function buildKitBoard(input: {
       toPack,
       toPackWarehouseId,
       toProduce,
+      alreadyInRequest,
       tone: toneFor({
         avgMonthlySold: kit.avgMonthlySold,
         need,
