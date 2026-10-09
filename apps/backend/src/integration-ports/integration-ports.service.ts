@@ -50,6 +50,20 @@ export type MessengerPort = {
   sendMessageToChat(chatId: string, text: string): Promise<unknown>;
 };
 
+export type ClientOrderNotifyPort = {
+  notifyOrderStageChanged(params: {
+    orderId: string;
+    fromStage: import("@prisma/client").OrderStage | null;
+    toStage: import("@prisma/client").OrderStage;
+  }): Promise<void>;
+  notifyTtnStatusChanged(params: {
+    orderId: string;
+    documentNumber: string | null;
+    statusText: string | null;
+    estimatedDeliveryDate: Date | null;
+  }): Promise<void>;
+};
+
 export type ClientBalancePort = {
   getReturnSettlementPreview(returnId: string, actor?: AuthUser): Promise<unknown>;
   settleReturn(returnId: string, dto: import("../client-balances/dto/settle-return.dto").SettleReturnDto, actor?: AuthUser): Promise<unknown>;
@@ -64,6 +78,7 @@ export class IntegrationPortsService {
   private storeBankAccount: StoreBankAccountPort | null = null;
   private storeNpDirectory: StoreNpDirectoryPort | null = null;
   private messenger: MessengerPort | null = null;
+  private clientOrderNotify: ClientOrderNotifyPort | null = null;
 
   registerOrderPaymentsReader(port: OrderPaymentsReaderPort): void {
     this.orderPaymentsReader = port;
@@ -91,6 +106,10 @@ export class IntegrationPortsService {
 
   registerMessenger(port: MessengerPort): void {
     this.messenger = port;
+  }
+
+  registerClientOrderNotify(port: ClientOrderNotifyPort): void {
+    this.clientOrderNotify = port;
   }
 
   listOrderPaymentsByOrderId(orderId: string, actor?: AuthUser): Promise<unknown> {
@@ -145,5 +164,22 @@ export class IntegrationPortsService {
   sendMessageToChat(chatId: string, text: string): Promise<unknown> {
     if (!this.messenger) throw new ServiceUnavailableException("Messenger integration is not available");
     return this.messenger.sendMessageToChat(chatId, text);
+  }
+
+  async notifyClientOrderStageChanged(params: {
+    orderId: string;
+    fromStage: import("@prisma/client").OrderStage | null;
+    toStage: import("@prisma/client").OrderStage;
+  }): Promise<void> {
+    await this.clientOrderNotify?.notifyOrderStageChanged(params);
+  }
+
+  async notifyClientTtnStatusChanged(params: {
+    orderId: string;
+    documentNumber: string | null;
+    statusText: string | null;
+    estimatedDeliveryDate: Date | null;
+  }): Promise<void> {
+    await this.clientOrderNotify?.notifyTtnStatusChanged(params);
   }
 }

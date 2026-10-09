@@ -1,7 +1,16 @@
 import { MessageDirection, type Prisma } from "@prisma/client";
 
 /** Bot/system command prefixes treated as noise when they are the only inbound activity. */
-export const NOISE_COMMAND_PREFIXES = ["/start", "/help", "/link"] as const;
+export const NOISE_COMMAND_PREFIXES = [
+  "/start",
+  "/help",
+  "/link",
+  "/menu",
+  "/catalog",
+  "/cart",
+  "/orders",
+  "/cancel",
+] as const;
 
 export function isNoiseCommandText(text: string | null | undefined): boolean {
   if (text == null) return false;

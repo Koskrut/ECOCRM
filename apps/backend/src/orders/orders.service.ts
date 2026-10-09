@@ -2211,6 +2211,12 @@ export class OrdersService {
       actor,
     });
 
+    void this.integrations.notifyClientOrderStageChanged({
+      orderId: id,
+      fromStage: current.orderStage,
+      toStage,
+    });
+
     await syncMisPickOutboundForReplacementOrder(this.prisma, id, toStage);
 
     return this.mapToEntity(updated);

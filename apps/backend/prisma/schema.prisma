@@ -3167,6 +3167,8 @@ model PackingListLine {
   kitProductId   String
   qtySuggested   Int
   qtyApproved    Int
+  /// Kits already packed / received by warehouse against this request.
+  qtyPacked      Int       @default(0)
   maxFromParts   Int
   priority       Int       @default(0)
   hardNeed       Int       @default(0)
@@ -3611,6 +3613,30 @@ model TelegramInboundUpdate {
 
   @@index([createdAt])
   @@index([telegramChatId])
+}
+
+/** Per-user FSM for the customer Telegram shop bot. */
+model TelegramBotSession {
+  id             String   @id @default(cuid())
+  telegramUserId String   @unique
+  state          String   @default("idle")
+  payload        Json?
+  updatedAt      DateTime @updatedAt
+  createdAt      DateTime @default(now())
+
+  @@index([updatedAt])
+}
+
+/** Dedup fingerprints for proactive client Telegram pushes (stage / TTN). */
+model TelegramClientNotifyLog {
+  id          String   @id @default(cuid())
+  orderId     String
+  kind        String
+  fingerprint String
+  createdAt   DateTime @default(now())
+
+  @@unique([orderId, kind, fingerprint])
+  @@index([orderId])
 }
 
 model MetaParticipant {

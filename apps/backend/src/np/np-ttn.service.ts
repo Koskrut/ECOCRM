@@ -28,6 +28,7 @@ import {
   isNewOrderStage,
 } from "../orders/order-stage-prerequisites";
 import { OrderMaterialReservationService } from "../orders/order-material-reservation.service";
+import { IntegrationPortsService } from "../integration-ports/integration-ports.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { SettingsService } from "../settings/settings.service";
 import { kyivWallToUtc } from "../crm-timezone";
@@ -58,6 +59,7 @@ export class NpTtnService {
     private readonly np: NpClient,
     private readonly settings: SettingsService,
     private readonly materialReservations: OrderMaterialReservationService,
+    private readonly integrations: IntegrationPortsService,
   ) {}
 
   // ======================
@@ -1932,6 +1934,30 @@ export class NpTtnService {
         await this.materialReservations.applyReservationPolicy(order.id, nextStage, tx);
       }
     });
+
+    // Stage push already includes TTN/NP text for SHIPPED — avoid a second message
+    // on the same sync. TTN-only updates (status text without stage change) still notify.
+    if (nextStage) {
+      void this.integrations.notifyClientOrderStageChanged({
+        orderId: order.id,
+        fromStage: order.orderStage,
+        toStage: nextStage,
+      });
+    } else {
+      const ttnDoc = await this.prisma.orderTtn.findFirst({
+        where: { orderId: order.id },
+        orderBy: { updatedAt: "desc" },
+        select: { documentNumber: true, statusText: true, estimatedDeliveryDate: true },
+      });
+      if (ttnDoc && (ttnDoc.statusText || ttnDoc.documentNumber)) {
+        void this.integrations.notifyClientTtnStatusChanged({
+          orderId: order.id,
+          documentNumber: ttnDoc.documentNumber,
+          statusText: ttnDoc.statusText,
+          estimatedDeliveryDate: ttnDoc.estimatedDeliveryDate,
+        });
+      }
+    }
 
     return true;
   }

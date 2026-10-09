@@ -1,9 +1,7 @@
-import { BadRequestException, forwardRef, Inject, Injectable, Logger } from "@nestjs/common";
+import { BadRequestException, forwardRef, Inject, Injectable, Logger, Optional } from "@nestjs/common";
 import { ConversationChannel, ConversationStatus, MessageDirection } from "@prisma/client";
 import { LeadSource } from "@prisma/client";
 import { LeadStatus } from "@prisma/client";
-import { OrderStage } from "@prisma/client";
-import { OrderStatus } from "@prisma/client";
 import { Prisma } from "@prisma/client";
 import { AuthService } from "../../auth/auth.service";
 import { getPhoneCandidatesForLookup, getPhoneNormalizedDigits } from "../../common/phone.utils";
@@ -13,61 +11,22 @@ import { PrismaService } from "../../prisma/prisma.service";
 import { SettingsService } from "../../settings/settings.service";
 import type {
   ParsedInbound,
+  SendMessageOptions,
   TelegramMediaType,
   TelegramMessage,
   TelegramUpdate,
   TelegramWebhookInfo,
 } from "./telegram.types";
+import {
+  CLIENT_MENU_KEYBOARD,
+  TELEGRAM_EXISTING_CLIENT,
+  TELEGRAM_REQUEST_PHONE,
+} from "./telegram-client.constants";
+import { TelegramClientBotService } from "./telegram-client-bot.service";
 import { TelegramInboxNotifierService } from "./telegram-inbox-notifier.service";
 
 function normalizePhoneDigits(phone: string): string {
   return String(phone ?? "").replace(/\D/g, "");
-}
-
-const TELEGRAM_WELCOME =
-  "Вітаємо! Щоб ми могли швидше з вами зв'язатися, натисніть кнопку нижче або напишіть, що вас цікавить.";
-const TELEGRAM_HELP =
-  "Тут ви можете написати нам. Менеджер відповість у робочий час. Напишіть будь-яке повідомлення — ми його отримаємо.";
-const TELEGRAM_AUTO_REPLY =
-  "Дякуємо за звернення. Ми отримали ваше повідомлення, менеджер відповість найближчим часом.";
-const TELEGRAM_REQUEST_PHONE =
-  "Щоб ідентифікувати вас у CRM, поділіться номером телефону кнопкою нижче.";
-const TELEGRAM_EXISTING_CLIENT =
-  "Ви вже є нашим клієнтом у базі. Оберіть дію в меню нижче або напишіть повідомлення менеджеру.";
-const TELEGRAM_NEW_CLIENT_PROFILE_REQUEST =
-  "Номер не знайдено в базі. Будь ласка, надішліть одним повідомленням: Область, Прізвище, Ім'я.\nПриклад: Київська область, Іваненко, Олена";
-const MENU_ORDER_STATUS = "📦 Статус замовлення";
-const MENU_MANAGER_CHAT = "💬 Написати менеджеру";
-const MENU_CONTACT_US = "📞 Зв'язатись з нами";
-const CLIENT_MENU_BUTTONS = [MENU_ORDER_STATUS, MENU_MANAGER_CHAT, MENU_CONTACT_US];
-const ORDER_STAGE_LABELS: Partial<Record<OrderStage, string>> = {
-  NEW: "🆕 Нове замовлення",
-  CONFIRMED: "🟡 В обробці",
-  AWAITING_PAYMENT: "💳 Очікує оплату",
-  READY_TO_SHIP: "📦 Готове до відправки",
-  SHIPPED: "🚚 Відправлено",
-  COMPLETED: "✅ Виконано",
-  CANCELED: "❌ Скасовано",
-};
-const ORDER_STATUS_LABELS: Partial<Record<OrderStatus, string>> = {
-  NEW: "🆕 Нове замовлення",
-  IN_WORK: "🟡 В обробці",
-  SUCCESS: "💰 Оплачено",
-  SHIPPED: "🚚 Відправлено",
-  READY_TO_SHIP: "📦 Готове до відправки",
-  CANCELED: "❌ Скасовано",
-};
-
-function parseProfileInput(text: string): { region: string; lastName: string; firstName: string } | null {
-  const parts = text
-    .split(",")
-    .map((p) => p.trim())
-    .filter(Boolean);
-  if (parts.length < 3) return null;
-  const [region, lastName, firstName] = parts;
-  if (!region || !lastName || !firstName) return null;
-  if (region.length < 2 || lastName.length < 2 || firstName.length < 2) return null;
-  return { region, lastName, firstName };
 }
 
 /** Skip reprocessing a stuck (unprocessed) inbound record only after it is this old. */
@@ -84,6 +43,9 @@ export class TelegramService {
     private readonly phoneEntityLookup: PhoneEntityLookupService,
     @Inject(forwardRef(() => AuthService)) private readonly authService: AuthService,
     private readonly inboxNotifier: TelegramInboxNotifierService,
+    @Optional()
+    @Inject(forwardRef(() => TelegramClientBotService))
+    private readonly clientBot?: TelegramClientBotService,
   ) {}
 
   /**
@@ -145,6 +107,7 @@ export class TelegramService {
         mediaType: null,
         fileId: null,
         isCallback: true,
+        callbackQueryId: cb.id ?? null,
       };
     }
 
@@ -174,6 +137,7 @@ export class TelegramService {
       mediaType: media?.mediaType ?? null,
       fileId: media?.fileId ?? null,
       isCallback: false,
+      callbackQueryId: null,
     };
   }
 
@@ -246,9 +210,6 @@ export class TelegramService {
 
       const now = new Date();
       let shouldSendExistingClientMenu = false;
-      let shouldRequestProfileDetails = false;
-      // True once we've already sent any bot reply this update, so we don't
-      // stack a generic auto-reply on top of a request-phone / welcome message.
       let botReplySent = false;
 
       const trimmedText = parsed.text?.trim() ?? "";
@@ -256,7 +217,11 @@ export class TelegramService {
       const isStartPlainCommand =
         trimmedText.toLowerCase() === "/start" ||
         (trimmedText.toLowerCase().startsWith("/start") && trimmedText.length <= 6);
-      const isCommandMessage = isHelpCommand || isStartPlainCommand;
+      const isCommandMessage =
+        isHelpCommand ||
+        isStartPlainCommand ||
+        trimmedText.startsWith("/") ||
+        parsed.isCallback;
 
       const account = await this.upsertTelegramAccount({
         telegramUserId: parsed.userId,
@@ -339,8 +304,6 @@ export class TelegramService {
                   ? await this.phoneEntityLookup.findCompanyIdByNormalizedKeys(candidates)
                   : null;
 
-              // Prefer the company the phone already belongs to; otherwise fall back
-              // to the configured default lead company.
               let targetCompanyId: string | null = knownCompanyId;
               if (!targetCompanyId) {
                 const secrets = await this.settings.getTelegramSecrets();
@@ -363,7 +326,7 @@ export class TelegramService {
                     fullName: [parsed.lastName, parsed.firstName].filter(Boolean).join(" ") || null,
                     name: [parsed.lastName, parsed.firstName].filter(Boolean).join(" ") || null,
                     phone: parsed.phone,
-                    phoneNormalized: parsed.phone ? normalizePhoneDigits(parsed.phone) : null,
+                    phoneNormalized: digits || normalizePhoneDigits(parsed.phone),
                   },
                 });
                 leadId = lead.id;
@@ -371,58 +334,19 @@ export class TelegramService {
                   where: { id: account.id },
                   data: { leadId },
                 });
-                shouldRequestProfileDetails = true;
+                // Menu is sent by TelegramClientBotService on phone share.
+                shouldSendExistingClientMenu = true;
+              } else {
+                // Phone saved on TelegramAccount only — still show menu via client bot.
+                shouldSendExistingClientMenu = true;
               }
-              // No company to attach to: keep TelegramAccount + Conversation only.
-              // A lead/contact is created once the client shares a phone or is linked
-              // manually, instead of polluting CRM with a placeholder contact.
             }
           }
         } else if (!isCommandMessage) {
-          // For /start and /help we send a dedicated welcome/help reply below,
-          // so avoid stacking a separate request-phone message on top of it.
           await this.sendMessageToChat(parsed.chatId, TELEGRAM_REQUEST_PHONE, {
             requestContactButton: true,
           });
           botReplySent = true;
-        }
-      }
-
-      if (leadId && parsed.text && !parsed.phone) {
-        const existingLead = await this.prisma.lead.findUnique({
-          where: { id: leadId },
-          select: {
-            id: true,
-            source: true,
-            region: true,
-            firstName: true,
-            lastName: true,
-          },
-        });
-        const needsProfile =
-          existingLead?.source === LeadSource.TELEGRAM &&
-          !existingLead.region &&
-          (!existingLead.firstName ||
-            existingLead.firstName === "Telegram" ||
-            !existingLead.lastName ||
-            existingLead.lastName === "Telegram" ||
-            existingLead.lastName === "User");
-        if (needsProfile) {
-          const profile = parseProfileInput(parsed.text);
-          if (profile) {
-            await this.prisma.lead.update({
-              where: { id: leadId },
-              data: {
-                region: profile.region,
-                firstName: profile.firstName,
-                lastName: profile.lastName,
-                fullName: [profile.lastName, profile.firstName].filter(Boolean).join(" ") || null,
-                name: [profile.lastName, profile.firstName].filter(Boolean).join(" ") || null,
-              },
-            });
-          } else if (!parsed.text.startsWith("/")) {
-            shouldRequestProfileDetails = true;
-          }
         }
       }
 
@@ -435,7 +359,7 @@ export class TelegramService {
         if (leadId) {
           const lead = await this.prisma.lead.findUnique({ where: { id: leadId } });
           if (lead) {
-            const dataToUpdate: any = {};
+            const dataToUpdate: Record<string, unknown> = {};
             if (!lead.phone || lead.phone === placeholderPhone || lead.phone.startsWith("0000")) {
               dataToUpdate.phone = parsed.phone;
               dataToUpdate.phoneNormalized = phoneNorm;
@@ -448,9 +372,13 @@ export class TelegramService {
             }
             if (Object.keys(dataToUpdate).length > 0) {
               const nextFirst =
-                dataToUpdate.firstName !== undefined ? dataToUpdate.firstName : lead.firstName;
+                (dataToUpdate.firstName as string | undefined) !== undefined
+                  ? (dataToUpdate.firstName as string)
+                  : lead.firstName;
               const nextLast =
-                dataToUpdate.lastName !== undefined ? dataToUpdate.lastName : lead.lastName;
+                (dataToUpdate.lastName as string | undefined) !== undefined
+                  ? (dataToUpdate.lastName as string)
+                  : lead.lastName;
               dataToUpdate.fullName = [nextLast, nextFirst].filter(Boolean).join(" ") || null;
               dataToUpdate.name = dataToUpdate.fullName;
               await this.prisma.lead.update({ where: { id: leadId }, data: dataToUpdate });
@@ -461,7 +389,7 @@ export class TelegramService {
         if (contactId) {
           const contact = await this.prisma.contact.findUnique({ where: { id: contactId } });
           if (contact) {
-            const dataToUpdate: any = {};
+            const dataToUpdate: Record<string, unknown> = {};
             if (
               !contact.phone ||
               contact.phone === placeholderPhone ||
@@ -496,6 +424,10 @@ export class TelegramService {
         where: { telegramChatId: parsed.chatId },
       });
 
+      const reopen =
+        conversation?.status === ConversationStatus.CLOSED ||
+        conversation?.status === ConversationStatus.PENDING;
+
       if (!conversation) {
         conversation = await this.prisma.conversation.create({
           data: {
@@ -514,61 +446,71 @@ export class TelegramService {
             contactId: contactId ?? conversation.contactId,
             leadId: leadId ?? conversation.leadId,
             lastMessageAt: now,
+            ...(reopen && !parsed.isCallback ? { status: ConversationStatus.OPEN } : {}),
           },
         });
       }
 
-      try {
-        await this.prisma.message.create({
-          data: {
-            conversationId: conversation.id,
-            direction: MessageDirection.INBOUND,
-            text: parsed.text ?? this.mediaPlaceholderText(parsed.mediaType),
-            mediaType: parsed.mediaType,
-            fileId: parsed.fileId,
-            tgMessageId: String(parsed.messageId),
-            sentAt: parsed.date,
-          },
-        });
-      } catch (error) {
-        if (this.isUniqueConstraintError(error)) {
-          return;
+      // Callbacks are UX-only: do not pollute the transcript with callback_data.
+      let fileUrl: string | null = null;
+      if (parsed.fileId && !parsed.isCallback) {
+        fileUrl = await this.resolveFileUrl(parsed.fileId).catch(() => null);
+      }
+
+      if (!parsed.isCallback) {
+        try {
+          await this.prisma.message.create({
+            data: {
+              conversationId: conversation.id,
+              direction: MessageDirection.INBOUND,
+              text: parsed.text ?? this.mediaPlaceholderText(parsed.mediaType),
+              mediaType: parsed.mediaType,
+              fileId: parsed.fileId,
+              fileUrl,
+              tgMessageId: String(parsed.messageId),
+              sentAt: parsed.date,
+            },
+          });
+        } catch (error) {
+          if (this.isUniqueConstraintError(error)) {
+            return;
+          }
+          throw error;
         }
-        throw error;
       }
 
-      void this.inboxNotifier.notifyInboundMessage({
-        conversationId: conversation.id,
-        telegramChatId: parsed.chatId,
-        messageText: parsed.text ?? this.mediaPlaceholderText(parsed.mediaType),
-      });
-
-      const inboundCount = await this.prisma.message.count({
-        where: { conversationId: conversation.id, direction: MessageDirection.INBOUND },
-      });
-      const handledByMenu = await this.handleClientMenuAction(
-        parsed.chatId,
-        trimmedText,
-        contactId,
-        leadId,
-      );
-
-      if (isHelpCommand) {
-        await this.sendMessageToChat(parsed.chatId, TELEGRAM_HELP);
-      } else if (isStartPlainCommand) {
-        await this.sendMessageToChat(parsed.chatId, TELEGRAM_WELCOME, {
-          requestContactButton: true,
+      // Phone-only contact shares are bot UX — never wake managers.
+      let notifyManager = !parsed.isCallback && !parsed.phone;
+      if (this.clientBot) {
+        const turn = await this.clientBot.handleClientTurn({
+          parsed,
+          conversationId: conversation.id,
+          contactId,
+          leadId,
+          callbackQueryId: parsed.callbackQueryId,
         });
-      } else if (handledByMenu) {
-        // Menu button handled and response already sent.
-      } else if (shouldSendExistingClientMenu) {
+        if (turn.handled) {
+          notifyManager = turn.notifyManager;
+        } else if (shouldSendExistingClientMenu && !botReplySent && !parsed.phone) {
+          // Fallback when client bot did not handle (should be rare).
+          await this.sendMessageToChat(parsed.chatId, TELEGRAM_EXISTING_CLIENT, {
+            menuKeyboard: CLIENT_MENU_KEYBOARD,
+          });
+          notifyManager = false;
+        }
+      } else if (shouldSendExistingClientMenu && !botReplySent) {
         await this.sendMessageToChat(parsed.chatId, TELEGRAM_EXISTING_CLIENT, {
-          menuButtons: CLIENT_MENU_BUTTONS,
+          menuKeyboard: CLIENT_MENU_KEYBOARD,
         });
-      } else if (shouldRequestProfileDetails) {
-        await this.sendMessageToChat(parsed.chatId, TELEGRAM_NEW_CLIENT_PROFILE_REQUEST);
-      } else if (inboundCount === 1 && !botReplySent) {
-        await this.sendMessageToChat(parsed.chatId, TELEGRAM_AUTO_REPLY);
+        notifyManager = false;
+      }
+
+      if (notifyManager) {
+        void this.inboxNotifier.notifyInboundMessage({
+          conversationId: conversation.id,
+          telegramChatId: parsed.chatId,
+          messageText: parsed.text ?? this.mediaPlaceholderText(parsed.mediaType),
+        });
       }
 
       await this.prisma.telegramInboundUpdate
@@ -593,97 +535,6 @@ export class TelegramService {
 
   private isUniqueConstraintError(error: unknown): boolean {
     return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
-  }
-
-  private async handleClientMenuAction(
-    chatId: string,
-    text: string,
-    contactId: string | null,
-    leadId: string | null,
-  ): Promise<boolean> {
-    if (!text) return false;
-
-    if (text === MENU_MANAGER_CHAT) {
-      await this.sendMessageToChat(
-        chatId,
-        "Напишіть ваше запитання одним повідомленням у цьому чаті. Менеджер отримає його та відповість якнайшвидше.",
-        { menuButtons: CLIENT_MENU_BUTTONS },
-      );
-      return true;
-    }
-
-    if (text === MENU_CONTACT_US) {
-      await this.sendMessageToChat(
-        chatId,
-        "Наш менеджер на зв'язку у робочий час. Напишіть, будь ласка, ваш запит у чат — і ми зв'яжемось з вами.",
-        { menuButtons: CLIENT_MENU_BUTTONS },
-      );
-      return true;
-    }
-
-    if (text !== MENU_ORDER_STATUS) return false;
-
-    const resolvedContactId = await this.resolveContactIdForOrders(contactId, leadId);
-    if (!resolvedContactId) {
-      await this.sendMessageToChat(
-        chatId,
-        "Щоб показати статус замовлення, спочатку поділіться номером телефону або напишіть менеджеру.",
-        { menuButtons: CLIENT_MENU_BUTTONS },
-      );
-      return true;
-    }
-
-    const orders = await this.prisma.order.findMany({
-      where: {
-        OR: [{ clientId: resolvedContactId }, { contactId: resolvedContactId }],
-      },
-      orderBy: { createdAt: "desc" },
-      take: 3,
-      select: {
-        orderNumber: true,
-        orderStage: true,
-        status: true,
-        createdAt: true,
-      },
-    });
-
-    if (orders.length === 0) {
-      await this.sendMessageToChat(
-        chatId,
-        "У CRM поки не знайдено ваших замовлень. Напишіть менеджеру, і ми швидко перевіримо вручну.",
-        { menuButtons: CLIENT_MENU_BUTTONS },
-      );
-      return true;
-    }
-
-    const lines = orders.map((o) => {
-      const stage = this.humanOrderStatus(o.orderStage, o.status);
-      const created = o.createdAt.toLocaleDateString("uk-UA");
-      return `• №${o.orderNumber} — ${stage} (${created})`;
-    });
-    await this.sendMessageToChat(chatId, `Останні замовлення:\n${lines.join("\n")}`, {
-      menuButtons: CLIENT_MENU_BUTTONS,
-    });
-    return true;
-  }
-
-  private async resolveContactIdForOrders(
-    contactId: string | null,
-    leadId: string | null,
-  ): Promise<string | null> {
-    if (contactId) return contactId;
-    if (!leadId) return null;
-    const lead = await this.prisma.lead.findUnique({
-      where: { id: leadId },
-      select: { contactId: true },
-    });
-    return lead?.contactId ?? null;
-  }
-
-  private humanOrderStatus(orderStage: OrderStage | null, status: OrderStatus | null): string {
-    if (orderStage) return ORDER_STAGE_LABELS[orderStage] ?? orderStage;
-    if (status) return ORDER_STATUS_LABELS[status] ?? status;
-    return "🆕 Нове замовлення";
   }
 
   private async upsertTelegramAccount(params: {
@@ -744,59 +595,90 @@ export class TelegramService {
 
   /**
    * Send text message to Telegram chat via Bot API. Returns Telegram message_id.
-   * Optionally show Reply keyboard with "Share phone" button (request_contact).
    */
   async sendMessageToChat(
     telegramChatId: string,
     text: string,
-    options?: { requestContactButton?: boolean; menuButtons?: string[] },
+    options?: SendMessageOptions,
   ): Promise<{ messageId: number }> {
-    const secrets = await this.settings.getTelegramSecrets();
-    const token = secrets.botToken ?? process.env.TELEGRAM_BOT_TOKEN;
-    if (!token)
-      throw new Error("Telegram bot token is not set. Configure it in Settings → Telegram.");
-
     const body: Record<string, unknown> = {
       chat_id: telegramChatId,
       text,
     };
+    this.applyReplyMarkup(body, options);
+
+    const result = await this.callBotApi<{ message_id?: number }>("sendMessage", body);
+    if (result?.message_id == null) {
+      throw new Error("Telegram API: missing message_id in response");
+    }
+    return { messageId: result.message_id };
+  }
+
+  async sendPhotoToChat(
+    telegramChatId: string,
+    photoUrl: string,
+    options?: SendMessageOptions & { caption?: string },
+  ): Promise<{ messageId: number }> {
+    const body: Record<string, unknown> = {
+      chat_id: telegramChatId,
+      photo: photoUrl,
+    };
+    if (options?.caption) body.caption = options.caption.slice(0, 1024);
+    this.applyReplyMarkup(body, options);
+    const result = await this.callBotApi<{ message_id?: number }>("sendPhoto", body);
+    if (result?.message_id == null) {
+      throw new Error("Telegram API: missing message_id in sendPhoto response");
+    }
+    return { messageId: result.message_id };
+  }
+
+  async answerCallbackQuery(callbackQueryId: string, text?: string): Promise<void> {
+    await this.callBotApi<boolean>("answerCallbackQuery", {
+      callback_query_id: callbackQueryId,
+      ...(text ? { text: text.slice(0, 200) } : {}),
+    });
+  }
+
+  /** Resolve a Telegram file_id to a temporary Bot API file URL for CRM inbox. */
+  async resolveFileUrl(fileId: string): Promise<string | null> {
+    const token = await this.resolveBotToken();
+    const file = await this.callBotApi<{ file_path?: string }>("getFile", { file_id: fileId });
+    if (!file?.file_path) return null;
+    return `https://api.telegram.org/file/bot${token}/${file.file_path}`;
+  }
+
+  private applyReplyMarkup(body: Record<string, unknown>, options?: SendMessageOptions): void {
     if (options?.requestContactButton) {
       body.reply_markup = {
         keyboard: [[{ text: "📱 Поділитися номером", request_contact: true }]],
         one_time_keyboard: true,
         resize_keyboard: true,
       };
-    } else if (options?.menuButtons?.length) {
+      return;
+    }
+    const replyKeyboard =
+      options?.menuKeyboard ??
+      (options?.menuButtons?.length ? options.menuButtons.map((b) => [b]) : undefined);
+    if (options?.inlineKeyboard?.length) {
       body.reply_markup = {
-        keyboard: options.menuButtons.map((button) => [{ text: button }]),
+        inline_keyboard: options.inlineKeyboard,
+      };
+      // Also keep the persistent reply keyboard if provided (Telegram allows only one reply_markup).
+      // Prefer inline for wizard steps; attach reply keyboard on plain menu replies instead.
+      if (replyKeyboard?.length && !options.inlineKeyboard.length) {
+        body.reply_markup = {
+          keyboard: replyKeyboard.map((row) => row.map((text) => ({ text }))),
+          resize_keyboard: true,
+        };
+      }
+      return;
+    }
+    if (replyKeyboard?.length) {
+      body.reply_markup = {
+        keyboard: replyKeyboard.map((row) => row.map((text) => ({ text }))),
         resize_keyboard: true,
       };
     }
-
-    const url = `https://api.telegram.org/bot${token}/sendMessage`;
-    let res: Response;
-    try {
-      res = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout(10_000),
-      });
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error);
-      throw new Error(`Telegram API request failed: ${msg}`);
-    }
-
-    if (!res.ok) {
-      const errText = await res.text();
-      throw new Error(`Telegram API error ${res.status}: ${errText}`);
-    }
-
-    const data = (await res.json()) as { ok: boolean; result?: { message_id?: number } };
-    if (!data.ok || data.result?.message_id == null) {
-      throw new Error("Telegram API: missing message_id in response");
-    }
-    return { messageId: data.result.message_id };
   }
 
   private async resolveBotToken(): Promise<string> {

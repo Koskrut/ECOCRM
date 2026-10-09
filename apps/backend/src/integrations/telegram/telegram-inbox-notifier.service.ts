@@ -20,9 +20,29 @@ export class TelegramInboxNotifierService {
     const trimmed = text?.trim() ?? "";
     if (!trimmed) return false;
     if (/^\/link\s+\S+/i.test(trimmed)) return true;
-    if (trimmed.toLowerCase() === "/help") return true;
-    if (trimmed.toLowerCase() === "/start") return true;
-    if (trimmed.toLowerCase().startsWith("/start") && trimmed.length <= 6) return true;
+    const lower = trimmed.toLowerCase();
+    if (
+      lower === "/help" ||
+      lower === "/menu" ||
+      lower === "/catalog" ||
+      lower === "/cart" ||
+      lower === "/orders" ||
+      lower === "/cancel"
+    ) {
+      return true;
+    }
+    if (lower === "/start") return true;
+    if (lower.startsWith("/start") && trimmed.length <= 6) return true;
+    // Reply-keyboard menu labels and inline callback payloads
+    if (
+      trimmed === "🛍 Каталог" ||
+      trimmed === "🛒 Кошик" ||
+      trimmed === "📦 Замовлення" ||
+      trimmed === "💬 Менеджер"
+    ) {
+      return true;
+    }
+    if (/^(cat|cart|ord|chk):/.test(trimmed)) return true;
     return false;
   }
 

@@ -4,7 +4,29 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.198**.)_
+_(планируемые изменения после **0.2.199**.)_
+
+## [0.2.199] — 2026-10-09
+
+### Summary
+
+Патч **0.2.199**: Telegram client bot (магазин + нотифікації клієнту); склад — облік `qtyPacked` по заявці на упаковку.
+
+### Added
+
+- Prisma: **TelegramBotSession**, **TelegramClientNotifyLog**; **PackingListLine.qtyPacked**.
+- Telegram client bot: каталог / кошик / checkout / замовлення; push клієнту при зміні stage / ТТН.
+- **`PATCH /planning/packing-lists/:id/packed`**; UI `/work/warehouse/packing` + збереження «отримано» в packing panel.
+
+### Changed
+
+- Inbox Telegram: маршрутизація client-bot vs manager notify.
+- Store checkout / NP sync викликають client notify через integration ports.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.199`**.
+- **Миграции:** `20261009150000_telegram_client_bot`, `20261009160000_packing_list_line_qty_packed` — **`prisma migrate deploy`** / **`backend-migrate`** до **`up`**.
 
 ## [0.2.198] — 2026-10-09
 

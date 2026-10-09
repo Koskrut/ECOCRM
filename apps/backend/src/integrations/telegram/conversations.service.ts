@@ -246,22 +246,37 @@ export class ConversationsService {
       this.prisma.message.count({ where: { conversationId } }),
     ]);
 
+    const items = await Promise.all(
+      messages.map(async (m) => {
+        let fileUrl = m.fileUrl;
+        // Refresh Telegram photo URLs on read — Bot API paths expire.
+        if (m.fileId && m.mediaType === "photo") {
+          try {
+            fileUrl = await this.telegramService.resolveFileUrl(m.fileId);
+          } catch {
+            /* keep stored url / null */
+          }
+        }
+        return {
+          id: m.id,
+          conversationId: m.conversationId,
+          direction: m.direction,
+          text: m.text,
+          tgMessageId: m.tgMessageId,
+          authorUserId: m.authorUserId,
+          author: m.author,
+          sentAt: m.sentAt,
+          createdAt: m.createdAt,
+          mediaType: m.mediaType,
+          fileId: m.fileId,
+          fileUrl,
+          status: m.status,
+        };
+      }),
+    );
+
     return {
-      items: messages.map((m) => ({
-        id: m.id,
-        conversationId: m.conversationId,
-        direction: m.direction,
-        text: m.text,
-        tgMessageId: m.tgMessageId,
-        authorUserId: m.authorUserId,
-        author: m.author,
-        sentAt: m.sentAt,
-        createdAt: m.createdAt,
-        mediaType: m.mediaType,
-        fileId: m.fileId,
-        fileUrl: m.fileUrl,
-        status: m.status,
-      })),
+      items,
       total,
       page,
       pageSize,

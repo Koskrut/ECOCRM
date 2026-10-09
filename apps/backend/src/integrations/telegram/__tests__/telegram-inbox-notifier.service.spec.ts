@@ -30,12 +30,15 @@ function makeNotifications(creates: Array<Record<string, unknown>> = []): Notifi
 }
 
 describe("TelegramInboxNotifierService", () => {
-  it("skips /link, /help, and plain /start", () => {
+  it("skips /link, /help, plain /start, menu labels and callbacks", () => {
     const service = new TelegramInboxNotifierService(makePrisma(), makeNotifications());
     assert.equal(service.shouldSkipNotification("/link abc123"), true);
     assert.equal(service.shouldSkipNotification("/help"), true);
+    assert.equal(service.shouldSkipNotification("/menu"), true);
     assert.equal(service.shouldSkipNotification("/start"), true);
     assert.equal(service.shouldSkipNotification("/START"), true);
+    assert.equal(service.shouldSkipNotification("🛍 Каталог"), true);
+    assert.equal(service.shouldSkipNotification("cat:p:1"), true);
     assert.equal(service.shouldSkipNotification("Привіт"), false);
     assert.equal(service.shouldSkipNotification(null), false);
   });

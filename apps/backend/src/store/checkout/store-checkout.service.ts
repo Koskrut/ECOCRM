@@ -6,6 +6,7 @@ import {
   ReservationHardness,
   ReservationStatus,
 } from "@prisma/client";
+import crypto from "node:crypto";
 import { signJwt } from "../../auth/jwt";
 import { hashPassword } from "../../auth/password";
 import { ContactsService } from "../../contacts/contacts.service";
@@ -49,7 +50,11 @@ export class StoreCheckoutService {
     private readonly productStore: ProductStore,
   ) {}
 
-  async checkout(dto: StoreCheckoutDto) {
+  /**
+   * @param options.autoCreateCustomer — for Telegram bot: create Customer with a
+   * random password when missing (client resets via store “forgot password”).
+   */
+  async checkout(dto: StoreCheckoutDto, options?: { autoCreateCustomer?: boolean }) {
     const sessionId = dto.sessionId?.trim();
     if (!sessionId) throw new BadRequestException("sessionId required for cart");
     const cart = await this.cartService.getCart({ sessionId });
@@ -406,9 +411,13 @@ export class StoreCheckoutService {
       where: { contactId: contact.id },
     });
     if (!customer) {
-      const rawPassword = (dto.password ?? "").trim();
+      let rawPassword = (dto.password ?? "").trim();
       if (rawPassword.length < 6) {
-        throw new BadRequestException("Пароль має бути не менше 6 символів");
+        if (options?.autoCreateCustomer) {
+          rawPassword = crypto.randomBytes(24).toString("hex");
+        } else {
+          throw new BadRequestException("Пароль має бути не менше 6 символів");
+        }
       }
       customer = await this.prisma.customer.create({
         data: {

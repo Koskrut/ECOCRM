@@ -7,11 +7,13 @@ import {
 } from "../conversation-inbox.util";
 
 describe("isNoiseCommandText", () => {
-  it("detects /start /help /link and bot-scoped forms", () => {
+  it("detects /start /help /link /menu and bot-scoped forms", () => {
     assert.equal(isNoiseCommandText("/start"), true);
     assert.equal(isNoiseCommandText("/start payload"), true);
     assert.equal(isNoiseCommandText("/start@MyBot"), true);
     assert.equal(isNoiseCommandText("/help"), true);
+    assert.equal(isNoiseCommandText("/menu"), true);
+    assert.equal(isNoiseCommandText("/catalog"), true);
     assert.equal(isNoiseCommandText("/link TOKEN"), true);
     assert.equal(isNoiseCommandText(""), true);
     assert.equal(isNoiseCommandText("   "), true);

@@ -98,6 +98,32 @@ function makeService(prisma: AnyRec) {
   };
   const inboxNotifier = { notifyInboundMessage: async () => undefined };
 
+  const clientBot = {
+    handleClientTurn: async (params: AnyRec) => {
+      const p = params.parsed as AnyRec;
+      const text = String(p?.text ?? "").trim().toLowerCase();
+      const chatId = String(p.chatId);
+      if (p.phone) {
+        const msg = params.contactId
+          ? "Раді бачити вас знову!"
+          : params.leadId
+            ? "Номер збережено"
+            : "Номер збережено (без CRM)";
+        sent.push({ chatId, text: msg });
+        return { handled: true, notifyManager: false };
+      }
+      if (text === "/start" || (text.startsWith("/start") && text.length <= 6)) {
+        sent.push({ chatId, text: "Вітаємо! (client-bot)" });
+        return { handled: true, notifyManager: false };
+      }
+      if (text === "/help") {
+        sent.push({ chatId, text: "Help" });
+        return { handled: true, notifyManager: false };
+      }
+      return { handled: false, notifyManager: true };
+    },
+  };
+
   const service = new TelegramService(
     prisma as never,
     settings as never,
@@ -105,19 +131,20 @@ function makeService(prisma: AnyRec) {
     phoneEntityLookup as never,
     authService as never,
     inboxNotifier as never,
+    clientBot as never,
   );
 
-  // Focus tests on orchestration: stub account upsert / menu / send.
+  // Focus tests on orchestration: stub account upsert / send.
   const upsertCalls: AnyRec[] = [];
   (service as unknown as AnyRec).upsertTelegramAccount = async (params: AnyRec) => {
     upsertCalls.push(params);
     return { id: "acc1", contactId: null, leadId: null };
   };
-  (service as unknown as AnyRec).handleClientMenuAction = async () => false;
   (service as unknown as AnyRec).sendMessageToChat = async (chatId: string, text: string) => {
     sent.push({ chatId, text });
     return { messageId: 999 };
   };
+  (service as unknown as AnyRec).resolveFileUrl = async () => null;
 
   return {
     service,
@@ -216,7 +243,7 @@ describe("TelegramService.handleInboundUpdate", () => {
     assert.match(harness.sent[0].text, /Вітаємо/);
   });
 
-  it("creates a lead in the company the phone already belongs to", async () => {
+  it("creates a lead in the company the phone already belongs to and shows menu", async () => {
     mock = makePrisma();
     harness = makeService(mock.prisma);
     (harness.phoneEntityLookup as AnyRec).findCompanyIdByNormalizedKeys = async () => "company-42";
@@ -226,14 +253,31 @@ describe("TelegramService.handleInboundUpdate", () => {
     assert.equal(mock.calls.leadCreate.length, 1);
     const data = mock.calls.leadCreate[0].data as AnyRec;
     assert.equal(data.companyId, "company-42");
+    assert.equal(data.phoneNormalized, "380501234567");
     assert.equal(mock.calls.contactCreate.length, 0, "no placeholder contact");
+    assert.equal(harness.sent.length, 1);
+    assert.match(harness.sent[0].text, /Номер збережено/);
   });
 
-  it("does not create a placeholder contact when no company can be resolved", async () => {
+  it("does not create a placeholder contact when no company can be resolved, but still shows menu", async () => {
     await harness.service.handleInboundUpdate(contactShareUpdate("+380501234567"));
 
     assert.equal(mock.calls.contactCreate.length, 0);
     assert.equal(mock.calls.leadCreate.length, 0);
+    assert.equal(harness.sent.length, 1);
+    assert.match(harness.sent[0].text, /Номер збережено/);
+  });
+
+  it("shows existing-client menu when phone matches a contact", async () => {
+    mock = makePrisma();
+    harness = makeService(mock.prisma);
+    (harness.contactsService as AnyRec).findContactByPhone = async () => ({ id: "contact-9" });
+
+    await harness.service.handleInboundUpdate(contactShareUpdate("+380501234567"));
+
+    assert.equal(mock.calls.leadCreate.length, 0);
+    assert.equal(harness.sent.length, 1);
+    assert.match(harness.sent[0].text, /Раді бачити/);
   });
 
   it("rejects /link outside a private chat and does not confirm the link", async () => {

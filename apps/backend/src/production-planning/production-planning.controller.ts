@@ -460,9 +460,19 @@ export class ProductionPlanningController {
   }
 
   @Post("packing-lists/:id/done")
-  @Roles(UserRole.ADMIN, UserRole.LEAD)
+  @Roles(UserRole.ADMIN, UserRole.LEAD, UserRole.WAREHOUSE)
   markPackingDone(@Param("id") id: string) {
     return this.packingLists.markDone(id);
+  }
+
+  @Patch("packing-lists/:id/packed")
+  @Roles(UserRole.ADMIN, UserRole.LEAD, UserRole.WAREHOUSE)
+  updatePackingPacked(
+    @Param("id") id: string,
+    @Body() body: { lines: Array<{ kitProductId: string; qtyPacked: number }> },
+  ) {
+    if (!Array.isArray(body?.lines)) throw new BadRequestException("lines array is required");
+    return this.packingLists.updatePacked(id, body.lines);
   }
 
   @Patch("packing-lists/:id/due-at")

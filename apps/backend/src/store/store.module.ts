@@ -49,5 +49,12 @@ import { StoreTelegramLinkService } from "./telegram/store-telegram-link.service
     StoreCabinetService,
     StoreTelegramLinkService,
   ],
+  exports: [
+    StoreCartService,
+    StoreCheckoutService,
+    StoreCheckoutPaymentLinkService,
+    StoreCabinetService,
+    StoreTelegramLinkService,
+  ],
 })
 export class StoreModule {}

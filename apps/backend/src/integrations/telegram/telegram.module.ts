@@ -5,10 +5,15 @@ import { ContactsModule } from "../../contacts/contacts.module";
 import { IntegrationPortsModule } from "../../integration-ports/integration-ports.module";
 import { NotificationsModule } from "../../notifications/notifications.module";
 import { PrismaModule } from "../../prisma/prisma.module";
+import { ProductsModule } from "../../products/products.module";
 import { SettingsModule } from "../../settings/settings.module";
+import { StoreModule } from "../../store/store.module";
 import { ConversationsController } from "./conversations.controller";
 import { ConversationsService } from "./conversations.service";
 import { TelegramAiService } from "./telegram-ai.service";
+import { TelegramBotSessionService } from "./telegram-bot-session.service";
+import { TelegramClientBotService } from "./telegram-client-bot.service";
+import { TelegramClientNotifyService } from "./telegram-client-notify.service";
 import { TelegramInboxNotifierService } from "./telegram-inbox-notifier.service";
 import { TelegramIntegrationAdapter } from "./telegram-integration.adapter";
 import { TelegramController } from "./telegram.controller";
@@ -20,6 +25,8 @@ import { TelegramService } from "./telegram.service";
     SettingsModule,
     IntegrationPortsModule,
     ContactsModule,
+    ProductsModule,
+    StoreModule,
     forwardRef(() => AuthModule),
     forwardRef(() => NotificationsModule),
   ],
@@ -31,7 +38,10 @@ import { TelegramService } from "./telegram.service";
     ConversationsService,
     TelegramIntegrationAdapter,
     TelegramInboxNotifierService,
+    TelegramBotSessionService,
+    TelegramClientBotService,
+    TelegramClientNotifyService,
   ],
-  exports: [TelegramService, ConversationsService],
+  exports: [TelegramService, ConversationsService, TelegramClientNotifyService],
 })
 export class TelegramModule {}

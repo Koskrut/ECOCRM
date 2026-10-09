@@ -529,6 +529,7 @@ export function PackingPanel({
   const [active, setActive] = useState<PackingList | null>(null);
   const [busy, setBusy] = useState(false);
   const [qtys, setQtys] = useState<Record<string, string>>({});
+  const [packedQtys, setPackedQtys] = useState<Record<string, string>>({});
   const [lineDues, setLineDues] = useState<Record<string, string>>({});
   const [cycleEndEdit, setCycleEndEdit] = useState("");
   const [filter, setFilter] = useState<PackWeekFilter>("all");
@@ -538,6 +539,11 @@ export function PackingPanel({
     setCycleEndEdit(toDateInputValue(full.cycleEnd));
     setQtys(
       Object.fromEntries((full.lines ?? []).map((l) => [l.kitProductId, String(l.qtyApproved)])),
+    );
+    setPackedQtys(
+      Object.fromEntries(
+        (full.lines ?? []).map((l) => [l.kitProductId, String(l.qtyPacked ?? 0)]),
+      ),
     );
     setLineDues(
       Object.fromEntries(
@@ -552,6 +558,7 @@ export function PackingPanel({
   const clearActive = useCallback(() => {
     setActive(null);
     setQtys({});
+    setPackedQtys({});
     setLineDues({});
     setCycleEndEdit("");
   }, []);
@@ -763,6 +770,64 @@ export function PackingPanel({
             <button
               type="button"
               disabled={busy}
+              className="rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-sm disabled:opacity-50"
+              onClick={() => {
+                void (async () => {
+                  setBusy(true);
+                  try {
+                    applyActive(
+                      await planningApi.updatePackingPacked(
+                        active.id,
+                        (active.lines ?? []).map((l) => ({
+                          kitProductId: l.kitProductId,
+                          qtyPacked: Number(packedQtys[l.kitProductId]) || 0,
+                        })),
+                      ),
+                    );
+                    await reloadLists();
+                    notifyChanged();
+                  } catch (e) {
+                    reportError(e instanceof Error ? e.message : t.errors.packing);
+                  } finally {
+                    setBusy(false);
+                  }
+                })();
+              }}
+            >
+              {t.actions.savePackingPacked}
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              className="rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-sm disabled:opacity-50"
+              onClick={() => {
+                void (async () => {
+                  setBusy(true);
+                  try {
+                    applyActive(
+                      await planningApi.updatePackingPacked(
+                        active.id,
+                        (active.lines ?? []).map((l) => ({
+                          kitProductId: l.kitProductId,
+                          qtyPacked: l.qtyApproved,
+                        })),
+                      ),
+                    );
+                    await reloadLists();
+                    notifyChanged();
+                  } catch (e) {
+                    reportError(e instanceof Error ? e.message : t.errors.packing);
+                  } finally {
+                    setBusy(false);
+                  }
+                })();
+              }}
+            >
+              {t.actions.markPackingPackedAll}
+            </button>
+            <button
+              type="button"
+              disabled={busy}
               className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900 disabled:opacity-50"
               onClick={() => {
                 if (!window.confirm(t.confirm.reopenPacking)) return;
@@ -890,6 +955,9 @@ export function PackingPanel({
               t.labels.canPackNow,
               t.labels.toWork,
               t.labels.weekRequest,
+              ...(active.status === "APPROVED" || active.status === "DONE"
+                ? [t.labels.qtyPacked]
+                : []),
               t.labels.packingLineDue,
               ...(active.status === "DRAFT" ? [t.labels.actions] : []),
             ]}
@@ -903,6 +971,8 @@ export function PackingPanel({
               const canPackNow = line.canPackNow ?? line.maxFromParts;
               const toWork = line.toWork ?? 0;
               const dueEditable = active.status === "DRAFT" || active.status === "APPROVED";
+              const packedEditable =
+                active.status === "APPROVED" || active.status === "DONE";
               const baseRow = [
                 <span key={line.id} className={highlighted ? "rounded bg-cyan-50 px-1" : undefined}>
                   <span className={`block font-medium ${blocked ? "text-rose-700" : ""}`}>
@@ -943,6 +1013,21 @@ export function PackingPanel({
                 ) : (
                   String(line.qtyApproved)
                 ),
+                ...(packedEditable
+                  ? [
+                      <input
+                        key={`${line.id}-packed`}
+                        className="w-24 rounded border border-zinc-200 px-2 py-1"
+                        value={packedQtys[line.kitProductId] ?? String(line.qtyPacked ?? 0)}
+                        onChange={(e) =>
+                          setPackedQtys((prev) => ({
+                            ...prev,
+                            [line.kitProductId]: e.target.value,
+                          }))
+                        }
+                      />,
+                    ]
+                  : []),
                 dueEditable ? (
                   <input
                     key={`${line.id}-due`}

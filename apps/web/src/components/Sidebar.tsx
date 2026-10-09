@@ -25,6 +25,7 @@ import {
   ShieldAlert,
   BookOpen,
   Factory,
+  PackageCheck,
   type LucideIcon,
 } from "lucide-react";
 import { apiHttp } from "../lib/api/client";
@@ -91,6 +92,7 @@ const warehouseMenuItems = (base: MenuItem[]): MenuItem[] => {
   const t = strings.nav;
   return [
     { label: t.warehouseWork, icon: Boxes, href: "/work/warehouse", exact: true },
+    { label: t.warehousePacking, icon: PackageCheck, href: "/work/warehouse/packing", exact: true },
     { label: t.warehouseReturns, icon: Package, href: "/work/warehouse/returns", exact: true },
     { label: t.orders, icon: Package, href: "/orders" },
     { label: t.catalog, icon: LayoutGrid, href: "/catalog" },

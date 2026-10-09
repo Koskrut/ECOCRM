@@ -112,4 +112,17 @@ export type ParsedInbound = {
   fileId: string | null;
   /** True when the inbound came from an inline keyboard callback rather than a message. */
   isCallback: boolean;
+  /** Present for callback_query updates (needed for answerCallbackQuery). */
+  callbackQueryId: string | null;
+};
+
+export type TelegramInlineButton = { text: string; callback_data: string };
+
+export type SendMessageOptions = {
+  requestContactButton?: boolean;
+  /** Legacy flat list (one button per row). Prefer menuKeyboard. */
+  menuButtons?: string[];
+  /** Reply keyboard rows, e.g. 2×2 main menu. */
+  menuKeyboard?: string[][];
+  inlineKeyboard?: TelegramInlineButton[][];
 };

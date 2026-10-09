@@ -69,6 +69,8 @@ type UnifiedMessage = {
   author: { id: string; fullName: string; email: string } | null;
   sentAt: string;
   status?: "PENDING" | "SENT" | "FAILED";
+  mediaType?: string | null;
+  fileUrl?: string | null;
 };
 
 function formatTime(iso: string): string {
@@ -449,6 +451,8 @@ function UnifiedInboxContent() {
               author: m.author,
               sentAt: m.sentAt,
               status: m.status,
+              mediaType: m.mediaType,
+              fileUrl: m.fileUrl,
             })),
           );
         } else {
@@ -465,6 +469,8 @@ function UnifiedInboxContent() {
               text: m.text,
               author: m.author,
               sentAt: m.sentAt,
+              mediaType: m.mediaType,
+              fileUrl: m.fileUrl,
             })),
           );
         }
@@ -1062,8 +1068,24 @@ function UnifiedInboxContent() {
                                 : "bg-zinc-100 text-zinc-900"
                             }`}
                           >
+                            {m.mediaType === "photo" && m.fileUrl ? (
+                              <a
+                                href={m.fileUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="mb-1 block overflow-hidden rounded-md"
+                              >
+                                {/* Telegram Bot API file URLs are temporary; open in new tab. */}
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img
+                                  src={m.fileUrl}
+                                  alt={m.text || "фото"}
+                                  className="max-h-64 max-w-full object-contain"
+                                />
+                              </a>
+                            ) : null}
                             <p className="whitespace-pre-wrap break-words">
-                              {m.text || "(вкладення)"}
+                              {m.text || (m.mediaType ? `(${m.mediaType})` : "(вкладення)")}
                             </p>
                             <p
                               className={`mt-1 text-[10px] ${

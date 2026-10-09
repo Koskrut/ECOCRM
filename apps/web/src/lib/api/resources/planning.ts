@@ -473,6 +473,8 @@ export type PackingListLine = {
   kitProductId: string;
   qtySuggested: number;
   qtyApproved: number;
+  /** Kits packed / received by warehouse against this request. */
+  qtyPacked?: number;
   maxFromParts: number;
   priority: number;
   hardNeed: number;
@@ -1149,6 +1151,13 @@ export const planningApi = {
   },
   markPackingDone: async (id: string): Promise<PackingList> => {
     const res = await apiHttp.post(`/planning/packing-lists/${id}/done`);
+    return res.data;
+  },
+  updatePackingPacked: async (
+    id: string,
+    lines: Array<{ kitProductId: string; qtyPacked: number }>,
+  ): Promise<PackingList> => {
+    const res = await apiHttp.patch<PackingList>(`/planning/packing-lists/${id}/packed`, { lines });
     return res.data;
   },
   updatePackingDueAt: async (id: string, cycleEnd: string): Promise<PackingList> => {

@@ -753,6 +753,49 @@ export class PackingListService {
     return { ...done, lines: await this.enrichLines(done.lines) };
   }
 
+  /**
+   * Warehouse receipts against an approved packing request.
+   * When every line is fully packed, the list moves to DONE.
+   */
+  async updatePacked(
+    id: string,
+    lines: Array<{ kitProductId: string; qtyPacked: number }>,
+  ) {
+    const list = await this.get(id);
+    if (list.status !== PackingListStatus.APPROVED && list.status !== PackingListStatus.DONE) {
+      throw new BadRequestException("Can only record packed qty on approved packing lists");
+    }
+    for (const line of lines) {
+      const existing = list.lines.find((l) => l.kitProductId === line.kitProductId);
+      if (!existing) continue;
+      await this.prisma.packingListLine.update({
+        where: { id: existing.id },
+        data: { qtyPacked: Math.max(0, Math.round(line.qtyPacked)) },
+      });
+    }
+    const refreshed = await this.get(id);
+    const activeLines = refreshed.lines.filter((l) => l.qtyApproved > 0);
+    const allPacked =
+      activeLines.length > 0 &&
+      activeLines.every((l) => l.qtyPacked >= l.qtyApproved);
+    if (allPacked && refreshed.status === PackingListStatus.APPROVED) {
+      await this.prisma.packingList.update({
+        where: { id },
+        data: { status: PackingListStatus.DONE },
+      });
+      return this.get(id);
+    }
+    if (!allPacked && refreshed.status === PackingListStatus.DONE) {
+      // Allow correcting receipts after accidental full mark — reopen to APPROVED.
+      await this.prisma.packingList.update({
+        where: { id },
+        data: { status: PackingListStatus.APPROVED },
+      });
+      return this.get(id);
+    }
+    return refreshed;
+  }
+
   async updateCycleEnd(id: string, cycleEndIso: string) {
     const list = await this.get(id);
     if (list.status === PackingListStatus.DONE) {
@@ -816,6 +859,10 @@ export class PackingListService {
     if (list.status !== PackingListStatus.APPROVED) {
       throw new BadRequestException("Only APPROVED packing lists can be reopened");
     }
+    await this.prisma.packingListLine.updateMany({
+      where: { packingListId: id },
+      data: { qtyPacked: 0 },
+    });
     const reopened = await this.prisma.packingList.update({
       where: { id },
       data: {
