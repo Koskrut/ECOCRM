@@ -285,6 +285,25 @@ export type ActiveBom = {
   lines: BomLine[];
 };
 
+export type BomCatalogLine = {
+  componentProductId: string;
+  sku: string;
+  name: string;
+  qtyPerKit: number;
+  scrapPct: number | null;
+  sortOrder: number;
+};
+
+export type BomCatalogItem = {
+  kitProductId: string;
+  sku: string;
+  name: string;
+  bomId: string | null;
+  revision: number | null;
+  linesCount: number;
+  lines: BomCatalogLine[];
+};
+
 export type KitBomListLine = {
   componentProductId: string;
   componentSku: string;
@@ -921,6 +940,12 @@ export const planningApi = {
     });
     return res.data;
   },
+  listBomCatalog: async (params?: { q?: string }): Promise<BomCatalogItem[]> => {
+    const res = await apiHttp.get<BomCatalogItem[]>("/planning/boms/catalog", {
+      params: params?.q ? { q: params.q } : undefined,
+    });
+    return res.data;
+  },
   getBom: async (kitProductId: string): Promise<ActiveBom> => {
     const res = await apiHttp.get<ActiveBom>(`/planning/boms/${kitProductId}`);
     return res.data;
@@ -930,6 +955,12 @@ export const planningApi = {
     payload: { lines: Array<{ componentProductId: string; qtyPerKit: number; scrapPct?: number; sortOrder?: number }> },
   ): Promise<ActiveBom> => {
     const res = await apiHttp.post<ActiveBom>(`/planning/boms/${kitProductId}/revision`, payload);
+    return res.data;
+  },
+  copyBom: async (sourceKitProductId: string, targetKitProductId: string): Promise<ActiveBom> => {
+    const res = await apiHttp.post<ActiveBom>(`/planning/boms/${sourceKitProductId}/copy`, {
+      targetKitProductId,
+    });
     return res.data;
   },
   importBomFile: async (file: File): Promise<BomImportResult> => {

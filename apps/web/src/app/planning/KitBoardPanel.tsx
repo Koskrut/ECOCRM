@@ -11,6 +11,7 @@ import {
   type KitBoardTone,
   type KitBoardView,
 } from "@/lib/api/resources/planning";
+import { KitSpecsPanel } from "./KitSpecsPanel";
 import { RequestsPanel } from "./RequestsPanel";
 
 const UNASSIGNED_WAREHOUSE_ID = "__unassigned__";
@@ -20,7 +21,7 @@ type AttentionFilter = "all" | "attention";
 type SortKey = "class" | "sku" | "stock" | "sales" | "pack" | "produce";
 type SortDir = "asc" | "desc";
 type RequestKind = "pack" | "produce";
-type MainTab = "board" | "pack" | "factory";
+type MainTab = "board" | "pack" | "factory" | "specs";
 type AbcFilter = "A" | "B" | "C";
 type XyzFilter = "X" | "Y" | "Z" | "none";
 
@@ -416,6 +417,7 @@ export function KitBoardPanel() {
         {tabBtn("board", t.tabBoard)}
         {tabBtn("pack", t.tabPack)}
         {tabBtn("factory", t.tabFactory)}
+        {tabBtn("specs", t.tabSpecs)}
         <div className="ml-auto flex flex-wrap items-center gap-2">
           {canUpload ? (
             <label className="cursor-pointer rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-sm text-zinc-800">
@@ -496,7 +498,9 @@ export function KitBoardPanel() {
         <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>
       ) : null}
 
-      {mainTab === "board" ? (
+      {mainTab === "specs" ? (
+        <KitSpecsPanel onError={(msg) => setError(msg)} />
+      ) : mainTab === "board" ? (
         <>
           <p className="text-sm text-zinc-500">{t.sharedHint}</p>
           <p className="text-sm text-zinc-500">{t.addHint}</p>
@@ -699,7 +703,7 @@ export function KitBoardPanel() {
         <section id="planning-requests" className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
           <RequestsPanel
             key={`${requestsKey}-${mainTab}-${focusRequestId ?? ""}`}
-            forcedKind={mainTab === "pack" ? "pack" : "factory"}
+            forcedKind={mainTab === "factory" ? "factory" : "pack"}
             focusId={focusRequestId}
             onRequestsChanged={handleRequestsChanged}
             onError={(msg) => setError(msg)}

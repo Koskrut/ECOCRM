@@ -231,6 +231,12 @@ export class ProductionPlanningController {
     return this.kitBomList.listActive(q);
   }
 
+  /** Specs directory — kits with active BOM lines (lightweight). Before :kitProductId. */
+  @Get("boms/catalog")
+  listBomCatalog(@Query("q") q?: string) {
+    return this.bomService.listCatalog(q);
+  }
+
   @Get("boms/:kitProductId")
   getActiveBom(@Param("kitProductId") kitProductId: string) {
     return this.bomService.getActiveBom(kitProductId);
@@ -243,6 +249,18 @@ export class ProductionPlanningController {
     @Body() body: { lines: Array<{ componentProductId: string; qtyPerKit: number; scrapPct?: number; sortOrder?: number }> },
   ) {
     return this.bomService.upsertNewRevision(kitProductId, body.lines ?? []);
+  }
+
+  @Post("boms/:kitProductId/copy")
+  @Roles(UserRole.ADMIN, UserRole.LEAD)
+  copyBom(
+    @Param("kitProductId") kitProductId: string,
+    @Body() body: { targetKitProductId?: string },
+  ) {
+    if (!body?.targetKitProductId) {
+      throw new BadRequestException("targetKitProductId is required");
+    }
+    return this.bomService.copyBom(kitProductId, body.targetKitProductId);
   }
 
   @Get("inventory-snapshots")

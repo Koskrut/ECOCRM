@@ -4,7 +4,23 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.195**.)_
+_(планируемые изменения после **0.2.196**.)_
+
+## [0.2.196] — 2026-10-09
+
+### Summary
+
+Патч **0.2.196**: Kit Specs — довідник специфікацій (BOM): перегляд, нова ревізія, копіювання між комплектами.
+
+### Added
+
+- **`GET /planning/boms/catalog`**, **`POST /planning/boms/:kitProductId/copy`**.
+- Вкладка **Specifications** на `/planning` (**KitSpecsPanel**): пошук, edit/new/copy BOM.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.196`**.
+- **Миграций нет.**
 
 ## [0.2.195] — 2026-10-09
 
