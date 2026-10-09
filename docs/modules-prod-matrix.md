@@ -1,6 +1,6 @@
 # Матрица модулей CRM (production)
 
-> Синхронизировано с релизом **`v0.2.196`** (Kit Specs BOM directory): NP **IntegrationSetting** + UI **`/settings/nova-poshta`**; Google Drive в **Settings → Google-таблиця**; companies create (name-only, auto owner); rewrite путей прокси NP → upstream.
+> Синхронизировано с релизом **`v0.2.197`** (Kit Board filters + create kit + inbox URL): NP **IntegrationSetting** + UI **`/settings/nova-poshta`**; Google Drive в **Settings → Google-таблиця**; companies create (name-only, auto owner); rewrite путей прокси NP → upstream.
 
 Документ фиксирует **фактическое** состояние репозитория: реестр (`module-registry.ts`), варианты `BACKEND_VARIANT`, Docker, compose, reverse-proxy на sidecar, health-пробы, UI настроек и cron. Для лицензирования и CP см. `ModuleManifestV1` в `@crm/contracts`; поле `delivery` в манифесте описывает **продуктовый** тип, а не каждый способ деплоя — при необходимости sidecar переменные `*_UPSTREAM_URL` документированы ниже (см. также комментарии `// RU:` в `apps/backend/src/modules/module-registry.ts`).
 

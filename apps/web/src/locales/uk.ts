@@ -632,7 +632,11 @@ export const uk = {
       filter80: "80% доходу",
       filterAll: "Усі",
       filterPack: "Пакувати зараз",
+      filterPackHint:
+        "Залишок комплекту менший за продажі за 3 міс., а деталі на 39/40 уже дозволяють зібрати — додайте в упаковку.",
       filterMissing: "Немає деталей",
+      filterMissingHint:
+        "Продажі за 3 міс. не покриті залишком, але деталей не вистачає — у виробництво.",
       filterAttention: "Увага",
       filterAttentionHint:
         "Залишок на 44/Suprex + уже в заявці на упаковку ще не закривають продажі на 3 міс.",
@@ -696,6 +700,9 @@ export const uk = {
       packCan: "можна",
       packCanPhysical: (n: number) => `фізично на одному складі: ${n}`,
       packQtyTooHigh: (n: number) => `За планом дошки максимум ${n} (продажі + спільні деталі)`,
+      packQtyOverPlan: (n: number, months: number) =>
+        `За планом дошки (покриття продажів на ${months} міс.) рекомендовано максимум ${n}. Більша кількість — поза цим горизонтом.`,
+      confirmAddOverPlan: "Все одно додати",
       allWarehouses: "інші склади",
       perKit: "на комплект",
       packaging: "упаковка",
@@ -778,6 +785,12 @@ export const uk = {
       pickKit: "Оберіть комплект…",
       kitSearch: "Пошук комплекту…",
       onlyWithoutBom: "Лише без специфікації",
+      createNewKit: "Створити новий комплект",
+      useExistingKit: "Існуючий комплект без BOM",
+      newKitSku: "Артикул комплекту",
+      newKitName: "Назва комплекту",
+      newKitSkuRequired: "Вкажіть артикул нового комплекту",
+      newKitNameRequired: "Вкажіть назву комплекту",
       expand: "Показати склад",
       collapse: "Сховати",
     },

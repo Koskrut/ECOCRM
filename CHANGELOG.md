@@ -4,7 +4,29 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.196**.)_
+_(планируемые изменения после **0.2.197**.)_
+
+## [0.2.197] — 2026-10-09
+
+### Summary
+
+Патч **0.2.197**: Kit Board — фільтри pack/attention/missing; створення комплекту в Specs; inbox без router.replace.
+
+### Added
+
+- Board filters з лічильниками: **Pack now** (default), Attention, Missing parts.
+- Kit Specs «New»: створити новий KIT (SKU+name) або обрати існуючий без BOM.
+- Confirm pack: можна додати більше за план дошки (попередження + «Add anyway»).
+
+### Changed
+
+- Після add-to-request залишаємось на дошці (без автопереходу на вкладку заявок).
+- Unified inbox: `history.replaceState` замість `router.replace` (менше стрибків скролу).
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.197`**.
+- **Миграций нет.**
 
 ## [0.2.196] — 2026-10-09
 

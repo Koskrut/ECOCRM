@@ -26,6 +26,8 @@ type EditorState = {
   name: string;
   lines: DraftLine[];
   sourceKitProductId?: string;
+  /** For mode=new: create a product vs pick an existing kit without BOM. */
+  newKitMode?: "create" | "existing";
 };
 
 function toDraftLines(lines: BomCatalogLine[]): DraftLine[] {
@@ -207,7 +209,7 @@ function SpecEditor({
         <div className="flex items-start justify-between gap-3 border-b border-zinc-200 px-5 py-4">
           <div>
             <h3 className="text-base font-semibold text-zinc-900">{title}</h3>
-            {state.mode !== "copy" && state.sku ? (
+            {state.mode === "edit" && state.sku ? (
               <p className="mt-1 text-sm text-zinc-600">
                 {state.sku} · {state.name}
               </p>
@@ -225,22 +227,84 @@ function SpecEditor({
 
         <div className="space-y-4 overflow-y-auto px-5 py-4">
           {state.mode === "new" ? (
-            <KitPicker
-              label={t.pickKit}
-              valueId={state.kitProductId}
-              valueLabel={state.sku ? `${state.sku} · ${state.name}` : ""}
-              onlyWithoutBom
-              catalog={catalog}
-              onPick={(kit) =>
-                onChange({
-                  ...state,
-                  kitProductId: kit.kitProductId,
-                  sku: kit.sku,
-                  name: kit.name,
-                  lines: kit.lines.length ? toDraftLines(kit.lines) : state.lines,
-                })
-              }
-            />
+            <div className="space-y-3">
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  className={`rounded-lg px-3 py-1.5 text-sm ${
+                    (state.newKitMode ?? "create") === "create"
+                      ? "bg-cyan-600 text-white"
+                      : "border border-zinc-200 text-zinc-700"
+                  }`}
+                  onClick={() =>
+                    onChange({
+                      ...state,
+                      newKitMode: "create",
+                      kitProductId: "",
+                    })
+                  }
+                >
+                  {t.createNewKit}
+                </button>
+                <button
+                  type="button"
+                  className={`rounded-lg px-3 py-1.5 text-sm ${
+                    state.newKitMode === "existing"
+                      ? "bg-cyan-600 text-white"
+                      : "border border-zinc-200 text-zinc-700"
+                  }`}
+                  onClick={() =>
+                    onChange({
+                      ...state,
+                      newKitMode: "existing",
+                      sku: "",
+                      name: "",
+                    })
+                  }
+                >
+                  {t.useExistingKit}
+                </button>
+              </div>
+
+              {(state.newKitMode ?? "create") === "create" ? (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="block text-sm">
+                    <span className="font-medium text-zinc-800">{t.newKitSku}</span>
+                    <input
+                      value={state.sku}
+                      onChange={(e) => onChange({ ...state, sku: e.target.value })}
+                      className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+                      autoFocus
+                    />
+                  </label>
+                  <label className="block text-sm">
+                    <span className="font-medium text-zinc-800">{t.newKitName}</span>
+                    <input
+                      value={state.name}
+                      onChange={(e) => onChange({ ...state, name: e.target.value })}
+                      className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+                    />
+                  </label>
+                </div>
+              ) : (
+                <KitPicker
+                  label={t.pickKit}
+                  valueId={state.kitProductId}
+                  valueLabel={state.sku ? `${state.sku} · ${state.name}` : ""}
+                  onlyWithoutBom
+                  catalog={catalog}
+                  onPick={(kit) =>
+                    onChange({
+                      ...state,
+                      kitProductId: kit.kitProductId,
+                      sku: kit.sku,
+                      name: kit.name,
+                      lines: kit.lines.length ? toDraftLines(kit.lines) : state.lines,
+                    })
+                  }
+                />
+              )}
+            </div>
           ) : null}
 
           {state.mode === "copy" ? (
@@ -491,6 +555,7 @@ export function KitSpecsPanel({ onError }: { onError: (msg: string) => void }) {
       sku: "",
       name: "",
       lines: [],
+      newKitMode: "create",
     });
   };
 
@@ -508,7 +573,18 @@ export function KitSpecsPanel({ onError }: { onError: (msg: string) => void }) {
 
   const saveEditor = async () => {
     if (!editor) return;
-    if (!editor.kitProductId) {
+    const creatingNewKit =
+      editor.mode === "new" && (editor.newKitMode ?? "create") === "create";
+    if (creatingNewKit) {
+      if (!editor.sku.trim()) {
+        setEditorError(t.newKitSkuRequired);
+        return;
+      }
+      if (!editor.name.trim()) {
+        setEditorError(t.newKitNameRequired);
+        return;
+      }
+    } else if (!editor.kitProductId) {
       setEditorError(t.pickKit);
       return;
     }
@@ -532,14 +608,25 @@ export function KitSpecsPanel({ onError }: { onError: (msg: string) => void }) {
     setBusy(true);
     setEditorError(null);
     try {
-      const saved = await planningApi.createBomRevision(editor.kitProductId, { lines });
+      let kitProductId = editor.kitProductId;
+      let sku = editor.sku;
+      if (creatingNewKit) {
+        const created = await productsApi.createProduct({
+          sku: editor.sku.trim(),
+          name: editor.name.trim(),
+          showOnStore: false,
+        });
+        kitProductId = created.id;
+        sku = created.sku;
+      }
+      const saved = await planningApi.createBomRevision(kitProductId, { lines });
       if (editor.mode === "copy" && editor.sourceKitProductId) {
         const from =
           items.find((k) => k.kitProductId === editor.sourceKitProductId)?.sku ??
           editor.sourceKitProductId;
-        setToast(t.copied(from, editor.sku || saved.kitProduct?.sku || editor.kitProductId));
+        setToast(t.copied(from, sku || saved.kitProduct?.sku || kitProductId));
       } else {
-        setToast(t.saved(editor.sku || saved.kitProduct?.sku || editor.kitProductId, saved.revision));
+        setToast(t.saved(sku || saved.kitProduct?.sku || kitProductId, saved.revision));
       }
       setEditor(null);
       await load();

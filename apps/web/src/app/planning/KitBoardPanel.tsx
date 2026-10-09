@@ -17,7 +17,8 @@ import { RequestsPanel } from "./RequestsPanel";
 const UNASSIGNED_WAREHOUSE_ID = "__unassigned__";
 const NO_CATEGORY = "__none__";
 
-type AttentionFilter = "all" | "attention";
+/** Board row filter: sales-cover gap / ready to pack / need parts. */
+type BoardFilter = "all" | "attention" | "pack" | "missing";
 type SortKey = "class" | "sku" | "stock" | "sales" | "pack" | "produce";
 type SortDir = "asc" | "desc";
 type RequestKind = "pack" | "produce";
@@ -139,7 +140,8 @@ export function KitBoardPanel() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
-  const [attention, setAttention] = useState<AttentionFilter>("all");
+  /** Default: kits short of 3‑mo sales cover that can be packed now. */
+  const [boardFilter, setBoardFilter] = useState<BoardFilter>("pack");
   const [abcFilter, setAbcFilter] = useState<Set<AbcFilter>>(() => new Set());
   const [xyzFilter, setXyzFilter] = useState<Set<XyzFilter>>(() => new Set());
   const [system, setSystem] = useState("");
@@ -242,8 +244,12 @@ export function KitBoardPanel() {
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase();
     const filtered = (board?.rows ?? []).filter((row) => {
-      // Увага = ще є дірка після заявки на упаковку (need уже мінус alreadyInRequest).
-      if (attention === "attention" && !(row.need > 0)) return false;
+      // Увага = залишок на 44/Suprex не покриває продажі за 3 міс. (need уже мінус alreadyInRequest).
+      if (boardFilter === "attention" && !(row.need > 0)) return false;
+      // Пакувати зараз = є дірка по продажах і деталі дозволяють зібрати.
+      if (boardFilter === "pack" && !(row.toPack > 0)) return false;
+      // Немає деталей = дірка, яку не закрити упаковкою з наявних деталей.
+      if (boardFilter === "missing" && !(row.toProduce > 0)) return false;
       if (abcFilter.size > 0 && !abcFilter.has(row.paretoClass)) return false;
       if (xyzFilter.size > 0) {
         const xyzKey: XyzFilter = row.xyzClass ?? "none";
@@ -284,13 +290,14 @@ export function KitBoardPanel() {
       if (cmp !== 0) return cmp * dir;
       return a.sku.localeCompare(b.sku, "uk");
     });
-  }, [abcFilter, attention, board, category, query, sortDir, sortKey, system, xyzFilter]);
+  }, [abcFilter, board, boardFilter, category, query, sortDir, sortKey, system, xyzFilter]);
 
   const sortMark = (key: SortKey) =>
     sortKey === key ? (sortDir === "asc" ? " ↑" : " ↓") : "";
 
   const attentionCount = (board?.rows ?? []).filter((row) => row.need > 0).length;
   const packReadyCount = (board?.rows ?? []).filter((row) => row.toPack > 0).length;
+  const missingCount = (board?.rows ?? []).filter((row) => row.toProduce > 0).length;
 
   const openConfirm = (next: PendingAdd) => {
     if (!(next.defaultQty > 0)) return;
@@ -313,30 +320,18 @@ export function KitBoardPanel() {
       setError(t.qtyInvalid);
       return;
     }
-    // Cap by board plan: sales gap and shared-part allocation (not raw physical «можна»).
-    const remaining = pending.row.canAssembleRemaining ?? pending.row.canAssemble;
-    const packCap =
-      pending.row.toPack > 0
-        ? pending.row.toPack
-        : Math.min(remaining, pending.row.need > 0 ? pending.row.need : remaining);
-    if (pending.kind === "pack" && packCap > 0 && qty > packCap) {
-      setError(t.packQtyTooHigh(packCap));
-      return;
-    }
+    // Over board-plan qty is allowed after the dialog warning (sales-cover horizon).
     setSubmitting(true);
     setError(null);
     try {
       if (pending.kind === "pack") {
-        const listId = await addKitToPackingRequest(pending.row.productId, qty);
-        setFocusRequestId(listId);
+        await addKitToPackingRequest(pending.row.productId, qty);
         setToast(t.addedPack(pending.row.sku, qty));
-        setMainTab("pack");
       } else {
-        const orderId = await addKitPartsToFactoryRequest(pending.row, qty);
-        setFocusRequestId(orderId);
+        await addKitPartsToFactoryRequest(pending.row, qty);
         setToast(t.addedProduce(pending.row.sku, qty));
-        setMainTab("factory");
       }
+      // Stay on the board so the user can keep adding from the same place.
       setPending(null);
       setRequestsKey((key) => key + 1);
       setRefreshKey((key) => key + 1);
@@ -482,12 +477,30 @@ export function KitBoardPanel() {
         ) : null}
         {mainTab === "board" ? (
           <>
-            <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-medium text-amber-900">
+            <button
+              type="button"
+              title={t.filterAttentionHint}
+              onClick={() => setBoardFilter("attention")}
+              className={`rounded-full px-3 py-1 text-xs font-medium ${
+                boardFilter === "attention"
+                  ? "bg-amber-600 text-white"
+                  : "bg-amber-100 text-amber-900 hover:bg-amber-200"
+              }`}
+            >
               {t.attentionCount(attentionCount)}
-            </span>
-            <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-medium text-emerald-800">
+            </button>
+            <button
+              type="button"
+              title={t.filterPackHint}
+              onClick={() => setBoardFilter("pack")}
+              className={`rounded-full px-3 py-1 text-xs font-medium ${
+                boardFilter === "pack"
+                  ? "bg-emerald-700 text-white"
+                  : "bg-emerald-100 text-emerald-800 hover:bg-emerald-200"
+              }`}
+            >
               {t.packCount(packReadyCount)}
-            </span>
+            </button>
           </>
         ) : null}
       </div>
@@ -514,24 +527,24 @@ export function KitBoardPanel() {
             />
             {(
               [
-                ["all", t.filterAll],
-                ["attention", t.filterAttention],
+                ["pack", t.filterPack, t.filterPackHint, packReadyCount],
+                ["attention", t.filterAttention, t.filterAttentionHint, attentionCount],
+                ["missing", t.filterMissing, t.filterMissingHint, missingCount],
+                ["all", t.filterAll, undefined, null],
               ] as const
-            ).map(([key, label]) => (
+            ).map(([key, label, hint, count]) => (
               <button
                 key={key}
                 type="button"
-                title={key === "attention" ? t.filterAttentionHint : undefined}
-                onClick={() => setAttention(key)}
+                title={hint}
+                onClick={() => setBoardFilter(key)}
                 className={
-                  attention === key
+                  boardFilter === key
                     ? "rounded-full bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white"
                     : "rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs text-zinc-700"
                 }
               >
-                {key === "attention"
-                  ? `${label}${attentionCount > 0 ? ` (${attentionCount})` : ""}`
-                  : label}
+                {count != null && count > 0 ? `${label} (${count})` : label}
               </button>
             ))}
             <div className="flex flex-wrap items-center gap-1">
@@ -715,6 +728,7 @@ export function KitBoardPanel() {
         <ConfirmDialog
           pending={pending}
           qty={confirmQty}
+          coverMonths={board?.coverMonths ?? 3}
           submitting={submitting}
           onQtyChange={setConfirmQty}
           onCancel={() => setPending(null)}
@@ -957,9 +971,16 @@ function BoardRow({
   );
 }
 
+function boardPackCap(row: KitBoardRow): number {
+  const remaining = row.canAssembleRemaining ?? row.canAssemble;
+  if (row.toPack > 0) return row.toPack;
+  return Math.min(remaining, row.need > 0 ? row.need : remaining);
+}
+
 function ConfirmDialog({
   pending,
   qty,
+  coverMonths,
   submitting,
   onQtyChange,
   onCancel,
@@ -967,6 +988,7 @@ function ConfirmDialog({
 }: {
   pending: PendingAdd;
   qty: string;
+  coverMonths: number;
   submitting: boolean;
   onQtyChange: (value: string) => void;
   onCancel: () => void;
@@ -975,6 +997,10 @@ function ConfirmDialog({
   const t = strings.planning.kitBoard;
   const isPack = pending.kind === "pack";
   const title = isPack ? t.confirmPackTitle : t.confirmProduceTitle;
+  const qtyNum = Math.floor(Number(qty));
+  const packCap = isPack ? boardPackCap(pending.row) : 0;
+  const overPlan =
+    isPack && packCap > 0 && Number.isFinite(qtyNum) && qtyNum > packCap;
   const partsHint =
     !isPack && pending.row.parts.some((p) => p.constrains)
       ? t.confirmProduceParts(
@@ -1029,6 +1055,11 @@ function ConfirmDialog({
             autoFocus
           />
         </label>
+        {overPlan ? (
+          <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+            {t.packQtyOverPlan(packCap, coverMonths)}
+          </p>
+        ) : null}
         <div className="mt-5 flex justify-end gap-2">
           <button
             type="button"
@@ -1044,7 +1075,7 @@ function ConfirmDialog({
             disabled={submitting}
             className="rounded-lg bg-cyan-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-cyan-700 disabled:opacity-60"
           >
-            {submitting ? t.adding : t.confirmAdd}
+            {submitting ? t.adding : overPlan ? t.confirmAddOverPlan : t.confirmAdd}
           </button>
         </div>
       </div>

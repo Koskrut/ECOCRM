@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import {
   conversationsApi,
   contactsApi,
@@ -186,7 +186,6 @@ type MobilePanel = "list" | "chat" | "card";
 
 function UnifiedInboxContent() {
   const t = strings.inboxPage;
-  const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const conversationIdFromUrl = searchParams.get("conversationId");
@@ -410,7 +409,7 @@ function UnifiedInboxContent() {
   );
 
   useEffect(() => {
-    const params = new URLSearchParams(searchParams.toString());
+    const params = new URLSearchParams(window.location.search);
     if (statusFilter && statusFilter !== "OPEN") params.set("status", statusFilter);
     else params.delete("status");
     if (channelFilter !== "ALL") params.set("channel", channelFilter);
@@ -418,32 +417,29 @@ function UnifiedInboxContent() {
     if (selectedId) params.set("conversationId", selectedId);
     else params.delete("conversationId");
     const next = params.toString();
-    const current = searchParams.toString();
+    const current = window.location.search.replace(/^\?/, "");
     if (next !== current) {
-      const scrollY = window.scrollY;
-      router.replace(`${pathname}${next ? `?${next}` : ""}`, { scroll: false });
-      // Search-param updates can still reset the window scroll and shift the inbox.
-      const restore = () => {
-        if (window.scrollY !== scrollY) window.scrollTo(0, scrollY);
-      };
-      const raf = requestAnimationFrame(restore);
-      const timeoutId = window.setTimeout(restore, 50);
-      return () => {
-        cancelAnimationFrame(raf);
-        window.clearTimeout(timeoutId);
-      };
+      const url = `${pathname}${next ? `?${next}` : ""}`;
+      window.history.replaceState(window.history.state, "", url);
     }
-  }, [statusFilter, channelFilter, selectedId, pathname, router, searchParams]);
+  }, [statusFilter, channelFilter, selectedId, pathname]);
+
+  const messagesRequestRef = useRef(0);
 
   const loadMessages = useCallback(
     async (convId: string, source: InboxSource, opts?: { silent?: boolean }) => {
-      if (!opts?.silent) setMessagesLoading(true);
+      const requestId = ++messagesRequestRef.current;
+      if (!opts?.silent) {
+        setMessagesLoading(true);
+        setMessages([]);
+      }
       try {
         if (source === "TELEGRAM") {
           const res = await conversationsApi.getMessages(convId, {
             page: 1,
             pageSize: PAGE_SIZE,
           });
+          if (requestId !== messagesRequestRef.current) return;
           setMessages(
             res.items.map((m: MessageItem) => ({
               id: m.id,
@@ -460,6 +456,7 @@ function UnifiedInboxContent() {
             page: 1,
             pageSize: PAGE_SIZE,
           });
+          if (requestId !== messagesRequestRef.current) return;
           setMessages(
             res.items.map((m: MetaMessageItem) => ({
               id: m.id,
@@ -472,9 +469,9 @@ function UnifiedInboxContent() {
           );
         }
       } catch {
-        if (!opts?.silent) setMessages([]);
+        if (requestId === messagesRequestRef.current && !opts?.silent) setMessages([]);
       } finally {
-        if (!opts?.silent) setMessagesLoading(false);
+        if (requestId === messagesRequestRef.current && !opts?.silent) setMessagesLoading(false);
       }
     },
     [],
@@ -506,12 +503,13 @@ function UnifiedInboxContent() {
   }, [loadConversations, loadMessages]);
 
   useEffect(() => {
-    if (conversationIdFromUrl && conversationIdFromUrl !== selectedId) {
-      setSelectedId(conversationIdFromUrl);
-      if (channelFromUrl !== "ALL") setSelectedSource(channelFromUrl);
-      setMobilePanel("chat");
-    }
-  }, [conversationIdFromUrl, selectedId, channelFromUrl]);
+    if (!conversationIdFromUrl || conversationIdFromUrl === selectedId) return;
+    setSelectedId(conversationIdFromUrl);
+    if (channelFromUrl !== "ALL") setSelectedSource(channelFromUrl);
+    setMobilePanel("chat");
+    // selectedId is read once per URL change so a click is not overwritten by the previous query.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversationIdFromUrl, channelFromUrl]);
 
   useEffect(() => {
     if (!selectedId || selectedSource) return;
@@ -904,6 +902,7 @@ function UnifiedInboxContent() {
                   <button
                     key={chip.id}
                     type="button"
+                    onMouseDown={(e) => e.preventDefault()}
                     onClick={() => {
                       setChannelFilter(chip.id);
                     }}
@@ -1024,13 +1023,14 @@ function UnifiedInboxContent() {
 
               <div
                 ref={messagesScrollRef}
-                className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain p-4"
+                className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 [overflow-anchor:none]"
               >
                 {messagesLoading ? (
-                  <div className="flex justify-center py-8 text-zinc-500">
+                  <div className="absolute inset-0 z-10 flex items-center justify-center bg-white text-sm text-zinc-500">
                     {strings.common.loading}
                   </div>
-                ) : (
+                ) : null}
+                {messages.length > 0 ? (
                   <div className="space-y-3">
                     {messages.map((m) => {
                       if (m.direction === "INTERNAL") {
@@ -1081,7 +1081,7 @@ function UnifiedInboxContent() {
                       );
                     })}
                   </div>
-                )}
+                ) : null}
                 <InboxSelectionToolbar
                   onCreateTaskFromSelection={(text) => openTaskModal({ initialBody: text })}
                 />

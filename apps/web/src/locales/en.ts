@@ -630,7 +630,11 @@ export const en = {
       filter80: "80% of revenue",
       filterAll: "All",
       filterPack: "Pack now",
+      filterPackHint:
+        "Kit stock is below 3-month sales and parts on 39/40 can already build it — add to packing.",
       filterMissing: "Missing parts",
+      filterMissingHint:
+        "3-month sales are not covered by stock, but parts are short — send to production.",
       filterAttention: "Attention",
       filterAttentionHint:
         "Stock on 44/Suprex plus qty already on the packing request still does not cover 3-month sales",
@@ -693,6 +697,9 @@ export const en = {
       packCan: "can pack",
       packCanPhysical: (n: number) => `physical on one warehouse: ${n}`,
       packQtyTooHigh: (n: number) => `Board plan allows at most ${n} (sales gap + shared parts)`,
+      packQtyOverPlan: (n: number, months: number) =>
+        `Board plan (sales cover for ${months} mo) recommends at most ${n}. A larger qty is beyond that horizon.`,
+      confirmAddOverPlan: "Add anyway",
       allWarehouses: "other warehouses",
       perKit: "per kit",
       packaging: "packaging",
@@ -775,6 +782,12 @@ export const en = {
       pickKit: "Select a kit…",
       kitSearch: "Search kit…",
       onlyWithoutBom: "Only without a BOM",
+      createNewKit: "Create a new kit",
+      useExistingKit: "Existing kit without a BOM",
+      newKitSku: "Kit SKU",
+      newKitName: "Kit name",
+      newKitSkuRequired: "Enter a SKU for the new kit",
+      newKitNameRequired: "Enter a name for the new kit",
       expand: "Show BOM",
       collapse: "Hide",
     },

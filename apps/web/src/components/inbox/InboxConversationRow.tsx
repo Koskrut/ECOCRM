@@ -24,13 +24,7 @@ type Props = {
   onTogglePin: () => void;
 };
 
-export function InboxConversationRow({
-  item,
-  selected,
-  timeLabel,
-  onSelect,
-  onTogglePin,
-}: Props) {
+export function InboxConversationRow({ item, selected, timeLabel, onSelect, onTogglePin }: Props) {
   const unread = item.unreadCount > 0;
   const preview =
     item.lastMessageDirection === "INTERNAL" && item.lastMessageText
@@ -40,19 +34,18 @@ export function InboxConversationRow({
   return (
     <li>
       <div
-        className={`flex w-full items-stretch transition-colors ${
+        className={`flex w-full items-stretch border-l-2 transition-colors ${
           selected ? "bg-accent-gradient/10" : "hover:bg-zinc-100/80"
-        } ${unread ? "border-l-2 border-l-blue-600" : ""}`}
+        } ${unread ? "border-l-blue-600" : "border-l-transparent"}`}
       >
         <button
           type="button"
+          onMouseDown={(e) => e.preventDefault()}
           onClick={onSelect}
           className="min-w-0 flex-1 px-3 py-3 text-left"
         >
           <div className="flex items-center justify-between gap-2">
-            <span
-              className={`truncate text-zinc-900 ${unread ? "font-semibold" : "font-medium"}`}
-            >
+            <span className={`truncate text-zinc-900 ${unread ? "font-semibold" : "font-medium"}`}>
               {item.pinnedAt ? (
                 <Pin className="mr-1 inline h-3 w-3 text-amber-600" aria-hidden />
               ) : null}
@@ -71,9 +64,7 @@ export function InboxConversationRow({
             </span>
           </div>
           {preview ? (
-            <p
-              className={`mt-0.5 truncate text-xs ${unread ? "text-zinc-700" : "text-zinc-500"}`}
-            >
+            <p className={`mt-0.5 truncate text-xs ${unread ? "text-zinc-700" : "text-zinc-500"}`}>
               {preview}
             </p>
           ) : null}
