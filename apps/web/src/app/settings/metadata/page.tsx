@@ -31,6 +31,11 @@ export default function MetadataSettingsHubPage() {
       title: "Колонки списків",
       desc: "Додаткові колонки в списках компаній, контактів, замовлень і лідів",
     },
+    {
+      href: "/settings/metadata/list-filters",
+      title: "Фільтри списків",
+      desc: "Які додаткові поля показувати у фільтрі списків",
+    },
     { href: "/settings/metadata/workflows", title: "Автоматизації", desc: "Правила автоматизації процесів" },
     { href: "/settings/metadata/rbac", title: "Ролі та дозволи", desc: "Каталог ролей і призначення прав" },
     { href: "/settings/metadata/custom-entities", title: "Користувацькі сутності", desc: "Динамічні сутності та їх записи" },

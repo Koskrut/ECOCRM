@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { CustomFieldFilterFields } from "@/components/metadata/CustomFieldFilterFields";
+import { type CustomFilterValues } from "@/lib/custom-fields/filters";
 
 export type OrderSortBy = "createdAt" | "totalAmount" | "status" | "orderNumber" | "orderStage";
 export type OrderSortDir = "asc" | "desc";
@@ -20,6 +22,7 @@ export type OrdersFiltersState = {
   hasTtn: HasTtnFilter;
   sortBy: OrderSortBy;
   sortDir: OrderSortDir;
+  customFilters: CustomFilterValues;
 };
 
 export type OwnerOption = {
@@ -153,7 +156,7 @@ export function OrdersFiltersPopover({
   return (
     <div
       ref={panelRef}
-      className="absolute right-0 top-12 z-30 w-[min(92vw,680px)] rounded-xl border border-zinc-200 bg-white p-4 shadow-xl"
+      className="absolute right-0 top-12 z-30 max-h-[min(80vh,720px)] w-[min(92vw,680px)] overflow-y-auto rounded-xl border border-zinc-200 bg-white p-4 shadow-xl"
     >
       <div className="mb-3 flex items-center justify-between">
         <h3 className="text-sm font-semibold text-zinc-900">Фильтр заказов</h3>
@@ -271,6 +274,12 @@ export function OrdersFiltersPopover({
           onBlur={releaseOutsideClose}
           className="rounded-lg border border-zinc-200 px-3 py-2 text-sm"
           aria-label="Дата до"
+        />
+
+        <CustomFieldFilterFields
+          entityType="ORDER"
+          value={draft.customFilters ?? {}}
+          onChange={(customFilters) => setDraft((prev) => ({ ...prev, customFilters }))}
         />
 
         {showSort ? (

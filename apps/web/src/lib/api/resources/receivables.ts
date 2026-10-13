@@ -7,6 +7,29 @@ export type ReceivablesReconcileStatus =
   | "ONLY_1C"
   | "ONLY_CRM";
 
+/** Virtual reconcile filter: ONLY_CRM lines whose contact has no 1C code (counterpartyCode1C === ""). */
+export type ReconcileStatusFilter = ReceivablesReconcileStatus | "NO_CODE";
+
+export const RECEIVABLES_AGING_LABELS = ["0-7", "8-30", "31-60", "61-90", "90+"] as const;
+export type ReceivablesAgingLabel = (typeof RECEIVABLES_AGING_LABELS)[number];
+
+export type ReceivablesSnoozeDays = 1 | 3 | 7;
+
+export type WorkClientsSortKey = "debt" | "overdue" | "overdueDays" | "lastPayment" | "lastComment";
+
+export type ReceivablesBatchAction =
+  | "assign_owner"
+  | "create_call_tasks"
+  | "send_telegram"
+  | "snooze";
+
+export type SnoozeResponse = {
+  ok: boolean;
+  contactId: string;
+  snoozedUntil: string | null;
+  snoozedByName: string | null;
+};
+
 export type ReceivablesSnapshot = {
   id: string;
   snapshotDate: string;
@@ -59,12 +82,19 @@ export type WorkClientRow = {
   lastCommentAuthorName: string | null;
   phone?: string | null;
   overdueDays?: number;
+  /** Bucket by max overdue days among client's orders; null when nothing overdue. */
+  agingBucket?: ReceivablesAgingLabel | null;
   primaryOrderId?: string | null;
   promiseDate?: string | null;
   promiseAmount?: number | null;
+  /** Server-side: promise date passed and no COMPLETED payment since the promise comment. */
+  promiseBroken?: boolean;
   delayReasonCode?: string | null;
   reconcileStatus?: ReceivablesReconcileStatus | null;
   telegramConversationId?: string | null;
+  /** YYYY-MM-DD (Kyiv); null when not snoozed or already expired. */
+  snoozedUntil?: string | null;
+  snoozedByName?: string | null;
 };
 
 export type PeriodPaymentRow = {
@@ -114,6 +144,8 @@ export type WorkOrderRow = {
 export type ContactReceivablesResponse = {
   currency: string;
   externalCode: string | null;
+  snoozedUntil?: string | null;
+  snoozedByName?: string | null;
   kpi: {
     debtTotal: number;
     overdueDebt: number;
@@ -178,6 +210,7 @@ export const receivablesApi = {
         deltaCount: number;
         alignedCount: number;
         managerDeltaCount: number;
+        noCodeCount?: number;
         isAligned: boolean;
       };
     }>("/receivables/reconciliation/summary", {
@@ -189,7 +222,7 @@ export const receivablesApi = {
     snapshotId: string;
     page?: number;
     pageSize?: number;
-    status?: string;
+    status?: ReconcileStatusFilter | string;
     deltasOnly?: boolean;
     q?: string;
     ownerId?: string;
@@ -203,8 +236,20 @@ export const receivablesApi = {
     }>("/receivables/reconciliation", { params });
   },
 
+  /** ADMIN/LEAD only (403 for MANAGER). */
   refreshReconciliation(snapshotId: string) {
     return apiHttp.post("/receivables/reconciliation/refresh", { snapshotId });
+  },
+
+  /** ADMIN/LEAD only. Links an ONLY_1C line's code to a contact and re-reconciles the snapshot. */
+  linkReconcileLineContact(lineId: string, body: { contactId: string; overwrite?: boolean }) {
+    return apiHttp.post<{
+      ok: boolean;
+      contactId: string;
+      externalCode: string;
+      previousExternalCode: string | null;
+      line: ReconciliationLine | null;
+    }>(`/receivables/reconciliation/lines/${lineId}/link-contact`, body);
   },
 
   workSummary(ownerId?: string) {
@@ -245,6 +290,10 @@ export const receivablesApi = {
     promiseBroken?: boolean;
     reconcileDeltaOnly?: boolean;
     delayReason?: string;
+    aging?: ReceivablesAgingLabel | (string & {});
+    snoozed?: "only" | "hide";
+    sort?: WorkClientsSortKey;
+    dir?: "asc" | "desc";
   }) {
     return apiHttp.get<{
       currency: string;
@@ -252,14 +301,24 @@ export const receivablesApi = {
       total: number;
       page: number;
       pageSize: number;
+      /** Active snoozes among clients matching overdue/aging/q filters. */
+      snoozedCount?: number;
     }>("/receivables/work/clients", { params });
+  },
+
+  snooze(contactId: string, body: { days: ReceivablesSnoozeDays } | { until: string }) {
+    return apiHttp.post<SnoozeResponse>(`/receivables/contacts/${contactId}/snooze`, body);
+  },
+
+  unsnooze(contactId: string) {
+    return apiHttp.post<SnoozeResponse>(`/receivables/contacts/${contactId}/unsnooze`, {});
   },
 
   workAging(ownerId?: string) {
     return apiHttp.get<{
       currency: string;
       buckets: Array<{
-        label: string;
+        label: ReceivablesAgingLabel | (string & {});
         amount: number;
         clientsCount: number;
         ordersCount: number;
@@ -269,9 +328,12 @@ export const receivablesApi = {
 
   batch(body: {
     contactIds: string[];
-    action: "assign_owner" | "create_call_tasks" | "send_telegram";
+    action: ReceivablesBatchAction;
     ownerId?: string;
     message?: string;
+    /** For action "snooze". */
+    days?: ReceivablesSnoozeDays;
+    until?: string;
   }) {
     return apiHttp.post<{
       ok: boolean;
@@ -279,6 +341,8 @@ export const receivablesApi = {
       processed: number;
       skipped: number;
       errors?: string[];
+      ordersReassigned?: number;
+      snoozedUntil?: string;
     }>("/receivables/batch", body);
   },
 
@@ -314,6 +378,7 @@ export const receivablesApi = {
     overdue?: boolean;
     contactId?: string;
     clientId?: string;
+    aging?: ReceivablesAgingLabel | (string & {});
   }) {
     return apiHttp.get<{
       currency: string;

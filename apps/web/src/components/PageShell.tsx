@@ -13,6 +13,14 @@ export type PageShellTab = {
   exact?: boolean;
 };
 
+export type PageShellWidth = "default" | "wide" | "full";
+
+const WIDTH_CLASS: Record<PageShellWidth, string> = {
+  default: "max-w-7xl",
+  wide: "max-w-[1600px]",
+  full: "",
+};
+
 export type PageShellProps = {
   /** Optional page header rendered above the content. */
   title?: string;
@@ -22,6 +30,8 @@ export type PageShellProps = {
   tabs?: PageShellTab[];
   /** Wrap children in a centered max-width container. Defaults to true when title or tabs are provided, false otherwise. */
   container?: boolean;
+  /** Max width of the container: `default` = max-w-7xl, `wide` = 1600px, `full` = no limit. */
+  width?: PageShellWidth;
   /** Inline content rendered to the right of the title (e.g. action buttons). */
   actions?: ReactNode;
   /** Contextual help articles for this screen (shows ? popover). */
@@ -47,6 +57,7 @@ export function PageShell({
   icon: Icon,
   tabs,
   container,
+  width = "default",
   actions,
   helpRouteKey,
   banner,
@@ -105,7 +116,7 @@ export function PageShell({
   );
 
   if (useContainer) {
-    return <div className="mx-auto w-full max-w-7xl">{body}</div>;
+    return <div className={`mx-auto w-full ${WIDTH_CLASS[width]}`.trim()}>{body}</div>;
   }
   return <>{body}</>;
 }

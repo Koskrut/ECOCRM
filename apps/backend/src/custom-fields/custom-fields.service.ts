@@ -1,5 +1,5 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
-import { CustomFieldType, Prisma } from "@prisma/client";
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
+import { CustomFieldEntityType, CustomFieldType, Prisma } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import {
   normalizeCustomFieldKey,
@@ -15,9 +15,22 @@ import {
   type UpsertCustomFieldValueDto,
 } from "./dto/custom-fields.dto";
 import { mapDefinitionToFieldSchema } from "./custom-fields-ui-schema";
+import { customFieldValueWhere, parseCustomFilterQuery } from "./custom-field-filters";
+import { optionLabelsFromBody, uniqueCustomFieldKey } from "./custom-field-key";
 
 const DEFINITION_INCLUDE = {
-  dictionary: { select: { id: true, key: true, name: true } },
+  dictionary: {
+    select: {
+      id: true,
+      key: true,
+      name: true,
+      items: {
+        where: { deletedAt: null, isActive: true },
+        orderBy: [{ sortOrder: "asc" as const }, { label: "asc" as const }],
+        select: { id: true, label: true, sortOrder: true },
+      },
+    },
+  },
   options: {
     where: { deletedAt: null },
     orderBy: [{ sortOrder: "asc" as const }, { label: "asc" as const }],
@@ -64,28 +77,61 @@ export class CustomFieldsService {
   async createDefinition(body: UpsertCustomFieldDefinitionDto) {
     const entityType = parseCustomFieldEntityType(body.entityType);
     const type = parseCustomFieldType(body.type);
-    const key = normalizeCustomFieldKey(body.key);
     const label = optionalTrimmedString(body.label);
-    if (!label) throw new BadRequestException("label is required");
+    if (!label) throw new BadRequestException("Вкажіть назву поля.");
 
+    const explicitKey = typeof body.key === "string" && body.key.trim() ? normalizeCustomFieldKey(body.key) : null;
+    const key = explicitKey ?? (await this.uniqueDefinitionKey(entityType, label));
     await this.validateDefinitionReferences(type, body.dictionaryId);
 
-    const definition = await this.prisma.customFieldDefinition.create({
-      data: {
-        entityType,
-        type,
-        key,
-        label,
-        description: optionalNullableString(body.description),
-        required: body.required === true,
-        isActive: body.isActive !== false,
-        system: body.system === true,
-        dictionaryId: optionalNullableString(body.dictionaryId),
-        settings: body.settings === undefined ? undefined : body.settings === null ? Prisma.JsonNull : body.settings,
-      },
-      include: DEFINITION_INCLUDE,
-    });
-    return { definition };
+    const optionLabels =
+      type === CustomFieldType.SELECT || type === CustomFieldType.MULTISELECT
+        ? optionLabelsFromBody(body.options)
+        : [];
+    if ((type === CustomFieldType.SELECT || type === CustomFieldType.MULTISELECT) && optionLabels.length === 0) {
+      throw new BadRequestException("Додайте хоча б один варіант списку.");
+    }
+
+    try {
+      const definition = await this.prisma.$transaction(async (tx) => {
+        const created = await tx.customFieldDefinition.create({
+          data: {
+            entityType,
+            type,
+            key,
+            label,
+            description: optionalNullableString(body.description),
+            required: body.required === true,
+            isActive: body.isActive !== false,
+            system: body.system === true,
+            dictionaryId: optionalNullableString(body.dictionaryId),
+            settings: body.settings === undefined ? undefined : body.settings === null ? Prisma.JsonNull : body.settings,
+          },
+        });
+        if (optionLabels.length > 0) {
+          const used = new Set<string>();
+          await tx.customFieldOption.createMany({
+            data: optionLabels.map((optionLabel, index) => ({
+              definitionId: created.id,
+              key: uniqueCustomFieldKey(optionLabel, used, "option"),
+              label: optionLabel,
+              sortOrder: index,
+              isActive: true,
+            })),
+          });
+        }
+        return tx.customFieldDefinition.findFirstOrThrow({
+          where: { id: created.id },
+          include: DEFINITION_INCLUDE,
+        });
+      });
+      return { definition };
+    } catch (error) {
+      if (isUniqueConflict(error)) {
+        throw new ConflictException("Поле з такою назвою вже існує. Змініть назву.");
+      }
+      throw error;
+    }
   }
 
   async updateDefinition(idOrKey: string, body: UpsertCustomFieldDefinitionDto) {
@@ -100,7 +146,7 @@ export class CustomFieldsService {
     if (body.key !== undefined) data.key = normalizeCustomFieldKey(body.key);
     if (body.label !== undefined) {
       const label = optionalTrimmedString(body.label);
-      if (!label) throw new BadRequestException("label cannot be empty");
+      if (!label) throw new BadRequestException("Назва не може бути порожньою.");
       data.label = label;
     }
     if (body.description !== undefined) data.description = optionalNullableString(body.description);
@@ -140,25 +186,36 @@ export class CustomFieldsService {
   async createOption(definitionIdOrKey: string, body: UpsertCustomFieldOptionDto) {
     const definition = await this.findDefinition(definitionIdOrKey);
     if (definition.type !== CustomFieldType.SELECT && definition.type !== CustomFieldType.MULTISELECT) {
-      throw new BadRequestException("options are only supported for SELECT and MULTISELECT fields");
+      throw new BadRequestException("Варіанти можна додавати лише до списку.");
     }
 
-    const key = normalizeCustomFieldKey(body.key);
     const label = optionalTrimmedString(body.label);
-    if (!label) throw new BadRequestException("label is required");
+    if (!label) throw new BadRequestException("Вкажіть назву варіанта.");
+    const used = new Set((definition.options ?? []).map((option) => option.key));
+    const key =
+      typeof body.key === "string" && body.key.trim()
+        ? normalizeCustomFieldKey(body.key)
+        : uniqueCustomFieldKey(label, used, "option");
 
-    const option = await this.prisma.customFieldOption.create({
-      data: {
-        definitionId: definition.id,
-        key,
-        label,
-        value: optionalNullableString(body.value),
-        sortOrder: optionalInteger(body.sortOrder) ?? 0,
-        isActive: body.isActive !== false,
-        metadata: body.metadata === undefined ? undefined : body.metadata === null ? Prisma.JsonNull : body.metadata,
-      },
-    });
-    return { option };
+    try {
+      const option = await this.prisma.customFieldOption.create({
+        data: {
+          definitionId: definition.id,
+          key,
+          label,
+          value: optionalNullableString(body.value),
+          sortOrder: optionalInteger(body.sortOrder) ?? 0,
+          isActive: body.isActive !== false,
+          metadata: body.metadata === undefined ? undefined : body.metadata === null ? Prisma.JsonNull : body.metadata,
+        },
+      });
+      return { option };
+    } catch (error) {
+      if (isUniqueConflict(error)) {
+        throw new ConflictException("Такий варіант уже є.");
+      }
+      throw error;
+    }
   }
 
   async updateOption(definitionIdOrKey: string, optionIdOrKey: string, body: UpsertCustomFieldOptionDto) {
@@ -168,7 +225,7 @@ export class CustomFieldsService {
     if (body.key !== undefined) data.key = normalizeCustomFieldKey(body.key);
     if (body.label !== undefined) {
       const label = optionalTrimmedString(body.label);
-      if (!label) throw new BadRequestException("label cannot be empty");
+      if (!label) throw new BadRequestException("Назва не може бути порожньою.");
       data.label = label;
     }
     if (body.value !== undefined) data.value = optionalNullableString(body.value);
@@ -316,6 +373,48 @@ export class CustomFieldsService {
     return { value: fieldValue };
   }
 
+  /**
+   * Entity ids that match every active custom-field filter.
+   * `null` means no filter was applied. An empty array means nothing matches.
+   */
+  async matchingEntityIds(entityType: CustomFieldEntityType, raw: unknown): Promise<string[] | null> {
+    const filters = parseCustomFilterQuery(raw);
+    if (!filters) return null;
+
+    const definitions = await this.prisma.customFieldDefinition.findMany({
+      where: {
+        entityType,
+        deletedAt: null,
+        isActive: true,
+        key: { in: Object.keys(filters) },
+      },
+      select: { id: true, key: true, type: true },
+    });
+    if (definitions.length === 0) return null;
+
+    let matched: Set<string> | null = null;
+    for (const definition of definitions) {
+      const clause = customFieldValueWhere(definition.type, filters[definition.key]!);
+      if (!clause) continue;
+      const rows = await this.prisma.customFieldValue.findMany({
+        where: { definitionId: definition.id, entityType, ...clause },
+        select: { entityId: true },
+      });
+      const ids = new Set(rows.map((row) => row.entityId));
+      if (matched === null) {
+        matched = ids;
+      } else {
+        const next = new Set<string>();
+        for (const id of matched) {
+          if (ids.has(id)) next.add(id);
+        }
+        matched = next;
+      }
+      if (matched.size === 0) return [];
+    }
+    return matched ? [...matched] : null;
+  }
+
   async clearValue(definitionIdOrKey: string, entityId: string) {
     const definition = await this.findDefinition(definitionIdOrKey);
     await this.prisma.customFieldValue.deleteMany({ where: { definitionId: definition.id, entityId } });
@@ -324,14 +423,14 @@ export class CustomFieldsService {
 
   private async validateDefinitionReferences(type: CustomFieldType, dictionaryId: string | null | undefined) {
     if (type === CustomFieldType.DICTIONARY_ITEM && !dictionaryId) {
-      throw new BadRequestException("dictionaryId is required for DICTIONARY_ITEM fields");
+      throw new BadRequestException("Оберіть довідник.");
     }
     if (dictionaryId) {
       const dictionary = await this.prisma.dictionary.findFirst({
         where: { id: dictionaryId, deletedAt: null },
         select: { id: true },
       });
-      if (!dictionary) throw new BadRequestException("dictionaryId is invalid");
+      if (!dictionary) throw new BadRequestException("Обраний довідник не знайдено.");
     }
   }
 
@@ -348,7 +447,15 @@ export class CustomFieldsService {
       },
       select: { id: true },
     });
-    if (!item) throw new BadRequestException("dictionary item is invalid");
+    if (!item) throw new BadRequestException("Обране значення довідника не знайдено.");
+  }
+
+  private async uniqueDefinitionKey(entityType: CustomFieldEntityType, label: string) {
+    const existing = await this.prisma.customFieldDefinition.findMany({
+      where: { entityType },
+      select: { key: true },
+    });
+    return uniqueCustomFieldKey(label, new Set(existing.map((row) => row.key)), "field");
   }
 
   private async findDefinition(idOrKey: string, opts: { includeDeleted?: boolean } = {}) {
@@ -359,7 +466,7 @@ export class CustomFieldsService {
       },
       include: DEFINITION_INCLUDE,
     });
-    if (!definition) throw new NotFoundException("Custom field definition not found");
+    if (!definition) throw new NotFoundException("Поле не знайдено.");
     return definition;
   }
 
@@ -372,7 +479,11 @@ export class CustomFieldsService {
       },
       select: { id: true },
     });
-    if (!option) throw new NotFoundException("Custom field option not found");
+    if (!option) throw new NotFoundException("Варіант не знайдено.");
     return option;
   }
+}
+
+function isUniqueConflict(error: unknown): boolean {
+  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
 }

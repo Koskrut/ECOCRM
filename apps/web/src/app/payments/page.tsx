@@ -21,6 +21,12 @@ import {
 } from "@/lib/payment-usd";
 import { ordersApi, type FxVarianceQueueItem } from "@/lib/api/resources/orders";
 import { FxWriteOffModal } from "./FxWriteOffModal";
+import {
+  UnmatchedMonthsBar,
+  monthDateRange,
+  monthFromDateRange,
+  type UnmatchedMonthlySummary,
+} from "./UnmatchedMonthsBar";
 import { InfiniteScrollSentinel } from "@/components/InfiniteScrollSentinel";
 import { HelpHint } from "@/components/help/HelpHint";
 import { useModules } from "@/lib/modules/useModules";
@@ -452,6 +458,7 @@ function PaymentsContent() {
   const [unmatchedTotal, setUnmatchedTotal] = useState(0);
   const [unmatchedPage, setUnmatchedPage] = useState(1);
   const [unmatchedHasMore, setUnmatchedHasMore] = useState(false);
+  const [unmatchedSummary, setUnmatchedSummary] = useState<UnmatchedMonthlySummary | null>(null);
   const [paymentsLoading, setPaymentsLoading] = useState(true);
   const [paymentsLoadingMore, setPaymentsLoadingMore] = useState(false);
   const [unmatchedLoading, setUnmatchedLoading] = useState(false);
@@ -651,6 +658,20 @@ function PaymentsContent() {
     [bankAccountId, debouncedSearch, dateFrom, dateTo, mode],
   );
 
+  const fetchUnmatchedSummary = useCallback(async () => {
+    try {
+      const params = new URLSearchParams();
+      if (bankAccountId) params.set("bankAccountId", bankAccountId);
+      const q = params.toString();
+      const r = await apiHttp.get<UnmatchedMonthlySummary>(
+        `/bank/transactions/unmatched-summary${q ? `?${q}` : ""}`,
+      );
+      setUnmatchedSummary(r.data ?? null);
+    } catch {
+      setUnmatchedSummary(null);
+    }
+  }, [bankAccountId]);
+
   const fetchUnmatched = useCallback(
     async (opts?: {
       page?: number;
@@ -675,6 +696,7 @@ function PaymentsContent() {
       }
       setError(null);
       const scrollY = silent && typeof window !== "undefined" ? window.scrollY : null;
+      if (!append) void fetchUnmatchedSummary();
       try {
         const params = new URLSearchParams({
           page: String(page),
@@ -719,7 +741,7 @@ function PaymentsContent() {
         }
       }
     },
-    [bankAccountId, debouncedSearch, dateFrom, dateTo],
+    [bankAccountId, debouncedSearch, dateFrom, dateTo, fetchUnmatchedSummary],
   );
 
   const loadMorePayments = useCallback(() => {
@@ -907,6 +929,37 @@ function PaymentsContent() {
   useEffect(() => {
     if (mode === "fop" && view === "fxVariance") void fetchFxVariance();
   }, [mode, view, fetchFxVariance]);
+
+  useEffect(() => {
+    if (mode === "fop" && view !== "unmatched" && view !== "ignored") {
+      void fetchUnmatchedSummary();
+    }
+  }, [mode, view, fetchUnmatchedSummary]);
+
+  const activeUnmatchedMonth = useMemo(
+    () => monthFromDateRange(dateFrom, dateTo),
+    [dateFrom, dateTo],
+  );
+
+  const selectUnmatchedMonth = useCallback((month: string | null) => {
+    if (!month) {
+      setDateFrom("");
+      setDateTo("");
+      return;
+    }
+    const range = monthDateRange(month);
+    setDateFrom(range.from);
+    setDateTo(range.to);
+  }, []);
+
+  const hasActiveFilters = Boolean(dateFrom || dateTo || searchInput.trim());
+
+  const resetFilters = useCallback(() => {
+    setDateFrom("");
+    setDateTo("");
+    setSearchInput("");
+    setDebouncedSearch("");
+  }, []);
 
   useEffect(() => {
     if (mode !== "fop") return;
@@ -1801,17 +1854,6 @@ function PaymentsContent() {
                 <div className="flex rounded-lg border border-zinc-200 p-0.5">
                   <button
                     type="button"
-                    onClick={() => setViewWithUrl("payments")}
-                    className={`rounded-md px-3 py-1.5 text-sm font-medium ${
-                      view === "payments"
-                        ? "bg-zinc-800 text-white"
-                        : "text-zinc-600 hover:bg-zinc-100"
-                    }`}
-                  >
-                    {t.payments.allocatedTab}
-                  </button>
-                  <button
-                    type="button"
                     onClick={() => setViewWithUrl("unmatched")}
                     className={`rounded-md px-3 py-1.5 text-sm font-medium ${
                       view === "unmatched"
@@ -1820,6 +1862,22 @@ function PaymentsContent() {
                     }`}
                   >
                     {t.payments.toAllocateTab}
+                    {unmatchedSummary && unmatchedSummary.total.count > 0 ? (
+                      <span className="ml-1.5 rounded-full bg-rose-500 px-1.5 py-0.5 text-xs font-semibold text-white">
+                        {unmatchedSummary.total.count}
+                      </span>
+                    ) : null}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setViewWithUrl("payments")}
+                    className={`rounded-md px-3 py-1.5 text-sm font-medium ${
+                      view === "payments"
+                        ? "bg-zinc-800 text-white"
+                        : "text-zinc-600 hover:bg-zinc-100"
+                    }`}
+                  >
+                    {t.payments.allocatedTab}
                   </button>
                   <button
                     type="button"
@@ -1897,8 +1955,26 @@ function PaymentsContent() {
               placeholder={t.payments.searchPlaceholder}
               className="rounded-md border border-zinc-300 px-3 py-1.5 text-sm focus:border-zinc-500 focus:outline-none w-56"
             />
+            {hasActiveFilters && (
+              <button
+                type="button"
+                onClick={resetFilters}
+                className="text-sm font-medium text-zinc-500 hover:text-zinc-900 hover:underline"
+              >
+                {t.payments.resetFilters}
+              </button>
+            )}
           </div>
         </div>
+
+        {mode === "fop" && view === "unmatched" && (
+          <UnmatchedMonthsBar
+            summary={unmatchedSummary}
+            activeMonth={activeUnmatchedMonth}
+            hasDateFilter={Boolean(dateFrom || dateTo)}
+            onSelectMonth={selectUnmatchedMonth}
+          />
+        )}
 
         {error && <p className="px-4 py-2 text-sm text-red-600">{error}</p>}
         {loading && <p className="px-4 py-6 text-sm text-zinc-500">{t.common.loading}</p>}
@@ -2278,9 +2354,14 @@ function PaymentsContent() {
 
         {!loading && mode === "fop" && view === "unmatched" && (
           <div className="overflow-x-auto">
-            <p className="px-4 py-2 text-sm text-zinc-600">
-              {t.payments.unmatchedIntro(unmatchedTotal || unmatched.length)}
-            </p>
+            {(dateFrom || dateTo || debouncedSearch.trim()) && unmatchedSummary ? (
+              <p className="px-4 py-2 text-sm text-zinc-600">
+                {t.payments.unmatchedFilteredIntro(
+                  unmatchedTotal || unmatched.length,
+                  unmatchedSummary.total.count,
+                )}
+              </p>
+            ) : null}
             <table className="w-full text-sm">
               <thead className="bg-zinc-100/80 text-left text-xs font-medium uppercase text-zinc-500">
                 <tr>

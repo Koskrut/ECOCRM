@@ -43,6 +43,17 @@ export class BankTransactionsController {
     );
   }
 
+  @Get("unmatched-summary")
+  unmatchedSummary(
+    @Query("bankAccountId") bankAccountId: string | undefined,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.service.unmatchedMonthlySummary(
+      { bankAccountId: bankAccountId?.trim() || undefined },
+      req.user,
+    );
+  }
+
   @Get(":id/match-suggestions")
   matchSuggestions(
     @Param("id") id: string,

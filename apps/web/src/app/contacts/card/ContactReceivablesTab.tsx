@@ -6,37 +6,13 @@ import { ExternalLink } from "lucide-react";
 import { formatDate } from "@/lib/crmDatetime";
 import { formatOrderAmount } from "@/lib/formatOrderAmount";
 import { strings } from "@/locales";
-import {
-  receivablesApi,
-  type ContactReceivablesResponse,
-  type ReceivablesReconcileStatus,
-} from "@/lib/api/resources/receivables";
+import { receivablesApi, type ContactReceivablesResponse } from "@/lib/api/resources/receivables";
 import { DebtCommentSection } from "@/app/receivables/DebtCommentDialog";
-
-const RECONCILE_STATUS_LABELS: Record<ReceivablesReconcileStatus, string> = {
-  ALIGNED: "Збіг",
-  DELTA_1C_MORE: "1С більше",
-  DELTA_CRM_MORE: "CRM більше",
-  ONLY_1C: "Тільки в 1С",
-  ONLY_CRM: "Тільки в CRM",
-};
-
-const RECONCILE_STATUS_CLASS: Record<ReceivablesReconcileStatus, string> = {
-  ALIGNED: "bg-emerald-50 text-emerald-700 ring-emerald-200",
-  DELTA_1C_MORE: "bg-amber-50 text-amber-800 ring-amber-200",
-  DELTA_CRM_MORE: "bg-orange-50 text-orange-800 ring-orange-200",
-  ONLY_1C: "bg-red-50 text-red-700 ring-red-200",
-  ONLY_CRM: "bg-violet-50 text-violet-800 ring-violet-200",
-};
-
-const FINANCIAL_LABELS: Record<string, string> = {
-  INVOICE_PENDING: "Потрібно виставити рахунок",
-  AWAITING_PAYMENT: "Очікуємо оплату",
-  DUE_SOON: "Термін скоро",
-  OVERDUE: "Прострочено",
-  PAID: "Оплачено",
-  CLOSED: "Закрито",
-};
+import {
+  RECONCILE_STATUS_CLASS,
+  financialStatusLabel,
+  reconcileStatusLabel,
+} from "@/app/receivables/receivables-labels";
 
 function formatMoney(amount: number, currency: string) {
   const sym = currency === "EUR" ? "€" : "$";
@@ -221,7 +197,7 @@ export function ContactReceivablesTab({
                 RECONCILE_STATUS_CLASS[data.reconciliation.status]
               }`}
             >
-              {RECONCILE_STATUS_LABELS[data.reconciliation.status]}
+              {reconcileStatusLabel(data.reconciliation.status)}
             </span>
           </div>
           <div className="text-xs text-zinc-500">
@@ -298,7 +274,7 @@ export function ContactReceivablesTab({
                     <td className="px-3 py-2">
                       {row.financialStatus ? (
                         <span className="inline-flex rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800">
-                          {FINANCIAL_LABELS[row.financialStatus] ?? row.financialStatus}
+                          {financialStatusLabel(row.financialStatus)}
                         </span>
                       ) : (
                         "—"

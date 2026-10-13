@@ -4,10 +4,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { LeadsUrlState } from "./leads-url";
 import { DEFAULT_LEADS_URL } from "./leads-url";
 import { strings } from "@/locales";
+import { CustomFieldFilterFields } from "@/components/metadata/CustomFieldFilterFields";
+import { countCustomFilters } from "@/lib/custom-fields/filters";
 
 export type LeadsFiltersState = Pick<
   LeadsUrlState,
-  "status" | "source" | "channel" | "ownerId" | "dateFrom" | "dateTo" | "sortBy" | "sortOrder"
+  "status" | "source" | "channel" | "ownerId" | "dateFrom" | "dateTo" | "sortBy" | "sortOrder" | "customFilters"
 >;
 
 export type OwnerOption = {
@@ -24,6 +26,7 @@ export const DEFAULT_LEADS_FILTERS: LeadsFiltersState = {
   dateTo: DEFAULT_LEADS_URL.dateTo,
   sortBy: DEFAULT_LEADS_URL.sortBy,
   sortOrder: DEFAULT_LEADS_URL.sortOrder,
+  customFilters: {},
 };
 
 type Props = {
@@ -47,7 +50,8 @@ function isActiveFilterState(state: LeadsFiltersState): boolean {
       state.dateFrom ||
       state.dateTo ||
       state.sortBy !== DEFAULT_LEADS_FILTERS.sortBy ||
-      state.sortOrder !== DEFAULT_LEADS_FILTERS.sortOrder,
+      state.sortOrder !== DEFAULT_LEADS_FILTERS.sortOrder ||
+      countCustomFilters(state.customFilters) > 0,
   );
 }
 
@@ -102,7 +106,7 @@ export function LeadsFiltersPopover({
   return (
     <div
       ref={panelRef}
-      className="absolute right-0 top-12 z-30 w-[min(92vw,440px)] rounded-xl border border-zinc-200 bg-white p-4 shadow-xl"
+      className="absolute right-0 top-12 z-30 max-h-[min(80vh,640px)] w-[min(92vw,440px)] overflow-y-auto rounded-xl border border-zinc-200 bg-white p-4 shadow-xl"
     >
       <div className="mb-3 flex items-center justify-between">
         <h3 className="text-sm font-semibold text-zinc-900">{t.filtersTitle}</h3>
@@ -227,6 +231,11 @@ export function LeadsFiltersPopover({
             ))}
           </select>
         </div>
+        <CustomFieldFilterFields
+          entityType="LEAD"
+          value={draft.customFilters ?? {}}
+          onChange={(customFilters) => setDraft((prev) => ({ ...prev, customFilters }))}
+        />
       </div>
 
       <div className="mt-4 flex flex-wrap items-center gap-2">

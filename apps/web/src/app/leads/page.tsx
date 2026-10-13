@@ -19,6 +19,7 @@ import { LeadsFiltersPopover, type LeadsFiltersState } from "./LeadsFiltersPopov
 import { LeadCard } from "./LeadCard";
 import { formatDate } from "@/lib/crmDatetime";
 import { useListColumns } from "@/lib/lists/useListColumns";
+import { serializeCustomFilters } from "@/lib/custom-fields/filters";
 import { renderCellText } from "@/lib/lists/renderCell";
 import { HelpHint } from "@/components/help/HelpHint";
 import { withPreservedScroll } from "@/lib/modal/preserveScroll";
@@ -158,6 +159,8 @@ function LeadsPageContent() {
           if (urlState.ownerId) params.ownerId = urlState.ownerId;
           if (urlState.dateFrom) params.dateFrom = urlState.dateFrom;
           if (urlState.dateTo) params.dateTo = urlState.dateTo;
+          const customFilters = serializeCustomFilters(urlState.customFilters);
+          if (customFilters) params.cf = customFilters;
 
           const res: LeadsResponse = await leadsApi.list(params);
           setItems(res.items);
@@ -237,6 +240,7 @@ function LeadsPageContent() {
     dateTo: urlState.dateTo,
     sortBy: urlState.sortBy,
     sortOrder: urlState.sortOrder,
+    customFilters: urlState.customFilters,
   };
 
   const filtersActive = isLeadsFilterActive(urlState);

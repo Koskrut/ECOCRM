@@ -17,6 +17,7 @@ import {
   NATIVE_COLUMNS,
   type ListEntityType,
 } from "@/lib/lists/columnCatalog";
+import { customFieldTypeLabel } from "@/lib/custom-fields/presentation";
 
 const ENTITY_TYPES: ListEntityType[] = ["COMPANY", "CONTACT", "ORDER", "LEAD"];
 
@@ -297,7 +298,6 @@ export default function ListColumnsAdminPage() {
                 {BASE_COLUMNS[entity].map((c) => (
                   <li key={c.key} className="flex items-center justify-between rounded bg-zinc-50 px-2 py-1">
                     <span>{c.label}</span>
-                    <span className="font-mono text-xs text-zinc-400">{c.key}</span>
                   </li>
                 ))}
               </ul>
@@ -320,16 +320,10 @@ export default function ListColumnsAdminPage() {
                         }`}
                       >
                         <div className="flex items-center gap-2">
-                          <span className="font-mono text-xs text-zinc-500">{f.key}</span>
-                          {!isNative ? (
-                            <span className="rounded bg-violet-100 px-1 text-[10px] uppercase text-violet-700">
-                              custom
-                            </span>
-                          ) : (
-                            <span className="rounded bg-zinc-100 px-1 text-[10px] uppercase text-zinc-600">
-                              native
-                            </span>
-                          )}
+                          <span className="text-sm text-zinc-800">{defaultLabel || "Колонка"}</span>
+                          <span className="rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] text-zinc-600">
+                            {isNative ? "Поле картки" : "Додаткове"}
+                          </span>
                         </div>
                         <div className="mt-1 flex flex-wrap items-center gap-2">
                           <input
@@ -390,7 +384,6 @@ export default function ListColumnsAdminPage() {
                     <li key={c.key} className="flex items-center justify-between rounded border border-zinc-200 bg-white px-2 py-1">
                       <div className="min-w-0 flex-1">
                         <div className="truncate text-sm">{c.label}</div>
-                        <div className="font-mono text-[10px] text-zinc-400">{c.key}</div>
                       </div>
                       <button
                         type="button"
@@ -421,9 +414,7 @@ export default function ListColumnsAdminPage() {
                     <li key={d.id} className="flex items-center justify-between rounded border border-zinc-200 bg-white px-2 py-1">
                       <div className="min-w-0 flex-1">
                         <div className="truncate text-sm">{d.label}</div>
-                        <div className="font-mono text-[10px] text-zinc-400">
-                          {d.key} · {d.type}
-                        </div>
+                        <div className="text-[11px] text-zinc-500">{customFieldTypeLabel(d.type)}</div>
                       </div>
                       <button
                         type="button"

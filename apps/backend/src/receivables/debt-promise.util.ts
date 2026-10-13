@@ -76,9 +76,15 @@ export function isPromiseForYmd(
   return Boolean(promiseDate && promiseDate === ymd);
 }
 
+/** Broken = promise date passed and no COMPLETED payment on/after the promise comment was created. */
 export function isPromiseBroken(
   promiseDate: string | null | undefined,
   todayYmd: string,
+  opts?: { promisedAt?: Date | null; lastPaymentAt?: Date | null },
 ): boolean {
-  return Boolean(promiseDate && DATE_RE.test(promiseDate) && promiseDate < todayYmd);
+  if (!(promiseDate && DATE_RE.test(promiseDate) && promiseDate < todayYmd)) return false;
+  const promisedAt = opts?.promisedAt;
+  const lastPaymentAt = opts?.lastPaymentAt;
+  if (promisedAt && lastPaymentAt && lastPaymentAt.getTime() >= promisedAt.getTime()) return false;
+  return true;
 }

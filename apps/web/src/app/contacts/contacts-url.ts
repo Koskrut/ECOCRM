@@ -4,6 +4,7 @@ import {
   type ContactPriorityReasonCode,
   type ContactWorkQueuePreset,
 } from "@/lib/api/resources/contacts";
+import { countCustomFilters, parseCustomFilters, serializeCustomFilters, type CustomFilterValues } from "@/lib/custom-fields/filters";
 
 export type ContactsSortBy = "createdAt" | "updatedAt" | "name" | "hasCallToday" | "hasMissedCall";
 export type ContactsSortDir = "asc" | "desc";
@@ -25,6 +26,7 @@ export type ContactsUrlState = {
   sortDir: ContactsSortDir;
   /** Priority reason codes — only applied in preset (work-queue) mode. */
   reasons: ContactPriorityReasonCode[];
+  customFilters: CustomFilterValues;
   page: number;
   contactId: string;
 };
@@ -51,6 +53,7 @@ const LIST_KEYS = new Set([
   "sortBy",
   "sortDir",
   "reason",
+  "cf",
   "page",
 ]);
 
@@ -72,6 +75,7 @@ export const DEFAULT_CONTACTS_URL: ContactsUrlState = {
   sortBy: "createdAt",
   sortDir: "desc",
   reasons: [],
+  customFilters: {},
   page: 1,
   contactId: "",
 };
@@ -145,6 +149,7 @@ export function parseContactsUrl(sp: SearchParamsLike): ContactsUrlState {
     sortBy: parseSortBy(sp.get("sortBy")),
     sortDir: parseSortDir(sp.get("sortDir")),
     reasons: workPreset === "all" ? [] : parseReasons(sp),
+    customFilters: parseCustomFilters(sp.get("cf")),
     page: parsePage(sp.get("page")),
     contactId: (sp.get("contactId") ?? "").trim(),
   };
@@ -180,6 +185,8 @@ export function buildContactsSearchParams(
     if (state.clientType) params.set("clientType", state.clientType);
     if (state.sortBy !== DEFAULT_CONTACTS_URL.sortBy) params.set("sortBy", state.sortBy);
     if (state.sortDir !== DEFAULT_CONTACTS_URL.sortDir) params.set("sortDir", state.sortDir);
+    const customFilters = serializeCustomFilters(state.customFilters);
+    if (customFilters) params.set("cf", customFilters);
   } else {
     for (const reason of state.reasons) params.append("reason", reason);
   }
@@ -203,7 +210,8 @@ export function isContactsFilterActive(state: ContactsUrlState): boolean {
     state.cities.length ||
     state.clientType ||
     state.sortBy !== DEFAULT_CONTACTS_URL.sortBy ||
-    state.sortDir !== DEFAULT_CONTACTS_URL.sortDir,
+    state.sortDir !== DEFAULT_CONTACTS_URL.sortDir ||
+    countCustomFilters(state.customFilters) > 0,
   );
 }
 

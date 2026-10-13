@@ -6,36 +6,24 @@ import { formatOrderAmount } from "@/lib/formatOrderAmount";
 import { strings } from "@/locales";
 import type {
   ContactReceivablesResponse,
-  ReceivablesReconcileStatus,
   WorkClientRow,
+  WorkClientsSortKey,
 } from "@/lib/api/resources/receivables";
+import type { SortDir } from "./receivables-url";
 import { ClientRowActions } from "./ClientRowActions";
 import { formatMoney } from "./format-money";
+import {
+  RECONCILE_STATUS_CLASS,
+  delayReasonShortLabel,
+  reconcileStatusLabel,
+} from "./receivables-labels";
+import { isSnoozeActive } from "./debt-promise";
 
 const COMMENT_STALE_MS = 7 * 24 * 60 * 60 * 1000;
 
-const RECONCILE_STATUS_LABELS: Record<ReceivablesReconcileStatus, string> = {
-  ALIGNED: "Збіг",
-  DELTA_1C_MORE: "1С більше",
-  DELTA_CRM_MORE: "CRM більше",
-  ONLY_1C: "Тільки в 1С",
-  ONLY_CRM: "Тільки в CRM",
-};
-
-const RECONCILE_STATUS_CLASS: Record<ReceivablesReconcileStatus, string> = {
-  ALIGNED: "bg-emerald-50 text-emerald-700 ring-emerald-200",
-  DELTA_1C_MORE: "bg-amber-50 text-amber-800 ring-amber-200",
-  DELTA_CRM_MORE: "bg-orange-50 text-orange-800 ring-orange-200",
-  ONLY_1C: "bg-red-50 text-red-700 ring-red-200",
-  ONLY_CRM: "bg-violet-50 text-violet-800 ring-violet-200",
-};
-
-const DELAY_REASON_LABELS: Record<string, string> = {
-  WAITING_ACT: "Чекаємо акт",
-  CLIENT_DELAY: "Клієнт затримує",
-  DISPUTE: "Спір по товару",
-  OTHER: "Інше",
-};
+const STICKY_HEAD = "sticky left-0 z-20 bg-zinc-50 shadow-[inset_-1px_0_0_var(--color-zinc-200)]";
+const STICKY_CELL =
+  "sticky left-0 z-[1] bg-white shadow-[inset_-1px_0_0_var(--color-zinc-100)] group-hover:bg-zinc-50";
 
 function isCommentStale(lastCommentAt: string | null): boolean {
   if (!lastCommentAt) return true;
@@ -44,28 +32,54 @@ function isCommentStale(lastCommentAt: string | null): boolean {
   return Date.now() - ts > COMMENT_STALE_MS;
 }
 
-export function WorkClientsTable({
-  rows,
-  currency,
-  expandedClients,
-  clientDetails,
-  clientDetailsLoading,
-  selectedIds,
-  onToggleSelect,
-  onToggleSelectAll,
-  onToggleExpand,
-  onOpenContact,
-  onOpenOrder,
-  onComment,
-  onCopyPay,
-  onRemind,
+function SortHeader({
+  label,
+  sortKey,
+  activeSort,
+  dir,
+  align = "left",
+  onSort,
 }: {
+  label: string;
+  sortKey: WorkClientsSortKey;
+  activeSort: WorkClientsSortKey | "";
+  dir: SortDir;
+  align?: "left" | "right";
+  onSort?: (key: WorkClientsSortKey) => void;
+}) {
+  if (!onSort) {
+    return <th className={`px-3 py-3 ${align === "right" ? "text-right" : ""}`}>{label}</th>;
+  }
+  const active = activeSort === sortKey;
+  const arrow = active ? (dir === "asc" ? " ↑" : " ↓") : "";
+  return (
+    <th className={`px-3 py-3 ${align === "right" ? "text-right" : ""}`}>
+      <button
+        type="button"
+        onClick={() => onSort(sortKey)}
+        className={`font-inherit uppercase hover:text-zinc-800 ${
+          active ? "text-zinc-800" : "text-zinc-500"
+        }`}
+      >
+        {label}
+        {arrow}
+      </button>
+    </th>
+  );
+}
+
+export type WorkClientsTableProps = {
   rows: WorkClientRow[];
   currency: string;
+  /** Hidden for MANAGER role: every row is their own. */
+  showManager: boolean;
   expandedClients: Set<string>;
   clientDetails: Map<string, ContactReceivablesResponse>;
   clientDetailsLoading: Set<string>;
   selectedIds: Set<string>;
+  sort?: WorkClientsSortKey | "";
+  dir?: SortDir;
+  onSort?: (key: WorkClientsSortKey) => void;
   onToggleSelect: (contactId: string) => void;
   onToggleSelectAll: () => void;
   onToggleExpand: (contactId: string) => void;
@@ -74,41 +88,96 @@ export function WorkClientsTable({
   onComment: (row: WorkClientRow) => void;
   onCopyPay: (row: WorkClientRow) => void;
   onRemind?: (row: WorkClientRow) => void;
-}) {
+};
+
+export function WorkClientsTable({
+  rows,
+  currency,
+  showManager,
+  expandedClients,
+  clientDetails,
+  clientDetailsLoading,
+  selectedIds,
+  sort = "",
+  dir = "desc",
+  onSort,
+  onToggleSelect,
+  onToggleSelectAll,
+  onToggleExpand,
+  onOpenContact,
+  onOpenOrder,
+  onComment,
+  onCopyPay,
+  onRemind,
+}: WorkClientsTableProps) {
   const t = strings.receivables;
   if (rows.length === 0) {
     return <div className="text-sm text-zinc-500">{t.noClients}</div>;
   }
 
   const allSelected = rows.length > 0 && rows.every((r) => selectedIds.has(r.contactId));
-  const colCount = 13;
+  const colCount = showManager ? 10 : 9;
 
   return (
     <div className="max-h-[min(70vh,calc(100dvh-18rem))] overflow-auto rounded-xl border border-zinc-200 bg-white shadow-sm">
       <table className="w-full text-sm">
         <thead className="sticky top-0 z-10 border-b border-zinc-200 bg-zinc-50/95 text-left text-xs uppercase text-zinc-500 backdrop-blur supports-[backdrop-filter]:bg-zinc-50/80">
           <tr>
-            <th className="w-10 px-3 py-3">
-              <input
-                type="checkbox"
-                checked={allSelected}
-                onChange={onToggleSelectAll}
-                className="rounded border-zinc-300"
-                aria-label={t.selectAll}
-              />
+            <th className={`${STICKY_HEAD} px-3 py-3`}>
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={allSelected}
+                  onChange={onToggleSelectAll}
+                  className="rounded border-zinc-300"
+                  aria-label={t.selectAll}
+                />
+                <span className="w-4" aria-hidden="true" />
+                <span>{t.colClient}</span>
+              </div>
             </th>
-            <th className="w-8 px-2 py-3" />
-            <th className="px-4 py-3">{t.colClient}</th>
-            <th className="px-4 py-3">{t.colCode1C}</th>
-            <th className="px-4 py-3 text-right">{t.colDebt}</th>
-            <th className="px-4 py-3 text-right">{t.colOverdue}</th>
-            <th className="px-4 py-3 text-right">{t.colOverpayment}</th>
-            <th className="px-4 py-3 text-right">{t.colOrders}</th>
-            <th className="px-4 py-3">{t.colLastPayment}</th>
-            <th className="px-4 py-3">{t.colManager}</th>
-            <th className="px-4 py-3">{t.colLastComment}</th>
-            <th className="px-4 py-3">{t.colDelayReason}</th>
-            <th className="px-4 py-3">{t.colActions}</th>
+            <th className="px-3 py-3">{t.colCode1C}</th>
+            <SortHeader
+              label={t.colDebt}
+              sortKey="debt"
+              activeSort={sort}
+              dir={dir}
+              align="right"
+              onSort={onSort}
+            />
+            <SortHeader
+              label={t.colOverdue}
+              sortKey="overdue"
+              activeSort={sort}
+              dir={dir}
+              align="right"
+              onSort={onSort}
+            />
+            <SortHeader
+              label={t.colOverdueDays}
+              sortKey="overdueDays"
+              activeSort={sort}
+              dir={dir}
+              align="right"
+              onSort={onSort}
+            />
+            <th className="px-3 py-3 text-right">{t.colOrders}</th>
+            <SortHeader
+              label={t.colLastPayment}
+              sortKey="lastPayment"
+              activeSort={sort}
+              dir={dir}
+              onSort={onSort}
+            />
+            {showManager ? <th className="px-3 py-3">{t.colManager}</th> : null}
+            <SortHeader
+              label={t.colLastComment}
+              sortKey="lastComment"
+              activeSort={sort}
+              dir={dir}
+              onSort={onSort}
+            />
+            <th className="px-3 py-3">{t.colActions}</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-zinc-100">
@@ -119,68 +188,83 @@ export function WorkClientsTable({
             const loadingDetail = clientDetailsLoading.has(row.contactId);
             const reconcile = row.reconcileStatus;
             const reason = row.delayReasonCode;
+            const overpayment = row.overpaymentAmount ?? 0;
+            const snoozed = isSnoozeActive(row.snoozedUntil);
             return (
               <Fragment key={row.contactId}>
                 <tr className="group hover:bg-zinc-50">
-                  <td className="px-3 py-3" onClick={(e) => e.stopPropagation()}>
-                    <input
-                      type="checkbox"
-                      checked={selectedIds.has(row.contactId)}
-                      onChange={() => onToggleSelect(row.contactId)}
-                      className="rounded border-zinc-300"
-                      aria-label={`${t.selectRow} ${row.clientName}`}
-                    />
+                  <td className={`${STICKY_CELL} px-3 py-3`}>
+                    <div className="flex min-w-[12rem] max-w-[18rem] items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(row.contactId)}
+                        onChange={() => onToggleSelect(row.contactId)}
+                        className="shrink-0 rounded border-zinc-300"
+                        aria-label={`${t.selectRow} ${row.clientName}`}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => onToggleExpand(row.contactId)}
+                        className="w-4 shrink-0 text-zinc-500 hover:text-zinc-800"
+                        aria-label={expanded ? t.collapseDetails : t.expandDetails}
+                      >
+                        {expanded ? "▾" : "▸"}
+                      </button>
+                      <button
+                        type="button"
+                        className="min-w-0 text-left font-medium text-zinc-900 underline-offset-2 hover:underline"
+                        onClick={() => onOpenContact(row.contactId)}
+                      >
+                        {row.clientName}
+                      </button>
+                    </div>
                   </td>
-                  <td className="px-2 py-3">
-                    <button
-                      type="button"
-                      onClick={() => onToggleExpand(row.contactId)}
-                      className="text-zinc-500 hover:text-zinc-800"
-                      aria-label={expanded ? t.collapseDetails : t.expandDetails}
-                    >
-                      {expanded ? "▾" : "▸"}
-                    </button>
-                  </td>
-                  <td className="px-4 py-3">
-                    <button
-                      type="button"
-                      className="font-medium text-zinc-900 underline-offset-2 hover:underline"
-                      onClick={() => onOpenContact(row.contactId)}
-                    >
-                      {row.clientName}
-                    </button>
-                  </td>
-                  <td className="px-4 py-3">
+                  <td className="px-3 py-3">
                     <div className="flex flex-col gap-1">
                       <span className="font-mono text-xs text-zinc-600">
                         {row.externalCode ?? "—"}
                       </span>
                       {reconcile && reconcile !== "ALIGNED" ? (
                         <span
-                          className={`inline-flex w-fit rounded-full px-1.5 py-0.5 text-[10px] font-medium ring-1 ${RECONCILE_STATUS_CLASS[reconcile]}`}
+                          className={`inline-flex w-fit whitespace-nowrap rounded-full px-1.5 py-0.5 text-[10px] font-medium ring-1 ${RECONCILE_STATUS_CLASS[reconcile]}`}
                         >
-                          {RECONCILE_STATUS_LABELS[reconcile]}
+                          {reconcileStatusLabel(reconcile)}
                         </span>
                       ) : null}
                     </div>
                   </td>
-                  <td className="px-4 py-3 text-right tabular-nums font-medium">
-                    {formatMoney(row.debtAmount, currency)}
+                  <td className="whitespace-nowrap px-3 py-3 text-right tabular-nums">
+                    <div className="font-medium">{formatMoney(row.debtAmount, currency)}</div>
+                    {overpayment > 0 ? (
+                      <div className="mt-0.5 text-xs text-emerald-700">
+                        {t.overpaymentShort(formatMoney(overpayment, currency))}
+                      </div>
+                    ) : null}
                   </td>
-                  <td className="px-4 py-3 text-right tabular-nums text-red-600">
+                  <td className="whitespace-nowrap px-3 py-3 text-right tabular-nums text-red-600">
                     {row.overdueAmount > 0 ? formatMoney(row.overdueAmount, currency) : "—"}
                   </td>
-                  <td className="px-4 py-3 text-right tabular-nums text-emerald-700">
-                    {(row.overpaymentAmount ?? 0) > 0
-                      ? formatMoney(row.overpaymentAmount!, currency)
-                      : "—"}
+                  <td className="whitespace-nowrap px-3 py-3 text-right tabular-nums text-zinc-700">
+                    {row.overdueDays && row.overdueDays > 0 ? row.overdueDays : "—"}
                   </td>
-                  <td className="px-4 py-3 text-right tabular-nums">{row.orderCount}</td>
-                  <td className="px-4 py-3 text-zinc-600">
+                  <td className="px-3 py-3 text-right tabular-nums">{row.orderCount}</td>
+                  <td className="whitespace-nowrap px-3 py-3 text-zinc-600">
                     {row.lastPaymentAt ? formatDate(row.lastPaymentAt.slice(0, 10)) : "—"}
                   </td>
-                  <td className="px-4 py-3 text-zinc-600">{row.ownerName ?? "—"}</td>
-                  <td className="px-4 py-3 max-w-[14rem]">
+                  {showManager ? (
+                    <td className="px-3 py-3 text-zinc-600">{row.ownerName ?? "—"}</td>
+                  ) : null}
+                  <td className="max-w-[16rem] px-3 py-3">
+                    {snoozed && row.snoozedUntil ? (
+                      <span className="mb-1 mr-1 inline-flex rounded-full bg-sky-50 px-2 py-0.5 text-[10px] font-medium text-sky-800 ring-1 ring-sky-200">
+                        {t.snoozedUntil(formatDate(row.snoozedUntil))}
+                      </span>
+                    ) : null}
+                    {reason ? (
+                      <span className="mb-1 inline-flex rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-medium text-zinc-700">
+                        {delayReasonShortLabel(reason)}
+                      </span>
+                    ) : null}
                     {row.lastCommentAt ? (
                       <div className={stale ? "text-amber-800" : "text-zinc-700"}>
                         <div className="flex flex-wrap items-center gap-1.5 text-xs">
@@ -207,19 +291,10 @@ export function WorkClientsTable({
                         ) : null}
                       </div>
                     ) : (
-                      <span className="text-xs text-amber-700">{t.commentNone}</span>
+                      <div className="text-xs text-amber-700">{t.commentNone}</div>
                     )}
                   </td>
-                  <td className="px-4 py-3">
-                    {reason ? (
-                      <span className="inline-flex rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-700">
-                        {DELAY_REASON_LABELS[reason] ?? reason}
-                      </span>
-                    ) : (
-                      <span className="text-xs text-zinc-400">—</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3">
+                  <td className="px-3 py-3">
                     <ClientRowActions
                       row={row}
                       onComment={onComment}

@@ -7,13 +7,14 @@ import {
 import {
   ActivityType,
   ConversationChannel,
+  Prisma,
   ReceivablesReconcileStatus,
+  TaskStatus,
   UserRole,
-  type Prisma,
 } from "@prisma/client";
 import type { AuthUser } from "../auth/auth.types";
 import { AnalyticsScopeService } from "../analytics/analytics-scope.service";
-import { getBaseCurrency, toBaseCurrency } from "../common/currency.util";
+import { getBaseCurrency, paymentToBase, toBaseCurrency } from "../common/currency.util";
 import { safeNum } from "../analytics/utils/analytics-currency.util";
 import { normalizePagination } from "../common/pagination";
 import { todayYmdKyiv } from "../crm-timezone";
@@ -43,9 +44,25 @@ import {
   parseDebtCommentTitle,
 } from "./debt-promise.util";
 import {
-  agingBucketIndex,
-  createEmptyAgingBuckets,
+  agingBucketLabel,
+  buildAgingBuckets,
+  isAgingBucketLabel,
+  RECEIVABLES_AGING_BUCKET_LABELS,
+  RECEIVABLES_AGING_BUCKET_RANGES,
+  type AgingOverdueOrder,
+  type ReceivablesAgingBucketLabel,
 } from "./receivables-aging.util";
+import {
+  activeSnoozeYmd,
+  computeSnoozeUntilYmd,
+  formatSnoozeActivityTitle,
+  snoozeYmdToDbDate,
+} from "./receivables-snooze.util";
+import {
+  compareWorkClients,
+  matchesWorkClientQuery,
+  parseWorkClientsSort,
+} from "./receivables-work-clients.util";
 import {
   buildBitrixLegacyDebtOrderWhere,
   buildOperationalDebtOrderWhere,
@@ -72,7 +89,13 @@ type ContactDebtRow = {
   primaryOrderId: string | null;
   primaryOverdue: boolean;
   primaryDebt: number;
+  overdueOrders: AgingOverdueOrder[];
 };
+
+type ContactDebtMap = Map<string, ContactDebtRow>;
+
+const CONTACT_DEBT_CACHE_TTL_MS = 5_000;
+const CALL_TASK_TITLE_PREFIX = "Дзвінок: дебіторка";
 
 /** debtAmount / creditAmount on Order are stored in USD (see recalcOrder). */
 function orderStoredUsdAmount(value: unknown): number {
@@ -95,8 +118,42 @@ function overdueDaysByDueDate(paymentDueDate: Date | null | undefined): number {
   return Math.max(0, Math.round(startOfToday.diff(due, "days").days));
 }
 
+function startOfKyivDayOffset(offsetDays: number): Date {
+  return DateTime.fromISO(todayYmdKyiv(), { zone: CRM_TIME_ZONE })
+    .startOf("day")
+    .plus({ days: offsetDays })
+    .toJSDate();
+}
+
+/** Orders whose own days-past-due fall into the aging bucket. */
+function agingOrderWhere(label: ReceivablesAgingBucketLabel): Prisma.OrderWhereInput {
+  const range = RECEIVABLES_AGING_BUCKET_RANGES[label];
+  const paymentDueDate: Prisma.DateTimeNullableFilter = {
+    lt: startOfKyivDayOffset(-Math.max(range.min, 1) + 1),
+  };
+  if (range.max != null) paymentDueDate.gte = startOfKyivDayOffset(-range.max);
+  return { debtAmount: { gt: 0 }, paymentDueDate };
+}
+
+function parseAgingParam(raw?: string): ReceivablesAgingBucketLabel | undefined {
+  const value = raw?.trim();
+  if (!value) return undefined;
+  if (!isAgingBucketLabel(value)) {
+    throw new BadRequestException(
+      `aging must be one of: ${RECEIVABLES_AGING_BUCKET_LABELS.join(", ")}`,
+    );
+  }
+  return value;
+}
+
+function toCodeForContact(code: string): string {
+  return /^\d+$/.test(code) && code.length < 9 ? code.padStart(9, "0") : code;
+}
+
 @Injectable()
 export class ReceivablesService {
+  private readonly contactDebtCache = new Map<string, { at: number; value: Promise<ContactDebtMap> }>();
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly settings: SettingsService,
@@ -160,9 +217,96 @@ export class ReceivablesService {
   }
 
   async refreshReconciliation(snapshotId: string, actor: AuthUser) {
+    this.assertReconcileAdmin(actor);
     await this.assertSnapshotAccess(snapshotId, actor);
+    this.contactDebtCache.clear();
     await this.reconcileSnapshot(snapshotId);
     return this.getReconciliationSummary(snapshotId, actor);
+  }
+
+  private assertReconcileAdmin(actor: AuthUser) {
+    if (actor.role !== UserRole.ADMIN && actor.role !== UserRole.LEAD) {
+      throw new ForbiddenException("Only ADMIN or LEAD can change reconciliation");
+    }
+  }
+
+  async linkReconcileLineContact(
+    actor: AuthUser,
+    lineId: string,
+    body: { contactId?: string; overwrite?: boolean },
+  ) {
+    this.assertReconcileAdmin(actor);
+    const contactId = body.contactId?.trim();
+    if (!contactId) throw new BadRequestException("contactId is required");
+
+    const line = await this.prisma.receivablesSnapshotLine.findUnique({
+      where: { id: lineId },
+      select: { id: true, snapshotId: true, counterpartyCode1C: true, status: true, contactId: true },
+    });
+    if (!line) throw new NotFoundException("Reconciliation line not found");
+    if (line.status !== "ONLY_1C" || line.contactId) {
+      throw new BadRequestException("Only ONLY_1C lines without a contact can be linked");
+    }
+    const code = normalizeCounterpartyCode1C(line.counterpartyCode1C);
+    if (!code) throw new BadRequestException("Line has no 1C code");
+
+    const contact = await this.prisma.contact.findUnique({
+      where: { id: contactId },
+      select: { id: true, externalCode: true },
+    });
+    if (!contact) throw new NotFoundException("Contact not found");
+    const prevCode = normalizeCounterpartyCode1C(contact.externalCode ?? "");
+    if (prevCode && prevCode !== code && !body.overwrite) {
+      throw new BadRequestException(
+        `Contact already has 1C code ${contact.externalCode}; pass overwrite=true to replace it`,
+      );
+    }
+
+    const externalCode = prevCode === code ? contact.externalCode! : toCodeForContact(code);
+    if (externalCode !== contact.externalCode) {
+      await this.prisma.contact.update({
+        where: { id: contact.id },
+        data: { externalCode },
+      });
+    }
+
+    this.contactDebtCache.clear();
+    await this.reconcileSnapshot(line.snapshotId);
+
+    const updated = await this.prisma.receivablesSnapshotLine.findFirst({
+      where: { snapshotId: line.snapshotId, counterpartyCode1C: code },
+      include: {
+        contact: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            owner: { select: { id: true, fullName: true } },
+          },
+        },
+      },
+    });
+    return {
+      ok: true,
+      contactId: contact.id,
+      externalCode,
+      previousExternalCode: contact.externalCode ?? null,
+      line: updated
+        ? {
+            id: updated.id,
+            counterpartyCode1C: updated.counterpartyCode1C,
+            amount1C: updated.amount1C,
+            amountCRM: updated.amountCRM,
+            delta: updated.delta,
+            status: updated.status,
+            contactId: updated.contactId,
+            clientName: updated.contact
+              ? [updated.contact.firstName, updated.contact.lastName].filter(Boolean).join(" ")
+              : null,
+            ownerName: updated.contact?.owner?.fullName ?? null,
+          }
+        : null,
+    };
   }
 
   private parseSnapshotDate(raw?: string): Date {
@@ -208,16 +352,15 @@ export class ReceivablesService {
 
     const codes = [...amount1CByCode.keys()];
     const codeSet = new Set(codes);
-    const contacts = await this.prisma.contact.findMany({
-      where: { externalCode: { not: null } },
-      select: {
-        id: true,
-        externalCode: true,
-        ownerId: true,
-        firstName: true,
-        lastName: true,
-      },
-    });
+    const contacts = await this.prisma.$queryRaw<Array<{ id: string; externalCode: string | null }>>(
+      Prisma.sql`
+        SELECT id, "externalCode"
+        FROM "Contact"
+        WHERE "externalCode" IS NOT NULL
+          AND COALESCE(NULLIF(ltrim(btrim("externalCode"), '0'), ''), '0') = ANY(${codes}::text[])
+        ORDER BY "createdAt" ASC
+      `,
+    );
 
     const contactsByCode = new Map<string, (typeof contacts)[number][]>();
     for (const c of contacts) {
@@ -279,14 +422,14 @@ export class ReceivablesService {
 
     const codesIn1C = new Set(amount1CByCode.keys());
     for (const [contactId, row] of contactDebt) {
-      if (!row.externalCode || codesIn1C.has(row.externalCode)) continue;
+      if (row.externalCode && codesIn1C.has(row.externalCode)) continue;
       const amountCRM = row.debtBase;
       if (amountCRM <= tolerance) continue;
       totalCRM += amountCRM;
       const status: ReceivablesReconcileStatus = "ONLY_CRM";
       deltaCount += 1;
       reconcileLines.push({
-        counterpartyCode1C: row.externalCode,
+        counterpartyCode1C: row.externalCode ?? "",
         amount1C: 0,
         amountCRM,
         delta: -amountCRM,
@@ -323,10 +466,50 @@ export class ReceivablesService {
     return Math.round(toBaseCurrency(amount, sourceCurrency, rates) * 100) / 100;
   }
 
-  private async loadContactDebtMap(
+  /** Deduplicates the summary/clients/aging calls of a single page load. */
+  private loadContactDebtMap(
     scope: Awaited<ReturnType<AnalyticsScopeService["resolveDashboardScope"]>> | null,
     _rates: Awaited<ReturnType<SettingsService["getExchangeRates"]>>,
-  ) {
+  ): Promise<ContactDebtMap> {
+    const key = JSON.stringify({
+      all: scope == null,
+      managerId: scope?.orderScope.managerId ?? null,
+      allowedOwnerIds: scope?.orderScope.allowedOwnerIds ?? null,
+      today: todayYmdKyiv(),
+    });
+    const now = Date.now();
+    for (const [k, v] of this.contactDebtCache) {
+      if (now - v.at > CONTACT_DEBT_CACHE_TTL_MS) this.contactDebtCache.delete(k);
+    }
+    const cached = this.contactDebtCache.get(key);
+    if (cached) return cached.value;
+    const value = this.computeContactDebtMap(scope);
+    this.contactDebtCache.set(key, { at: now, value });
+    value.catch(() => this.contactDebtCache.delete(key));
+    return value;
+  }
+
+  private async loadLastPaymentByClient(clientIds: string[]): Promise<Map<string, Date>> {
+    const map = new Map<string, Date>();
+    if (clientIds.length === 0) return map;
+    const rows = await this.prisma.$queryRaw<Array<{ clientId: string; lastPaidAt: Date | null }>>(
+      Prisma.sql`
+        SELECT o."clientId" AS "clientId", MAX(p."paidAt") AS "lastPaidAt"
+        FROM "Payment" p
+        JOIN "Order" o ON o.id = p."orderId"
+        WHERE p.status = 'COMPLETED' AND o."clientId" = ANY(${clientIds}::text[])
+        GROUP BY o."clientId"
+      `,
+    );
+    for (const row of rows) {
+      if (row.clientId && row.lastPaidAt) map.set(row.clientId, new Date(row.lastPaidAt));
+    }
+    return map;
+  }
+
+  private async computeContactDebtMap(
+    scope: Awaited<ReturnType<AnalyticsScopeService["resolveDashboardScope"]>> | null,
+  ): Promise<ContactDebtMap> {
     const orderWhere: Prisma.OrderWhereInput = scope
       ? buildReceivablesDebtOrderWhere(scope)
       : buildOperationalDebtOrderWhere({
@@ -357,24 +540,9 @@ export class ReceivablesService {
     });
 
     const clientIds = [...new Set(orders.map((o) => o.clientId).filter(Boolean))] as string[];
-    const lastPaymentByClient = new Map<string, Date>();
-    if (clientIds.length > 0) {
-      const paymentRows = await this.prisma.payment.findMany({
-        where: {
-          status: "COMPLETED",
-          order: { clientId: { in: clientIds } },
-        },
-        select: { paidAt: true, order: { select: { clientId: true } } },
-      });
-      for (const p of paymentRows) {
-        const cid = p.order?.clientId;
-        if (!cid) continue;
-        const prev = lastPaymentByClient.get(cid);
-        if (!prev || p.paidAt > prev) lastPaymentByClient.set(cid, p.paidAt);
-      }
-    }
+    const lastPaymentByClient = await this.loadLastPaymentByClient(clientIds);
 
-    const map = new Map<string, ContactDebtRow>();
+    const map: ContactDebtMap = new Map();
     for (const o of orders) {
       const client = o.client;
       if (!client) continue;
@@ -385,6 +553,7 @@ export class ReceivablesService {
       const overdueBase = isOrderOverdueByDueDate(o.paymentDueDate, debtUsd) ? debtBase : 0;
       const days = overdueBase > 0 ? overdueDaysByDueDate(o.paymentDueDate) : 0;
       const code = normalizeCounterpartyCode1C(client.externalCode ?? "");
+      const overdueOrder = overdueBase > 0 && days > 0 ? { days, amount: overdueBase } : null;
       const prev = map.get(client.id);
       if (prev) {
         prev.debtBase += debtBase;
@@ -392,6 +561,7 @@ export class ReceivablesService {
         prev.creditBase += creditBase;
         prev.orderCount += 1;
         prev.overdueDays = Math.max(prev.overdueDays, days);
+        if (overdueOrder) prev.overdueOrders.push(overdueOrder);
         const betterPrimary =
           (overdueBase > 0 && !prev.primaryOverdue) ||
           (overdueBase > 0 === prev.primaryOverdue && debtBase > prev.primaryDebt);
@@ -417,12 +587,8 @@ export class ReceivablesService {
           primaryOrderId: o.id,
           primaryOverdue: overdueBase > 0,
           primaryDebt: debtBase,
+          overdueOrders: overdueOrder ? [overdueOrder] : [],
         });
-      }
-    }
-    for (const row of map.values()) {
-      if (!row.lastPaymentAt) {
-        row.lastPaymentAt = lastPaymentByClient.get(row.contactId) ?? null;
       }
     }
     return map;
@@ -500,15 +666,15 @@ export class ReceivablesService {
     let totalCRM = 0;
     let deltaCount = 0;
     let alignedCount = 0;
-    let managerDeltaCount = 0;
+    let noCodeCount = 0;
 
     for (const line of lines) {
       if (actor.role === UserRole.MANAGER && line.status === "ONLY_1C") continue;
       total1C += line.amount1C;
       totalCRM += line.amountCRM;
+      if (line.status === "ONLY_CRM" && !line.counterpartyCode1C) noCodeCount += 1;
       if (isReceivablesDeltaStatus(line.status)) {
         deltaCount += 1;
-        managerDeltaCount += 1;
       } else {
         alignedCount += 1;
       }
@@ -523,7 +689,9 @@ export class ReceivablesService {
         totalDelta: Math.round((total1C - totalCRM) * 100) / 100,
         deltaCount,
         alignedCount,
-        managerDeltaCount,
+        /** Same as deltaCount (already scoped to the actor); kept for API compatibility. */
+        managerDeltaCount: deltaCount,
+        noCodeCount,
         isAligned: deltaCount === 0,
       },
     };
@@ -547,9 +715,14 @@ export class ReceivablesService {
 
     const and: Prisma.ReceivablesSnapshotLineWhereInput[] = [{ snapshotId }, lineFilter];
 
-    if (query.deltasOnly) {
+    if (query.status === "NO_CODE") {
+      and.push({ status: "ONLY_CRM", counterpartyCode1C: "" });
+    } else if (query.deltasOnly) {
       and.push({ status: { not: "ALIGNED" } });
     } else if (query.status) {
+      if (!(Object.values(ReceivablesReconcileStatus) as string[]).includes(query.status)) {
+        throw new BadRequestException("Invalid status");
+      }
       and.push({ status: query.status as ReceivablesReconcileStatus });
     }
 
@@ -708,7 +881,7 @@ export class ReceivablesService {
     });
     let collectedTodayAmount = 0;
     for (const p of todayPays) {
-      collectedTodayAmount += Number(p.amountUsd ?? (p.currency === "USD" ? safeNum(p.amount) : 0));
+      collectedTodayAmount += paymentToBase(p.amountUsd, p.amount, p.currency, rates);
     }
 
     return {
@@ -756,15 +929,22 @@ export class ReceivablesService {
       promiseBroken?: boolean;
       reconcileDeltaOnly?: boolean;
       delayReason?: string;
+      aging?: string;
+      snoozed?: string;
+      sort?: string;
+      dir?: string;
     },
   ) {
+    const aging = parseAgingParam(query.aging);
     const scope = await this.scopeService.resolveDashboardScope(actor, { managerId: query.ownerId });
     const rates = await this.settings.getExchangeRates();
     const currency = getBaseCurrency(rates);
 
     if (scope.emptyTeam) {
-      return { currency, items: [], total: 0, page: 1, pageSize: 50 };
+      return { currency, items: [], total: 0, page: 1, pageSize: 50, snoozedCount: 0 };
     }
+
+    const sort = parseWorkClientsSort(query.sort, query.dir);
 
     const contactDebt = await this.loadContactDebtMap(scope, rates);
     let items = [...contactDebt.values()].map((row) => ({
@@ -779,6 +959,7 @@ export class ReceivablesService {
       lastPaymentAt: row.lastPaymentAt?.toISOString() ?? null,
       phone: row.phone,
       overdueDays: row.overdueDays,
+      agingBucket: row.overdueDays > 0 ? agingBucketLabel(row.overdueDays) : null,
       primaryOrderId: row.primaryOrderId,
     }));
 
@@ -786,20 +967,27 @@ export class ReceivablesService {
       items = items.filter((i) => i.overdueAmount > 0);
     }
 
-    const q = query.q?.trim().toLowerCase();
-    if (q) {
-      items = items.filter(
-        (i) =>
-          i.clientName.toLowerCase().includes(q) ||
-          (i.externalCode?.toLowerCase().includes(q) ?? false),
-      );
+    if (aging) {
+      items = items.filter((i) => i.agingBucket === aging);
     }
 
-    const lastCommentByContact = await this.loadLastDebtComments(items.map((i) => i.contactId));
-    const reconcileByContact = await this.loadLatestReconcileStatusMap(
-      items.map((i) => i.contactId),
-      actor,
-    );
+    const q = query.q?.trim();
+    if (q) {
+      items = items.filter((i) => matchesWorkClientQuery(i, q));
+    }
+
+    const todayYmd = todayYmdKyiv();
+    const [lastCommentByContact, reconcileByContact, snoozeByContact] = await Promise.all([
+      this.loadLastDebtComments(items.map((i) => i.contactId)),
+      this.loadLatestReconcileStatusMap(
+        items.map((i) => i.contactId),
+        actor,
+      ),
+      this.loadActiveSnoozes(
+        items.map((i) => i.contactId),
+        todayYmd,
+      ),
+    ]);
 
     if (query.needsComment) {
       const staleBefore = new Date(
@@ -811,7 +999,15 @@ export class ReceivablesService {
       });
     }
 
-    const todayYmd = todayYmdKyiv();
+    const promiseBrokenFor = (i: { contactId: string; lastPaymentAt: string | null }) => {
+      const last = lastCommentByContact.get(i.contactId);
+      const parsed = parseDebtCommentTitle(last?.title ?? null);
+      return isPromiseBroken(parsed.promiseDate, todayYmd, {
+        promisedAt: last?.createdAt ?? null,
+        lastPaymentAt: i.lastPaymentAt ? new Date(i.lastPaymentAt) : null,
+      });
+    };
+
     if (query.promisedToday) {
       items = items.filter((i) => {
         const parsed = parseDebtCommentTitle(lastCommentByContact.get(i.contactId)?.title ?? null);
@@ -819,10 +1015,7 @@ export class ReceivablesService {
       });
     }
     if (query.promiseBroken) {
-      items = items.filter((i) => {
-        const parsed = parseDebtCommentTitle(lastCommentByContact.get(i.contactId)?.title ?? null);
-        return isPromiseBroken(parsed.promiseDate, todayYmd);
-      });
+      items = items.filter(promiseBrokenFor);
     }
 
     if (query.reconcileDeltaOnly) {
@@ -839,7 +1032,21 @@ export class ReceivablesService {
       });
     }
 
-    items.sort((a, b) => b.debtAmount - a.debtAmount);
+    if (query.snoozed === "only") {
+      items = items.filter((i) => snoozeByContact.has(i.contactId));
+    } else if (query.snoozed === "hide") {
+      items = items.filter((i) => !snoozeByContact.has(i.contactId));
+    }
+
+    const lastCommentIso = (contactId: string) =>
+      lastCommentByContact.get(contactId)?.createdAt.toISOString() ?? null;
+    items.sort((a, b) =>
+      compareWorkClients(
+        { ...a, lastCommentAt: lastCommentIso(a.contactId) },
+        { ...b, lastCommentAt: lastCommentIso(b.contactId) },
+        sort,
+      ),
+    );
 
     const pagination = normalizePagination(query, { page: 1, pageSize: 50 });
     const total = items.length;
@@ -853,7 +1060,10 @@ export class ReceivablesService {
           .filter(Boolean) as string[],
       ),
     ];
-    const userIds = [...new Set([...ownerIds, ...authorIds])];
+    const snoozerIds = pageItems
+      .map((i) => snoozeByContact.get(i.contactId)?.byId)
+      .filter(Boolean) as string[];
+    const userIds = [...new Set([...ownerIds, ...authorIds, ...snoozerIds])];
     const users =
       userIds.length > 0
         ? await this.prisma.user.findMany({
@@ -872,6 +1082,7 @@ export class ReceivablesService {
       items: pageItems.map((i) => {
         const last = lastCommentByContact.get(i.contactId) ?? null;
         const parsed = parseDebtCommentTitle(last?.title ?? null);
+        const snooze = snoozeByContact.get(i.contactId) ?? null;
         return {
           ...i,
           ownerName: i.ownerId ? (userMap.get(i.ownerId) ?? null) : null,
@@ -880,15 +1091,40 @@ export class ReceivablesService {
           lastCommentAuthorName: last ? (userMap.get(last.createdBy) ?? null) : null,
           promiseDate: parsed.promiseDate,
           promiseAmount: parsed.promiseAmount,
+          promiseBroken: promiseBrokenFor(i),
           delayReasonCode: parsed.delayReasonCode,
           reconcileStatus: reconcileByContact.get(i.contactId) ?? null,
           telegramConversationId: telegramByContact.get(i.contactId) ?? null,
+          snoozedUntil: snooze?.until ?? null,
+          snoozedByName: snooze?.byId ? (userMap.get(snooze.byId) ?? null) : null,
         };
       }),
       total,
       page: pagination.page,
       pageSize: pagination.pageSize,
+      snoozedCount: snoozeByContact.size,
     };
+  }
+
+  private async loadActiveSnoozes(
+    contactIds: string[],
+    todayYmd: string,
+  ): Promise<Map<string, { until: string; byId: string | null }>> {
+    const map = new Map<string, { until: string; byId: string | null }>();
+    const uniqueIds = [...new Set(contactIds.filter(Boolean))];
+    if (uniqueIds.length === 0) return map;
+    const rows = await this.prisma.contact.findMany({
+      where: {
+        id: { in: uniqueIds },
+        receivablesSnoozedUntil: { gt: snoozeYmdToDbDate(todayYmd) },
+      },
+      select: { id: true, receivablesSnoozedUntil: true, receivablesSnoozedById: true },
+    });
+    for (const row of rows) {
+      const until = activeSnoozeYmd(row.receivablesSnoozedUntil, todayYmd);
+      if (until) map.set(row.id, { until, byId: row.receivablesSnoozedById });
+    }
+    return map;
   }
 
   private async loadLatestReconcileStatusMap(
@@ -939,41 +1175,24 @@ export class ReceivablesService {
     const scope = await this.scopeService.resolveDashboardScope(actor, { managerId: ownerId });
     const rates = await this.settings.getExchangeRates();
     const currency = getBaseCurrency(rates);
-    const buckets = createEmptyAgingBuckets();
 
     if (scope.emptyTeam) {
-      return { currency, buckets };
+      return { currency, buckets: buildAgingBuckets([]) };
     }
 
     const contactDebt = await this.loadContactDebtMap(scope, rates);
-    const clientsByBucket = buckets.map(() => new Set<string>());
-
-    for (const row of contactDebt.values()) {
-      if (!(row.overdueBase > 0) || row.overdueDays <= 0) continue;
-      const idx = agingBucketIndex(row.overdueDays);
-      buckets[idx]!.amount += row.overdueBase;
-      clientsByBucket[idx]!.add(row.contactId);
-      buckets[idx]!.ordersCount += row.orderCount;
-    }
-
-    return {
-      currency,
-      buckets: buckets.map((b, i) => ({
-        label: b.label,
-        amount: Math.round(b.amount * 100) / 100,
-        clientsCount: clientsByBucket[i]!.size,
-        ordersCount: b.ordersCount,
-      })),
-    };
+    return { currency, buckets: buildAgingBuckets(contactDebt.values()) };
   }
 
   async batchActions(
     actor: AuthUser,
     body: {
       contactIds?: string[];
-      action?: "assign_owner" | "create_call_tasks" | "send_telegram";
+      action?: "assign_owner" | "create_call_tasks" | "send_telegram" | "snooze";
       ownerId?: string;
       message?: string;
+      days?: number;
+      until?: string;
     },
   ) {
     const contactIds = [...new Set((body.contactIds ?? []).map((id) => id.trim()).filter(Boolean))];
@@ -1002,32 +1221,68 @@ export class ReceivablesService {
       if (!owner || (owner.role !== UserRole.MANAGER && owner.role !== UserRole.LEAD)) {
         throw new BadRequestException("Invalid ownerId");
       }
-      await this.prisma.contact.updateMany({
-        where: { id: { in: contacts.map((c) => c.id) } },
-        data: { ownerId },
-      });
-      return { ok: true, action, processed: contacts.length, skipped: 0 };
+      const ids = contacts.map((c) => c.id);
+      const [, ordersResult] = await this.prisma.$transaction([
+        this.prisma.contact.updateMany({
+          where: { id: { in: ids } },
+          data: { ownerId },
+        }),
+        this.prisma.order.updateMany({
+          where: buildOperationalDebtOrderWhere({
+            OR: [{ debtAmount: { gt: 0 } }, { creditAmount: { gt: 0 } }],
+            clientId: { in: ids },
+          }),
+          data: { ownerId },
+        }),
+      ]);
+      this.contactDebtCache.clear();
+      return {
+        ok: true,
+        action,
+        processed: contacts.length,
+        skipped: 0,
+        ordersReassigned: ordersResult.count,
+      };
     }
 
     if (action === "create_call_tasks") {
-      const dueAt = DateTime.now().setZone(CRM_TIME_ZONE).endOf("day").toJSDate();
-      let processed = 0;
-      for (const c of contacts) {
-        const assigneeId = c.ownerId ?? actor.id;
-        const name = [c.firstName, c.lastName].filter(Boolean).join(" ") || c.id;
-        await this.prisma.task.create({
-          data: {
-            assigneeId,
+      const today = DateTime.now().setZone(CRM_TIME_ZONE);
+      const dueAt = today.endOf("day").toJSDate();
+      const existing = await this.prisma.task.findMany({
+        where: {
+          contactId: { in: contacts.map((c) => c.id) },
+          status: { in: [TaskStatus.OPEN, TaskStatus.IN_PROGRESS] },
+          title: { startsWith: CALL_TASK_TITLE_PREFIX },
+          dueAt: { gte: today.startOf("day").toJSDate(), lte: dueAt },
+        },
+        select: { contactId: true },
+      });
+      const hasTask = new Set(existing.map((t) => t.contactId));
+      const toCreate = contacts.filter((c) => !hasTask.has(c.id));
+      if (toCreate.length > 0) {
+        await this.prisma.task.createMany({
+          data: toCreate.map((c) => ({
+            assigneeId: c.ownerId ?? actor.id,
             createdById: actor.id,
             contactId: c.id,
-            title: `Дзвінок: дебіторка — ${name}`,
+            title: `${CALL_TASK_TITLE_PREFIX} — ${[c.firstName, c.lastName].filter(Boolean).join(" ") || c.id}`,
             body: "Задача створена з розділу Дебіторка (масова дія).",
             dueAt,
-          },
+          })),
         });
-        processed += 1;
       }
-      return { ok: true, action, processed, skipped: 0 };
+      return {
+        ok: true,
+        action,
+        processed: toCreate.length,
+        skipped: contacts.length - toCreate.length,
+      };
+    }
+
+    if (action === "snooze") {
+      const until = this.resolveSnoozeUntil(body);
+      await this.applySnooze(actor, contacts.map((c) => c.id), until);
+      return { ok: true, action, processed: contacts.length, skipped: 0, snoozedUntil: until };
     }
 
     if (action === "send_telegram") {
@@ -1057,6 +1312,89 @@ export class ReceivablesService {
     throw new BadRequestException("Unknown action");
   }
 
+  private resolveSnoozeUntil(input: { days?: unknown; until?: unknown }): string {
+    const result = computeSnoozeUntilYmd(input, todayYmdKyiv());
+    if (!result.ok) throw new BadRequestException(result.error);
+    return result.until;
+  }
+
+  private async applySnooze(actor: AuthUser, contactIds: string[], untilYmd: string) {
+    const title = formatSnoozeActivityTitle(untilYmd);
+    await this.prisma.$transaction([
+      this.prisma.contact.updateMany({
+        where: { id: { in: contactIds } },
+        data: {
+          receivablesSnoozedUntil: snoozeYmdToDbDate(untilYmd),
+          receivablesSnoozedById: actor.id,
+        },
+      }),
+      this.prisma.activity.createMany({
+        data: contactIds.map((contactId) => ({
+          type: ActivityType.COMMENT,
+          title,
+          body: `Клієнта відкладено в черзі «Сьогодні зібрати» до ${untilYmd}.`,
+          createdBy: actor.id,
+          contactId,
+        })),
+      }),
+    ]);
+  }
+
+  async snoozeContact(
+    actor: AuthUser,
+    contactId: string,
+    body: { days?: unknown; until?: unknown },
+  ) {
+    const contact = await this.prisma.contact.findUnique({
+      where: { id: contactId },
+      select: { id: true, ownerId: true },
+    });
+    if (!contact) throw new NotFoundException("Contact not found");
+    this.assertContactAccess(contact, actor);
+    const until = this.resolveSnoozeUntil(body ?? {});
+    await this.applySnooze(actor, [contact.id], until);
+    const user = await this.prisma.user.findUnique({
+      where: { id: actor.id },
+      select: { fullName: true },
+    });
+    return {
+      ok: true,
+      contactId: contact.id,
+      snoozedUntil: until,
+      snoozedByName: user?.fullName ?? null,
+    };
+  }
+
+  async unsnoozeContact(actor: AuthUser, contactId: string) {
+    const contact = await this.prisma.contact.findUnique({
+      where: { id: contactId },
+      select: { id: true, ownerId: true, receivablesSnoozedUntil: true },
+    });
+    if (!contact) throw new NotFoundException("Contact not found");
+    this.assertContactAccess(contact, actor);
+    const wasActive = activeSnoozeYmd(contact.receivablesSnoozedUntil, todayYmdKyiv()) != null;
+    await this.prisma.$transaction([
+      this.prisma.contact.update({
+        where: { id: contact.id },
+        data: { receivablesSnoozedUntil: null, receivablesSnoozedById: null },
+      }),
+      ...(wasActive
+        ? [
+            this.prisma.activity.create({
+              data: {
+                type: ActivityType.COMMENT,
+                title: "Повернуто в чергу (дебіторка)",
+                body: "Відкладення клієнта в черзі «Сьогодні зібрати» скасовано.",
+                createdBy: actor.id,
+                contactId: contact.id,
+              },
+            }),
+          ]
+        : []),
+    ]);
+    return { ok: true, contactId: contact.id, snoozedUntil: null, snoozedByName: null };
+  }
+
   private async loadLastDebtComments(contactIds: string[]) {
     const uniqueIds = [...new Set(contactIds.filter(Boolean))];
     const map = new Map<
@@ -1065,21 +1403,18 @@ export class ReceivablesService {
     >();
     if (uniqueIds.length === 0) return map;
 
-    const rows = await this.prisma.activity.findMany({
-      where: {
-        contactId: { in: uniqueIds },
-        type: ActivityType.COMMENT,
-        title: { startsWith: RECEIVABLES_COMMENT_TITLE },
-      },
-      orderBy: { createdAt: "desc" },
-      select: {
-        contactId: true,
-        body: true,
-        createdAt: true,
-        createdBy: true,
-        title: true,
-      },
-    });
+    const rows = await this.prisma.$queryRaw<
+      Array<{ contactId: string; body: string; createdAt: Date; createdBy: string; title: string | null }>
+    >(
+      Prisma.sql`
+        SELECT DISTINCT ON ("contactId") "contactId", body, "createdAt", "createdBy", title
+        FROM "Activity"
+        WHERE "contactId" = ANY(${uniqueIds}::text[])
+          AND type = 'COMMENT'
+          AND title LIKE ${`${RECEIVABLES_COMMENT_TITLE}%`}
+        ORDER BY "contactId", "createdAt" DESC
+      `,
+    );
 
     for (const row of rows) {
       if (!row.contactId || map.has(row.contactId)) continue;
@@ -1220,10 +1555,12 @@ export class ReceivablesService {
       /** CRM client (Order.clientId), not TTN recipient contact. */
       contactId?: string;
       clientId?: string;
+      aging?: string;
     },
   ) {
     const scope = await this.scopeService.resolveDashboardScope(actor, { managerId: query.ownerId });
     const pagination = normalizePagination(query, { page: 1, pageSize: 50 });
+    const aging = parseAgingParam(query.aging);
 
     if (scope.emptyTeam) {
       return { items: [], total: 0, page: 1, pageSize: 50 };
@@ -1232,6 +1569,9 @@ export class ReceivablesService {
     const and: Prisma.OrderWhereInput[] = [buildReceivablesDebtOrderWhere(scope)];
     if (query.overdue) {
       and.push(financialOverdueWhere());
+    }
+    if (aging) {
+      and.push(agingOrderWhere(aging));
     }
     const clientFilterId = query.clientId ?? query.contactId;
     if (clientFilterId) {
@@ -1333,10 +1673,20 @@ export class ReceivablesService {
         lastName: true,
         externalCode: true,
         ownerId: true,
+        receivablesSnoozedUntil: true,
+        receivablesSnoozedById: true,
       },
     });
     if (!contact) throw new NotFoundException("Contact not found");
     this.assertContactAccess(contact, actor);
+    const snoozedUntil = activeSnoozeYmd(contact.receivablesSnoozedUntil, todayYmdKyiv());
+    const snoozedBy =
+      snoozedUntil && contact.receivablesSnoozedById
+        ? await this.prisma.user.findUnique({
+            where: { id: contact.receivablesSnoozedById },
+            select: { fullName: true },
+          })
+        : null;
 
     const ordersResult = await this.listWorkOrders(actor, {
       clientId: contactId,
@@ -1449,6 +1799,8 @@ export class ReceivablesService {
     return {
       currency: ordersResult.currency,
       externalCode: contact.externalCode,
+      snoozedUntil,
+      snoozedByName: snoozedBy?.fullName ?? null,
       kpi: {
         debtTotal: Math.round(debtTotal * 100) / 100,
         overdueDebt: Math.round(overdueDebt * 100) / 100,

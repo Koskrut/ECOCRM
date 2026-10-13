@@ -67,5 +67,10 @@ export class ListLeadsQueryDto {
   @IsOptional()
   @IsString()
   ids?: string;
+
+  /** JSON map of custom-field filters, keyed by field key. */
+  @IsOptional()
+  @IsString()
+  cf?: string;
 }
 

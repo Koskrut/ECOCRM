@@ -3,6 +3,7 @@ import { AuditModule } from "../audit/audit.module";
 import { IntegrationPortsModule } from "../integration-ports/integration-ports.module";
 import { NotificationsModule } from "../notifications/notifications.module";
 import { OrderReturnsModule } from "../order-returns/order-returns.module";
+import { CustomFieldsModule } from "../custom-fields/custom-fields.module";
 import { PrismaModule } from "../prisma/prisma.module";
 import { PaymentRequestsModule } from "../payment-requests/payment-requests.module";
 import { SettingsModule } from "../settings/settings.module";
@@ -33,6 +34,7 @@ import { OrderStatusService } from "./order-status.service";
     RiskModule,
     SystemModule,
     OrderMaterialReservationModule,
+    CustomFieldsModule,
   ],
   controllers: [OrdersController],
   providers: [

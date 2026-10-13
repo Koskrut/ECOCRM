@@ -17,10 +17,15 @@ export type CustomFieldDefinitionSchema = {
   required: boolean;
   options: CustomFieldOptionSchema[];
   dictionary: { id: string; key: string; name: string } | null;
+  dictionaryItems: Array<{ id: string; label: string }>;
+};
+
+type DictionarySummary = Pick<Dictionary, "id" | "key" | "name"> & {
+  items?: Array<{ id: string; label: string; sortOrder?: number }>;
 };
 
 type DefinitionWithRelations = CustomFieldDefinition & {
-  dictionary: Pick<Dictionary, "id" | "key" | "name"> | null;
+  dictionary: DictionarySummary | null;
   options: CustomFieldOption[];
 };
 
@@ -51,5 +56,9 @@ export function mapDefinitionToFieldSchema(row: DefinitionWithRelations): Custom
     dictionary: row.dictionary
       ? { id: row.dictionary.id, key: row.dictionary.key, name: row.dictionary.name }
       : null,
+    dictionaryItems: (row.dictionary?.items ?? [])
+      .slice()
+      .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || a.label.localeCompare(b.label))
+      .map((item) => ({ id: item.id, label: item.label })),
   };
 }

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiHttp } from "@/lib/api/client";
 import { ApiError, getUserFriendlyApiError } from "@/lib/api/errors";
 import { useToast } from "@/components/feedback";
+import { usersApi } from "@/lib/api/resources/users";
 
 function apiErrMsg(e: unknown, fallback: string): string {
   if (e instanceof ApiError) return e.message;
@@ -21,6 +22,7 @@ type SchemaDef = {
   required: boolean;
   options: SchemaOption[];
   dictionary: { id: string; key: string; name: string } | null;
+  dictionaryItems?: Array<{ id: string; label: string }>;
 };
 
 type ValueRow = {
@@ -41,7 +43,9 @@ type Props = {
 };
 
 function isSupportedEditable(type: string): boolean {
-  return ["TEXT", "NUMBER", "MONEY", "BOOLEAN", "DATE", "JSON", "SELECT", "MULTISELECT"].includes(type);
+  return ["TEXT", "NUMBER", "MONEY", "BOOLEAN", "DATE", "JSON", "SELECT", "MULTISELECT", "USER", "DICTIONARY_ITEM"].includes(
+    type,
+  );
 }
 
 function multiselectFromRow(row: ValueRow): string[] {
@@ -60,6 +64,7 @@ export function CustomFieldsPanel({ entityType, entityId, onSaved }: Props) {
   const [draftMulti, setDraftMulti] = useState<Record<string, string[]>>({});
   const [initialSig, setInitialSig] = useState<string>("");
   const [savingAll, setSavingAll] = useState(false);
+  const [users, setUsers] = useState<Array<{ id: string; label: string }>>([]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -98,6 +103,8 @@ export function CustomFieldsPanel({ entityType, entityId, onSaved }: Props) {
         }
         if (d.type === "TEXT" || d.type === "SELECT" || d.type === "USER") {
           nextText[d.key] = row.valueString ?? "";
+        } else if (d.type === "DICTIONARY_ITEM") {
+          nextText[d.key] = row.dictionaryItemId ?? "";
         } else if (d.type === "NUMBER" || d.type === "MONEY") {
           nextText[d.key] = row.valueNumber != null ? String(row.valueNumber) : "";
         } else if (d.type === "BOOLEAN") {
@@ -114,6 +121,16 @@ export function CustomFieldsPanel({ entityType, entityId, onSaved }: Props) {
       setDraftText(nextText);
       setDraftMulti(nextMulti);
       setInitialSig(serializeState(activeDefs, nextText, nextMulti));
+      if (activeDefs.some((def) => def.type === "USER")) {
+        const people = await usersApi.list().catch(() => []);
+        setUsers(
+          people
+            .filter((person) => person.isActive !== false)
+            .map((person) => ({ id: person.id, label: person.fullName?.trim() || person.email })),
+        );
+      } else {
+        setUsers([]);
+      }
     } catch (e: unknown) {
       setError(apiErrMsg(e, "Не вдалося завантажити кастомні поля"));
     } finally {
@@ -206,15 +223,10 @@ export function CustomFieldsPanel({ entityType, entityId, onSaved }: Props) {
             <div>
               <div className="text-sm font-semibold text-zinc-900">{def.label}</div>
               {def.description ? <p className="mt-0.5 text-xs text-zinc-500">{def.description}</p> : null}
-              <div className="mt-0.5 text-[11px] uppercase tracking-wide text-zinc-400">{def.type}</div>
             </div>
 
             {unsupported ? (
-              <p className="mt-2 text-xs text-amber-800">
-                {def.type === "USER" || def.type === "DICTIONARY_ITEM"
-                  ? "Цей тип поля поки не редагується тут (потрібні окремі пікери або права на довідники)."
-                  : "Тип поля поки не підтримується в цій панелі."}
-              </p>
+              <p className="mt-2 text-xs text-amber-800">Це поле поки не можна змінити в картці.</p>
             ) : def.type === "BOOLEAN" ? (
               <label className="mt-2 flex items-center gap-2 text-sm text-zinc-800">
                 <input
@@ -277,6 +289,32 @@ export function CustomFieldsPanel({ entityType, entityId, onSaved }: Props) {
                 onChange={(e) => setDraftText((d) => ({ ...d, [def.key]: e.target.value }))}
                 placeholder={def.required ? "Обовʼязково" : ""}
               />
+            ) : def.type === "USER" ? (
+              <select
+                className="mt-2 w-full rounded-md border border-zinc-200 bg-white px-2 py-2 text-sm outline-none focus:border-zinc-400"
+                value={draftText[def.key] ?? ""}
+                onChange={(e) => setDraftText((d) => ({ ...d, [def.key]: e.target.value }))}
+              >
+                <option value="">{def.required ? "— оберіть —" : "— не обрано —"}</option>
+                {users.map((person) => (
+                  <option key={person.id} value={person.id}>
+                    {person.label}
+                  </option>
+                ))}
+              </select>
+            ) : def.type === "DICTIONARY_ITEM" ? (
+              <select
+                className="mt-2 w-full rounded-md border border-zinc-200 bg-white px-2 py-2 text-sm outline-none focus:border-zinc-400"
+                value={draftText[def.key] ?? ""}
+                onChange={(e) => setDraftText((d) => ({ ...d, [def.key]: e.target.value }))}
+              >
+                <option value="">{def.required ? "— оберіть —" : "— не обрано —"}</option>
+                {(def.dictionaryItems ?? []).map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.label}
+                  </option>
+                ))}
+              </select>
             ) : def.type === "JSON" ? (
               <textarea
                 className="mt-2 w-full rounded-md border border-zinc-200 bg-white px-2 py-2 font-mono text-xs outline-none focus:border-zinc-400"
@@ -367,7 +405,8 @@ function valueFromServerRow(def: SchemaDef, row: ValueRow | undefined): unknown 
   if (def.type === "NUMBER" || def.type === "MONEY") return row.valueNumber ?? null;
   if (def.type === "DATE") return row.valueDate ? String(row.valueDate).slice(0, 10) : null;
   if (def.type === "JSON") return row.valueJson ?? null;
-  if (def.type === "SELECT") return row.valueString ?? null;
+  if (def.type === "SELECT" || def.type === "USER") return row.valueString ?? null;
+  if (def.type === "DICTIONARY_ITEM") return row.dictionaryItemId ?? null;
   return row.valueString ?? null;
 }
 

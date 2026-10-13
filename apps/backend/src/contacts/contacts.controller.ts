@@ -99,6 +99,7 @@ export class ContactsController {
     @Query("sortBy") sortBy?: string,
     @Query("sortDir") sortDir?: string,
     @Query("q") q?: string,
+    @Query("cf") cf?: string,
     @Query("page") page?: string,
     @Query("pageSize") pageSize?: string,
   ) {
@@ -117,6 +118,7 @@ export class ContactsController {
         sortBy: sortBy?.trim() || undefined,
         sortDir: sortDir === "asc" ? "asc" : sortDir === "desc" ? "desc" : undefined,
         q,
+        cf,
         page: page ? Number(page) : undefined,
         pageSize: pageSize ? Number(pageSize) : undefined,
       },

@@ -95,6 +95,7 @@ export type ContactsListParams = {
   status?: string;
   sortBy?: "createdAt" | "updatedAt" | "name" | "hasCallToday" | "hasMissedCall";
   sortDir?: "asc" | "desc";
+  cf?: string;
 };
 
 export type ContactExclusionCode = "DO_NOT_DISTURB" | "NON_TARGET_STATUS" | "DUPLICATE_MARKED";
@@ -280,6 +281,7 @@ export const contactsApi = {
     if (params?.status?.trim()) searchParams.set("status", params.status.trim());
     if (params?.sortBy) searchParams.set("sortBy", params.sortBy);
     if (params?.sortDir) searchParams.set("sortDir", params.sortDir);
+    if (params?.cf) searchParams.set("cf", params.cf);
     const qs = searchParams.toString();
     const res = await apiHttp.get<ContactsResponse>(`/contacts${qs ? `?${qs}` : ""}`);
     return res.data;

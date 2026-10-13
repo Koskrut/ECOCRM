@@ -44,6 +44,7 @@ import { strings } from "@/locales";
 import { HelpHint } from "@/components/help/HelpHint";
 import { EmptyState } from "@/components/feedback";
 import { useListColumns } from "@/lib/lists/useListColumns";
+import { countCustomFilters, serializeCustomFilters } from "@/lib/custom-fields/filters";
 import { renderCellText } from "@/lib/lists/renderCell";
 import { useEntityModalStack, type EntityModalFrame } from "@/lib/modal/useEntityModalStack";
 import { EntityModalStackLayers } from "@/components/modals/EntityModalStackLayers";
@@ -219,6 +220,7 @@ function ContactsPageContent() {
                 clientType: urlState.clientType.trim() || undefined,
                 sortBy: urlState.sortBy,
                 sortDir: urlState.sortDir,
+                cf: serializeCustomFilters(urlState.customFilters),
               }),
               summaryPromise.catch(() => null),
             ]);
@@ -342,6 +344,7 @@ function ContactsPageContent() {
       sortBy: urlState.sortBy,
       sortDir: urlState.sortDir,
       reasons: urlState.reasons,
+      customFilters: urlState.customFilters,
     }),
     [urlState],
   );
@@ -374,6 +377,7 @@ function ContactsPageContent() {
           : "createdAt",
       sortDir: next.sortDir === "asc" ? "asc" : "desc",
       reasons: [],
+      customFilters: next.customFilters ?? {},
       page: 1,
     });
   };
@@ -404,6 +408,7 @@ function ContactsPageContent() {
       Boolean(urlState.clientType.trim()),
       urlState.sortBy !== "createdAt",
       urlState.sortDir !== "desc",
+      countCustomFilters(urlState.customFilters) > 0,
     ].filter(Boolean).length;
   }, [isPresetMode, urlState]);
 
@@ -441,6 +446,7 @@ function ContactsPageContent() {
       clientType: "",
       sortBy: "createdAt",
       sortDir: "desc",
+      customFilters: {},
       page: 1,
     });
   };

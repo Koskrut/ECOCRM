@@ -47,6 +47,11 @@ export class LayoutsController {
     return this.layouts.ensureDefaultListLayout(entityType);
   }
 
+  @Post("filter-default/:entityType")
+  ensureFilterDefault(@Param("entityType") entityType: string) {
+    return this.layouts.ensureDefaultFilterLayout(entityType);
+  }
+
   @Get(":idOrKey")
   get(@Param("idOrKey") idOrKey: string, @Query("includeDeleted") includeDeleted?: string) {
     return this.layouts.get(idOrKey, { includeDeleted: parseBoolean(includeDeleted) });

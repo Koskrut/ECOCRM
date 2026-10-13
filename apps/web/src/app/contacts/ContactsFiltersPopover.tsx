@@ -10,6 +10,8 @@ import { strings } from "@/locales";
 import { formatContactPriorityReasonCompact } from "./contact-formatters";
 import { CONTACT_REGION_OPTIONS } from "./contact-region-options";
 import { shouldInitFilterDraft } from "./contacts-ui-state";
+import { CustomFieldFilterFields } from "@/components/metadata/CustomFieldFilterFields";
+import { countCustomFilters, type CustomFilterValues } from "@/lib/custom-fields/filters";
 
 export type ContactsFiltersState = {
   companyId: string;
@@ -24,6 +26,7 @@ export type ContactsFiltersState = {
   sortBy: string;
   sortDir: string;
   reasons: ContactPriorityReasonCode[];
+  customFilters: CustomFilterValues;
 };
 
 export type OwnerOption = {
@@ -209,7 +212,8 @@ export function ContactsFiltersPopover({
         draft.clientType.trim() ||
         draft.reasons.length ||
         draft.sortBy !== "createdAt" ||
-        draft.sortDir !== "desc",
+        draft.sortDir !== "desc" ||
+        countCustomFilters(draft.customFilters) > 0,
       ),
     [draft],
   );
@@ -235,7 +239,7 @@ export function ContactsFiltersPopover({
       role="dialog"
       aria-modal="true"
       aria-labelledby={titleId}
-      className="absolute right-0 top-12 z-30 w-[min(95vw,420px)] rounded-xl border border-zinc-200 bg-white p-4 shadow-xl"
+      className="absolute right-0 top-12 z-30 max-h-[min(80vh,640px)] w-[min(95vw,420px)] overflow-y-auto rounded-xl border border-zinc-200 bg-white p-4 shadow-xl"
     >
       <div className="mb-3 flex items-center justify-between">
         <h3 id={titleId} className="text-sm font-semibold text-zinc-900">
@@ -461,6 +465,12 @@ export function ContactsFiltersPopover({
                 </select>
               </Field>
             </FilterGroup>
+
+            <CustomFieldFilterFields
+              entityType="CONTACT"
+              value={draft.customFilters ?? {}}
+              onChange={(customFilters) => setDraft((prev) => ({ ...prev, customFilters }))}
+            />
 
             <FilterGroup title={t.groupSort}>
               <Field id={`${baseId}-sort-by`} label={t.sortBy}>

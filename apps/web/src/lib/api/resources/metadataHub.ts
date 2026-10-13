@@ -75,6 +75,14 @@ export async function ensureListDefaultLayout(entityType: string): Promise<Layou
   return r.data.layout;
 }
 
+export async function ensureFilterDefaultLayout(entityType: string): Promise<LayoutDto> {
+  const r = await apiHttp.post<{ layout: LayoutDto }>(
+    `/layouts/filter-default/${encodeURIComponent(entityType)}`,
+    {},
+  );
+  return r.data.layout;
+}
+
 export async function addLayoutField(
   layoutId: string,
   sectionId: string,

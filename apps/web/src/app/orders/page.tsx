@@ -12,6 +12,7 @@ import { OrderPromoBadge } from "@/components/orders/OrderPromoBadge";
 import { StatusBadge } from "@/components/StatusBadge";
 import { OrderCard } from "./OrderCard";
 import { useListColumns } from "@/lib/lists/useListColumns";
+import { countCustomFilters, parseCustomFilters, serializeCustomFilters } from "@/lib/custom-fields/filters";
 import { renderCellText } from "@/lib/lists/renderCell";
 import { FinancialKanban } from "./FinancialKanban";
 import { OrdersKanban } from "./OrdersKanban";
@@ -228,6 +229,7 @@ function OrdersPageContent() {
   const [sortDir, setSortDir] = useState<OrderSortDir>(() =>
     searchParams.get("sortDir") === "asc" ? "asc" : "desc",
   );
+  const [customFilters, setCustomFilters] = useState(() => parseCustomFilters(searchParams.get("cf")));
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [owners, setOwners] = useState<OwnerOption[]>([]);
   const [appendOnNextFetch, setAppendOnNextFetch] = useState(false);
@@ -393,6 +395,8 @@ function OrdersPageContent() {
         if (financialHasDueDate) params.hasDueDate = true;
         params.sortBy = sortBy;
         params.sortDir = sortDir;
+        const customFilterQuery = serializeCustomFilters(customFilters);
+        if (customFilterQuery) params.cf = customFilterQuery;
 
         const res = await apiHttp.get<OrdersListResponse>("/orders", { params });
 
@@ -435,6 +439,7 @@ function OrdersPageContent() {
     q,
     sortBy,
     sortDir,
+    customFilters,
     orderStageFilter,
     statusFilter,
     attention,
@@ -570,6 +575,7 @@ function OrdersPageContent() {
     setHasTtnFilter(next.hasTtn);
     setSortBy(next.sortBy);
     setSortDir(next.sortDir);
+    setCustomFilters(next.customFilters ?? {});
     setPage(1);
   };
 
@@ -587,6 +593,7 @@ function OrdersPageContent() {
     setHasTtnFilter("");
     setSortBy("createdAt");
     setSortDir("desc");
+    setCustomFilters({});
     setQInput("");
     setQ("");
     setAttention("");
@@ -602,7 +609,7 @@ function OrdersPageContent() {
 
   const popoverFiltersActive =
     view === "returns"
-      ? Boolean(ownerIdFilter || dateFrom || dateTo)
+      ? Boolean(ownerIdFilter || dateFrom || dateTo || countCustomFilters(customFilters) > 0)
       : Boolean(
           orderStageFilter ||
             ownerIdFilter ||
@@ -613,7 +620,8 @@ function OrdersPageContent() {
             paymentTypeFilter ||
             paymentStatusFilter ||
             hasTtnFilter ||
-            (view !== "financial" && (sortBy !== "createdAt" || sortDir !== "desc")),
+            (view !== "financial" && (sortBy !== "createdAt" || sortDir !== "desc")) ||
+            countCustomFilters(customFilters) > 0,
         );
 
   const filtersState: OrdersFiltersState = {
@@ -629,6 +637,7 @@ function OrdersPageContent() {
     hasTtn: hasTtnFilter,
     sortBy,
     sortDir,
+    customFilters,
   };
 
   const getClientLabel = (order: OrderSummary) => {

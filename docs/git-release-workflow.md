@@ -6,7 +6,7 @@
 
 | Способ | Что сделать в Git |
 |--------|-------------------|
-| **Тег** | Запушить аннотированный тег вида **`v0.2.199`** (префикс `v`, дальше semver). Workflow срабатывает на `push` тегов `v*`. Версия образов = имя тега **без** `v`. Чеклист: [`docs/RELEASING.md`](RELEASING.md). |
+| **Тег** | Запушить аннотированный тег вида **`v0.2.200`** (префикс `v`, дальше semver). Workflow срабатывает на `push` тегов `v*`. Версия образов = имя тега **без** `v`. Чеклист: [`docs/RELEASING.md`](RELEASING.md). |
 | **Вручную** | В GitHub: **Actions → Publish Registry Release → Run workflow** — версия из поля `version` (без `v`), ветка/run из UI определяет **какой коммит** соберётся. |
 
 ## Рекомендуемая последовательность (тег)
@@ -16,8 +16,8 @@
 3. Создать тег **на том коммите**, который должен уйти в registry:
    ```bash
    git checkout main && git pull
-   git tag -a v0.2.199 -m "Release 0.2.199"
-   git push origin v0.2.199
+   git tag -a v0.2.200 -m "Release 0.2.200"
+   git push origin v0.2.200
    ```
 4. Дождаться успешного **Publish Registry Release** (образы + manifest + при наличии секретов — Control Plane).
 

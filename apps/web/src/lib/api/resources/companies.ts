@@ -31,6 +31,7 @@ export type CompaniesListParams = {
   search?: string;
   page?: number;
   pageSize?: number;
+  cf?: string;
 };
 
 export const companiesApi = {
@@ -39,6 +40,7 @@ export const companiesApi = {
     if (params?.search?.trim()) searchParams.set("search", params.search.trim());
     if (params?.page != null) searchParams.set("page", String(params.page));
     if (params?.pageSize != null) searchParams.set("pageSize", String(params.pageSize));
+    if (params?.cf) searchParams.set("cf", params.cf);
     const qs = searchParams.toString();
     const res = await apiHttp.get<CompaniesResponse>(`/companies${qs ? `?${qs}` : ""}`);
     return res.data;

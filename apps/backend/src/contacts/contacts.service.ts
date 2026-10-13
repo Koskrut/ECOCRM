@@ -5,6 +5,7 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  Optional,
 } from "@nestjs/common";
 import { randomInt } from "crypto";
 import type { Prisma } from "@prisma/client";
@@ -12,6 +13,7 @@ import { CustomFieldEntityType, PaymentStatus, UserRole } from "@prisma/client";
 import type { AuthUser } from "../auth/auth.types";
 import { signJwt } from "../auth/jwt";
 import { hashPassword } from "../auth/password";
+import { CustomFieldsService } from "../custom-fields/custom-fields.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { normalizePagination } from "../common/pagination";
 import {
@@ -100,6 +102,7 @@ export class ContactsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly workflowEmitter: WorkflowDomainEmitterService,
+    @Optional() private readonly customFields?: CustomFieldsService,
   ) {}
 
   /** Варианты номера для проверки уникальности (0XX ↔ 380XX и т.д.). */
@@ -640,6 +643,7 @@ export class ContactsService {
       sortBy?: string;
       sortDir?: "asc" | "desc";
       q?: string;
+      cf?: string;
     },
     actor?: AuthUser,
   ) {
@@ -753,6 +757,10 @@ export class ContactsService {
       andParts.push({
         OR: cities.map((city) => ({ city: { contains: city, mode: "insensitive" } })),
       });
+    }
+    if (params.cf && this.customFields) {
+      const customIds = await this.customFields.matchingEntityIds(CustomFieldEntityType.CONTACT, params.cf);
+      if (customIds) andParts.push({ id: { in: customIds } });
     }
 
     const where: Prisma.ContactWhereInput = {

@@ -112,6 +112,7 @@ export type ListLeadsParams = {
   attention?: LeadAttentionPreset;
   attentionPeriod?: "week" | "month";
   ids?: string;
+  cf?: string;
 };
 
 export type MetaSyncFormResult = {

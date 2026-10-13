@@ -18,6 +18,7 @@ import {
   UserRole,
 } from "@prisma/client";
 import type { AuthUser } from "../auth/auth.types";
+import { CustomFieldsService } from "../custom-fields/custom-fields.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { normalizePagination } from "../common/pagination";
 import {
@@ -93,6 +94,7 @@ export class LeadsService {
     private readonly leadsPipelineConfig: LeadsPipelineConfigService,
     private readonly workflowEmitter: WorkflowDomainEmitterService,
     @Optional() private readonly notifications?: NotificationsService,
+    @Optional() private readonly customFields?: CustomFieldsService,
   ) {}
 
   // ===== ACCESS HELPERS =====
@@ -165,7 +167,11 @@ export class LeadsService {
     return { ok: true };
   }
 
-  private buildListWhere(q: ListLeadsQueryDto, actor?: AuthUser): Prisma.LeadWhereInput {
+  private buildListWhere(
+    q: ListLeadsQueryDto,
+    actor?: AuthUser,
+    customFieldIds?: string[] | null,
+  ): Prisma.LeadWhereInput {
     const where: Prisma.LeadWhereInput = {};
     const andParts: Prisma.LeadWhereInput[] = [];
 
@@ -174,6 +180,9 @@ export class LeadsService {
       .map((id) => id.trim())
       .filter(Boolean)
       .slice(0, 100);
+    if (customFieldIds) {
+      andParts.push({ id: { in: customFieldIds } });
+    }
     if (idList && idList.length > 0) {
       andParts.push({ id: { in: idList } });
     } else if (q.attention && isLeadAttentionPreset(q.attention)) {
@@ -362,7 +371,11 @@ export class LeadsService {
       pageSize: q.pageSize ?? 20,
     });
 
-    const where = this.buildListWhere(q, actor);
+    const customFieldIds =
+      q.cf && this.customFields
+        ? await this.customFields.matchingEntityIds(CustomFieldEntityType.LEAD, q.cf)
+        : null;
+    const where = this.buildListWhere(q, actor, customFieldIds);
     const orderBy: Prisma.LeadOrderByWithRelationInput =
       q.sortBy === "score"
         ? { score: q.sortOrder ?? "desc" }

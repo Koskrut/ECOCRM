@@ -1,18 +1,10 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
+import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { strings } from "@/locales";
-import type { AgingChip } from "./aging";
+import { AGING_BUCKET_ORDER, type AgingChip } from "./aging";
 
 const CHART_MUTED = "#64748b";
 const DEBT_FILL = "#f97316";
@@ -23,7 +15,7 @@ export type AgingBucketRow = {
   clientsCount: number;
 };
 
-const BUCKET_ORDER = ["0-7", "8-30", "31-60", "90+"] as const;
+const BUCKET_ORDER = AGING_BUCKET_ORDER;
 
 export function ReceivablesAgingWidget({
   buckets,
@@ -42,9 +34,7 @@ export function ReceivablesAgingWidget({
 
   const data = useMemo(() => {
     const map = new Map(buckets.map((b) => [b.label, b]));
-    return BUCKET_ORDER.map(
-      (label) => map.get(label) ?? { label, amount: 0, clientsCount: 0 },
-    );
+    return BUCKET_ORDER.map((label) => map.get(label) ?? { label, amount: 0, clientsCount: 0 });
   }, [buckets]);
 
   const empty = data.every((d) => d.amount === 0);
@@ -99,9 +89,7 @@ export function ReceivablesAgingWidget({
                     radius={[0, 4, 4, 0]}
                     cursor="pointer"
                     onClick={(entry) => {
-                      const label = String(
-                        (entry as { label?: string })?.label ?? "",
-                      ) as AgingChip;
+                      const label = String((entry as { label?: string })?.label ?? "") as AgingChip;
                       if (BUCKET_ORDER.includes(label as (typeof BUCKET_ORDER)[number])) {
                         onSelectAging(activeAging === label ? "" : label);
                       }

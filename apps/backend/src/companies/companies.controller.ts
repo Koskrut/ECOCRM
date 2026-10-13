@@ -48,14 +48,14 @@ export class CompaniesController {
 
   @Get()
   public async list(
-    @Query() query: { search?: string; page?: string; pageSize?: string },
+    @Query() query: { search?: string; page?: string; pageSize?: string; cf?: string },
     @Req() req: Request & { user?: AuthUser },
   ) {
     const pagination = normalizePagination({
       page: query.page,
       pageSize: query.pageSize,
     });
-    return this.companiesService.list(query.search, pagination, req.user);
+    return this.companiesService.list(query.search, pagination, req.user, query.cf);
   }
 
   @Get("/:id/change-history")

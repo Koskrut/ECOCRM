@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Post,
@@ -88,13 +89,27 @@ export class ReceivablesController {
   }
 
   @Post("reconciliation/refresh")
-  @Roles(UserRole.ADMIN, UserRole.LEAD, UserRole.MANAGER)
+  @Roles(UserRole.ADMIN, UserRole.LEAD)
   refreshReconciliation(
     @Body() body: { snapshotId?: string },
     @Req() req: Request & { user?: AuthUser },
   ) {
     if (!body.snapshotId?.trim()) throw new BadRequestException("snapshotId is required");
     return this.service.refreshReconciliation(body.snapshotId.trim(), this.requireUser(req));
+  }
+
+  @Post("reconciliation/lines/:lineId/link-contact")
+  @Roles(UserRole.ADMIN, UserRole.LEAD)
+  linkReconcileLineContact(
+    @Param("lineId") lineId: string,
+    @Body() body: { contactId?: string; overwrite?: boolean },
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    if (!lineId?.trim()) throw new BadRequestException("lineId is required");
+    return this.service.linkReconcileLineContact(this.requireUser(req), lineId.trim(), {
+      contactId: body?.contactId,
+      overwrite: body?.overwrite === true,
+    });
   }
 
   @Get("work/summary")
@@ -119,9 +134,17 @@ export class ReceivablesController {
     @Query("promiseBroken") promiseBroken?: string,
     @Query("reconcileDeltaOnly") reconcileDeltaOnly?: string,
     @Query("delayReason") delayReason?: string,
+    @Query("aging") aging?: string,
+    @Query("snoozed") snoozed?: string,
+    @Query("sort") sort?: string,
+    @Query("dir") dir?: string,
     @Req() req?: Request & { user?: AuthUser },
   ) {
     return this.service.listWorkClients(this.requireUser(req!), {
+      aging,
+      snoozed: snoozed === "only" || snoozed === "hide" ? snoozed : undefined,
+      sort,
+      dir,
       page: page ? Number(page) : undefined,
       pageSize: pageSize ? Number(pageSize) : undefined,
       q,
@@ -150,13 +173,46 @@ export class ReceivablesController {
     @Body()
     body: {
       contactIds?: string[];
-      action?: "assign_owner" | "create_call_tasks" | "send_telegram";
+      action?: "assign_owner" | "create_call_tasks" | "send_telegram" | "snooze";
       ownerId?: string;
       message?: string;
+      days?: number;
+      until?: string;
     },
     @Req() req: Request & { user?: AuthUser },
   ) {
     return this.service.batchActions(this.requireUser(req), body);
+  }
+
+  @Post("contacts/:contactId/snooze")
+  @Roles(UserRole.ADMIN, UserRole.LEAD, UserRole.MANAGER)
+  snoozeContact(
+    @Param("contactId") contactId: string,
+    @Body() body: { days?: number; until?: string },
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    if (!contactId?.trim()) throw new BadRequestException("contactId is required");
+    return this.service.snoozeContact(this.requireUser(req), contactId.trim(), body ?? {});
+  }
+
+  @Delete("contacts/:contactId/snooze")
+  @Roles(UserRole.ADMIN, UserRole.LEAD, UserRole.MANAGER)
+  unsnoozeContact(
+    @Param("contactId") contactId: string,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    if (!contactId?.trim()) throw new BadRequestException("contactId is required");
+    return this.service.unsnoozeContact(this.requireUser(req), contactId.trim());
+  }
+
+  /** POST alias: the web receivables proxy only forwards GET/POST. */
+  @Post("contacts/:contactId/unsnooze")
+  @Roles(UserRole.ADMIN, UserRole.LEAD, UserRole.MANAGER)
+  unsnoozeContactPost(
+    @Param("contactId") contactId: string,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.unsnoozeContact(contactId, req);
   }
 
   @Get("contacts/:contactId")
@@ -224,9 +280,11 @@ export class ReceivablesController {
     @Query("overdue") overdue?: string,
     @Query("contactId") contactId?: string,
     @Query("clientId") clientId?: string,
+    @Query("aging") aging?: string,
     @Req() req?: Request & { user?: AuthUser },
   ) {
     return this.service.listWorkOrders(this.requireUser(req!), {
+      aging,
       page: page ? Number(page) : undefined,
       pageSize: pageSize ? Number(pageSize) : undefined,
       q,

@@ -959,6 +959,11 @@ model Contact {
   nextActionAt        DateTime?
   nextActionNote      String?
   clientStage         String?
+  /**
+   * Дебіторка: клієнт відкладений у черзі «Сьогодні зібрати» до цієї дати (Kyiv, не включно з минулими).
+   */
+  receivablesSnoozedUntil DateTime? @db.Date
+  receivablesSnoozedById  String?
   legacySource        String?
   legacyId            Int?
   legacyRaw           Json?

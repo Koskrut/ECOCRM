@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiHttp } from "@/lib/api/client";
 import { ApiError, getUserFriendlyApiError } from "@/lib/api/errors";
 import { useConfirm, useToast } from "@/components/feedback";
+import { customFieldEntityLabel, customFieldTypeLabel } from "@/lib/custom-fields/presentation";
 
 function apiErrMsg(e: unknown, fallback: string): string {
   if (e instanceof ApiError) return e.message;
@@ -104,10 +105,13 @@ export default function CustomFieldsMetadataPage() {
 
   const [createOpen, setCreateOpen] = useState(false);
   const [cfEntity, setCfEntity] = useState<(typeof ENTITY_TYPES)[number]>("CONTACT");
-  const [cfKey, setCfKey] = useState("");
   const [cfLabel, setCfLabel] = useState("");
   const [cfType, setCfType] = useState("TEXT");
+  const [cfDescription, setCfDescription] = useState("");
+  const [cfRequired, setCfRequired] = useState(false);
   const [cfDictionaryId, setCfDictionaryId] = useState<string>("");
+  const [cfOptions, setCfOptions] = useState<string[]>([]);
+  const [cfOptionDraft, setCfOptionDraft] = useState("");
   const [creating, setCreating] = useState(false);
 
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -119,7 +123,6 @@ export default function CustomFieldsMetadataPage() {
   const [editActive, setEditActive] = useState(true);
   const [editDictionaryId, setEditDictionaryId] = useState<string>("");
   const [editSaving, setEditSaving] = useState(false);
-  const [newOptKey, setNewOptKey] = useState("");
   const [newOptLabel, setNewOptLabel] = useState("");
   const [optBusy, setOptBusy] = useState(false);
 
@@ -206,19 +209,17 @@ export default function CustomFieldsMetadataPage() {
   };
 
   const addOption = async () => {
-    if (!editingId || !newOptKey.trim() || !newOptLabel.trim()) {
-      pushToast("Вкажіть ключ і назву варіанта.", "error");
+    if (!editingId || !newOptLabel.trim()) {
+      pushToast("Вкажіть назву варіанта.", "error");
       return;
     }
     setOptBusy(true);
     try {
       await apiHttp.post(`/custom-fields/definitions/${encodeURIComponent(editingId)}/options`, {
-        key: newOptKey.trim().toLowerCase(),
         label: newOptLabel.trim(),
         isActive: true,
       });
       pushToast("Варіант додано.", "success");
-      setNewOptKey("");
       setNewOptLabel("");
       const r = await apiHttp.get<{ definition: DefinitionItem }>(
         `/custom-fields/definitions/${encodeURIComponent(editingId)}`,
@@ -300,30 +301,47 @@ export default function CustomFieldsMetadataPage() {
     }
   };
 
+  const addDraftOption = () => {
+    const label = cfOptionDraft.trim();
+    if (!label) return;
+    setCfOptions((prev) => (prev.some((item) => item.toLowerCase() === label.toLowerCase()) ? prev : [...prev, label]));
+    setCfOptionDraft("");
+  };
+
   const createField = async () => {
-    if (!cfKey.trim() || !cfLabel.trim()) {
-      pushToast("Заповніть ключ і назву поля.", "error");
+    if (!cfLabel.trim()) {
+      pushToast("Вкажіть назву поля.", "error");
+      return;
+    }
+    if ((cfType === "SELECT" || cfType === "MULTISELECT") && cfOptions.length === 0) {
+      pushToast("Додайте хоча б один варіант списку.", "error");
       return;
     }
     if (cfType === "DICTIONARY_ITEM" && !cfDictionaryId) {
-      pushToast("Оберіть довідник для типу «Елемент довідника».", "error");
+      pushToast("Оберіть довідник.", "error");
       return;
     }
     setCreating(true);
     try {
       const body: Record<string, unknown> = {
         entityType: cfEntity,
-        key: cfKey.trim(),
         label: cfLabel.trim(),
         type: cfType,
+        description: cfDescription.trim() || null,
+        required: cfRequired,
         isActive: true,
       };
       if (cfType === "DICTIONARY_ITEM") body.dictionaryId = cfDictionaryId;
+      if (cfType === "SELECT" || cfType === "MULTISELECT") body.options = cfOptions;
       await apiHttp.post("/custom-fields/definitions", body);
       pushToast("Поле створено.", "success");
-      setCfKey("");
       setCfLabel("");
+      setCfDescription("");
+      setCfRequired(false);
       setCfDictionaryId("");
+      setCfOptions([]);
+      setCfOptionDraft("");
+      setCfType("TEXT");
       setCreateOpen(false);
       await refresh();
     } catch (e) {
@@ -339,7 +357,6 @@ export default function CustomFieldsMetadataPage() {
       if (filterEntity !== "ALL" && it.entityType !== filterEntity) return false;
       if (!q) return true;
       return (
-        it.key.toLowerCase().includes(q) ||
         it.label.toLowerCase().includes(q) ||
         (it.description ?? "").toLowerCase().includes(q)
       );
@@ -355,7 +372,7 @@ export default function CustomFieldsMetadataPage() {
   if (role !== "ADMIN") {
     return (
       <div className="p-6">
-        <p className="text-sm text-zinc-600">Доступ тільки для ADMIN.</p>
+        <p className="text-sm text-zinc-600">Доступ тільки для адміністратора.</p>
       </div>
     );
   }
@@ -370,11 +387,15 @@ export default function CustomFieldsMetadataPage() {
         </Link>
         <h1 className="mt-2 text-2xl font-bold text-zinc-900">Користувацькі поля</h1>
         <p className="mt-2 max-w-3xl text-sm leading-relaxed text-zinc-600">
-          Додаткові поля для сутностей CRM: спочатку визначте поле тут, потім воно з’явиться в картках (де підключено) і в{" "}
+          Додаткові поля для карток CRM. Після створення їх можна показати в{" "}
           <Link href="/settings/metadata/list-columns" className="font-medium text-zinc-800 underline underline-offset-2">
-            колонках списків
+            колонках
+          </Link>{" "}
+          і у{" "}
+          <Link href="/settings/metadata/list-filters" className="font-medium text-zinc-800 underline underline-offset-2">
+            фільтрі списків
           </Link>
-          . Для типу «Елемент довідника» спочатку створіть{" "}
+          . Для типу «З довідника» спочатку створіть{" "}
           <Link href="/settings/metadata/dictionaries" className="font-medium text-zinc-800 underline underline-offset-2">
             довідник
           </Link>
@@ -410,74 +431,129 @@ export default function CustomFieldsMetadataPage() {
 
         {createOpen ? (
           <div className="mt-4 rounded-xl border border-zinc-200 bg-white p-4 shadow-sm">
-            <h2 className="text-sm font-semibold text-zinc-900">Створити визначення</h2>
-            <p className="mt-1 text-xs text-zinc-500">
-              Ключ — латиниця в нижньому регістрі, літери, цифри, крапки та підкреслення (наприклад{" "}
-              <code className="rounded bg-zinc-100 px-1">client.segment</code>).
-            </p>
-            <div className="mt-4 grid gap-4 sm:grid-cols-2">
-              <div>
-                <label className="text-xs font-medium uppercase tracking-wide text-zinc-500">Сутність</label>
-                <select
-                  className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm"
-                  value={cfEntity}
-                  onChange={(e) => setCfEntity(e.target.value as (typeof ENTITY_TYPES)[number])}
-                >
-                  {ENTITY_TYPES.map((e) => (
-                    <option key={e} value={e}>
-                      {ENTITY_LABELS[e]} ({e})
-                    </option>
-                  ))}
-                </select>
+            <h2 className="text-sm font-semibold text-zinc-900">Нове поле</h2>
+            <div className="mt-4 grid gap-4">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="text-xs font-medium text-zinc-500">Де показувати</label>
+                  <select
+                    className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm"
+                    value={cfEntity}
+                    onChange={(e) => setCfEntity(e.target.value as (typeof ENTITY_TYPES)[number])}
+                  >
+                    {ENTITY_TYPES.map((e) => (
+                      <option key={e} value={e}>
+                        {ENTITY_LABELS[e]}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-zinc-500">Назва</label>
+                  <input
+                    className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm"
+                    value={cfLabel}
+                    onChange={(e) => setCfLabel(e.target.value)}
+                    placeholder="Наприклад, Сегмент клієнта"
+                  />
+                </div>
               </div>
               <div>
-                <label className="text-xs font-medium uppercase tracking-wide text-zinc-500">Тип поля</label>
-                <select
-                  className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm"
-                  value={cfType}
-                  onChange={(e) => setCfType(e.target.value)}
-                >
-                  {FIELD_TYPES.map((t) => (
-                    <option key={t.value} value={t.value}>
-                      {t.label}
-                    </option>
-                  ))}
-                </select>
-                {typeHint ? <p className="mt-1 text-xs text-zinc-500">{typeHint}</p> : null}
+                <div className="text-xs font-medium text-zinc-500">Тип</div>
+                <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                  {FIELD_TYPES.map((t) => {
+                    const selected = cfType === t.value;
+                    return (
+                      <button
+                        key={t.value}
+                        type="button"
+                        onClick={() => setCfType(t.value)}
+                        className={`rounded-lg border px-3 py-2 text-left text-sm ${
+                          selected
+                            ? "border-zinc-900 bg-zinc-900 text-white"
+                            : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50"
+                        }`}
+                      >
+                        {t.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                {typeHint ? <p className="mt-2 text-xs text-zinc-500">{typeHint}</p> : null}
               </div>
-              <div className="sm:col-span-2">
-                <label className="text-xs font-medium uppercase tracking-wide text-zinc-500">Ключ (технічний)</label>
+              <div>
+                <label className="text-xs font-medium text-zinc-500">Підказка</label>
                 <input
-                  className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 font-mono text-sm"
-                  value={cfKey}
-                  onChange={(e) => setCfKey(e.target.value)}
-                  placeholder="наприклад client.segment"
+                  className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm"
+                  value={cfDescription}
+                  onChange={(e) => setCfDescription(e.target.value)}
+                  placeholder="Необовʼязково, видно біля поля в картці"
                 />
               </div>
-              <div className="sm:col-span-2">
-                <label className="text-xs font-medium uppercase tracking-wide text-zinc-500">Назва для людей</label>
-                <input
-                  className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm"
-                  value={cfLabel}
-                  onChange={(e) => setCfLabel(e.target.value)}
-                  placeholder="Наприклад, Сегмент клієнта"
-                />
-              </div>
+              <label className="flex items-center gap-2 text-sm text-zinc-800">
+                <input type="checkbox" checked={cfRequired} onChange={(e) => setCfRequired(e.target.checked)} />
+                Обовʼязкове
+              </label>
+              {cfType === "SELECT" || cfType === "MULTISELECT" ? (
+                <div>
+                  <div className="text-xs font-medium text-zinc-500">Варіанти</div>
+                  <ul className="mt-2 space-y-1">
+                    {cfOptions.map((option) => (
+                      <li key={option} className="flex items-center justify-between rounded-md bg-zinc-50 px-2 py-1.5 text-sm">
+                        <span>{option}</span>
+                        <button
+                          type="button"
+                          className="text-xs font-medium text-red-700 hover:underline"
+                          onClick={() => setCfOptions((prev) => prev.filter((item) => item !== option))}
+                        >
+                          Прибрати
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                  <div className="mt-2 flex gap-2">
+                    <input
+                      className="min-w-0 flex-1 rounded-md border border-zinc-200 px-3 py-2 text-sm"
+                      value={cfOptionDraft}
+                      onChange={(e) => setCfOptionDraft(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          addDraftOption();
+                        }
+                      }}
+                      placeholder="Назва варіанта"
+                    />
+                    <button
+                      type="button"
+                      onClick={addDraftOption}
+                      className="rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm font-medium text-zinc-800 hover:bg-zinc-50"
+                    >
+                      Додати
+                    </button>
+                  </div>
+                </div>
+              ) : null}
               {cfType === "DICTIONARY_ITEM" ? (
-                <div className="sm:col-span-2">
-                  <label className="text-xs font-medium uppercase tracking-wide text-zinc-500">Довідник</label>
+                <div>
+                  <label className="text-xs font-medium text-zinc-500">Довідник</label>
                   <select
                     className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm"
                     value={cfDictionaryId}
                     onChange={(e) => setCfDictionaryId(e.target.value)}
                   >
-                    <option value="">— Оберіть —</option>
+                    <option value="">Оберіть довідник</option>
                     {dictionaries.map((d) => (
                       <option key={d.id} value={d.id}>
-                        {d.name} ({d.key})
+                        {d.name}
                       </option>
                     ))}
                   </select>
+                  {dictionaries.length === 0 ? (
+                    <p className="mt-1 text-xs text-zinc-500">
+                      Спочатку створіть довідник у розділі довідників.
+                    </p>
+                  ) : null}
                 </div>
               ) : null}
             </div>
@@ -524,7 +600,7 @@ export default function CustomFieldsMetadataPage() {
               className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Ключ або назва…"
+              placeholder="Назва поля…"
             />
           </div>
         </div>
@@ -539,8 +615,7 @@ export default function CustomFieldsMetadataPage() {
               <table className="min-w-full text-left text-sm">
                 <thead className="border-b border-zinc-100 bg-zinc-50 text-xs uppercase tracking-wide text-zinc-500">
                   <tr>
-                    <th className="px-4 py-3">Сутність</th>
-                    <th className="px-4 py-3">Ключ</th>
+                    <th className="px-4 py-3">Де</th>
                     <th className="px-4 py-3">Назва</th>
                     <th className="px-4 py-3">Тип</th>
                     <th className="px-4 py-3">Статус</th>
@@ -550,10 +625,9 @@ export default function CustomFieldsMetadataPage() {
                 <tbody>
                   {filteredItems.map((it) => (
                     <tr key={it.id} className="border-b border-zinc-50 hover:bg-zinc-50/80">
-                      <td className="px-4 py-3 text-zinc-800">{ENTITY_LABELS[it.entityType as keyof typeof ENTITY_LABELS] ?? it.entityType}</td>
-                      <td className="px-4 py-3 font-mono text-xs text-zinc-600">{it.key}</td>
+                      <td className="px-4 py-3 text-zinc-800">{customFieldEntityLabel(it.entityType)}</td>
                       <td className="px-4 py-3 font-medium text-zinc-900">{it.label}</td>
-                      <td className="px-4 py-3 text-zinc-600">{FIELD_TYPES.find((t) => t.value === it.type)?.label ?? it.type}</td>
+                      <td className="px-4 py-3 text-zinc-600">{customFieldTypeLabel(it.type)}</td>
                       <td className="px-4 py-3">
                         {it.isActive === false ? (
                           <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-900">Неактивне</span>
@@ -625,8 +699,8 @@ export default function CustomFieldsMetadataPage() {
               <p className="mt-4 text-sm text-zinc-500">Завантаження…</p>
             ) : editDef ? (
               <>
-                <p className="mt-1 font-mono text-xs text-zinc-500">
-                  {editDef.entityType} · {editDef.key} · {editDef.type}
+                <p className="mt-1 text-xs text-zinc-500">
+                  {customFieldEntityLabel(editDef.entityType)} · {customFieldTypeLabel(editDef.type)}
                 </p>
                 <div className="mt-4 space-y-3">
                   <div>
@@ -665,7 +739,7 @@ export default function CustomFieldsMetadataPage() {
                         <option value="">—</option>
                         {dictionaries.map((d) => (
                           <option key={d.id} value={d.id}>
-                            {d.name} ({d.key})
+                            {d.name}
                           </option>
                         ))}
                       </select>
@@ -679,9 +753,7 @@ export default function CustomFieldsMetadataPage() {
                     <ul className="mt-2 max-h-40 space-y-1 overflow-y-auto text-sm">
                       {(editDef.options ?? []).filter((o) => !o.deletedAt).map((o) => (
                         <li key={o.id} className="flex items-center justify-between gap-2 rounded-md bg-zinc-50 px-2 py-1.5">
-                          <span>
-                            <span className="font-mono text-xs text-zinc-600">{o.key}</span> — {o.label}
-                          </span>
+                          <span>{o.label}</span>
                           <button
                             type="button"
                             disabled={optBusy}
@@ -693,18 +765,18 @@ export default function CustomFieldsMetadataPage() {
                         </li>
                       ))}
                     </ul>
-                    <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                    <div className="mt-3">
                       <input
-                        className="rounded-md border border-zinc-200 px-2 py-1.5 font-mono text-xs"
-                        placeholder="ключ варіанта"
-                        value={newOptKey}
-                        onChange={(e) => setNewOptKey(e.target.value)}
-                      />
-                      <input
-                        className="rounded-md border border-zinc-200 px-2 py-1.5 text-sm"
+                        className="w-full rounded-md border border-zinc-200 px-2 py-1.5 text-sm"
                         placeholder="Назва варіанта"
                         value={newOptLabel}
                         onChange={(e) => setNewOptLabel(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            void addOption();
+                          }
+                        }}
                       />
                     </div>
                     <button

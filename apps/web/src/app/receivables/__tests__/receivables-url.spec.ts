@@ -26,6 +26,8 @@ const emptyUrl: ReceivablesUrlState = {
   promisedToday: false,
   promiseBroken: false,
   aging: "",
+  sort: "",
+  dir: "desc",
   periodPaidFrom: "",
   periodPaidTo: "",
   contactId: "",
@@ -145,6 +147,8 @@ test("round-trip preserves work filters", () => {
     promisedToday: true,
     promiseBroken: false,
     aging: "",
+    sort: "debt",
+    dir: "asc",
     periodPaidFrom: "",
     periodPaidTo: "",
     contactId: "",
@@ -192,6 +196,12 @@ test("aging and period payments sync on clients work tab only", () => {
   assert.equal(onClients.get("periodPaidFrom"), "2026-01-01");
   assert.equal(onClients.get("periodPaidTo"), "2026-01-31");
 
+  const with61 = buildReceivablesSearchParams({
+    ...emptyUrl,
+    aging: "61-90",
+  });
+  assert.equal(with61.get("aging"), "61-90");
+
   const onOrders = buildReceivablesSearchParams({
     ...emptyUrl,
     workView: "orders",
@@ -209,4 +219,26 @@ test("parseReceivablesFilters reads aging and custom period", () => {
   assert.equal(parsed.aging, "90+");
   assert.equal(parsed.periodPaidFrom, "2026-02-01");
   assert.equal(parsed.periodPaidTo, "2026-02-28");
+});
+
+test("sort and dir sync on clients work tab", () => {
+  const params = buildReceivablesSearchParams({
+    ...emptyUrl,
+    sort: "overdueDays",
+    dir: "asc",
+  });
+  assert.equal(params.get("sort"), "overdueDays");
+  assert.equal(params.get("dir"), "asc");
+
+  const parsed = fromQuery("sort=lastPayment&dir=asc");
+  assert.equal(parsed.sort, "lastPayment");
+  assert.equal(parsed.dir, "asc");
+
+  const onOrders = buildReceivablesSearchParams({
+    ...emptyUrl,
+    workView: "orders",
+    sort: "debt",
+    dir: "asc",
+  });
+  assert.equal(onOrders.get("sort"), null);
 });

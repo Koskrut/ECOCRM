@@ -1,4 +1,5 @@
 import type { LeadAttentionPreset, LeadChannel, LeadSource, LeadStatus } from "@/lib/api/resources/leads";
+import { countCustomFilters, parseCustomFilters, serializeCustomFilters, type CustomFilterValues } from "@/lib/custom-fields/filters";
 
 export type LeadStatusFilter = "" | "all" | LeadStatus;
 export type LeadOwnerFilter = "" | "unassigned" | string;
@@ -15,6 +16,7 @@ export type LeadsUrlState = {
   sortOrder: "asc" | "desc";
   attention: "" | LeadAttentionPreset;
   ids: string;
+  customFilters: CustomFilterValues;
   page: number;
   leadId: string;
 };
@@ -85,6 +87,7 @@ export const DEFAULT_LEADS_URL: LeadsUrlState = {
   sortOrder: "desc",
   attention: "",
   ids: "",
+  customFilters: {},
   page: 1,
   leadId: "",
 };
@@ -104,6 +107,7 @@ export function parseLeadsUrl(sp: SearchParamsLike): LeadsUrlState {
     sortOrder: parseSortOrder(sp.get("sortOrder")),
     attention: parseAttention(sp.get("attention")),
     ids: (sp.get("ids") ?? "").trim(),
+    customFilters: parseCustomFilters(sp.get("cf")),
     page: Number.isFinite(pageRaw) && pageRaw > 1 ? Math.floor(pageRaw) : 1,
     leadId,
   };
@@ -122,6 +126,8 @@ export function buildLeadsSearchParams(state: LeadsUrlState): URLSearchParams {
   if (state.sortOrder !== DEFAULT_LEADS_URL.sortOrder) params.set("sortOrder", state.sortOrder);
   if (state.attention) params.set("attention", state.attention);
   if (state.ids) params.set("ids", state.ids);
+  const customFilters = serializeCustomFilters(state.customFilters);
+  if (customFilters) params.set("cf", customFilters);
   if (state.page > 1) params.set("page", String(state.page));
   if (state.leadId) params.set("leadId", state.leadId);
   return params;
@@ -139,6 +145,7 @@ export function isLeadsFilterActive(state: LeadsUrlState): boolean {
       state.sortOrder !== DEFAULT_LEADS_URL.sortOrder ||
       state.attention ||
       state.ids ||
-      state.q,
+      state.q ||
+      countCustomFilters(state.customFilters) > 0,
   );
 }

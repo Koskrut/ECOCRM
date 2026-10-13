@@ -184,4 +184,9 @@ export class ListOrdersQueryDto {
   @Transform(({ value }) => value === "true" || value === true)
   @IsBoolean()
   withCompanyClient?: boolean;
+
+  /** JSON map of custom-field filters, keyed by field key. */
+  @IsOptional()
+  @IsString()
+  cf?: string;
 }

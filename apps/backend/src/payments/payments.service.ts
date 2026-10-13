@@ -29,6 +29,7 @@ import {
 } from "../bank/bank-allocation.util";
 import { MatchSuggestionService } from "../bank/match-suggestion.service";
 import { PayerAliasService } from "../bank/payer-alias.service";
+import { kyivInstantRangeFromQuery } from "../crm-timezone";
 import { PrismaService } from "../prisma/prisma.service";
 import type { AllocateMatchMetaDto, AllocatePaymentDto } from "./dto/allocate-payment.dto";
 import type { AllocateSplitDto } from "./dto/allocate-split.dto";
@@ -282,19 +283,7 @@ export class PaymentsService {
     }
 
     if (params.dateFrom || params.dateTo) {
-      const paidAt: Prisma.DateTimeFilter = {};
-      if (params.dateFrom) {
-        const from = new Date(params.dateFrom);
-        if (!Number.isNaN(from.getTime())) paidAt.gte = from;
-      }
-      if (params.dateTo) {
-        const to = new Date(params.dateTo);
-        if (!Number.isNaN(to.getTime())) {
-          const hasTime = params.dateTo.includes("T");
-          if (!hasTime) to.setHours(23, 59, 59, 999);
-          paidAt.lte = to;
-        }
-      }
+      const paidAt = kyivInstantRangeFromQuery(params.dateFrom, params.dateTo);
       if (paidAt.gte || paidAt.lte) {
         const dateFilter: Prisma.PaymentWhereInput = { paidAt };
         where =

@@ -63,3 +63,29 @@ test("promise today vs broken", () => {
   assert.equal(isPromiseBroken("2026-09-01", "2026-09-01"), false);
   assert.equal(isPromiseBroken(null, "2026-09-01"), false);
 });
+
+test("promise is not broken when client paid after the promise comment", () => {
+  const promisedAt = new Date("2026-08-25T10:00:00.000Z");
+  assert.equal(
+    isPromiseBroken("2026-08-30", "2026-09-01", {
+      promisedAt,
+      lastPaymentAt: new Date("2026-08-31T09:00:00.000Z"),
+    }),
+    false,
+  );
+  assert.equal(
+    isPromiseBroken("2026-08-30", "2026-09-01", { promisedAt, lastPaymentAt: promisedAt }),
+    false,
+  );
+  assert.equal(
+    isPromiseBroken("2026-08-30", "2026-09-01", {
+      promisedAt,
+      lastPaymentAt: new Date("2026-08-20T09:00:00.000Z"),
+    }),
+    true,
+  );
+  assert.equal(
+    isPromiseBroken("2026-08-30", "2026-09-01", { promisedAt, lastPaymentAt: null }),
+    true,
+  );
+});

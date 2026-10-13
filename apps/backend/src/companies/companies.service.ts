@@ -1,4 +1,5 @@
 import { ConflictException, Injectable, NotFoundException, Optional, BadRequestException } from "@nestjs/common";
+import { CustomFieldsService } from "../custom-fields/custom-fields.service";
 import type { Prisma } from "@prisma/client";
 import { CustomFieldEntityType, UserRole } from "@prisma/client";
 import { AuditService } from "../audit/audit.service";
@@ -41,6 +42,7 @@ export class CompaniesService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     @Optional() private readonly workflowEmitter?: WorkflowDomainEmitterService,
+    @Optional() private readonly customFields?: CustomFieldsService,
   ) {}
 
   public async create(
@@ -107,6 +109,7 @@ export class CompaniesService {
     search: string | undefined,
     pagination: Pagination,
     actor?: AuthUser,
+    cf?: string,
   ): Promise<ListCompaniesResult> {
     const where: Prisma.CompanyWhereInput = {};
 
@@ -135,6 +138,15 @@ export class CompaniesService {
       const existingAnd: Prisma.CompanyWhereInput[] =
         where.AND === undefined ? [] : Array.isArray(where.AND) ? where.AND : [where.AND];
       where.AND = [...existingAnd, { OR: [{ ownerId: actor.id }, { ownerId: null }] }];
+    }
+
+    if (cf && this.customFields) {
+      const customIds = await this.customFields.matchingEntityIds(CustomFieldEntityType.COMPANY, cf);
+      if (customIds) {
+        const existingAnd: Prisma.CompanyWhereInput[] =
+          where.AND === undefined ? [] : Array.isArray(where.AND) ? where.AND : [where.AND];
+        where.AND = [...existingAnd, { id: { in: customIds } }];
+      }
     }
 
     const [total, companies] = await this.prisma.$transaction([

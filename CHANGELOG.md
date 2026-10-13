@@ -4,7 +4,25 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.199**.)_
+_(планируемые изменения после **0.2.200**.)_
+
+## [0.2.200] — 2026-10-13
+
+### Summary
+
+Патч **0.2.200**: дебіторка — snooze / aging / reconcile link; фільтри custom fields у списках; банк — unmatched по місяцях.
+
+### Added
+
+- Prisma: **Contact.receivablesSnoozedUntil** / **receivablesSnoozedById**.
+- Receivables: snooze/unsnooze, batch snooze, aging/snooze filters, link reconcile line → contact; UI refactor (work filters, reconcile, period payments).
+- Custom fields: list filter layouts (`/settings/metadata/list-filters`), `cf` query filters на contacts/leads/orders/companies; SELECT options на create.
+- Bank: **`GET …/unmatched-summary`** + UnmatchedMonthsBar на payments.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.200`**.
+- **Миграция:** `20261013100000_contact_receivables_snooze` — **`prisma migrate deploy`** / **`backend-migrate`** до **`up`**.
 
 ## [0.2.199] — 2026-10-09
 

@@ -2,12 +2,14 @@
 
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Pencil, Search, Trash2, Users } from "lucide-react";
+import { Filter, Pencil, Search, Trash2, Users } from "lucide-react";
 import { companiesApi, type Company, type CompaniesResponse } from "@/lib/api";
 import { apiHttp } from "@/lib/api/client";
 import { isTextSelected } from "@/lib/dom";
 import { strings } from "@/locales";
 import { useListColumns } from "@/lib/lists/useListColumns";
+import { CustomFieldFilterFields } from "@/components/metadata/CustomFieldFilterFields";
+import { countCustomFilters, parseCustomFilters, serializeCustomFilters, type CustomFilterValues } from "@/lib/custom-fields/filters";
 import { renderCellText } from "@/lib/lists/renderCell";
 import { HelpHint } from "@/components/help/HelpHint";
 import { withPreservedScroll } from "@/lib/modal/preserveScroll";
@@ -41,6 +43,13 @@ function CompaniesPageContent() {
   const [total, setTotal] = useState(0);
   const [q, setQ] = useState(() => searchParams.get("q") ?? "");
   const [qInput, setQInput] = useState(() => searchParams.get("q") ?? "");
+  const [customFilters, setCustomFilters] = useState<CustomFilterValues>(() =>
+    parseCustomFilters(searchParams.get("cf")),
+  );
+  const [filterDraft, setFilterDraft] = useState<CustomFilterValues>(() =>
+    parseCustomFilters(searchParams.get("cf")),
+  );
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkDeleting, setBulkDeleting] = useState(false);
 
@@ -61,13 +70,15 @@ function CompaniesPageContent() {
     if (companyId) params.set("companyId", companyId);
     if (page > 1) params.set("page", String(page));
     if (q) params.set("q", q);
+    const customFilterQuery = serializeCustomFilters(customFilters);
+    if (customFilterQuery) params.set("cf", customFilterQuery);
 
     const next = params.toString();
     const current = searchParams.toString();
     if (next !== current) {
       router.replace(`${pathname}${next ? `?${next}` : ""}`, { scroll: false });
     }
-  }, [companyId, page, pathname, q, router, searchParams]);
+  }, [companyId, customFilters, page, pathname, q, router, searchParams]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -91,6 +102,7 @@ function CompaniesPageContent() {
             search: q.trim() || undefined,
             page: effectivePage,
             pageSize: PAGE_SIZE,
+            cf: serializeCustomFilters(customFilters),
           });
           setItems(res.items);
           setTotal(res.total);
@@ -107,7 +119,7 @@ function CompaniesPageContent() {
       if (opts?.silent) await withPreservedScroll(run);
       else await run();
     },
-    [page, q],
+    [customFilters, page, q],
   );
 
   useEffect(() => {
@@ -239,8 +251,56 @@ function CompaniesPageContent() {
                 type="search"
                 aria-label="Пошук компаній"
               />
+              <button
+                type="button"
+                onClick={() => {
+                  setFilterDraft(customFilters);
+                  setFiltersOpen((open) => !open);
+                }}
+                className={`relative flex shrink-0 items-center justify-center rounded p-1 ${
+                  countCustomFilters(customFilters) > 0 ? "text-zinc-900" : "text-zinc-500 hover:text-zinc-700"
+                }`}
+                aria-label="Фільтри"
+              >
+                <Filter className="h-4 w-4" />
+              </button>
             </div>
           </form>
+          {filtersOpen ? (
+            <div className="absolute right-0 z-20 mt-1 w-[min(92vw,380px)] rounded-xl border border-zinc-200 bg-white p-4 shadow-xl">
+              <CustomFieldFilterFields
+                entityType="COMPANY"
+                value={filterDraft}
+                onChange={setFilterDraft}
+                emptyHint="Додаткові поля для фільтра ще не обрані. Їх можна додати в налаштуваннях метаданих."
+              />
+              <div className="mt-3 flex gap-2">
+                <button
+                  type="button"
+                  className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white"
+                  onClick={() => {
+                    setPage(1);
+                    setCustomFilters(filterDraft);
+                    setFiltersOpen(false);
+                  }}
+                >
+                  Застосувати
+                </button>
+                <button
+                  type="button"
+                  className="rounded-md border border-zinc-200 px-3 py-1.5 text-sm text-zinc-700"
+                  onClick={() => {
+                    setFilterDraft({});
+                    setCustomFilters({});
+                    setPage(1);
+                    setFiltersOpen(false);
+                  }}
+                >
+                  Скинути
+                </button>
+              </div>
+            </div>
+          ) : null}
         </div>
         <div className="mt-2 text-sm text-zinc-500">
           Усього: {total} | Сторінка {page} з {totalPages}

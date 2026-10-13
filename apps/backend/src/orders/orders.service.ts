@@ -32,6 +32,7 @@ import {
   WAREHOUSE_FULFILLMENT_QUEUE_STAGES,
 } from "./order-warehouse-role";
 import { IntegrationPortsService } from "../integration-ports/integration-ports.service";
+import { CustomFieldsService } from "../custom-fields/custom-fields.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { SettingsService } from "../settings/settings.service";
 import { computeOrderExchangeRate, getBaseCurrency } from "../common/currency.util";
@@ -138,6 +139,7 @@ export class OrdersService {
     private readonly materialReservations: OrderMaterialReservationService,
     @Optional() @Inject(RiskPolicyService) private readonly riskPolicy?: RiskPolicyService,
     @Optional() @Inject(ModuleStateService) private readonly modules?: ModuleStateService,
+    @Optional() private readonly customFields?: CustomFieldsService,
   ) {}
 
   private num(v: unknown, fallback = 0) {
@@ -713,6 +715,11 @@ export class OrdersService {
           },
         ],
       });
+    }
+
+    if (q?.cf && this.customFields) {
+      const customIds = await this.customFields.matchingEntityIds(CustomFieldEntityType.ORDER, q.cf);
+      if (customIds) andWhere.push({ id: { in: customIds } });
     }
 
     if (q?.dateFrom || q?.dateTo) {

@@ -12,6 +12,7 @@ import {
   UserRole,
 } from "@prisma/client";
 import type { AuthUser } from "../auth/auth.types";
+import { kyivInstantRangeFromQuery } from "../crm-timezone";
 import { PrismaService } from "../prisma/prisma.service";
 import { buildBankTransactionSearchWhere } from "../payments/payment-search.util";
 import {
@@ -22,6 +23,7 @@ import {
 import { BankAccountsService } from "./bank-accounts.service";
 import { MatchSuggestionService } from "./match-suggestion.service";
 import { PaymentMatchingService, type MatchSuggestion } from "./payment-matching.service";
+import { bucketUnmatchedByMonth, type UnmatchedMonthlySummary } from "./unmatched-summary.util";
 
 const NON_CLIENT_STATUSES: BankTransactionMatchStatus[] = [
   BankTransactionMatchStatus.TECHNICAL,
@@ -54,7 +56,10 @@ export class BankTransactionsService {
     private readonly matchSuggestions: MatchSuggestionService,
   ) {}
 
-  async list(params: ListParams, actor?: AuthUser) {
+  private async buildBaseWhere(
+    params: Pick<ListParams, "bankAccountId" | "from" | "to" | "q">,
+    actor?: AuthUser,
+  ): Promise<Prisma.BankTransactionWhereInput> {
     let where: Prisma.BankTransactionWhereInput = {};
     if (actor && actor.role !== UserRole.ADMIN) {
       const visibleIds = await this.bankAccounts.getVisibleBankAccountIds(actor.id);
@@ -69,22 +74,8 @@ export class BankTransactionsService {
     } else if (params.bankAccountId) {
       where.bankAccountId = params.bankAccountId;
     }
-    if (params.from || params.to) {
-      const bookedAt: Prisma.DateTimeFilter = {};
-      if (params.from) {
-        const from = new Date(params.from);
-        if (!Number.isNaN(from.getTime())) bookedAt.gte = from;
-      }
-      if (params.to) {
-        const to = new Date(params.to);
-        if (!Number.isNaN(to.getTime())) {
-          const hasTime = params.to.includes("T");
-          if (!hasTime) to.setHours(23, 59, 59, 999);
-          bookedAt.lte = to;
-        }
-      }
-      if (bookedAt.gte || bookedAt.lte) where.bookedAt = bookedAt;
-    }
+    const bookedAt = kyivInstantRangeFromQuery(params.from, params.to);
+    if (bookedAt.gte || bookedAt.lte) where.bookedAt = bookedAt;
 
     const searchQ = params.q?.trim();
     if (searchQ) {
@@ -92,6 +83,57 @@ export class BankTransactionsService {
       where =
         Object.keys(where).length === 0 ? searchWhere : { AND: [where, searchWhere] };
     }
+    return where;
+  }
+
+  /** IN, client (not TECHNICAL/IGNORED) transactions with unallocated residual. */
+  private async findResidualTransactionIds(): Promise<string[]> {
+    const rows = await this.prisma.$queryRaw<Array<{ id: string }>>`
+      SELECT bt.id
+      FROM "BankTransaction" bt
+      LEFT JOIN "Payment" p
+        ON p."bankTransactionId" = bt.id AND p.status = 'COMPLETED'
+      WHERE bt.direction = 'IN'
+        AND bt."matchStatus" NOT IN ('TECHNICAL', 'IGNORED')
+      GROUP BY bt.id, bt.amount
+      HAVING COALESCE(SUM(p.amount), 0) < bt.amount - ${BANK_ALLOCATION_EPSILON}
+    `;
+    return rows.map((r) => r.id);
+  }
+
+  /**
+   * Needs-allocation backlog bucketed by Kyiv calendar month (newest first).
+   * Amounts are unallocated residuals, summed per currency.
+   */
+  async unmatchedMonthlySummary(
+    params: Pick<ListParams, "bankAccountId">,
+    actor?: AuthUser,
+  ): Promise<UnmatchedMonthlySummary> {
+    const baseWhere = await this.buildBaseWhere({ bankAccountId: params.bankAccountId }, actor);
+    const residualIds = await this.findResidualTransactionIds();
+    if (residualIds.length === 0) {
+      return { months: [], total: { count: 0, totals: [] } };
+    }
+    const rows = await this.prisma.bankTransaction.findMany({
+      where: { AND: [baseWhere, { id: { in: residualIds } }] },
+      select: {
+        bookedAt: true,
+        amount: true,
+        currency: true,
+        payments: { select: { amount: true, status: true } },
+      },
+    });
+    return bucketUnmatchedByMonth(
+      rows.map((r) => ({
+        bookedAt: r.bookedAt,
+        currency: r.currency,
+        remaining: remainingBankTransactionAmount(Number(r.amount), r.payments),
+      })),
+    );
+  }
+
+  async list(params: ListParams, actor?: AuthUser) {
+    const where = await this.buildBaseWhere(params, actor);
 
     if (params.ignored) {
       return this.listIgnored(where, params);
@@ -131,17 +173,7 @@ export class BankTransactionsService {
     baseWhere: Prisma.BankTransactionWhereInput,
     params: ListParams,
   ) {
-    const residualRows = await this.prisma.$queryRaw<Array<{ id: string }>>`
-      SELECT bt.id
-      FROM "BankTransaction" bt
-      LEFT JOIN "Payment" p
-        ON p."bankTransactionId" = bt.id AND p.status = 'COMPLETED'
-      WHERE bt.direction = 'IN'
-        AND bt."matchStatus" NOT IN ('TECHNICAL', 'IGNORED')
-      GROUP BY bt.id, bt.amount
-      HAVING COALESCE(SUM(p.amount), 0) < bt.amount - ${BANK_ALLOCATION_EPSILON}
-    `;
-    const residualIds = residualRows.map((r) => r.id);
+    const residualIds = await this.findResidualTransactionIds();
     if (residualIds.length === 0) {
       return {
         items: [],

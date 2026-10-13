@@ -309,6 +309,61 @@ export class LayoutsService {
     return { layout };
   }
 
+  /**
+   * Ensures a default FILTERS layout exists so admins can choose which custom
+   * fields appear in entity list filters.
+   */
+  async ensureDefaultFilterLayout(entityTypeRaw: unknown) {
+    const entityType = parseLayoutEntityType(entityTypeRaw);
+    const key = `${entityType.toLowerCase()}.filters.default`;
+
+    let layout = await this.prisma.layoutDefinition.findFirst({
+      where: { entityType, type: LayoutType.FILTERS, key, deletedAt: null },
+      include: LAYOUT_INCLUDE,
+    });
+
+    if (!layout) {
+      layout = await this.prisma.layoutDefinition.create({
+        data: {
+          entityType,
+          type: LayoutType.FILTERS,
+          key,
+          name: `${entityType} list filters`,
+          description: "Custom fields shown in the list filter",
+          isDefault: true,
+          isActive: true,
+          sections: {
+            create: {
+              key: "filters",
+              title: "Filters",
+              sortOrder: 0,
+              columns: 1,
+              isActive: true,
+            },
+          },
+        },
+        include: LAYOUT_INCLUDE,
+      });
+    } else if (layout.sections.length === 0) {
+      await this.prisma.layoutSection.create({
+        data: {
+          layoutId: layout.id,
+          key: "filters",
+          title: "Filters",
+          sortOrder: 0,
+          columns: 1,
+          isActive: true,
+        },
+      });
+      layout = await this.prisma.layoutDefinition.findFirst({
+        where: { id: layout.id },
+        include: LAYOUT_INCLUDE,
+      });
+    }
+
+    return { layout };
+  }
+
   private async normalizeFieldReference(entityType: CustomFieldEntityType, body: UpsertLayoutFieldDto) {
     const fieldKey = optionalNullableString(body.fieldKey);
     const customFieldDefinitionId = optionalNullableString(body.customFieldDefinitionId);

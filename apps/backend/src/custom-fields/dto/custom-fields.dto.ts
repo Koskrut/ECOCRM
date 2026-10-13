@@ -20,6 +20,8 @@ export type UpsertCustomFieldDefinitionDto = {
   system?: boolean;
   dictionaryId?: string | null;
   settings?: Prisma.InputJsonValue | null;
+  /** Labels for SELECT / MULTISELECT options, created together with the field. */
+  options?: unknown;
 };
 
 export type UpsertCustomFieldOptionDto = {
@@ -46,10 +48,10 @@ export type NormalizedCustomFieldValue = {
 
 export function normalizeCustomFieldKey(value: unknown, field = "key"): string {
   const key = typeof value === "string" ? value.trim().toLowerCase() : "";
-  if (!key) throw new BadRequestException(`${field} is required`);
-  if (key.length > 120) throw new BadRequestException(`${field} is too long`);
+  if (!key) throw new BadRequestException("Вкажіть назву.");
+  if (key.length > 120) throw new BadRequestException("Назва занадто довга.");
   if (!KEY_RE.test(key)) {
-    throw new BadRequestException(`${field} must use lowercase letters, numbers, underscores, and dots`);
+    throw new BadRequestException("Назва містить символи, з яких не виходить код поля. Спростіть її.");
   }
   return key;
 }
@@ -57,7 +59,7 @@ export function normalizeCustomFieldKey(value: unknown, field = "key"): string {
 export function parseCustomFieldEntityType(value: unknown): CustomFieldEntityType {
   const normalized = typeof value === "string" ? value.trim().toUpperCase() : "";
   if (!Object.values(CustomFieldEntityType).includes(normalized as CustomFieldEntityType)) {
-    throw new BadRequestException("entityType is invalid");
+    throw new BadRequestException("Оберіть, до чого належить поле.");
   }
   return normalized as CustomFieldEntityType;
 }
@@ -65,7 +67,7 @@ export function parseCustomFieldEntityType(value: unknown): CustomFieldEntityTyp
 export function parseCustomFieldType(value: unknown): CustomFieldType {
   const normalized = typeof value === "string" ? value.trim().toUpperCase() : "";
   if (!Object.values(CustomFieldType).includes(normalized as CustomFieldType)) {
-    throw new BadRequestException("type is invalid");
+    throw new BadRequestException("Оберіть тип поля.");
   }
   return normalized as CustomFieldType;
 }

@@ -1,10 +1,18 @@
 import { ymdDaysAgoInKyiv } from "@/lib/crmDatetime";
-import type { AgingChip } from "./aging";
+import type { WorkClientsSortKey } from "@/lib/api/resources/receivables";
+import { AGING_CHIPS, type AgingChip } from "./aging";
 
 export type ReceivablesTab = "work" | "reconcile";
 export type ReceivablesWorkView = "clients" | "orders";
+export type SortDir = "asc" | "desc";
 
-const AGING_CHIPS: AgingChip[] = ["0-7", "8-30", "31-60", "90+"];
+const SORT_KEYS: WorkClientsSortKey[] = [
+  "debt",
+  "overdue",
+  "overdueDays",
+  "lastPayment",
+  "lastComment",
+];
 
 export function defaultReceivablesPeriodPaid(): { periodPaidFrom: string; periodPaidTo: string } {
   return {
@@ -16,6 +24,15 @@ export function defaultReceivablesPeriodPaid(): { periodPaidFrom: string; period
 function parseAgingChip(raw: string | null): AgingChip {
   const value = (raw ?? "").trim();
   return AGING_CHIPS.includes(value as AgingChip) ? (value as AgingChip) : "";
+}
+
+function parseSort(raw: string | null): WorkClientsSortKey | "" {
+  const value = (raw ?? "").trim();
+  return SORT_KEYS.includes(value as WorkClientsSortKey) ? (value as WorkClientsSortKey) : "";
+}
+
+function parseDir(raw: string | null): SortDir {
+  return raw === "asc" ? "asc" : "desc";
 }
 
 export type ReceivablesFilterState = {
@@ -34,6 +51,8 @@ export type ReceivablesFilterState = {
   promisedToday: boolean;
   promiseBroken: boolean;
   aging: AgingChip;
+  sort: WorkClientsSortKey | "";
+  dir: SortDir;
   periodPaidFrom: string;
   periodPaidTo: string;
 };
@@ -67,6 +86,8 @@ export function parseReceivablesFilters(sp: SearchParamsLike): ReceivablesFilter
     promisedToday: sp.get("promisedToday") === "true",
     promiseBroken: sp.get("promiseBroken") === "true",
     aging: parseAgingChip(sp.get("aging")),
+    sort: parseSort(sp.get("sort")),
+    dir: parseDir(sp.get("dir")),
     periodPaidFrom: (sp.get("periodPaidFrom") ?? "").trim() || defaults.periodPaidFrom,
     periodPaidTo: (sp.get("periodPaidTo") ?? "").trim() || defaults.periodPaidTo,
   };
@@ -98,6 +119,10 @@ export function buildReceivablesSearchParams(state: ReceivablesUrlState): URLSea
   if (state.promiseBroken && state.workView !== "orders") params.set("promiseBroken", "true");
   if (state.aging && state.workView === "clients" && state.tab === "work") {
     params.set("aging", state.aging);
+  }
+  if (state.sort && state.workView === "clients" && state.tab === "work") {
+    params.set("sort", state.sort);
+    if (state.dir === "asc") params.set("dir", "asc");
   }
   const periodDefaults = defaultReceivablesPeriodPaid();
   if (
