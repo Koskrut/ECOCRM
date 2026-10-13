@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { forwardRef, Inject, Injectable } from "@nestjs/common";
 import type { OrderStage } from "@prisma/client";
 import { ActivityType } from "@prisma/client";
 import type { AuthUser } from "../auth/auth.types";
@@ -31,6 +31,8 @@ function stageLabel(stage: OrderStage | null | undefined): string {
 export class OrderWarehouseNotifierService {
   constructor(
     private readonly prisma: PrismaService,
+    // NotificationsService is still unset while Store → Orders loads this file.
+    @Inject(forwardRef(() => NotificationsService))
     private readonly notifications: NotificationsService,
   ) {}
 

@@ -4,7 +4,23 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.202**.)_
+_(планируемые изменения после **0.2.203**.)_
+
+## [0.2.203] — 2026-10-13
+
+### Summary
+
+Патч **0.2.203**: hotfix Nest DI — цикл `Notifications → Telegram → Store → Orders` залишав у `design:paramtypes` глобальний `Object` замість `NotificationsService` (crash loop **0.2.202**).
+
+### Fixed
+
+- `OrderWarehouseNotifierService` і `TelegramInboxNotifierService` інжектять `NotificationsService` через `@Inject(forwardRef(...))`. Інакше Nest бачить dependency index [1] як `?`.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.203`**.
+- **Не використовувати `0.2.199`, `0.2.200`, `0.2.201` і `0.2.202`** (backend не стартує).
+- **Нових міграцій немає.** Міграції з 0.2.199/0.2.200 (`telegram_client_bot`, `packing_list_line_qty_packed`, `contact_receivables_snooze`) лишаються потрібними; якщо вже застосовані — повторно не накатувати.
 
 ## [0.2.202] — 2026-10-13
 
@@ -18,6 +34,7 @@ _(планируемые изменения после **0.2.202**.)_
 
 ### Upgrade notes
 
+- **Не використовувати образ `0.2.202`** (Nest crash: `OrderWarehouseNotifierService` DI index [1] undefined). Фікс — **0.2.203**.
 - **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.202`**.
 - **Не використовувати `0.2.199`, `0.2.200` і `0.2.201`** (backend не стартує).
 - **Нових міграцій немає.** Міграції з 0.2.199/0.2.200 (`telegram_client_bot`, `packing_list_line_qty_packed`, `contact_receivables_snooze`) лишаються потрібними; якщо вже застосовані — повторно не накатувати.
@@ -34,7 +51,7 @@ _(планируемые изменения после **0.2.202**.)_
 
 ### Upgrade notes
 
-- **Не використовувати образ `0.2.201`** (Nest crash: `RiskModule` imports[3] undefined). Фікс — **0.2.202**.
+- **Не використовувати образ `0.2.201`** (Nest crash: `RiskModule` imports[3] undefined). Фікс — **0.2.203**.
 - **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.201`**.
 - **Не використовувати `0.2.199` і `0.2.200`** (backend не стартує).
 - **Нових міграцій немає.** Міграції з 0.2.199/0.2.200 (`telegram_client_bot`, `packing_list_line_qty_packed`, `contact_receivables_snooze`) лишаються потрібними; якщо вже застосовані — повторно не накатувати.
@@ -54,7 +71,7 @@ _(планируемые изменения после **0.2.202**.)_
 
 ### Upgrade notes
 
-- **Не використовувати образ `0.2.200`** (Nest crash: `OrdersModule` imports[8] undefined). Фікс — **0.2.202**.
+- **Не використовувати образ `0.2.200`** (Nest crash: `OrdersModule` imports[8] undefined). Фікс — **0.2.203**.
 - **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.200`**.
 - **Миграция:** `20261013100000_contact_receivables_snooze` — **`prisma migrate deploy`** / **`backend-migrate`** до **`up`**.
 

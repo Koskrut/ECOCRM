@@ -1,4 +1,4 @@
-import { Injectable, Logger, Optional } from "@nestjs/common";
+import { forwardRef, Inject, Injectable, Logger, Optional } from "@nestjs/common";
 import type { Prisma } from "@prisma/client";
 import { UserRole } from "@prisma/client";
 import { PrismaService } from "../../prisma/prisma.service";
@@ -13,7 +13,10 @@ export class TelegramInboxNotifierService {
 
   constructor(
     private readonly prisma: PrismaService,
-    @Optional() private readonly notifications?: NotificationsService,
+    // Same cycle as OrderWarehouseNotifierService: the class is Object in design:paramtypes.
+    @Optional()
+    @Inject(forwardRef(() => NotificationsService))
+    private readonly notifications?: NotificationsService,
   ) {}
 
   shouldSkipNotification(text: string | null | undefined): boolean {
