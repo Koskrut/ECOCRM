@@ -26,7 +26,7 @@ import { TelegramService } from "./telegram.service";
     IntegrationPortsModule,
     ContactsModule,
     ProductsModule,
-    StoreModule,
+    forwardRef(() => StoreModule),
     forwardRef(() => AuthModule),
     forwardRef(() => NotificationsModule),
   ],

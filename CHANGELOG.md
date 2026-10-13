@@ -4,7 +4,23 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.200**.)_
+_(планируемые изменения после **0.2.201**.)_
+
+## [0.2.201] — 2026-10-13
+
+### Summary
+
+Патч **0.2.201**: hotfix Nest — цикл `ReceivablesModule → TelegramModule → StoreModule → OrdersModule` більше не залишає `NotificationsModule` як `undefined` (crash loop **0.2.199** / **0.2.200**).
+
+### Fixed
+
+- `forwardRef` на ребрах циклу: Orders → Notifications, Telegram → Store, Store → Orders, Receivables → Telegram.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.201`**.
+- **Не використовувати `0.2.199` і `0.2.200`** (backend не стартує).
+- **Нових міграцій немає.** Міграції з 0.2.199/0.2.200 (`telegram_client_bot`, `packing_list_line_qty_packed`, `contact_receivables_snooze`) лишаються потрібними; якщо вже застосовані — повторно не накатувати.
 
 ## [0.2.200] — 2026-10-13
 
@@ -21,6 +37,7 @@ _(планируемые изменения после **0.2.200**.)_
 
 ### Upgrade notes
 
+- **Не використовувати образ `0.2.200`** (Nest crash: `OrdersModule` imports[8] undefined). Фікс — **0.2.201**.
 - **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.200`**.
 - **Миграция:** `20261013100000_contact_receivables_snooze` — **`prisma migrate deploy`** / **`backend-migrate`** до **`up`**.
 

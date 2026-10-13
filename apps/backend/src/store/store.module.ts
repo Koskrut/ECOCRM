@@ -1,4 +1,4 @@
-import { Module } from "@nestjs/common";
+import { forwardRef, Module } from "@nestjs/common";
 import { ContactsModule } from "../contacts/contacts.module";
 import { IntegrationPortsModule } from "../integration-ports/integration-ports.module";
 import { OrdersModule } from "../orders/orders.module";
@@ -29,7 +29,7 @@ import { StoreTelegramLinkService } from "./telegram/store-telegram-link.service
     StoreAuthModule,
     ContactsModule,
     ProductsModule,
-    OrdersModule,
+    forwardRef(() => OrdersModule),
     PaymentRequestsModule,
   ],
   controllers: [

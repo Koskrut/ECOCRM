@@ -1,4 +1,4 @@
-import { Module } from "@nestjs/common";
+import { forwardRef, Module } from "@nestjs/common";
 import { AuditModule } from "../audit/audit.module";
 import { IntegrationPortsModule } from "../integration-ports/integration-ports.module";
 import { NotificationsModule } from "../notifications/notifications.module";
@@ -30,7 +30,8 @@ import { OrderStatusService } from "./order-status.service";
     IntegrationPortsModule,
     OrderReturnsModule,
     WorkflowsModule,
-    NotificationsModule,
+    // Notifications → Telegram → Store → Orders. Eager import is undefined while that cycle loads.
+    forwardRef(() => NotificationsModule),
     RiskModule,
     SystemModule,
     OrderMaterialReservationModule,

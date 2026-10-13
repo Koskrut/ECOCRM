@@ -1,4 +1,4 @@
-import { Module } from "@nestjs/common";
+import { forwardRef, Module } from "@nestjs/common";
 import { AnalyticsModule } from "../analytics/analytics.module";
 import { TelegramModule } from "../integrations/telegram/telegram.module";
 import { PrismaModule } from "../prisma/prisma.module";
@@ -7,7 +7,7 @@ import { ReceivablesController } from "./receivables.controller";
 import { ReceivablesService } from "./receivables.service";
 
 @Module({
-  imports: [PrismaModule, SettingsModule, AnalyticsModule, TelegramModule],
+  imports: [PrismaModule, SettingsModule, AnalyticsModule, forwardRef(() => TelegramModule)],
   controllers: [ReceivablesController],
   providers: [ReceivablesService],
   exports: [ReceivablesService],
