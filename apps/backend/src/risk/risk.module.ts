@@ -1,4 +1,4 @@
-import { Module } from "@nestjs/common";
+import { forwardRef, Module } from "@nestjs/common";
 import { NotificationsModule } from "../notifications/notifications.module";
 import { PrismaModule } from "../prisma/prisma.module";
 import { RbacModule } from "../rbac/rbac.module";
@@ -15,7 +15,13 @@ import { RiskScorecardService } from "./risk-scorecard.service";
 import { RiskService } from "./risk.service";
 
 @Module({
-  imports: [PrismaModule, RbacModule, SystemModule, NotificationsModule],
+  imports: [
+    PrismaModule,
+    RbacModule,
+    SystemModule,
+    // Notifications → Telegram → Store → Orders → Risk. The class is still undefined while that cycle loads.
+    forwardRef(() => NotificationsModule),
+  ],
   controllers: [RiskController],
   providers: [
     RiskService,

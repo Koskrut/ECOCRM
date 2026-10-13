@@ -4,7 +4,23 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.201**.)_
+_(планируемые изменения после **0.2.202**.)_
+
+## [0.2.202] — 2026-10-13
+
+### Summary
+
+Патч **0.2.202**: hotfix Nest — цикл `Notifications → Telegram → Store → Orders → Risk` більше не залишає `NotificationsModule` як `undefined` у `RiskModule` (crash loop **0.2.199** / **0.2.200** / **0.2.201**).
+
+### Fixed
+
+- `RiskModule` імпортує `NotificationsModule` через `forwardRef`. Попередній патч закрив лише `OrdersModule` imports[8]; наступний eager-імпорт у тому ж циклі — `RiskModule` imports[3].
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.202`**.
+- **Не використовувати `0.2.199`, `0.2.200` і `0.2.201`** (backend не стартує).
+- **Нових міграцій немає.** Міграції з 0.2.199/0.2.200 (`telegram_client_bot`, `packing_list_line_qty_packed`, `contact_receivables_snooze`) лишаються потрібними; якщо вже застосовані — повторно не накатувати.
 
 ## [0.2.201] — 2026-10-13
 
@@ -18,6 +34,7 @@ _(планируемые изменения после **0.2.201**.)_
 
 ### Upgrade notes
 
+- **Не використовувати образ `0.2.201`** (Nest crash: `RiskModule` imports[3] undefined). Фікс — **0.2.202**.
 - **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.201`**.
 - **Не використовувати `0.2.199` і `0.2.200`** (backend не стартує).
 - **Нових міграцій немає.** Міграції з 0.2.199/0.2.200 (`telegram_client_bot`, `packing_list_line_qty_packed`, `contact_receivables_snooze`) лишаються потрібними; якщо вже застосовані — повторно не накатувати.
@@ -37,7 +54,7 @@ _(планируемые изменения после **0.2.201**.)_
 
 ### Upgrade notes
 
-- **Не використовувати образ `0.2.200`** (Nest crash: `OrdersModule` imports[8] undefined). Фікс — **0.2.201**.
+- **Не використовувати образ `0.2.200`** (Nest crash: `OrdersModule` imports[8] undefined). Фікс — **0.2.202**.
 - **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.200`**.
 - **Миграция:** `20261013100000_contact_receivables_snooze` — **`prisma migrate deploy`** / **`backend-migrate`** до **`up`**.
 
