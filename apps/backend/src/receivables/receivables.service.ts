@@ -71,7 +71,15 @@ import {
   computeReconcileStatus,
   isReceivablesDeltaStatus,
 } from "./receivables-scope.util";
+import {
+  amountsMatchForReuse,
+  buildFullDebtPayPurpose,
+  computeFullDebtPayAmountUah,
+  pickPayLinkAnchorOrder,
+} from "./receivables-full-debt-pay-link.util";
 import { ConversationsService } from "../integrations/telegram/conversations.service";
+import { effectivePaymentRequestStatus } from "../payment-requests/payment-request-public.mapper";
+import { PaymentRequestsService } from "../payment-requests/payment-requests.service";
 
 type ContactDebtRow = {
   contactId: string;
@@ -159,6 +167,7 @@ export class ReceivablesService {
     private readonly settings: SettingsService,
     private readonly scopeService: AnalyticsScopeService,
     private readonly conversations: ConversationsService,
+    private readonly paymentRequests: PaymentRequestsService,
   ) {}
 
   async listSnapshots(limit = 20) {
@@ -1658,6 +1667,123 @@ export class ReceivablesService {
     if (actor.role === UserRole.MANAGER && contact.ownerId && contact.ownerId !== actor.id) {
       throw new ForbiddenException("You can only access contacts assigned to you");
     }
+  }
+
+  /**
+   * Create or reuse a PENDING payment request covering the contact's full operational debt
+   * (sum of USD debts → UAH). Attached to the primary/anchor debt order; public /pay/[token] unchanged.
+   */
+  async ensureContactFullDebtPaymentLink(actor: AuthUser, contactId: string) {
+    const contact = await this.prisma.contact.findUnique({
+      where: { id: contactId },
+      select: { id: true, ownerId: true, firstName: true, lastName: true },
+    });
+    if (!contact) throw new NotFoundException("Contact not found");
+    this.assertContactAccess(contact, actor);
+
+    const scope = await this.scopeService.resolveDashboardScope(actor, {});
+    if (scope.emptyTeam) {
+      throw new BadRequestException("No operational debt for this client");
+    }
+
+    const orders = await this.prisma.order.findMany({
+      where: {
+        AND: [buildReceivablesDebtOrderWhere(scope), { clientId: contactId, debtAmount: { gt: 0 } }],
+      },
+      select: {
+        id: true,
+        orderNumber: true,
+        debtAmount: true,
+        exchangeRate: true,
+        paymentDueDate: true,
+        bankAccountId: true,
+        currency: true,
+      },
+    });
+
+    const debtOrders = orders
+      .map((o) => ({
+        id: o.id,
+        orderNumber: o.orderNumber,
+        debtAmount: orderStoredUsdAmount(o.debtAmount),
+        exchangeRate: o.exchangeRate != null ? Number(o.exchangeRate) : null,
+        paymentDueDate: o.paymentDueDate,
+        bankAccountId: o.bankAccountId,
+        currency: o.currency,
+      }))
+      .filter((o) => o.debtAmount > 0);
+
+    if (debtOrders.length === 0) {
+      throw new BadRequestException("No operational debt for this client");
+    }
+
+    const rates = await this.settings.getExchangeRates();
+    const fallbackUahPerUsd = rates.UAH_TO_USD > 0 ? 1 / rates.UAH_TO_USD : 41;
+    const amountUah = computeFullDebtPayAmountUah(debtOrders, fallbackUahPerUsd);
+    if (!(amountUah > 0)) {
+      throw new BadRequestException("Could not convert debt to UAH — check exchange rates on orders");
+    }
+
+    const now = new Date();
+    const asOfStartOfDay = DateTime.fromISO(todayYmdKyiv(), { zone: CRM_TIME_ZONE })
+      .startOf("day")
+      .toJSDate();
+    const anchor = pickPayLinkAnchorOrder(debtOrders, asOfStartOfDay);
+    if (!anchor) {
+      throw new BadRequestException(
+        "No debt order with a FOP bank account — set the account on an order first",
+      );
+    }
+
+    const existing = await this.prisma.paymentRequest.findMany({
+      where: { orderId: anchor.id },
+      orderBy: { createdAt: "desc" },
+    });
+    for (const row of existing) {
+      if (effectivePaymentRequestStatus(row, now) !== "PENDING") continue;
+      if (row.currency.toUpperCase() !== "UAH") continue;
+      if (!amountsMatchForReuse(Number(row.amount), amountUah)) continue;
+      return {
+        publicToken: row.publicToken,
+        payPath: `/pay/${row.publicToken}`,
+        amount: Number(row.amount),
+        currency: row.currency,
+        orderId: row.orderId,
+        debtOrderCount: debtOrders.length,
+        debtAmountUsd: Math.round(debtOrders.reduce((s, o) => s + o.debtAmount, 0) * 100) / 100,
+        reused: true,
+      };
+    }
+
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + 7);
+    expiresAt.setHours(23, 59, 59, 999);
+
+    const purpose = buildFullDebtPayPurpose({
+      anchorOrderNumber: String(anchor.orderNumber ?? ""),
+      debtOrderCount: debtOrders.length,
+    });
+
+    const created = await this.paymentRequests.create(
+      anchor.id,
+      {
+        amount: amountUah,
+        purpose,
+        expiresAt: expiresAt.toISOString(),
+      },
+      actor,
+    );
+
+    return {
+      publicToken: created.publicToken,
+      payPath: `/pay/${created.publicToken}`,
+      amount: created.amount,
+      currency: created.currency,
+      orderId: created.orderId,
+      debtOrderCount: debtOrders.length,
+      debtAmountUsd: Math.round(debtOrders.reduce((s, o) => s + o.debtAmount, 0) * 100) / 100,
+      reused: false,
+    };
   }
 
   async getContactReceivables(

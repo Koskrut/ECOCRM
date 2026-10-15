@@ -353,6 +353,22 @@ export function isOpenPackingStatus(status: string | null | undefined): boolean 
   return status === "DRAFT" || status === "APPROVED";
 }
 
+/** Qty still reserved on a packing line (draft full; approved = not yet packed). */
+export function packingLineReservedQty(input: {
+  status: string;
+  qtyApproved: number;
+  qtyPacked?: number | null;
+}): number {
+  if (input.status === "DRAFT") return Math.max(0, Math.floor(input.qtyApproved));
+  if (input.status === "APPROVED") {
+    return Math.max(
+      0,
+      Math.floor(input.qtyApproved) - Math.max(0, Math.floor(input.qtyPacked ?? 0)),
+    );
+  }
+  return 0;
+}
+
 /** Absolute qty that should be on the draft packing list for this SKU this cycle. */
 export function suggestedPackTargetQty(input: {
   weeklyPackNeed: number;

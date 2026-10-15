@@ -314,6 +314,20 @@ export const receivablesApi = {
     return apiHttp.post<SnoozeResponse>(`/receivables/contacts/${contactId}/unsnooze`, {});
   },
 
+  /** Create/reuse a /pay link for the client's full operational debt (UAH). */
+  createFullDebtPaymentLink(contactId: string) {
+    return apiHttp.post<{
+      publicToken: string;
+      payPath: string;
+      amount: number;
+      currency: string;
+      orderId: string;
+      debtOrderCount: number;
+      debtAmountUsd: number;
+      reused: boolean;
+    }>(`/receivables/contacts/${contactId}/payment-link`, {});
+  },
+
   workAging(ownerId?: string) {
     return apiHttp.get<{
       currency: string;

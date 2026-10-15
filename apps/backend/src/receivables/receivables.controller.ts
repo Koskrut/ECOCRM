@@ -215,6 +215,20 @@ export class ReceivablesController {
     return this.unsnoozeContact(contactId, req);
   }
 
+  /**
+   * Create or reuse a public pay link for the client's full operational debt (all debt orders).
+   * Amount is UAH (USD debts converted via each order's exchange rate).
+   */
+  @Post("contacts/:contactId/payment-link")
+  @Roles(UserRole.ADMIN, UserRole.LEAD, UserRole.MANAGER)
+  contactFullDebtPaymentLink(
+    @Param("contactId") contactId: string,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    if (!contactId?.trim()) throw new BadRequestException("contactId is required");
+    return this.service.ensureContactFullDebtPaymentLink(this.requireUser(req), contactId.trim());
+  }
+
   @Get("contacts/:contactId")
   @Roles(UserRole.ADMIN, UserRole.LEAD, UserRole.MANAGER)
   contactReceivables(

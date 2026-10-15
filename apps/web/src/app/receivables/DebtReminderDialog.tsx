@@ -3,23 +3,21 @@
 import { useMemo, useState } from "react";
 import { Copy, Send, ExternalLink } from "lucide-react";
 import { strings } from "@/locales";
-import type { WorkClientRow } from "@/lib/api/resources/receivables";
+import { receivablesApi, type WorkClientRow } from "@/lib/api/resources/receivables";
 import { formatMoney } from "./format-money";
 
 export type ReminderTemplateId = "payment" | "payLink" | "brokenPromise";
 
-async function fetchPayLink(orderId: string): Promise<string | null> {
-  const r = await fetch(`/api/orders/${orderId}/payment-requests`, {
-    cache: "no-store",
-    credentials: "include",
-  });
-  if (!r.ok) return null;
-  const data = (await r.json()) as Array<{ effectiveStatus?: string; publicToken?: string }>;
-  const pending = (Array.isArray(data) ? data : []).find(
-    (row) => row.effectiveStatus === "PENDING" && row.publicToken,
-  );
-  if (!pending?.publicToken) return null;
-  return `${window.location.origin}/pay/${pending.publicToken}`;
+async function fetchFullDebtPayLink(contactId: string): Promise<string | null> {
+  try {
+    const res = await receivablesApi.createFullDebtPaymentLink(contactId);
+    const data = res.data;
+    if (!data?.publicToken) return null;
+    const path = data.payPath?.startsWith("/") ? data.payPath : `/pay/${data.publicToken}`;
+    return `${window.location.origin}${path}`;
+  } catch {
+    return null;
+  }
 }
 
 function fillTemplate(
@@ -69,10 +67,10 @@ export function DebtReminderDialog({
   });
 
   const ensurePayLink = async () => {
-    if (payLink || !row.primaryOrderId) return payLink;
+    if (payLink || !(row.debtAmount > 0)) return payLink;
     setLoadingLink(true);
     try {
-      const link = await fetchPayLink(row.primaryOrderId);
+      const link = await fetchFullDebtPayLink(row.contactId);
       if (link) setPayLink(link);
       return link ?? "";
     } finally {

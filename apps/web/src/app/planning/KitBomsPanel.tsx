@@ -407,15 +407,15 @@ export function KitBomsPanel({ onError }: { onError: (msg: string) => void }) {
     if (qty < row.minPackLot) return;
     setActingId(row.kitProductId);
     try {
-      let list = await planningApi.ensurePackingDraft();
-      if (list.status === "APPROVED") {
-        list = await planningApi.reopenPackingList(list.id);
-      }
+      const list = await planningApi.ensurePackingDraft();
       if (list.status !== "DRAFT") {
         onError(t.errors.packing);
         return;
       }
-      const nextQty = Math.max(row.alreadyInRequest + qty, row.minPackLot);
+      // Use this draft's line only — alreadyInRequest also includes APPROVED remaining.
+      const alreadyOnDraft =
+        list.lines?.find((line) => line.kitProductId === row.kitProductId)?.qtyApproved ?? 0;
+      const nextQty = Math.max(alreadyOnDraft + qty, row.minPackLot);
       await planningApi.setPackingKitQty(list.id, row.kitProductId, nextQty);
       await load();
     } catch (e) {

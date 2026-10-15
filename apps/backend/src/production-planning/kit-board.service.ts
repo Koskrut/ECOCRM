@@ -25,7 +25,11 @@ import {
   type KitBoardRow,
   type KitBoardWarehouse,
 } from "./kit-board.util";
-import { isOpenPackingStatus, recentYearMonthKeys } from "./kit-portfolio.util";
+import {
+  isOpenPackingStatus,
+  packingLineReservedQty,
+  recentYearMonthKeys,
+} from "./kit-portfolio.util";
 import { packCycleStartUtc } from "./pack-cycle.util";
 import { monthsAgoUtc } from "./planning-safety.util";
 import { PlanningSettingsService } from "./planning-settings.service";
@@ -39,6 +43,7 @@ const KIT_BOARD_SALES_STAGES: OrderStage[] = [
 ];
 
 export type KitBoardPackRequestSummary = {
+  /** Current editable DRAFT request (new week after approve). */
   listId: string | null;
   status: "DRAFT" | "APPROVED" | null;
   capacityUsed: number;
@@ -46,7 +51,10 @@ export type KitBoardPackRequestSummary = {
 };
 
 export type KitBoardViewRow = KitBoardRow & {
-  /** Qty already on the open packing list (DRAFT/APPROVED). */
+  /**
+   * Qty still reserved for packing: DRAFT qtyApproved + APPROVED remaining
+   * (qtyApproved − qtyPacked). DONE lists do not count.
+   */
   alreadyInRequest: number;
   inPackingStatus: "DRAFT" | "APPROVED" | null;
 };
@@ -80,7 +88,8 @@ export class KitBoardService {
     const classLookbackMonths = KIT_BOARD_CLASS_LOOKBACK_MONTHS;
     const monthKeys = recentYearMonthKeys(new Date(), classLookbackMonths);
 
-    const [posted, kits, rates, packing, planningCfg] = await Promise.all([
+    const cycleStart = packCycleStartUtc();
+    const [posted, kits, rates, packingLists, planningCfg] = await Promise.all([
       this.prisma.inventorySnapshot.findFirst({
         where: { status: InventorySnapshotStatus.POSTED },
         orderBy: { postedAt: "desc" },
@@ -92,14 +101,14 @@ export class KitBoardService {
         orderBy: { sku: "asc" },
       }),
       this.settings.getExchangeRates(),
-      this.prisma.packingList.findFirst({
+      this.prisma.packingList.findMany({
         where: {
-          cycleStart: packCycleStartUtc(),
+          cycleStart,
           status: { in: [PackingListStatus.DRAFT, PackingListStatus.APPROVED] },
         },
         orderBy: { createdAt: "desc" },
         include: {
-          lines: { select: { kitProductId: true, qtyApproved: true } },
+          lines: { select: { kitProductId: true, qtyApproved: true, qtyPacked: true } },
         },
       }),
       this.planningSettings.getSettings(),
@@ -233,20 +242,39 @@ export class KitBoardService {
       };
     });
 
-    const packingOpen = isOpenPackingStatus(packing?.status);
-    const alreadyByKit = new Map<string, number>(
-      packingOpen
-        ? (packing?.lines ?? []).map((line) => [line.kitProductId, line.qtyApproved] as const)
-        : [],
-    );
-    const capacityUsed = packingOpen
-      ? (packing?.lines ?? []).reduce((sum, line) => sum + line.qtyApproved, 0)
+    // Capacity counter = editable DRAFT only (after approve → new empty draft = 0).
+    const draftList =
+      packingLists.find((list) => list.status === PackingListStatus.DRAFT) ?? null;
+    // alreadyInRequest: draft full qty + approved still outstanding (not yet packed).
+    const alreadyByKit = new Map<string, number>();
+    let anyApprovedOpen = false;
+    for (const list of packingLists) {
+      if (!isOpenPackingStatus(list.status)) continue;
+      for (const line of list.lines) {
+        const reserved = packingLineReservedQty({
+          status: list.status,
+          qtyApproved: line.qtyApproved,
+          qtyPacked: line.qtyPacked,
+        });
+        if (reserved <= 0) continue;
+        if (list.status === PackingListStatus.APPROVED) anyApprovedOpen = true;
+        alreadyByKit.set(
+          line.kitProductId,
+          (alreadyByKit.get(line.kitProductId) ?? 0) + reserved,
+        );
+      }
+    }
+    const capacityUsed = draftList
+      ? draftList.lines.reduce((sum, line) => sum + line.qtyApproved, 0)
       : 0;
     const capacityLimit =
-      packing?.capacityLimit ?? planningCfg.packCapacityPerCycle;
-    const packingStatus =
-      packingOpen && (packing?.status === "DRAFT" || packing?.status === "APPROVED")
-        ? packing.status
+      draftList?.capacityLimit ??
+      packingLists[0]?.capacityLimit ??
+      planningCfg.packCapacityPerCycle;
+    const packingStatus: "DRAFT" | "APPROVED" | null = draftList
+      ? "DRAFT"
+      : anyApprovedOpen
+        ? "APPROVED"
         : null;
 
     const baseRows = buildKitBoard({
@@ -271,8 +299,8 @@ export class KitBoardService {
       stockWarehouses: filterKitStockWarehouses(warehouses),
       packWarehouses: filterPackWarehouses(warehouses),
       packRequest: {
-        listId: packingOpen ? (packing?.id ?? null) : null,
-        status: packingStatus,
+        listId: draftList?.id ?? null,
+        status: draftList ? "DRAFT" : null,
         capacityUsed,
         capacityLimit,
       },

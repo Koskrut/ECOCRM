@@ -40,6 +40,7 @@ import {
   fillPeriodSeries,
   isOpenPackingStatus,
   isoWeekKeyUtc,
+  packingLineReservedQty,
   recentIsoWeekKeys,
   recentYearMonthKeys,
   remainingPackQty,
@@ -229,7 +230,7 @@ export class KitBomListService {
       revenueRows,
       waitingRows,
       shippedRows,
-      packing,
+      packingLists,
       factoryOpenLines,
       wipBatches,
     ] = await Promise.all([
@@ -291,14 +292,16 @@ export class KitBomListService {
           order: { select: { createdAt: true } },
         },
       }),
-      this.prisma.packingList.findFirst({
+      this.prisma.packingList.findMany({
         where: {
           cycleStart: packCycleStartUtc(),
           status: { in: [PackingListStatus.DRAFT, PackingListStatus.APPROVED] },
         },
         orderBy: { createdAt: "desc" },
         include: {
-          lines: { select: { kitProductId: true, qtyApproved: true, dueAt: true } },
+          lines: {
+            select: { kitProductId: true, qtyApproved: true, qtyPacked: true, dueAt: true },
+          },
         },
       }),
       componentIds.length > 0
@@ -344,16 +347,33 @@ export class KitBomListService {
       if (remaining > 0) wipByProduct.set(row.productId, remaining);
     }
 
-    const packingOpen = isOpenPackingStatus(packing?.status);
-    const alreadyByKit = new Map(
-      (packing?.lines ?? []).map((l) => [l.kitProductId, l.qtyApproved]),
-    );
-    const packingDueByKit = new Map(
-      (packing?.lines ?? []).map((l) => [
-        l.kitProductId,
-        (l.dueAt ?? packing?.cycleEnd ?? null) as Date | null,
-      ]),
-    );
+    const alreadyByKit = new Map<string, number>();
+    const packingDueByKit = new Map<string, Date | null>();
+    let packingStatus: "DRAFT" | "APPROVED" | null = null;
+    for (const list of packingLists) {
+      if (!isOpenPackingStatus(list.status)) continue;
+      if (list.status === PackingListStatus.DRAFT) packingStatus = "DRAFT";
+      else if (packingStatus !== "DRAFT") packingStatus = "APPROVED";
+      for (const line of list.lines) {
+        const reserved = packingLineReservedQty({
+          status: list.status,
+          qtyApproved: line.qtyApproved,
+          qtyPacked: line.qtyPacked,
+        });
+        if (reserved > 0) {
+          alreadyByKit.set(
+            line.kitProductId,
+            (alreadyByKit.get(line.kitProductId) ?? 0) + reserved,
+          );
+          const due = (line.dueAt ?? list.cycleEnd ?? null) as Date | null;
+          const prevDue = packingDueByKit.get(line.kitProductId);
+          if (!prevDue || (due && due.getTime() < prevDue.getTime())) {
+            packingDueByKit.set(line.kitProductId, due);
+          }
+        }
+      }
+    }
+    const packingOpen = packingStatus != null;
 
     const factoryByPart = new Map<string, { qty: number; dueAt: Date | null }>();
     for (const line of factoryOpenLines) {
@@ -539,9 +559,7 @@ export class KitBomListService {
         canPackCycle: positionPlan.canPackNow,
         toWorkCycle: positionPlan.toWork,
         alreadyInRequest,
-        inPackingStatus: packingOpen
-          ? ((packing?.status as "DRAFT" | "APPROVED") ?? null)
-          : null,
+        inPackingStatus: packingOpen ? packingStatus : null,
         inPackingDueAt: inPackingDue?.toISOString() ?? null,
         remainingPackIdeal,
         factoryWaitingQty,

@@ -28,12 +28,9 @@ function batchCodeFor(sku: string): string {
   return `PB-${slug}-${Date.now().toString(36).toUpperCase()}`;
 }
 
-/** Current pack-cycle draft only — empty if none; never full week propose. */
+/** Current pack-cycle DRAFT only — never reopen an APPROVED warehouse list. */
 async function ensurePackingDraft() {
-  let list = await planningApi.ensurePackingDraft();
-  if (list.status === "APPROVED") {
-    list = await planningApi.reopenPackingList(list.id);
-  }
+  const list = await planningApi.ensurePackingDraft();
   return list.status === "DRAFT" ? list : null;
 }
 

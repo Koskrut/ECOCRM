@@ -216,16 +216,7 @@ export function KitPortfolioPanel({
     try {
       let listId = view?.week.packingListId ?? null;
       let status = view?.week.packingStatus ?? null;
-      if (status === "APPROVED") {
-        if (!listId) {
-          reportError(t.errors.packing);
-          return;
-        }
-        const reopened = await planningApi.reopenPackingList(listId);
-        listId = reopened.id;
-        status = reopened.status;
-      }
-      if (!listId) {
+      if (!listId || status !== "DRAFT") {
         const ensured = await planningApi.ensurePackingDraft();
         listId = ensured.id;
         status = ensured.status;

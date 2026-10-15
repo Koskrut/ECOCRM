@@ -102,10 +102,10 @@ export default function WarehousePackingPage() {
     return { plan, got };
   }, [lines, packed]);
 
-  const editable = active?.status === "APPROVED" || active?.status === "DONE";
+  const editable = active?.status === "APPROVED";
 
   const savePacked = async (nextLines: Array<{ kitProductId: string; qtyPacked: number }>) => {
-    if (!active) return;
+    if (!active || active.status !== "APPROVED") return;
     setBusy(true);
     setError(null);
     try {
@@ -142,6 +142,25 @@ export default function WarehousePackingPage() {
         qtyPacked: l.qtyApproved,
       })),
     );
+  };
+
+  const onMarkDone = () => {
+    if (!active || active.status !== "APPROVED") return;
+    void (async () => {
+      setBusy(true);
+      setError(null);
+      try {
+        const updated = await planningApi.markPackingDone(active.id);
+        setActive(updated);
+        setToast(t.saved);
+        const all = await planningApi.listPackingLists(40);
+        setLists(all.filter((l) => l.status === "APPROVED" || l.status === "DONE"));
+      } catch (e) {
+        setError(e instanceof Error ? e.message : t.saveError);
+      } finally {
+        setBusy(false);
+      }
+    })();
   };
 
   return (
@@ -231,6 +250,14 @@ export default function WarehousePackingPage() {
                       className="rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-sm text-zinc-800 disabled:opacity-50"
                     >
                       {t.receiveAll}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={onMarkDone}
+                      className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-sm text-emerald-900 disabled:opacity-50"
+                    >
+                      {t.markDone}
                     </button>
                   </div>
                 ) : null}

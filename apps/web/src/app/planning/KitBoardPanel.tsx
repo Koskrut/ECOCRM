@@ -89,14 +89,11 @@ function partStockLine(
 }
 
 /**
- * Current pack-cycle draft only. Empty if none — never runs full week propose
- * (propose revived deleted drafts with all MRP lines).
+ * Current pack-cycle DRAFT only. After approve, backend creates a fresh draft —
+ * never reopen an APPROVED list that warehouse is packing.
  */
 async function ensurePackingDraft() {
-  let list = await planningApi.ensurePackingDraft();
-  if (list.status === "APPROVED") {
-    list = await planningApi.reopenPackingList(list.id);
-  }
+  const list = await planningApi.ensurePackingDraft();
   if (list.status !== "DRAFT") {
     throw new Error(strings.planning.errors.packing);
   }

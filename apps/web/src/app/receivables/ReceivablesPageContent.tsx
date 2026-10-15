@@ -68,19 +68,26 @@ const AGING_OPTIONS: Array<[AgingChip, string]> = [
   ["90+", strings.receivables.aging90plus],
 ];
 
-async function copyPendingPayLink(orderId: string): Promise<boolean> {
-  const r = await fetch(`/api/orders/${orderId}/payment-requests`, {
-    cache: "no-store",
-    credentials: "include",
-  });
-  if (!r.ok) return false;
-  const data = (await r.json()) as Array<{ effectiveStatus?: string; publicToken?: string }>;
-  const pending = (Array.isArray(data) ? data : []).find(
-    (row) => row.effectiveStatus === "PENDING" && row.publicToken,
-  );
-  if (!pending?.publicToken) return false;
-  await navigator.clipboard.writeText(`${window.location.origin}/pay/${pending.publicToken}`);
-  return true;
+/** Create/reuse a pay link for the client's full operational debt and copy it. */
+async function copyFullDebtPayLink(
+  contactId: string,
+): Promise<{ ok: true } | { ok: false; message?: string }> {
+  try {
+    const res = await receivablesApi.createFullDebtPaymentLink(contactId);
+    const data = res.data;
+    if (!data?.publicToken) return { ok: false };
+    const path = data.payPath?.startsWith("/") ? data.payPath : `/pay/${data.publicToken}`;
+    await navigator.clipboard.writeText(`${window.location.origin}${path}`);
+    return { ok: true };
+  } catch (e) {
+    const message =
+      e && typeof e === "object" && "message" in e && typeof (e as { message: unknown }).message === "string"
+        ? (e as { message: string }).message
+        : e instanceof Error
+          ? e.message
+          : undefined;
+    return { ok: false, message };
+  }
 }
 
 function SegmentButton({
@@ -424,21 +431,17 @@ export function ReceivablesPageContent() {
   };
 
   const handleCopyPay = async (row: WorkClientRow) => {
-    if (!row.primaryOrderId) {
-      pushToast(t.payLinkMissing, "info");
+    if (!(row.debtAmount > 0)) {
+      pushToast(t.payLinkNoDebt, "info");
       return;
     }
-    try {
-      const copied = await copyPendingPayLink(row.primaryOrderId);
-      if (copied) {
-        pushToast(t.payLinkCopied, "success");
-        return;
-      }
-    } catch {
-      // Fall through to the order modal.
+    const result = await copyFullDebtPayLink(row.contactId);
+    if (result.ok) {
+      pushToast(t.payLinkCopied, "success");
+      return;
     }
-    pushToast(t.payLinkMissing, "info");
-    openOrder(row.primaryOrderId);
+    pushToast(result.message?.trim() || t.payLinkMissing, "info");
+    if (row.primaryOrderId) openOrder(row.primaryOrderId);
   };
 
   const todayQueue = useMemo(() => pickTodayCollectQueue(work.clients), [work.clients]);

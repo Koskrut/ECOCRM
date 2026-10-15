@@ -39,6 +39,7 @@ import {
   suggestedPackTargetQty,
   weeksOfCover,
   isOpenPackingStatus,
+  packingLineReservedQty,
   remainingPackQty,
   type EndingReason,
   type KitPile,
@@ -245,7 +246,7 @@ export class KitPortfolioService {
       forecastCycle,
       packDemand,
       latestSales,
-      packing,
+      packingLists,
       factoryDraft,
       factoryOpenLines,
     ] =
@@ -270,14 +271,16 @@ export class KitPortfolioService {
         this.demandForecast.getForecastQtyMap(planningSettings.packCycleDays, kitIds),
         this.calculations.getPackDemandByProduct(),
         this.salesHistory.latestPosted(),
-        this.prisma.packingList.findFirst({
+        this.prisma.packingList.findMany({
           where: {
             cycleStart: packCycleStartUtc(),
             status: { in: [PackingListStatus.DRAFT, PackingListStatus.APPROVED] },
           },
           orderBy: { createdAt: "desc" },
           include: {
-            lines: { select: { kitProductId: true, qtyApproved: true, dueAt: true } },
+            lines: {
+              select: { kitProductId: true, qtyApproved: true, qtyPacked: true, dueAt: true },
+            },
           },
         }),
         this.prisma.factoryOrder.findFirst({
@@ -412,20 +415,41 @@ export class KitPortfolioService {
       waitingByKit.set(row.productId, set);
     }
 
-    const packingOpen = isOpenPackingStatus(packing?.status);
-    const packingIsDraft = packing?.status === PackingListStatus.DRAFT;
-    const packingCanEdit = packing == null || packingIsDraft;
-    const alreadyByKit = new Map(
-      (packing?.lines ?? []).map((l) => [l.kitProductId, l.qtyApproved]),
-    );
-    const packingDueByKit = new Map(
-      (packing?.lines ?? []).map((l) => [
-        l.kitProductId,
-        (l.dueAt ?? packing?.cycleEnd ?? null) as Date | null,
-      ]),
-    );
-    const weekUsed = packing?.lines.reduce((s, l) => s + l.qtyApproved, 0) ?? 0;
-    const weekLimit = packing?.capacityLimit ?? planningSettings.packCapacityPerCycle;
+    const draftList =
+      packingLists.find((list) => list.status === PackingListStatus.DRAFT) ?? null;
+    const alreadyByKit = new Map<string, number>();
+    const packingDueByKit = new Map<string, Date | null>();
+    let packingStatus: "DRAFT" | "APPROVED" | null = null;
+    for (const list of packingLists) {
+      if (!isOpenPackingStatus(list.status)) continue;
+      if (list.status === PackingListStatus.DRAFT) packingStatus = "DRAFT";
+      else if (packingStatus !== "DRAFT") packingStatus = "APPROVED";
+      for (const line of list.lines) {
+        const reserved = packingLineReservedQty({
+          status: list.status,
+          qtyApproved: line.qtyApproved,
+          qtyPacked: line.qtyPacked,
+        });
+        if (reserved <= 0) continue;
+        alreadyByKit.set(
+          line.kitProductId,
+          (alreadyByKit.get(line.kitProductId) ?? 0) + reserved,
+        );
+        const due = (line.dueAt ?? list.cycleEnd ?? null) as Date | null;
+        const prevDue = packingDueByKit.get(line.kitProductId);
+        if (!prevDue || (due && due.getTime() < prevDue.getTime())) {
+          packingDueByKit.set(line.kitProductId, due);
+        }
+      }
+    }
+    const packingOpen = packingStatus != null;
+    const weekUsed = draftList
+      ? draftList.lines.reduce((s, l) => s + l.qtyApproved, 0)
+      : 0;
+    const weekLimit =
+      draftList?.capacityLimit ??
+      packingLists[0]?.capacityLimit ??
+      planningSettings.packCapacityPerCycle;
     const weekLeft = Math.max(0, weekLimit - weekUsed);
 
     const factoryByPart = new Map<string, { qty: number; dueAt: Date | null }>();
@@ -497,7 +521,7 @@ export class KitPortfolioService {
       });
       const alreadyInRequest = packingOpen ? (alreadyByKit.get(row.productId) ?? 0) : 0;
       const inPackingDue = packingOpen ? (packingDueByKit.get(row.productId) ?? null) : null;
-      const capacityLeft = packingCanEdit ? weekLeft : 0;
+      const capacityLeft = weekLeft;
       const coverTarget = computeCoverTarget({ avgMonthlySold, warnWeeks });
       const packTarget = suggestedPackTargetQty({
         weeklyPackNeed,
@@ -565,9 +589,7 @@ export class KitPortfolioService {
         suggestedPackTargetQty: packTarget,
         weeklyPackNeed,
         alreadyInRequest,
-        inPackingStatus: packingOpen
-          ? ((packing?.status as "DRAFT" | "APPROVED") ?? null)
-          : null,
+        inPackingStatus: packingOpen ? packingStatus : null,
         inPackingDueAt: inPackingDue?.toISOString() ?? null,
         remainingPackIdeal: remainingPackQty(positionPlan.canPackNow, alreadyInRequest),
         factoryWaitingQty,
@@ -713,8 +735,8 @@ export class KitPortfolioService {
       warnWeeks,
       criticalWeeks,
       week: {
-        packingListId: packing?.id ?? null,
-        packingStatus: packing?.status ?? null,
+        packingListId: draftList?.id ?? null,
+        packingStatus: draftList ? PackingListStatus.DRAFT : null,
         used: weekUsed,
         limit: weekLimit,
         factoryDraftId: factoryDraft?.id ?? null,

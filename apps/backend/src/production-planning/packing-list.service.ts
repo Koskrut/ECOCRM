@@ -228,32 +228,38 @@ export class PackingListService {
     return { skipped: false as const, ...(await this.propose()) };
   }
 
-  /** Open packing list for the current Friday cycle, or null. */
+  /** Prefer current-cycle DRAFT; fall back to APPROVED (warehouse work). */
   async getCurrentCycleList() {
-    const existing = await this.prisma.packingList.findFirst({
-      where: {
-        cycleStart: packCycleStartUtc(),
-        status: { in: [PackingListStatus.DRAFT, PackingListStatus.APPROVED] },
-      },
+    const cycleStart = packCycleStartUtc();
+    const draft = await this.prisma.packingList.findFirst({
+      where: { cycleStart, status: PackingListStatus.DRAFT },
       orderBy: { createdAt: "desc" },
       select: { id: true },
     });
-    return existing ? this.get(existing.id) : null;
+    if (draft) return this.get(draft.id);
+    const approved = await this.prisma.packingList.findFirst({
+      where: { cycleStart, status: PackingListStatus.APPROVED },
+      orderBy: { createdAt: "desc" },
+      select: { id: true },
+    });
+    return approved ? this.get(approved.id) : null;
   }
 
   /**
-   * Current-cycle draft for manual kit-board adds.
-   * Reuses DRAFT/APPROVED if present; otherwise creates an empty list.
-   * Never runs full week propose (that revived deleted drafts with all MRP lines).
+   * Current-cycle draft for kit-board adds.
+   * Reuses DRAFT only — never reopens an APPROVED list already sent to warehouse.
+   * If the week was approved, creates a fresh empty draft for the next request.
    */
   async ensureManualDraft() {
-    const existing = await this.getCurrentCycleList();
-    if (existing) {
-      return existing;
-    }
+    const cycleStart = packCycleStartUtc();
+    const draft = await this.prisma.packingList.findFirst({
+      where: { cycleStart, status: PackingListStatus.DRAFT },
+      orderBy: { createdAt: "desc" },
+      select: { id: true },
+    });
+    if (draft) return this.get(draft.id);
 
     const settings = await this.settings.getSettings();
-    const cycleStart = packCycleStartUtc();
     const posted = await this.prisma.inventorySnapshot.findFirst({
       where: { status: InventorySnapshotStatus.POSTED },
       orderBy: { postedAt: "desc" },
@@ -755,45 +761,28 @@ export class PackingListService {
 
   /**
    * Warehouse receipts against an approved packing request.
-   * When every line is fully packed, the list moves to DONE.
+   * Partial saves stay APPROVED — only explicit markDone closes the list.
    */
   async updatePacked(
     id: string,
     lines: Array<{ kitProductId: string; qtyPacked: number }>,
   ) {
     const list = await this.get(id);
-    if (list.status !== PackingListStatus.APPROVED && list.status !== PackingListStatus.DONE) {
+    if (list.status !== PackingListStatus.APPROVED) {
       throw new BadRequestException("Can only record packed qty on approved packing lists");
     }
     for (const line of lines) {
       const existing = list.lines.find((l) => l.kitProductId === line.kitProductId);
       if (!existing) continue;
+      const qtyPacked = Math.max(0, Math.round(line.qtyPacked));
+      // Do not allow packed qty above the approved plan for that line.
+      const capped = Math.min(qtyPacked, Math.max(0, existing.qtyApproved));
       await this.prisma.packingListLine.update({
         where: { id: existing.id },
-        data: { qtyPacked: Math.max(0, Math.round(line.qtyPacked)) },
+        data: { qtyPacked: capped },
       });
     }
-    const refreshed = await this.get(id);
-    const activeLines = refreshed.lines.filter((l) => l.qtyApproved > 0);
-    const allPacked =
-      activeLines.length > 0 &&
-      activeLines.every((l) => l.qtyPacked >= l.qtyApproved);
-    if (allPacked && refreshed.status === PackingListStatus.APPROVED) {
-      await this.prisma.packingList.update({
-        where: { id },
-        data: { status: PackingListStatus.DONE },
-      });
-      return this.get(id);
-    }
-    if (!allPacked && refreshed.status === PackingListStatus.DONE) {
-      // Allow correcting receipts after accidental full mark — reopen to APPROVED.
-      await this.prisma.packingList.update({
-        where: { id },
-        data: { status: PackingListStatus.APPROVED },
-      });
-      return this.get(id);
-    }
-    return refreshed;
+    return this.get(id);
   }
 
   async updateCycleEnd(id: string, cycleEndIso: string) {

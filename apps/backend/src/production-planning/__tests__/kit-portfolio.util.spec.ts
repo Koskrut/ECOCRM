@@ -14,6 +14,7 @@ import {
   fillPeriodSeries,
   groupSharedBottlenecks,
   isOpenPackingStatus,
+  packingLineReservedQty,
   recentIsoWeekKeys,
   recentYearMonthKeys,
   remainingPackQty,
@@ -354,6 +355,13 @@ test("isOpenPackingStatus includes DRAFT and APPROVED, not DONE", () => {
   assert.equal(isOpenPackingStatus("APPROVED"), true);
   assert.equal(isOpenPackingStatus("DONE"), false);
   assert.equal(isOpenPackingStatus(null), false);
+});
+
+test("packingLineReservedQty: draft full; approved only unpaked remainder", () => {
+  assert.equal(packingLineReservedQty({ status: "DRAFT", qtyApproved: 10, qtyPacked: 3 }), 10);
+  assert.equal(packingLineReservedQty({ status: "APPROVED", qtyApproved: 10, qtyPacked: 3 }), 7);
+  assert.equal(packingLineReservedQty({ status: "APPROVED", qtyApproved: 10, qtyPacked: 10 }), 0);
+  assert.equal(packingLineReservedQty({ status: "DONE", qtyApproved: 10, qtyPacked: 0 }), 0);
 });
 
 test("ideal pack remaining after approved request still tracks gap", () => {

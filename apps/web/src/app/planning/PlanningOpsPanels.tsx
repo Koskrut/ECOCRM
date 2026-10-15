@@ -704,6 +704,8 @@ export function PackingPanel({
                   setBusy(true);
                   try {
                     applyActive(await planningApi.approvePackingList(active.id));
+                    // Seed an empty draft so the board capacity counter resets for the next request.
+                    await planningApi.ensurePackingDraft();
                     await reloadLists();
                     notifyChanged();
                   } catch (e) {
@@ -955,9 +957,7 @@ export function PackingPanel({
               t.labels.canPackNow,
               t.labels.toWork,
               t.labels.weekRequest,
-              ...(active.status === "APPROVED" || active.status === "DONE"
-                ? [t.labels.qtyPacked]
-                : []),
+              ...(active.status === "APPROVED" ? [t.labels.qtyPacked] : []),
               t.labels.packingLineDue,
               ...(active.status === "DRAFT" ? [t.labels.actions] : []),
             ]}
@@ -971,8 +971,7 @@ export function PackingPanel({
               const canPackNow = line.canPackNow ?? line.maxFromParts;
               const toWork = line.toWork ?? 0;
               const dueEditable = active.status === "DRAFT" || active.status === "APPROVED";
-              const packedEditable =
-                active.status === "APPROVED" || active.status === "DONE";
+              const packedEditable = active.status === "APPROVED";
               const baseRow = [
                 <span key={line.id} className={highlighted ? "rounded bg-cyan-50 px-1" : undefined}>
                   <span className={`block font-medium ${blocked ? "text-rose-700" : ""}`}>

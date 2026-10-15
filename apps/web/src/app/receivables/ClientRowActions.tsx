@@ -43,7 +43,7 @@ export function ClientRowActions({
   return (
     <div className={wrapClass}>
       {row.phone ? <KyivstarDialButton phone={row.phone} size="sm" label="" /> : null}
-      {row.primaryOrderId ? (
+      {row.debtAmount > 0 ? (
         <button
           type="button"
           onClick={() => onCopyPay(row)}
