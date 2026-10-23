@@ -13,7 +13,9 @@ export type NotificationType =
   | "FIELD_SHIFT_CLOSE_REMINDER"
   | "FIELD_GPS_STALE"
   | "PLANNING_FACTORY_DUE"
-  | "PLANNING_PACKING_DUE";
+  | "PLANNING_PACKING_DUE"
+  | "CLIENT_ORDER_ACCEPTED"
+  | "RISK_ALERT";
 
 export type UserNotification = {
   id: string;
@@ -38,13 +40,20 @@ export type ListNotificationsResponse = {
 export type NotificationPreferencesResponse = {
   teamNotificationsEnabled: boolean;
   types: Array<{
-    userId: string;
     type: NotificationType;
     inApp: boolean;
     browser: boolean;
     telegram: boolean;
     mobile: boolean;
+    userId?: string;
   }>;
+};
+
+export type NotificationRules = {
+  saleAssigned: {
+    enabled: boolean;
+    deliveryMethods: "ALL" | "PICKUP";
+  };
 };
 
 export const notificationsApi = {
@@ -94,7 +103,32 @@ export const notificationsApi = {
     const res = await apiHttp.patch<NotificationPreferencesResponse>("/notifications/preferences", body);
     return res.data;
   },
+
+  getRules: async (): Promise<NotificationRules> => {
+    const res = await apiHttp.get<NotificationRules>("/notifications/rules");
+    return res.data;
+  },
+
+  updateRules: async (body: {
+    saleAssigned?: {
+      enabled?: boolean;
+      deliveryMethods?: "ALL" | "PICKUP";
+    };
+  }): Promise<NotificationRules> => {
+    const res = await apiHttp.patch<NotificationRules>("/notifications/rules", body);
+    return res.data;
+  },
 };
+
+function conversationChannel(n: UserNotification): "TELEGRAM" | "INSTAGRAM" | "FACEBOOK" {
+  if (n.type === "META_INSTAGRAM_MESSAGE") return "INSTAGRAM";
+  if (n.type === "META_FACEBOOK_MESSAGE") return "FACEBOOK";
+  const metaChannel = n.meta?.channel;
+  if (metaChannel === "INSTAGRAM" || metaChannel === "FACEBOOK" || metaChannel === "TELEGRAM") {
+    return metaChannel;
+  }
+  return "TELEGRAM";
+}
 
 export function notificationHref(n: UserNotification): string | null {
   if (!n.entityType || !n.entityId) return null;
@@ -107,13 +141,17 @@ export function notificationHref(n: UserNotification): string | null {
       return `/tasks?taskId=${encodeURIComponent(n.entityId)}`;
     case "CONTACT":
       return `/contacts?contactId=${encodeURIComponent(n.entityId)}`;
-    case "CONVERSATION":
-      return `/inbox?channel=TELEGRAM&conversationId=${encodeURIComponent(n.entityId)}`;
+    case "CONVERSATION": {
+      const channel = conversationChannel(n);
+      return `/inbox?channel=${channel}&conversationId=${encodeURIComponent(n.entityId)}`;
+    }
     case "FIELD_SHIFT":
       return "/visits";
     case "FACTORY_ORDER":
     case "PACKING_LIST":
       return "/planning";
+    case "RISK":
+      return "/risk";
     default:
       return null;
   }

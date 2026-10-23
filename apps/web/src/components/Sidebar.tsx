@@ -17,6 +17,7 @@ import {
   MessageCircle,
   ListTodo,
   BarChart3,
+  Megaphone,
   History,
   PhoneCall,
   Archive,
@@ -73,6 +74,7 @@ function buildMenuItems() {
     { label: t.aiCalls, icon: PhoneCall, href: "/outbound/campaigns" },
   ];
   const analytics: MenuItem = { label: t.analytics, icon: BarChart3, href: "/analytics" };
+  const marketing: MenuItem = { label: t.marketing, icon: Megaphone, href: "/marketing" };
   const monitoring: MenuItem = { label: t.monitoring, icon: Activity, href: "/monitoring" };
   const payments: MenuItem = { label: t.payments, icon: Wallet, href: "/payments" };
   const receivables: MenuItem = { label: t.receivables, icon: Receipt, href: "/receivables" };
@@ -83,7 +85,16 @@ function buildMenuItems() {
     href: "/work/warehouse/returns",
     exact: true,
   };
-  return { base, analytics, monitoring, payments, receivables, settingsItem, warehouseReturnsItem };
+  return { base, analytics, marketing, monitoring, payments, receivables, settingsItem, warehouseReturnsItem };
+}
+
+function insertAfterLeads(items: MenuItem[], marketing: MenuItem): MenuItem[] {
+  const out: MenuItem[] = [];
+  for (const item of items) {
+    out.push(item);
+    if (item.href === LEADS_HREF) out.push(marketing);
+  }
+  return out;
 }
 
 const managerHiddenHrefs = new Set(["/planning", "/visits/history", "/outbound/campaigns"]);
@@ -174,7 +185,7 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
     return () => window.removeEventListener("resize", checkMobile);
   }, []);
 
-  const { base, analytics, monitoring, payments, receivables, settingsItem, warehouseReturnsItem } =
+  const { base, analytics, marketing, monitoring, payments, receivables, settingsItem, warehouseReturnsItem } =
     useMemo(() => buildMenuItems(), []);
 
   const managerMenuItems = useMemo(
@@ -183,8 +194,12 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
   );
 
   const leadMenuItems = useMemo(
-    () => base.filter((item) => !managerHiddenHrefs.has(item.href)).concat(analytics, payments, receivables),
-    [base, analytics, payments, receivables],
+    () =>
+      insertAfterLeads(
+        base.filter((item) => !managerHiddenHrefs.has(item.href)),
+        marketing,
+      ).concat(analytics, payments, receivables),
+    [base, analytics, marketing, payments, receivables],
   );
 
   const menuItems = useMemo(() => {
@@ -194,13 +209,20 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
         withReturns.push(item);
         if (item.href === "/orders") withReturns.push(warehouseReturnsItem);
       }
-      return [...withReturns, analytics, monitoring, payments, receivables, settingsItem];
+      return [
+        ...insertAfterLeads(withReturns, marketing),
+        analytics,
+        monitoring,
+        payments,
+        receivables,
+        settingsItem,
+      ];
     }
     if (role === "WAREHOUSE") return warehouseMenuItems(base);
     if (role === "LEAD") return leadMenuItems;
     if (role === "MANAGER") return managerMenuItems;
     return base;
-  }, [role, base, analytics, monitoring, payments, receivables, settingsItem, warehouseReturnsItem, leadMenuItems, managerMenuItems]);
+  }, [role, base, analytics, marketing, monitoring, payments, receivables, settingsItem, warehouseReturnsItem, leadMenuItems, managerMenuItems]);
 
   // Fail-closed gating: hide gated entries while loading and on API error;
   // show only when the module is explicitly effective. Non-gated entries always render.

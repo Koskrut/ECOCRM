@@ -81,6 +81,11 @@ export type Lead = {
   updatedAt: string;
   items?: LeadItem[];
   attribution?: LeadAttribution | null;
+  marketingTouch?: {
+    displayName: string | null;
+    platform: string | null;
+    campaignExternalId: string | null;
+  } | null;
   answers?: LeadAnswer[];
   events?: LeadEvent[];
   identities?: LeadIdentity[];

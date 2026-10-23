@@ -142,10 +142,10 @@ export class RiskPlaybooksService {
     for (const user of users) {
       const row = await this.notifications.create({
         userId: user.id,
-        type: "ORDER_STAGE_CHANGED",
-        title: `Risk alert: ${domain}`,
-        body: `${subjectType}:${subjectId} requires attention`,
-        entityType: "risk",
+        type: "RISK_ALERT",
+        title: `Ризик: ${domain}`,
+        body: `${subjectType}:${subjectId} потребує уваги`,
+        entityType: "RISK",
         entityId: subjectId,
       });
       if (row) count += 1;
@@ -163,10 +163,10 @@ export class RiskPlaybooksService {
       for (const admin of admins) {
         const row = await this.notifications.create({
           userId: admin.id,
-          type: "ORDER_STAGE_CHANGED",
-          title: "Risk: packing freeze requested",
-          body: `${domain} ${subjectType}:${subjectId} triggered FREEZE_PACKING`,
-          entityType: "risk",
+          type: "RISK_ALERT",
+          title: "Ризик: запрошено заморозку пакування",
+          body: `${domain} ${subjectType}:${subjectId} — FREEZE_PACKING`,
+          entityType: "RISK",
           entityId: subjectId,
           meta: { frozen: true },
         });

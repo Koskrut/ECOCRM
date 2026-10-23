@@ -261,11 +261,11 @@ export type KitBoardRow = {
   /** Per-warehouse build for display; pack qty uses the pooled total. */
   assembleByWarehouse: Record<string, number>;
   /**
-   * How many kits can still be built from the 39+40 ABM pool after higher-need kits took shared parts.
-   * Safer default for «можна» → заявка than raw canAssemble.
+   * How many kits can still be built from the 39+40 ABM pool after open packing
+   * requests have reserved their parts. Other kits' suggested pack qty does not reduce this.
    */
   canAssembleRemaining: number;
-  /** Suggested pack qty after higher-need kits consume shared parts. */
+  /** Sales gap that parts still free after open packing requests can cover. */
   toPack: number;
   /** {@link KIT_BOARD_PACK_POOL_ID} when toPack > 0. */
   toPackWarehouseId: string | null;
@@ -558,7 +558,8 @@ export function buildKitBoard(input: {
       need: Math.max(0, rawNeed - alreadyInRequest),
     };
   });
-  // Priority by full sales gap (not remaining) so partially-requested kits keep rank.
+  // Stable order only. Suggested pack qty of a higher-need kit must not
+  // take parts away from other kits — each row sees the same free pool.
   ranked.sort(
     (a, b) => b.rawNeed - a.rawNeed || a.kit.sku.localeCompare(b.kit.sku),
   );
@@ -581,9 +582,6 @@ export function buildKitBoard(input: {
     const toPack =
       kit.avgMonthlySold > 0 ? Math.min(need, remainingBuild.qty) : 0;
     const toPackWarehouseId = toPack > 0 ? KIT_BOARD_PACK_POOL_ID : null;
-    if (toPack > 0) {
-      consumePartsFromPool(kit.parts, packWarehouseIds, toPack, remaining);
-    }
     const toProduce = Math.max(0, need - toPack);
     const cls = kitClass.get(kit.productId) ?? { paretoClass: "C" as const, xyzClass: null };
 

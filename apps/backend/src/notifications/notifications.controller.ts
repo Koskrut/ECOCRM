@@ -14,6 +14,7 @@ import type { NotificationType } from "@prisma/client";
 import type { Request } from "express";
 import type { AuthUser } from "../auth/auth.types";
 import { NotificationsService } from "./notifications.service";
+import type { SaleAssignedDeliveryFilter } from "./notification-rules";
 
 @Controller("notifications")
 export class NotificationsController {
@@ -81,6 +82,40 @@ export class NotificationsController {
           ? Boolean(body.teamNotificationsEnabled)
           : undefined,
       types,
+    });
+  }
+
+  @Get("rules")
+  getRules(@Req() req: Request & { user?: AuthUser }) {
+    if (!req.user) {
+      throw new BadRequestException("User is required");
+    }
+    return this.notifications.getNotificationRules();
+  }
+
+  @Patch("rules")
+  updateRules(
+    @Body() body: Record<string, unknown>,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    if (!req.user) {
+      throw new BadRequestException("User is required");
+    }
+    const saleRaw =
+      body.saleAssigned && typeof body.saleAssigned === "object"
+        ? (body.saleAssigned as Record<string, unknown>)
+        : undefined;
+    const deliveryMethods =
+      saleRaw?.deliveryMethods === "PICKUP" || saleRaw?.deliveryMethods === "ALL"
+        ? (saleRaw.deliveryMethods as SaleAssignedDeliveryFilter)
+        : undefined;
+    return this.notifications.updateNotificationRules(req.user, {
+      saleAssigned: saleRaw
+        ? {
+            enabled: saleRaw.enabled !== undefined ? Boolean(saleRaw.enabled) : undefined,
+            deliveryMethods,
+          }
+        : undefined,
     });
   }
 

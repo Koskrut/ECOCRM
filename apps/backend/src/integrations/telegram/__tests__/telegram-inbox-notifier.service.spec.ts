@@ -94,8 +94,9 @@ describe("TelegramInboxNotifierService", () => {
     assert.equal(creates[0]?.userId, "owner1");
   });
 
-  it("falls back to inbox roles when no assignee or owner", async () => {
+  it("falls back to ADMIN and LEAD only when no assignee or owner", async () => {
     const creates: Array<Record<string, unknown>> = [];
+    let roleFilter: unknown;
     const prisma = makePrisma({
       conversation: {
         findUnique: async () => ({
@@ -107,7 +108,10 @@ describe("TelegramInboxNotifierService", () => {
         }),
       },
       user: {
-        findMany: async () => [{ id: "admin1" }, { id: "mgr1" }],
+        findMany: async (args: { where: { role: { in: string[] } } }) => {
+          roleFilter = args.where.role.in;
+          return [{ id: "admin1" }, { id: "lead1" }];
+        },
       },
     });
     const service = new TelegramInboxNotifierService(prisma, makeNotifications(creates));
@@ -117,11 +121,13 @@ describe("TelegramInboxNotifierService", () => {
       messageText: "Hello",
     });
 
+    assert.deepEqual(roleFilter, ["ADMIN", "LEAD"]);
     assert.equal(creates.length, 2);
     assert.deepEqual(
       creates.map((c) => c.userId).sort(),
-      ["admin1", "mgr1"],
+      ["admin1", "lead1"],
     );
     assert.match(String(creates[0]?.title), /Telegram:/);
   });
 });
+

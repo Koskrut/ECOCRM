@@ -444,6 +444,8 @@ export class ContactsController {
         status: body.status !== undefined ? (body.status != null ? String(body.status) : null) : undefined,
         marketingCallOptOut:
           body.marketingCallOptOut !== undefined ? Boolean(body.marketingCallOptOut) : undefined,
+        marketingAdsOptOut:
+          body.marketingAdsOptOut !== undefined ? Boolean(body.marketingAdsOptOut) : undefined,
       },
       req.user,
     );

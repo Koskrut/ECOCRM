@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { apiHttp } from "@/lib/api/client";
 import { getUserFriendlyApiError } from "@/lib/api/errors";
 import { leadsApi } from "@/lib/api/resources/leads";
+import { strings } from "@/locales";
 
 type MetaLeadAdsConfig = {
   webhookVerifyToken?: string;
@@ -136,6 +137,9 @@ export default function MetaLeadAdsSettingsPage() {
             className="inline-flex items-center text-sm text-zinc-600 hover:text-zinc-900"
           >
             ← До налаштувань
+          </Link>
+          <Link href="/settings/marketing" className="mt-2 block text-sm text-zinc-800 underline">
+            {strings.marketing.openSettings}
           </Link>
           <h1 className="mt-2 text-2xl font-bold text-zinc-900">Facebook / Meta Lead Ads</h1>
           <p className="mt-1 text-sm text-zinc-500">

@@ -15,6 +15,7 @@ export function sidebarHrefModuleId(href: string): ModuleId | null {
   if (href.startsWith("/work/calls")) return ModuleIds.ManualCalling;
   if (href.startsWith("/visits")) return ModuleIds.Visits;
   if (href.startsWith("/risk")) return ModuleIds.RiskManagement;
+  if (href.startsWith("/marketing")) return ModuleIds.Marketing;
   return null;
 }
 
@@ -32,5 +33,6 @@ export function settingsHrefModuleId(href: string): ModuleId | null {
   if (href.startsWith("/settings/telegram")) return ModuleIds.IntegrationsTelegram;
   if (href.startsWith("/settings/meta-messaging")) return ModuleIds.IntegrationsMetaMessaging;
   if (href.startsWith("/settings/store")) return ModuleIds.Store;
+  if (href.startsWith("/settings/marketing")) return ModuleIds.Marketing;
   return null;
 }

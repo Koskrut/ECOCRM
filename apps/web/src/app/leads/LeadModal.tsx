@@ -1122,14 +1122,29 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
     <div className="text-sm text-zinc-500">Лід не знайдено</div>
   ) : leadTab === "source" ? (
     <div className="space-y-6">
+      {lead.marketingTouch?.displayName || lead.attribution?.campaignName ? (
+        <EntitySection title="Кампанія">
+          <div className="text-sm text-zinc-900">
+            {lead.marketingTouch?.displayName || lead.attribution?.campaignName}
+          </div>
+        </EntitySection>
+      ) : null}
       {lead.attribution ? (
         <EntitySection title="Атрибуція">
           <div className="rounded-md border border-zinc-200 bg-zinc-50/50 p-3 text-sm">
             <div className="grid gap-2 text-zinc-700">
-              <div><span className="text-zinc-500">Кампанія:</span> {lead.attribution.campaignName} ({lead.attribution.campaignId})</div>
-              <div><span className="text-zinc-500">Група оголошень:</span> {lead.attribution.adsetName} ({lead.attribution.adsetId})</div>
-              <div><span className="text-zinc-500">Оголошення:</span> {lead.attribution.adName} ({lead.attribution.adId})</div>
-              <div><span className="text-zinc-500">Форма:</span> {lead.attribution.formId}</div>
+              {lead.attribution.campaignName ? (
+                <div><span className="text-zinc-500">Кампанія:</span> {lead.attribution.campaignName}</div>
+              ) : null}
+              {lead.attribution.adsetName ? (
+                <div><span className="text-zinc-500">Група оголошень:</span> {lead.attribution.adsetName}</div>
+              ) : null}
+              {lead.attribution.adName ? (
+                <div><span className="text-zinc-500">Оголошення:</span> {lead.attribution.adName}</div>
+              ) : null}
+              {lead.attribution.formId && !/^\d+$/.test(lead.attribution.formId) ? (
+                <div><span className="text-zinc-500">Форма:</span> {lead.attribution.formId}</div>
+              ) : null}
               <div><span className="text-zinc-500">Створено (Meta):</span> {formatDateTime(lead.attribution.createdTime)}</div>
             </div>
           </div>
@@ -1143,13 +1158,11 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
               <div><span className="text-zinc-500">Тип форми:</span> {publicSourceMeta.formType ?? "—"}</div>
               <div><span className="text-zinc-500">Сегмент ролі:</span> {publicSourceMeta.roleSegment ?? "—"}</div>
               <div><span className="text-zinc-500">Зафіксовано:</span> {publicSourceMeta.capturedAt ? formatDateTime(publicSourceMeta.capturedAt) : "—"}</div>
-              <div><span className="text-zinc-500">utm_source:</span> {publicSourceMeta.utmSource ?? "—"}</div>
-              <div><span className="text-zinc-500">utm_medium:</span> {publicSourceMeta.utmMedium ?? "—"}</div>
-              <div><span className="text-zinc-500">utm_campaign:</span> {publicSourceMeta.utmCampaign ?? "—"}</div>
-              <div><span className="text-zinc-500">utm_content:</span> {publicSourceMeta.utmContent ?? "—"}</div>
-              <div><span className="text-zinc-500">utm_term:</span> {publicSourceMeta.utmTerm ?? "—"}</div>
-              <div><span className="text-zinc-500">gclid:</span> {publicSourceMeta.gclid ?? "—"}</div>
-              <div><span className="text-zinc-500">fbclid:</span> {publicSourceMeta.fbclid ?? "—"}</div>
+              <div><span className="text-zinc-500">Джерело переходу:</span> {publicSourceMeta.utmSource ?? "—"}</div>
+              <div><span className="text-zinc-500">Канал:</span> {publicSourceMeta.utmMedium ?? "—"}</div>
+              <div><span className="text-zinc-500">Назва кампанії:</span> {publicSourceMeta.utmCampaign ?? "—"}</div>
+              <div><span className="text-zinc-500">Варіант:</span> {publicSourceMeta.utmContent ?? "—"}</div>
+              <div><span className="text-zinc-500">Ключове слово:</span> {publicSourceMeta.utmTerm ?? "—"}</div>
               <div className="break-all"><span className="text-zinc-500">URL сторінки:</span> {publicSourceMeta.pageUrl ?? "—"}</div>
               <div className="break-all"><span className="text-zinc-500">Реферер:</span> {publicSourceMeta.referrer ?? "—"}</div>
             </div>
@@ -1187,7 +1200,7 @@ export function LeadModal({ apiBaseUrl, leadId, onClose, onUpdated, userRole: us
           </div>
         </EntitySection>
       ) : null}
-      {!lead.attribution && !publicSourceMeta && (!lead.answers || lead.answers.length === 0) && (!lead.events || lead.events.length === 0) ? (
+      {!lead.attribution && !lead.marketingTouch?.displayName && !publicSourceMeta && (!lead.answers || lead.answers.length === 0) && (!lead.events || lead.events.length === 0) ? (
         <div className="text-sm text-zinc-500">Немає даних про джерело</div>
       ) : null}
     </div>

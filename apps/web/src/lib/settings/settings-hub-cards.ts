@@ -24,6 +24,7 @@ import {
   Activity,
   Database,
   Upload,
+  BadgeDollarSign,
 } from "lucide-react";
 import { strings } from "@/locales";
 
@@ -69,6 +70,13 @@ export function allCards(): CardDescriptor[] {
     { href: "/settings/exchange-rates", icon: Coins, ...t.exchangeRates, group: "salesProcesses" },
     { href: "/settings/google-maps", icon: Map, ...t.googleMaps, group: "integrations" },
     { href: "/settings/meta-lead-ads", icon: Megaphone, ...t.metaLeadAds, group: "integrations" },
+    {
+      href: "/settings/marketing",
+      icon: BadgeDollarSign,
+      ...t.marketingCabinets,
+      group: "integrations",
+      leadAccess: true,
+    },
     { href: "/settings/meta-messaging", icon: MessageCircle, ...t.metaMessaging, group: "integrations" },
     { href: "/settings/bank", icon: Landmark, ...t.bank, group: "integrations" },
     { href: "/settings/privat24", icon: CreditCard, ...t.privat24, group: "integrations" },

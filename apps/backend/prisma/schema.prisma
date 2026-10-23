@@ -91,6 +91,8 @@ enum NotificationType {
   FIELD_GPS_STALE
   PLANNING_FACTORY_DUE
   PLANNING_PACKING_DUE
+  CLIENT_ORDER_ACCEPTED
+  RISK_ALERT
 }
 
 enum AuditAction {
@@ -955,6 +957,10 @@ model Contact {
    * Відмова від маркетингових/AI дзвінків (outbound compliance).
    */
   marketingCallOptOut Boolean   @default(false)
+  /**
+   * Не використовувати контакт у рекламних списках. Не пов’язано з відмовою від дзвінків.
+   */
+  marketingAdsOptOut  Boolean   @default(false)
   nextActionType      String?
   nextActionAt        DateTime?
   nextActionNote      String?
@@ -1536,6 +1542,8 @@ model Lead {
   callQueueItems       CallQueueItem[]
   manualCallSessions   ManualCallSession[]
   dailyWorkPlanItems   DailyWorkPlanItem[]
+  marketingTouch       MarketingLeadTouch?
+  marketingConversions MarketingConversion[]
 
   @@unique([legacySource, legacyId])
   @@index([companyId, status])
@@ -3468,6 +3476,7 @@ model Payment {
   createdBy                User?            @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
   linkedFromPaymentRequest PaymentRequest?
   balanceTransaction       ClientBalanceTransaction?
+  marketingConversions     MarketingConversion[]
 
   @@index([orderId])
   @@index([bankTransactionId])
@@ -4197,4 +4206,242 @@ model RiskPlaybookRun {
 
   @@index([playbookId, createdAt])
   @@index([subjectType, subjectId])
+}
+
+/// Slot for later networks (Yandex, Bing) is OTHER. Facebook and Instagram are META.
+enum MarketingPlatform {
+  META
+  GOOGLE
+  TIKTOK
+  OTHER
+}
+
+enum MarketingAccountStatus {
+  CONNECTED
+  NEEDS_RECONNECT
+  DISABLED
+}
+
+enum MarketingEntityLevel {
+  CAMPAIGN
+  AD_SET
+  AD
+}
+
+enum MarketingDeliveryStatus {
+  ACTIVE
+  PAUSED
+  COMPLETED
+  UNKNOWN
+}
+
+enum MarketingInsightSource {
+  API
+  FILE
+}
+
+/// LEAD is the site “new lead” signal. QUALITY / JUNK carry no money. PURCHASE is one payment.
+enum MarketingConversionKind {
+  LEAD
+  QUALITY
+  JUNK
+  PURCHASE
+}
+
+enum MarketingOutboxStatus {
+  PENDING
+  SENT
+  SKIPPED
+  FAILED
+}
+
+enum MarketingAudiencePreset {
+  CLIENTS
+  LARGE_CLIENTS
+  DORMANT
+  OPEN_LEADS
+  LOST
+  JUNK_EXCLUSION
+}
+
+enum MarketingSyncStatus {
+  PENDING
+  RUNNING
+  UPDATED
+  FAILED
+  STOPPED
+}
+
+enum MarketingLinkChannel {
+  FACEBOOK
+  INSTAGRAM
+  GOOGLE
+  TIKTOK
+  OTHER
+}
+
+/// Non-secret cabinet identity. Tokens stay on IntegrationSetting (marketing_meta / marketing_google / marketing_tiktok).
+model MarketingAccount {
+  id                String                 @id @default(cuid())
+  platform          MarketingPlatform
+  externalAccountId String
+  name              String
+  currency          String
+  status            MarketingAccountStatus @default(CONNECTED)
+  /// api | file. File days replace API days; they are not added together.
+  spendSource       String                 @default("api")
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+
+  @@unique([platform, externalAccountId])
+  @@index([platform, status])
+}
+
+/// Daily facts at ad level only. No campaign-total row, so spend is not double-counted.
+model MarketingInsightDaily {
+  id                 String                 @id @default(cuid())
+  platform           MarketingPlatform
+  accountExternalId  String
+  campaignExternalId String
+  adSetExternalId    String
+  adExternalId       String
+  date               DateTime               @db.Date
+  spend              Decimal                @db.Decimal(18, 2)
+  impressions        Int                    @default(0)
+  clicks             Int                    @default(0)
+  currency           String
+  source             MarketingInsightSource @default(API)
+  createdAt          DateTime               @default(now())
+  updatedAt          DateTime               @updatedAt
+
+  @@unique([platform, accountExternalId, adExternalId, date], name: "marketing_insight_ad_day")
+  @@index([platform, date])
+  @@index([platform, campaignExternalId, date])
+}
+
+model MarketingEntity {
+  id                String                  @id @default(cuid())
+  platform          MarketingPlatform
+  accountExternalId String
+  level             MarketingEntityLevel
+  externalId        String
+  parentExternalId  String?
+  name              String
+  deliveryStatus    MarketingDeliveryStatus @default(UNKNOWN)
+  createdAt         DateTime                @default(now())
+  updatedAt         DateTime                @updatedAt
+
+  @@unique([platform, accountExternalId, level, externalId], name: "marketing_entity_key")
+  @@index([platform, level])
+}
+
+/// Normalized paid platform for a lead. Null platform means the lead stays a site lead.
+model MarketingLeadTouch {
+  id                 String             @id @default(cuid())
+  leadId             String             @unique
+  platform           MarketingPlatform?
+  campaignExternalId String?
+  adSetExternalId    String?
+  adExternalId       String?
+  clickId            String?
+  linkId             String?
+  displayName        String?
+  countsTowardAds    Boolean            @default(false)
+  resolvedFrom       String
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  lead Lead           @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  link MarketingLink? @relation(fields: [linkId], references: [id], onDelete: SetNull)
+
+  @@index([platform, campaignExternalId])
+  @@index([countsTowardAds, platform])
+  @@index([linkId])
+}
+
+model MarketingConversion {
+  id              String                  @id @default(cuid())
+  platform        MarketingPlatform
+  kind            MarketingConversionKind
+  status          MarketingOutboxStatus   @default(PENDING)
+  idempotencyKey  String                  @unique
+  leadId          String?
+  paymentId       String?
+  externalEventId String?
+  valueAmount     Decimal?                @db.Decimal(18, 2)
+  valueCurrency   String?
+  attemptCount    Int                     @default(0)
+  nextAttemptAt   DateTime?
+  lastError       String?
+  sentAt          DateTime?
+  skippedReason   String?
+  retract         Boolean                 @default(false)
+  createdAt       DateTime                @default(now())
+  updatedAt       DateTime                @updatedAt
+
+  lead    Lead?    @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  payment Payment? @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+
+  @@index([status, nextAttemptAt])
+  @@index([leadId])
+  @@index([paymentId])
+}
+
+model MarketingAudience {
+  id                   String                  @id @default(cuid())
+  preset               MarketingAudiencePreset
+  platform             MarketingPlatform
+  enabled              Boolean                 @default(true)
+  externalAudienceId   String?
+  lastSize             Int?
+  lastSkippedNoContact Int?
+  status               MarketingSyncStatus     @default(PENDING)
+  lastError            String?
+  /// threshold, dormantDays, consentConfirmed, lookalikeExternalId. No member PII.
+  config               Json?
+  lastSyncedAt         DateTime?
+  createdAt            DateTime                @default(now())
+  updatedAt            DateTime                @updatedAt
+
+  syncs MarketingAudienceSync[]
+
+  @@unique([preset, platform])
+}
+
+model MarketingAudienceSync {
+  id               String              @id @default(cuid())
+  audienceId       String
+  status           MarketingSyncStatus
+  size             Int?
+  skippedNoContact Int?
+  previousSize     Int?
+  halted           Boolean             @default(false)
+  error            String?
+  forced           Boolean             @default(false)
+  startedAt        DateTime            @default(now())
+  finishedAt       DateTime?
+
+  audience MarketingAudience @relation(fields: [audienceId], references: [id], onDelete: Cascade)
+
+  @@index([audienceId, startedAt])
+}
+
+model MarketingLink {
+  id                 String               @id @default(cuid())
+  channel            MarketingLinkChannel
+  name               String
+  campaignExternalId String?
+  fullUrl            String
+  utmSource          String?
+  utmMedium          String?
+  utmCampaign        String?
+  utmContent         String?
+  utmTerm            String?
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+
+  touches MarketingLeadTouch[]
+
+  @@index([channel])
+  @@index([utmCampaign])
 }

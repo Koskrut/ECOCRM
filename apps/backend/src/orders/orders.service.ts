@@ -74,6 +74,7 @@ import {
 } from "./order-stock-readiness";
 import { OrdersPipelineConfigService } from "./pipeline/orders-pipeline-config.service";
 import { WorkflowDomainEmitterService } from "../workflows/workflow-domain-emitter.service";
+import { OrderSaleAssignedNotifierService } from "../notifications/order-sale-assigned-notifier.service";
 import { OrderWarehouseNotifierService } from "../notifications/order-warehouse-notifier.service";
 import {
   computeLinePricing,
@@ -136,6 +137,7 @@ export class OrdersService {
     private readonly ordersPipelineConfig: OrdersPipelineConfigService,
     private readonly workflowEmitter: WorkflowDomainEmitterService,
     private readonly warehouseNotifier: OrderWarehouseNotifierService,
+    private readonly saleAssignedNotifier: OrderSaleAssignedNotifierService,
     private readonly materialReservations: OrderMaterialReservationService,
     @Optional() @Inject(RiskPolicyService) private readonly riskPolicy?: RiskPolicyService,
     @Optional() @Inject(ModuleStateService) private readonly modules?: ModuleStateService,
@@ -1304,6 +1306,20 @@ export class OrdersService {
       n,
       Object.keys(changes).length ? changes : undefined,
     );
+
+    if (
+      "ownerId" in dto &&
+      dto.ownerId &&
+      dto.ownerId !== existing.ownerId &&
+      dto.ownerId !== actor?.id
+    ) {
+      void this.saleAssignedNotifier.notifyIfNeeded({
+        orderId: id,
+        newOwnerId: dto.ownerId,
+        actorId: actor?.id,
+      });
+    }
+
     return next;
   }
 

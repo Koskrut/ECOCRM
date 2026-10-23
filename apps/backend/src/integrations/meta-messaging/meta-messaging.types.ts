@@ -2,6 +2,14 @@ import type { ConversationChannel } from "@prisma/client";
 
 export type MetaWebhookObject = "page" | "instagram";
 
+export type MetaAdReferral = {
+  ad_id?: string;
+  campaign_id?: string;
+  adset_id?: string;
+  source?: string;
+  ads_context_data?: { ad_title?: string };
+};
+
 export type ParsedMetaInboundMessage = {
   channel: ConversationChannel;
   pageId: string;
@@ -10,6 +18,12 @@ export type ParsedMetaInboundMessage = {
   text: string | null;
   sentAt: Date;
   senderName?: string | null;
+  referral?: {
+    adId: string | null;
+    campaignId: string | null;
+    adsetId: string | null;
+    adName: string | null;
+  } | null;
 };
 
 export type MetaMessagingWebhookBody = {
@@ -26,7 +40,9 @@ export type MetaMessagingWebhookBody = {
         text?: string;
         is_echo?: boolean;
         attachments?: Array<{ type?: string }>;
+        referral?: MetaAdReferral;
       };
+      referral?: MetaAdReferral;
     }>;
   }>;
 };

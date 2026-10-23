@@ -6,6 +6,7 @@ import {
   notificationsApi,
   type NotificationType,
   type NotificationPreferencesResponse,
+  type NotificationRules,
 } from "@/lib/api/resources/notifications";
 import { authApi } from "@/lib/api/resources/auth";
 
@@ -23,12 +24,15 @@ const NOTIFICATION_TYPE_LABELS: Record<NotificationType, string> = {
   FIELD_GPS_STALE: "GPS зупинився (поле)",
   PLANNING_FACTORY_DUE: "Завод: термін виробництва",
   PLANNING_PACKING_DUE: "Пакування: термін циклу",
+  CLIENT_ORDER_ACCEPTED: "Замовлення оформлено на вас",
+  RISK_ALERT: "Ризик-сповіщення",
 };
 
 const ALL_TYPES: NotificationType[] = [
   "ORDER_QTY_CHANGED",
   "ORDER_SPLIT",
   "ORDER_STAGE_CHANGED",
+  "CLIENT_ORDER_ACCEPTED",
   "MISSED_CALL",
   "NEW_LEAD",
   "TASK_ASSIGNED",
@@ -39,6 +43,7 @@ const ALL_TYPES: NotificationType[] = [
   "FIELD_GPS_STALE",
   "PLANNING_FACTORY_DUE",
   "PLANNING_PACKING_DUE",
+  "RISK_ALERT",
 ];
 
 function prefFor(
@@ -57,6 +62,7 @@ function prefFor(
 export default function NotificationSettingsPage() {
   const [role, setRole] = useState<string | null>(null);
   const [prefs, setPrefs] = useState<NotificationPreferencesResponse | null>(null);
+  const [rules, setRules] = useState<NotificationRules | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -66,11 +72,17 @@ export default function NotificationSettingsPage() {
     setLoading(true);
     setLoadError(null);
     try {
-      const [me, p] = await Promise.all([authApi.me(), notificationsApi.getPreferences()]);
+      const [me, p, r] = await Promise.all([
+        authApi.me(),
+        notificationsApi.getPreferences(),
+        notificationsApi.getRules().catch(() => null),
+      ]);
       setRole(me.user?.role ?? null);
       setPrefs(p);
+      setRules(r);
     } catch (e) {
       setPrefs(null);
+      setRules(null);
       setLoadError(e instanceof Error ? e.message : "Не вдалося завантажити налаштування");
     } finally {
       setLoading(false);
@@ -94,11 +106,12 @@ export default function NotificationSettingsPage() {
         types: [{ type, ...current, ...patch }],
       });
       setPrefs(next);
+      if (patch.browser !== undefined && typeof localStorage !== "undefined") {
+        const anyBrowser = next.types.some((t) => t.browser);
+        localStorage.setItem("crm_notifications_browser", anyBrowser ? "1" : "0");
+      }
       if (patch.browser && typeof Notification !== "undefined" && Notification.permission === "default") {
         await Notification.requestPermission();
-      }
-      if (patch.browser && typeof localStorage !== "undefined") {
-        localStorage.setItem("crm_notifications_browser", patch.browser ? "1" : "0");
       }
       setMsg("Збережено");
     } catch (e) {
@@ -114,6 +127,29 @@ export default function NotificationSettingsPage() {
     try {
       const next = await notificationsApi.updatePreferences({ teamNotificationsEnabled: enabled });
       setPrefs(next);
+      setMsg("Збережено");
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : "Помилка збереження");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const updateRules = async (patch: {
+    enabled?: boolean;
+    deliveryMethods?: "ALL" | "PICKUP";
+  }) => {
+    if (!rules) return;
+    setSaving(true);
+    setMsg(null);
+    try {
+      const next = await notificationsApi.updateRules({
+        saleAssigned: {
+          enabled: patch.enabled ?? rules.saleAssigned.enabled,
+          deliveryMethods: patch.deliveryMethods ?? rules.saleAssigned.deliveryMethods,
+        },
+      });
+      setRules(next);
       setMsg("Збережено");
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "Помилка збереження");
@@ -150,6 +186,39 @@ export default function NotificationSettingsPage() {
       ) : (
         <>
       {msg && <p className="text-sm text-zinc-600">{msg}</p>}
+
+      {role === "ADMIN" && rules && (
+        <section className="rounded-xl border border-zinc-200 bg-white p-4">
+          <h2 className="font-medium text-zinc-900">Правила організації</h2>
+          <label className="mt-3 flex items-center gap-2 text-sm text-zinc-700">
+            <input
+              type="checkbox"
+              checked={rules.saleAssigned.enabled}
+              disabled={saving}
+              onChange={(e) => void updateRules({ enabled: e.target.checked })}
+            />
+            Сповіщати менеджера, коли продаж оформили на нього
+          </label>
+          {rules.saleAssigned.enabled && (
+            <div className="mt-3">
+              <div className="text-xs font-medium text-zinc-600">Для яких замовлень</div>
+              <select
+                className="mt-1 rounded-md border border-zinc-300 px-3 py-1.5 text-sm"
+                disabled={saving}
+                value={rules.saleAssigned.deliveryMethods}
+                onChange={(e) =>
+                  void updateRules({
+                    deliveryMethods: e.target.value === "PICKUP" ? "PICKUP" : "ALL",
+                  })
+                }
+              >
+                <option value="ALL">Усі способи доставки</option>
+                <option value="PICKUP">Лише самовивіз</option>
+              </select>
+            </div>
+          )}
+        </section>
+      )}
 
       {(role === "LEAD" || role === "ADMIN") && (
         <section className="rounded-xl border border-zinc-200 bg-white p-4">

@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger } from "@nestjs/common";
+import { BadRequestException, Injectable, Logger, Optional } from "@nestjs/common";
 import {
   ConversationChannel,
   ConversationStatus,
@@ -13,6 +13,7 @@ import { SettingsService } from "../../settings/settings.service";
 import { parseMetaInboundMessages } from "./meta-messaging.parse";
 import type { MetaMessagingWebhookBody } from "./meta-messaging.types";
 import { MetaInboxNotifierService } from "./meta-inbox-notifier.service";
+import { MarketingConversionService } from "../../marketing/marketing-conversion.service";
 
 @Injectable()
 export class MetaMessagingService {
@@ -22,6 +23,7 @@ export class MetaMessagingService {
     private readonly prisma: PrismaService,
     private readonly settings: SettingsService,
     private readonly inboxNotifier: MetaInboxNotifierService,
+    @Optional() private readonly marketing?: MarketingConversionService,
   ) {}
 
   async handleInboundWebhook(body: MetaMessagingWebhookBody): Promise<{ ok: true; processed: number }> {
@@ -57,6 +59,12 @@ export class MetaMessagingService {
     text: string | null;
     sentAt: Date;
     senderName?: string | null;
+    referral?: {
+      adId: string | null;
+      campaignId: string | null;
+      adsetId: string | null;
+      adName: string | null;
+    } | null;
   }): Promise<void> {
     const now = new Date();
     const participant = await this.upsertParticipant({
@@ -121,6 +129,16 @@ export class MetaMessagingService {
       participantLabel: inbound.participantId,
       messageText: inbound.text,
     });
+
+    if (leadId && inbound.referral?.adId) {
+      try {
+        await this.marketing?.rememberDirect(leadId, inbound.referral);
+      } catch (error) {
+        this.logger.warn(
+          `marketing direct ${leadId}: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }
   }
 
   private async upsertParticipant(params: {

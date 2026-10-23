@@ -1,12 +1,16 @@
-import { BadRequestException, Injectable } from "@nestjs/common";
+import { BadRequestException, Injectable, Optional } from "@nestjs/common";
 import { LeadEventType, LeadSource, type Prisma } from "@prisma/client";
 import { getPhoneNormalizedDigits, normalizePhoneToE164 } from "../../common/phone.utils";
+import { MarketingConversionService } from "../../marketing/marketing-conversion.service";
 import { PrismaService } from "../../prisma/prisma.service";
 import type { CreateStoreLeadDto } from "./dto/create-store-lead.dto";
 
 @Injectable()
 export class StoreLeadsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly marketing?: MarketingConversionService,
+  ) {}
 
   async createLead(dto: CreateStoreLeadDto) {
     const companyId =
@@ -64,6 +68,12 @@ export class StoreLeadsService {
         payload: sourceMeta,
       },
     });
+
+    try {
+      await this.marketing?.onLeadChanged(lead.id);
+    } catch {
+      /* lead is stored even if marketing attribution is unavailable */
+    }
 
     return {
       ok: true as const,

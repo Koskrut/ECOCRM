@@ -8,6 +8,7 @@ import { DateTime } from "luxon";
 import {
   notificationsApi,
   notificationHref,
+  type NotificationType,
   type UserNotification,
 } from "@/lib/api/resources/notifications";
 import { CRM_LOCALE, CRM_TIME_ZONE } from "@/lib/crmDatetime";
@@ -49,8 +50,8 @@ export function NotificationBell() {
   const [unreadCount, setUnreadCount] = useState(0);
   const [loading, setLoading] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
-  const lastCountRef = useRef(0);
-  const browserEnabledRef = useRef(false);
+  const lastCountRef = useRef<number | null>(null);
+  const browserTypesRef = useRef<Set<NotificationType>>(new Set());
   const openRef = useRef(false);
 
   useEffect(() => {
@@ -61,13 +62,12 @@ export function NotificationBell() {
     void notificationsApi
       .getPreferences()
       .then((prefs) => {
-        browserEnabledRef.current =
-          prefs.types.some((t) => t.browser) ||
-          (typeof localStorage !== "undefined" &&
-            localStorage.getItem("crm_notifications_browser") === "1");
+        browserTypesRef.current = new Set(
+          prefs.types.filter((t) => t.browser).map((t) => t.type),
+        );
       })
       .catch(() => {
-        browserEnabledRef.current = false;
+        browserTypesRef.current = new Set();
       });
   }, []);
 
@@ -98,8 +98,10 @@ export function NotificationBell() {
         pushToast(title, "info");
       }
 
+      const browserEnabledForType =
+        latest != null && browserTypesRef.current.has(latest.type);
       if (
-        browserEnabledRef.current &&
+        browserEnabledForType &&
         typeof Notification !== "undefined" &&
         Notification.permission === "granted"
       ) {
@@ -118,6 +120,10 @@ export function NotificationBell() {
       const count = await notificationsApi.unreadCount();
       const prev = lastCountRef.current;
       setUnreadCount(count);
+      if (prev === null) {
+        lastCountRef.current = count;
+        return;
+      }
       if (count > prev) {
         await notifyNewItems(prev, count);
       }
@@ -182,7 +188,11 @@ export function NotificationBell() {
     if (!n.readAt) {
       try {
         await notificationsApi.markRead(n.id);
-        setUnreadCount((c) => Math.max(0, c - 1));
+        setUnreadCount((c) => {
+          const next = Math.max(0, c - 1);
+          lastCountRef.current = next;
+          return next;
+        });
         setItems((prev) =>
           prev.map((row) => (row.id === n.id ? { ...row, readAt: new Date().toISOString() } : row)),
         );

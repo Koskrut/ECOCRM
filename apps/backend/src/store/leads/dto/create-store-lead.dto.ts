@@ -42,6 +42,10 @@ export class StoreAttributionDto {
   fbclid?: string;
 
   @IsOptional()
+  @IsString()
+  ttclid?: string;
+
+  @IsOptional()
   firstTouch?: unknown;
 
   @IsOptional()

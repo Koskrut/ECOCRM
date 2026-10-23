@@ -939,6 +939,20 @@ export function ContactModal({
         <div className="text-sm text-zinc-500">Завантаження…</div>
       ) : contact ? (
         <>
+          {!isCreate && contact ? (
+            <label className="flex items-start gap-2 rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={Boolean(contact.marketingAdsOptOut)}
+                onChange={(e) => void patchContact({ marketingAdsOptOut: e.target.checked })}
+              />
+              <span>
+                <span className="font-medium">{cardT.identity.adsOptOut}</span>
+                <span className="mt-0.5 block text-xs text-zinc-500">{cardT.identity.adsOptOutHint}</span>
+              </span>
+            </label>
+          ) : null}
           <EntitySection title={cardT.identity.sectionTitle}>
             <ContactIdentityFields
               contact={contact}

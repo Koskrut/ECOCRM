@@ -8,6 +8,7 @@ import { MetaConversationsService } from "./meta-conversations.service";
 import { MetaInboxNotifierService } from "./meta-inbox-notifier.service";
 import { MetaMessagingController } from "./meta-messaging.controller";
 import { MetaMessagingService } from "./meta-messaging.service";
+import { MarketingModule } from "../../marketing/marketing.module";
 
 @Module({
   imports: [
@@ -15,6 +16,7 @@ import { MetaMessagingService } from "./meta-messaging.service";
     SettingsModule,
     ContactsModule,
     forwardRef(() => NotificationsModule),
+    MarketingModule,
   ],
   controllers: [MetaMessagingController, MetaConversationsController],
   providers: [MetaMessagingService, MetaConversationsService, MetaInboxNotifierService],

@@ -1,5 +1,5 @@
 import { ConversationChannel } from "@prisma/client";
-import type { MetaMessagingWebhookBody, ParsedMetaInboundMessage } from "./meta-messaging.types";
+import type { MetaAdReferral, MetaMessagingWebhookBody, ParsedMetaInboundMessage } from "./meta-messaging.types";
 
 export function resolveMetaChannelFromObject(object: string | undefined): ConversationChannel | null {
   if (object === "instagram") return ConversationChannel.INSTAGRAM;
@@ -47,9 +47,21 @@ export function parseMetaInboundMessages(body: MetaMessagingWebhookBody): Parsed
         messageId: String(msg.mid),
         text,
         sentAt,
+        referral: readAdReferral(event.referral ?? msg.referral),
       });
     }
   }
 
   return out;
+}
+
+function readAdReferral(referral: MetaAdReferral | undefined): ParsedMetaInboundMessage["referral"] {
+  const adId = referral?.ad_id?.trim();
+  if (!adId) return null;
+  return {
+    adId,
+    campaignId: referral?.campaign_id?.trim() || null,
+    adsetId: referral?.adset_id?.trim() || null,
+    adName: referral?.ads_context_data?.ad_title?.trim() || null,
+  };
 }

@@ -63,6 +63,21 @@ export const MODULE_REGISTRY: Registry = {
       bundleSelectable: false,
     },
   }),
+  // RU: только внутри монолита. MARKETING_UPSTREAM_URL в compose пустой и не проксируется — приём заявок Meta остаётся в core.
+  [ModuleIds.Marketing]: defineModule({
+    id: ModuleIds.Marketing,
+    kind: "extension" satisfies ModuleKind,
+    version: 1,
+    displayName: "Marketing",
+    description:
+      "Ad spend, lead outcomes, and customer lists for Meta, Google, and TikTok. Meta Lead Ads ingestion stays in core.",
+    dependsOn: [ModuleIds.CoreCrm],
+    delivery: "in_process",
+    controlPlane: {
+      entitlementKey: ModuleIds.Marketing,
+      bundleSelectable: true,
+    },
+  }),
   // RU: in_process в манифесте; при FINANCE_UPSTREAM_URL ядро проксирует /payments, /bank и т.д. на finance_worker — без смены типа delivery в SDK.
   [ModuleIds.Finance]: defineModule({
     id: ModuleIds.Finance,

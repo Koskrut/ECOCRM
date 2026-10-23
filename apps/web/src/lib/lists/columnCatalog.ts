@@ -118,6 +118,7 @@ export const NATIVE_COLUMNS: Record<ListEntityType, NativeColumn[]> = {
     { key: "hasMissedCall", label: "Пропущені", kind: "boolean" },
     { key: "telegramLinked", label: "Telegram підключений", kind: "boolean" },
     { key: "marketingCallOptOut", label: "Не дзвонити", kind: "boolean" },
+    { key: "marketingAdsOptOut", label: "Не використовувати в рекламі", kind: "boolean" },
     { key: "isPrimary", label: "Основний контакт", kind: "boolean" },
     { key: "nextActionAt", label: "Дата наст. дії", kind: "datetime" },
     { key: "createdAt", label: "Створено", kind: "datetime" },

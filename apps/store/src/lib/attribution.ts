@@ -9,6 +9,7 @@ export type TouchPoint = {
   utmTerm: string | null;
   gclid: string | null;
   fbclid: string | null;
+  ttclid: string | null;
 };
 
 export type AttributionSnapshot = {
@@ -23,6 +24,7 @@ export type AttributionSnapshot = {
   utmTerm: string | null;
   gclid: string | null;
   fbclid: string | null;
+  ttclid: string | null;
   capturedAt: string;
 };
 
@@ -61,7 +63,8 @@ function hasAttribution(tp: TouchPoint): boolean {
       tp.utmContent ||
       tp.utmTerm ||
       tp.gclid ||
-      tp.fbclid,
+      tp.fbclid ||
+      tp.ttclid,
   );
 }
 
@@ -79,6 +82,7 @@ export function captureAttributionFromLocation() {
     utmTerm: getParam(url, "utm_term"),
     gclid: getParam(url, "gclid"),
     fbclid: getParam(url, "fbclid"),
+    ttclid: getParam(url, "ttclid"),
   };
   const store = readStore();
   const next = { ...store };
@@ -103,6 +107,7 @@ export function getAttributionSnapshot(): AttributionSnapshot {
       utmTerm: null,
       gclid: null,
       fbclid: null,
+      ttclid: null,
       capturedAt: now,
     };
   }
@@ -121,6 +126,7 @@ export function getAttributionSnapshot(): AttributionSnapshot {
     utmTerm: getParam(url, "utm_term") ?? latest?.utmTerm ?? null,
     gclid: getParam(url, "gclid") ?? latest?.gclid ?? null,
     fbclid: getParam(url, "fbclid") ?? latest?.fbclid ?? null,
+    ttclid: getParam(url, "ttclid") ?? latest?.ttclid ?? null,
     capturedAt: now,
   };
 }

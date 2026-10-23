@@ -124,7 +124,7 @@ test("packaging does not limit how many kits one warehouse can build", () => {
   assert.equal(kitsOnWarehouse(parts, "pf"), 4);
 });
 
-test("board packs only the sales gap and gives a shared part to the larger need", () => {
+test("board packs each kit's sales gap from the same part pool", () => {
   const part = {
     productId: "bolt",
     sku: "BOLT",
@@ -203,9 +203,9 @@ test("board packs only the sales gap and gives a shared part to the larger need"
   assert.equal(bySku.get("A")?.qtyStockTotal, 0);
 
   assert.equal(bySku.get("B")?.canAssemble, 100);
-  assert.equal(bySku.get("B")?.canAssembleRemaining, 20);
-  assert.equal(bySku.get("B")?.toPack, 20);
-  assert.equal(bySku.get("B")?.toProduce, 30);
+  assert.equal(bySku.get("B")?.canAssembleRemaining, 100);
+  assert.equal(bySku.get("B")?.toPack, 50);
+  assert.equal(bySku.get("B")?.toProduce, 0);
   assert.equal(bySku.get("B")?.tone, "pack");
 
   assert.equal(bySku.get("OK")?.qtyStockTotal, 40);
@@ -634,16 +634,18 @@ test("alreadyInRequest reduces need/toPack and frees shared pool parts", () => {
   });
 
   const bySku = new Map(rows.map((row) => [row.sku, row]));
-  // Pool 100: reserve 60 for HI already-in-request, HI packs +20, LO gets 20.
+  // Pool 100: reserve 60 already on HI's request. HI's extra suggestion does not shrink LO.
   assert.equal(bySku.get("HI")?.alreadyInRequest, 60);
   assert.equal(bySku.get("HI")?.need, 20);
+  assert.equal(bySku.get("HI")?.canAssembleRemaining, 40);
   assert.equal(bySku.get("HI")?.toPack, 20);
   assert.equal(bySku.get("HI")?.toProduce, 0);
-  assert.equal(bySku.get("LO")?.toPack, 20);
-  assert.equal(bySku.get("LO")?.toProduce, 30);
+  assert.equal(bySku.get("LO")?.canAssembleRemaining, 40);
+  assert.equal(bySku.get("LO")?.toPack, 40);
+  assert.equal(bySku.get("LO")?.toProduce, 10);
 });
 
-test("pack pool gives a shared split part to the larger need first", () => {
+test("a higher-need kit does not reduce another kit's pack qty", () => {
   const shared = {
     productId: "shared",
     sku: "SHARED",
@@ -695,10 +697,11 @@ test("pack pool gives a shared split part to the larger need first", () => {
   });
 
   const bySku = new Map(rows.map((row) => [row.sku, row]));
-  // Pool can assemble min(100, 200) = 100; HI takes 80, LO gets 20.
+  // Pool can assemble min(100, 200) = 100. Both kits see that pool.
   assert.equal(bySku.get("HI")?.toPack, 80);
   assert.equal(bySku.get("HI")?.toProduce, 0);
-  assert.equal(bySku.get("LO")?.canAssembleRemaining, 20);
-  assert.equal(bySku.get("LO")?.toPack, 20);
-  assert.equal(bySku.get("LO")?.toProduce, 30);
+  assert.equal(bySku.get("LO")?.canAssemble, 100);
+  assert.equal(bySku.get("LO")?.canAssembleRemaining, 100);
+  assert.equal(bySku.get("LO")?.toPack, 50);
+  assert.equal(bySku.get("LO")?.toProduce, 0);
 });

@@ -6,6 +6,7 @@ const ModuleIds = {
   ManualCalling: "ext.manual_calling",
   VoiceOutbound: "ext.voice_outbound",
   Finance: "ext.finance",
+  Marketing: "ext.marketing",
   ProductionPlanning: "ext.production_planning",
   Store: "ext.store",
   RiskManagement: "ext.risk_management",

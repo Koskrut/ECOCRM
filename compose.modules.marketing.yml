@@ -1,0 +1,6 @@
+services:
+  backend:
+    environment:
+      # In-process module. Empty value does not proxy /marketing (no sidecar).
+      MARKETING_UPSTREAM_URL: ${MARKETING_UPSTREAM_URL:-}
+      MARKETING_CRON_DISABLED: ${MARKETING_CRON_DISABLED:-}

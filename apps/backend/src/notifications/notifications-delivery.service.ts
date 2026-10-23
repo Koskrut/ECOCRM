@@ -3,6 +3,7 @@ import type { UserNotification } from "@prisma/client";
 import { TelegramService } from "../integrations/telegram/telegram.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { ExpoPushService } from "./expo-push.service";
+import { defaultChannelsForType } from "./notification-type-defaults";
 
 const MOBILE_PUSH_CHANNEL_ID = "crm-alerts-v2";
 
@@ -57,15 +58,10 @@ export class NotificationsDeliveryService {
         userId_type: { userId: notification.userId, type: notification.type },
       },
     });
-    if (!pref?.mobile) {
-      const defaultMobile =
-        notification.type === "FIELD_SHIFT_CLOSE_REMINDER" ||
-        notification.type === "FIELD_GPS_STALE" ||
-        notification.type === "PLANNING_FACTORY_DUE" ||
-        notification.type === "PLANNING_PACKING_DUE";
-      if (!defaultMobile) {
-        return;
-      }
+    // Explicit opt-out wins. Without a row, use type defaults (field/planning/sale push on).
+    const mobileEnabled = pref ? pref.mobile : defaultChannelsForType(notification.type).mobile;
+    if (!mobileEnabled) {
+      return;
     }
 
     const devices = await this.prisma.userPushDevice.findMany({

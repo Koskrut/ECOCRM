@@ -98,7 +98,7 @@ export class MetaInboxNotifierService {
     const users = await this.prisma.user.findMany({
       where: {
         isActive: true,
-        role: { in: [UserRole.ADMIN, UserRole.LEAD, UserRole.MANAGER] },
+        role: { in: [UserRole.ADMIN, UserRole.LEAD] },
       },
       select: { id: true },
     });

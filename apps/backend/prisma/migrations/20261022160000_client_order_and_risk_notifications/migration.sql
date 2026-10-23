@@ -1,0 +1,3 @@
+-- AlterEnum
+ALTER TYPE "NotificationType" ADD VALUE 'CLIENT_ORDER_ACCEPTED';
+ALTER TYPE "NotificationType" ADD VALUE 'RISK_ALERT';

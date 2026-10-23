@@ -11,6 +11,7 @@ function makePrisma(overrides: Partial<Record<string, unknown>> = {}): PrismaSvc
     },
     userNotificationPreference: {
       findUnique: async () => null,
+      findMany: async () => [],
     },
     userNotification: {
       create: async ({ data }: { data: Record<string, unknown> }) => ({
@@ -20,7 +21,13 @@ function makePrisma(overrides: Partial<Record<string, unknown>> = {}): PrismaSvc
         createdAt: new Date(),
       }),
       findFirst: async () => null,
+      findMany: async () => [],
       count: async () => 0,
+      updateMany: async () => ({ count: 0 }),
+    },
+    systemSetting: {
+      findUnique: async () => null,
+      upsert: async ({ create }: { create: Record<string, unknown> }) => create,
     },
     ...overrides,
   } as unknown as PrismaSvc;
@@ -87,10 +94,12 @@ describe("NotificationsService", () => {
     const prisma = makePrisma({
       userNotification: {
         findFirst: async () => existing,
+        findMany: async () => [],
         update: async ({ data }: { data: Record<string, unknown> }) => {
           updates.push(data);
           return { id: "n-existing", ...data };
         },
+        updateMany: async () => ({ count: 0 }),
         create: async () => {
           throw new Error("should not create");
         },
@@ -287,4 +296,111 @@ describe("NotificationsService", () => {
     assert.equal(count, 2);
     assert.deepEqual(updatedWhere, { entityType: "TASK", entityId: "t1", readAt: null });
   });
+
+  it("keeps original prevQty when debouncing the same item", async () => {
+    const updates: Array<Record<string, unknown>> = [];
+    const existing = {
+      id: "n-existing",
+      meta: {
+        debounceKey: "order:o1:qty_changed",
+        prevTotalAmount: 1000,
+        nextTotalAmount: 800,
+        changes: [{ itemId: "i1", productName: "A", prevQty: 10, nextQty: 8 }],
+      },
+      readAt: null,
+      createdAt: new Date(),
+    };
+    const prisma = makePrisma({
+      userNotification: {
+        findFirst: async () => existing,
+        findMany: async () => [],
+        update: async ({ data }: { data: Record<string, unknown> }) => {
+          updates.push(data);
+          return { id: "n-existing", ...data };
+        },
+        updateMany: async () => ({ count: 0 }),
+        create: async () => {
+          throw new Error("should not create");
+        },
+      },
+    });
+    const service = new NotificationsService(prisma);
+    await service.createDebouncedQtyChange({
+      userId: "u1",
+      orderId: "o1",
+      orderNumber: "100",
+      currency: "UAH",
+      actorId: "wh1",
+      change: { itemId: "i1", productName: "A", prevQty: 8, nextQty: 5 },
+      prevTotalAmount: 800,
+      nextTotalAmount: 500,
+      debounceKey: "order:o1:qty_changed",
+    });
+    assert.equal(updates.length, 1);
+    const meta = updates[0]?.meta as {
+      changes: Array<{ prevQty: number; nextQty: number }>;
+      prevTotalAmount: number;
+      nextTotalAmount: number;
+    };
+    assert.equal(meta.changes[0]?.prevQty, 10);
+    assert.equal(meta.changes[0]?.nextQty, 5);
+    assert.equal(meta.prevTotalAmount, 1000);
+    assert.equal(meta.nextTotalAmount, 500);
+  });
+
+  it("excludes inApp-disabled types from list and unread count", async () => {
+    let listWhere: unknown;
+    let countWhere: unknown;
+    const prisma = makePrisma({
+      userNotificationPreference: {
+        findUnique: async () => null,
+        findMany: async () => [{ type: "TASK_ASSIGNED" }],
+      },
+      userNotification: {
+        findMany: async ({ where }: { where: unknown }) => {
+          listWhere = where;
+          return [];
+        },
+        count: async ({ where }: { where: unknown }) => {
+          countWhere = where;
+          return 0;
+        },
+        findFirst: async () => null,
+        create: async ({ data }: { data: Record<string, unknown> }) => ({
+          id: "n1",
+          ...data,
+          readAt: null,
+          createdAt: new Date(),
+        }),
+      },
+    });
+    const service = new NotificationsService(prisma);
+    await service.list("u1");
+    await service.unreadCount("u1");
+    assert.deepEqual((listWhere as { type: { notIn: string[] } }).type, {
+      notIn: ["TASK_ASSIGNED"],
+    });
+    assert.deepEqual((countWhere as { type: { notIn: string[] } }).type, {
+      notIn: ["TASK_ASSIGNED"],
+    });
+  });
+
+  it("getPreferences returns defaults including mobile for field types", async () => {
+    const prisma = makePrisma({
+      userNotificationPreference: {
+        findUnique: async () => null,
+        findMany: async () => [],
+      },
+    });
+    const service = new NotificationsService(prisma);
+    const prefs = await service.getPreferences("u1");
+    const field = prefs.types.find((t) => t.type === "FIELD_GPS_STALE");
+    const sale = prefs.types.find((t) => t.type === "CLIENT_ORDER_ACCEPTED");
+    const task = prefs.types.find((t) => t.type === "TASK_ASSIGNED");
+    assert.equal(field?.mobile, true);
+    assert.equal(sale?.mobile, true);
+    assert.equal(task?.mobile, false);
+    assert.equal(prefs.types.length > 10, true);
+  });
 });
+

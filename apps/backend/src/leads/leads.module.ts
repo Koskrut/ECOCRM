@@ -10,9 +10,10 @@ import { WorkflowsModule } from "../workflows/workflows.module";
 import { LeadsController } from "./leads.controller";
 import { LeadsService } from "./leads.service";
 import { LeadsPipelineConfigService } from "./pipeline/leads-pipeline-config.service";
+import { MarketingModule } from "../marketing/marketing.module";
 
 @Module({
-  imports: [PrismaModule, SettingsModule, ContactsModule, OrdersModule, CompaniesModule, WorkflowsModule, NotificationsModule, CustomFieldsModule],
+  imports: [PrismaModule, SettingsModule, ContactsModule, OrdersModule, CompaniesModule, WorkflowsModule, NotificationsModule, CustomFieldsModule, MarketingModule],
   controllers: [LeadsController],
   providers: [LeadsService, LeadsPipelineConfigService],
 })

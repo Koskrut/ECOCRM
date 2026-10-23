@@ -67,3 +67,25 @@ test("parseMetaInboundMessages handles facebook page object and media placeholde
   assert.equal(parsed[0]?.channel, ConversationChannel.FACEBOOK);
   assert.equal(parsed[0]?.text, "[image]");
 });
+
+test("parseMetaInboundMessages keeps an ad referral even without a campaign name", () => {
+  const parsed = parseMetaInboundMessages({
+    object: "page",
+    entry: [
+      {
+        id: "PAGE_1",
+        messaging: [
+          {
+            sender: { id: "USER_1" },
+            recipient: { id: "PAGE_1" },
+            timestamp: 1_700_000_000_000,
+            message: { mid: "m-ad", text: "Хочу" },
+            referral: { ad_id: "ad-9", source: "ADS" },
+          },
+        ],
+      },
+    ],
+  });
+  assert.equal(parsed[0]?.referral?.adId, "ad-9");
+  assert.equal(parsed[0]?.referral?.adName, null);
+});

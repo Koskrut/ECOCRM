@@ -23,6 +23,7 @@ export type ContactModalContact = {
   city?: string | null;
   clientType?: string | null;
   status?: string | null;
+  marketingAdsOptOut?: boolean;
   nextActionType?: string | null;
   nextActionAt?: string | null;
   nextActionNote?: string | null;

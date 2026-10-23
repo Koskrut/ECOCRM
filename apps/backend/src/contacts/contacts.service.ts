@@ -91,6 +91,7 @@ const dataShapeForDiff: Record<string, true> = {
   clientType: true,
   status: true,
   marketingCallOptOut: true,
+  marketingAdsOptOut: true,
   nextActionType: true,
   nextActionAt: true,
   nextActionNote: true,
@@ -1194,6 +1195,7 @@ export class ContactsService {
       clientType: string | null;
       status: string | null;
       marketingCallOptOut: boolean;
+      marketingAdsOptOut: boolean;
       nextActionType: string | null;
       nextActionAt: Date | null;
       nextActionNote: string | null;
@@ -1740,6 +1742,7 @@ export class ContactsService {
       clientType: contact.clientType ?? null,
       status: contact.status ?? null,
       marketingCallOptOut: contact.marketingCallOptOut,
+      marketingAdsOptOut: contact.marketingAdsOptOut,
       nextActionType: contact.nextActionType ?? null,
       nextActionAt: contact.nextActionAt ?? null,
       nextActionNote: contact.nextActionNote ?? null,

@@ -75,6 +75,7 @@ const FIELD_LABELS: Record<string, string> = {
   documentDisplayName: "Назва в документах",
   clientType: "Тип клієнта",
   marketingCallOptOut: "Без маркетингових дзвінків",
+  marketingAdsOptOut: "Не використовувати в рекламі",
   nextActionType: "Наступна дія",
   nextActionAt: "Дата наступної дії",
   nextActionNote: "Нотатка до дії",

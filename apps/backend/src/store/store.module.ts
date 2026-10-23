@@ -18,6 +18,7 @@ import { StoreCheckoutPaymentLinkService } from "./checkout/store-checkout-payme
 import { StoreCheckoutService } from "./checkout/store-checkout.service";
 import { StoreLeadsController } from "./leads/store-leads.controller";
 import { StoreLeadsService } from "./leads/store-leads.service";
+import { MarketingModule } from "../marketing/marketing.module";
 import { StoreConfigController } from "./store-config.controller";
 import { StoreTelegramLinkService } from "./telegram/store-telegram-link.service";
 
@@ -31,6 +32,7 @@ import { StoreTelegramLinkService } from "./telegram/store-telegram-link.service
     ProductsModule,
     forwardRef(() => OrdersModule),
     PaymentRequestsModule,
+    MarketingModule,
   ],
   controllers: [
     StoreConfigController,

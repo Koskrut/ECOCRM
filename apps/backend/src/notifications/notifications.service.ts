@@ -1,6 +1,18 @@
-import { BadRequestException, Injectable, Logger, NotFoundException, Optional } from "@nestjs/common";
+import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException, Optional } from "@nestjs/common";
 import type { NotificationType, Prisma, UserNotification } from "@prisma/client";
+import { UserRole } from "@prisma/client";
+import type { AuthUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
+import {
+  normalizeNotificationRules,
+  NOTIFICATION_RULES_KEY,
+  type NotificationRules,
+  type SaleAssignedDeliveryFilter,
+} from "./notification-rules";
+import {
+  ALL_NOTIFICATION_TYPES,
+  defaultChannelsForType,
+} from "./notification-type-defaults";
 import { NotificationsDeliveryService } from "./notifications-delivery.service";
 
 const DEFAULT_DEBOUNCE_MS = 3 * 60 * 1000;
@@ -128,10 +140,19 @@ export class NotificationsService {
         : [];
       const idx = changes.findIndex((c) => c.itemId === params.change.itemId);
       if (idx >= 0) {
-        changes[idx] = params.change;
+        const prev = changes[idx]!;
+        changes[idx] = {
+          ...params.change,
+          prevQty: prev.prevQty,
+        };
       } else {
         changes.push(params.change);
       }
+
+      const firstPrevTotal =
+        typeof metaObj.prevTotalAmount === "number"
+          ? metaObj.prevTotalAmount
+          : params.prevTotalAmount;
 
       const title = `Замовлення №${params.orderNumber}: змінено кількість (${changes.length})`;
       const bodyLines = changes.map(
@@ -139,27 +160,44 @@ export class NotificationsService {
       );
       const body = [
         ...bodyLines,
-        `Сума: ${params.prevTotalAmount.toFixed(2)} → ${params.nextTotalAmount.toFixed(2)} ${params.currency}`,
+        `Сума: ${firstPrevTotal.toFixed(2)} → ${params.nextTotalAmount.toFixed(2)} ${params.currency}`,
         params.actorName ? `Кладовщик: ${params.actorName}` : null,
       ]
         .filter(Boolean)
         .join("\n");
 
-      return this.prisma.userNotification.update({
+      const nextMeta = {
+        debounceKey: params.debounceKey,
+        orderNumber: params.orderNumber,
+        changes,
+        prevTotalAmount: firstPrevTotal,
+        nextTotalAmount: params.nextTotalAmount,
+        actorName: params.actorName ?? null,
+      } as Prisma.InputJsonValue;
+
+      const updated = await this.prisma.userNotification.update({
         where: { id: existing.id },
         data: {
           title,
           body,
-          meta: {
-            debounceKey: params.debounceKey,
-            orderNumber: params.orderNumber,
-            changes,
-            prevTotalAmount: params.prevTotalAmount,
-            nextTotalAmount: params.nextTotalAmount,
-            actorName: params.actorName ?? null,
-          } as Prisma.InputJsonValue,
+          meta: nextMeta,
         },
       });
+
+      await this.updateTeamCopyQtyDebounce({
+        sourceId: existing.id,
+        debounceKey: params.debounceKey,
+        since,
+        title,
+        body,
+        meta: {
+          debounceKey: params.debounceKey,
+          orderNumber: params.orderNumber,
+          teamCopySourceId: existing.id,
+        },
+      });
+
+      return updated;
     }
 
     const title = `Замовлення №${params.orderNumber}: ${params.change.productName}`;
@@ -208,6 +246,44 @@ export class NotificationsService {
     });
   }
 
+  private async updateTeamCopyQtyDebounce(params: {
+    sourceId: string;
+    debounceKey: string;
+    since: Date;
+    title: string;
+    body: string;
+    meta: Record<string, unknown>;
+  }): Promise<void> {
+    const teamCopies = await this.prisma.userNotification.findMany({
+      where: {
+        type: "ORDER_QTY_CHANGED",
+        readAt: null,
+        createdAt: { gte: params.since },
+      },
+      select: { id: true, meta: true },
+    });
+    const ids = teamCopies
+      .filter((row) => {
+        const meta = (row.meta ?? {}) as Record<string, unknown>;
+        return (
+          meta.teamCopySourceId === params.sourceId ||
+          (meta.debounceKey === params.debounceKey && meta.teamCopyForUserId != null)
+        );
+      })
+      .map((row) => row.id);
+    if (ids.length === 0) return;
+    await this.prisma.userNotification.updateMany({
+      where: { id: { in: ids } },
+      data: {
+        title: `[Команда] ${params.title}`,
+        body: params.body,
+        meta: {
+          ...params.meta,
+        } as Prisma.InputJsonValue,
+      },
+    });
+  }
+
   async notifyWithTeamCopy(params: CreateNotificationParams): Promise<UserNotification | null> {
     const primary = await this.create(params);
     await this.maybeNotifyLeadCopy(params);
@@ -241,15 +317,25 @@ export class NotificationsService {
     });
   }
 
+  private async inAppDisabledTypes(userId: string): Promise<NotificationType[]> {
+    const rows = await this.prisma.userNotificationPreference.findMany({
+      where: { userId, inApp: false },
+      select: { type: true },
+    });
+    return rows.map((r) => r.type);
+  }
+
   async list(
     userId: string,
     opts?: { page?: number; pageSize?: number; unreadOnly?: boolean },
   ) {
     const page = Math.max(1, opts?.page ?? 1);
     const pageSize = Math.min(100, Math.max(1, opts?.pageSize ?? 20));
+    const disabledTypes = await this.inAppDisabledTypes(userId);
     const where: Prisma.UserNotificationWhereInput = {
       userId,
       ...(opts?.unreadOnly ? { readAt: null } : {}),
+      ...(disabledTypes.length > 0 ? { type: { notIn: disabledTypes } } : {}),
     };
 
     const [items, total] = await Promise.all([
@@ -266,8 +352,13 @@ export class NotificationsService {
   }
 
   async unreadCount(userId: string): Promise<number> {
+    const disabledTypes = await this.inAppDisabledTypes(userId);
     return this.prisma.userNotification.count({
-      where: { userId, readAt: null },
+      where: {
+        userId,
+        readAt: null,
+        ...(disabledTypes.length > 0 ? { type: { notIn: disabledTypes } } : {}),
+      },
     });
   }
 
@@ -299,13 +390,25 @@ export class NotificationsService {
     const rows = await this.prisma.userNotificationPreference.findMany({
       where: { userId },
     });
+    const byType = new Map(rows.map((r) => [r.type, r]));
+    const types = ALL_NOTIFICATION_TYPES.map((type) => {
+      const saved = byType.get(type);
+      const defaults = defaultChannelsForType(type);
+      return {
+        type,
+        inApp: saved?.inApp ?? defaults.inApp,
+        browser: saved?.browser ?? defaults.browser,
+        telegram: saved?.telegram ?? defaults.telegram,
+        mobile: saved?.mobile ?? defaults.mobile,
+      };
+    });
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       select: { teamNotificationsEnabled: true },
     });
     return {
       teamNotificationsEnabled: user?.teamNotificationsEnabled ?? false,
-      types: rows,
+      types,
     };
   }
 
@@ -331,15 +434,16 @@ export class NotificationsService {
 
     if (body.types?.length) {
       for (const row of body.types) {
+        const defaults = defaultChannelsForType(row.type);
         await this.prisma.userNotificationPreference.upsert({
           where: { userId_type: { userId, type: row.type } },
           create: {
             userId,
             type: row.type,
-            inApp: row.inApp ?? true,
-            browser: row.browser ?? false,
-            telegram: row.telegram ?? false,
-            mobile: row.mobile ?? false,
+            inApp: row.inApp ?? defaults.inApp,
+            browser: row.browser ?? defaults.browser,
+            telegram: row.telegram ?? defaults.telegram,
+            mobile: row.mobile ?? defaults.mobile,
           },
           update: {
             ...(row.inApp !== undefined ? { inApp: row.inApp } : {}),
@@ -354,6 +458,48 @@ export class NotificationsService {
     return this.getPreferences(userId);
   }
 
+  async getNotificationRules(): Promise<NotificationRules> {
+    const row = await this.prisma.systemSetting.findUnique({
+      where: { id: NOTIFICATION_RULES_KEY },
+      select: { value: true },
+    });
+    return normalizeNotificationRules(row?.value);
+  }
+
+  async updateNotificationRules(
+    actor: AuthUser,
+    patch: {
+      saleAssigned?: {
+        enabled?: boolean;
+        deliveryMethods?: SaleAssignedDeliveryFilter;
+      };
+    },
+  ): Promise<NotificationRules> {
+    if (actor.role !== UserRole.ADMIN) {
+      throw new ForbiddenException("Only ADMIN can update notification rules");
+    }
+    const current = await this.getNotificationRules();
+    const next: NotificationRules = {
+      saleAssigned: {
+        enabled:
+          patch.saleAssigned?.enabled !== undefined
+            ? Boolean(patch.saleAssigned.enabled)
+            : current.saleAssigned.enabled,
+        deliveryMethods:
+          patch.saleAssigned?.deliveryMethods === "PICKUP" ||
+          patch.saleAssigned?.deliveryMethods === "ALL"
+            ? patch.saleAssigned.deliveryMethods
+            : current.saleAssigned.deliveryMethods,
+      },
+    };
+    await this.prisma.systemSetting.upsert({
+      where: { id: NOTIFICATION_RULES_KEY },
+      create: { id: NOTIFICATION_RULES_KEY, value: next },
+      update: { value: next },
+    });
+    return next;
+  }
+
   private async isChannelEnabled(
     userId: string,
     type: NotificationType,
@@ -363,12 +509,7 @@ export class NotificationsService {
       where: { userId_type: { userId, type } },
     });
     if (!pref) {
-      if (channel === "inApp") return true;
-      if (channel === "mobile" && type === "FIELD_SHIFT_CLOSE_REMINDER") return true;
-      if (channel === "mobile" && type === "FIELD_GPS_STALE") return true;
-      if (channel === "mobile" && type === "PLANNING_FACTORY_DUE") return true;
-      if (channel === "mobile" && type === "PLANNING_PACKING_DUE") return true;
-      return false;
+      return defaultChannelsForType(type)[channel];
     }
     return pref[channel];
   }

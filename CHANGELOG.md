@@ -4,7 +4,33 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.204**.)_
+_(планируемые изменения после **0.2.205**.)_
+
+## [0.2.205] — 2026-10-23
+
+### Summary
+
+Патч **0.2.205**: модуль маркетингу (атрибуція, витрати, аудиторії, посилання) і сповіщення про призначення замовлення продавцю. Перед тегом закрито DI-цикл `OrderSaleAssignedNotifierService`, щоб backend стартував.
+
+### Added
+
+- Marketing (`ext.marketing`): акаунти Meta / Google / TikTok, денні insights, конверсії, аудиторії, UTM-посилання, дашборд `/marketing`, налаштування `/settings/marketing`. Compose `compose.modules.marketing.yml`.
+- Контакт: **marketingAdsOptOut**. Заявки магазину і Meta-повідомлення з реклами передають атрибуцію.
+- Сповіщення **CLIENT_ORDER_ACCEPTED** новому власнику замовлення (клієнт, місто, доставка) і **RISK_ALERT** замість підміни `ORDER_STAGE_CHANGED`. Правило організації: увімкнено / лише самовивіз.
+
+### Changed
+
+- Kit Board: запропонована кількість одного комплекту більше не забирає спільні деталі в інших комплектів. Резерв лишається за відкритими пакувальними заявками.
+
+### Fixed
+
+- `OrderSaleAssignedNotifierService` інжектить `NotificationsService` через `@Inject(forwardRef(...))`. Інакше Nest бачить dependency index [1] як `?` і backend не стартує.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.205`**.
+- **Не використовувати `0.2.199`, `0.2.200`, `0.2.201` і `0.2.202`** (backend не стартує).
+- **Міграції до `up`:** `20261021180000_marketing_module`, `20261022160000_client_order_and_risk_notifications`.
 
 ## [0.2.204] — 2026-10-15
 

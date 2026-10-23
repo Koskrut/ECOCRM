@@ -52,6 +52,8 @@ import { normalizePhone, scoreLeadFromAnswers } from "./leads-meta.utils";
 import { LeadsPipelineConfigService } from "./pipeline/leads-pipeline-config.service";
 import { WorkflowDomainEmitterService } from "../workflows/workflow-domain-emitter.service";
 import { NotificationsService } from "../notifications/notifications.service";
+import { OrderSaleAssignedNotifierService } from "../notifications/order-sale-assigned-notifier.service";
+import { MarketingConversionService } from "../marketing/marketing-conversion.service";
 
 export type MetaIngestWebhookResult =
   | { ok: true; leadId: string; deduped: boolean }
@@ -94,7 +96,9 @@ export class LeadsService {
     private readonly leadsPipelineConfig: LeadsPipelineConfigService,
     private readonly workflowEmitter: WorkflowDomainEmitterService,
     @Optional() private readonly notifications?: NotificationsService,
+    @Optional() private readonly saleAssignedNotifier?: OrderSaleAssignedNotifierService,
     @Optional() private readonly customFields?: CustomFieldsService,
+    @Optional() private readonly marketing?: MarketingConversionService,
   ) {}
 
   // ===== ACCESS HELPERS =====
@@ -450,6 +454,7 @@ export class LeadsService {
       include: {
         items: { include: { product: true } },
         attribution: true,
+        marketingTouch: true,
         answers: true,
         events: { orderBy: { createdAt: "desc" } },
         identities: true,
@@ -530,7 +535,7 @@ export class LeadsService {
         void this.notifications?.notifyNewLead({
           ownerId: dto.ownerId,
           leadId: id,
-          title: `Новий лід: ${label}`,
+          title: `Лід призначено вам: ${label}`,
           body: existingFull.phone ?? existingFull.message ?? undefined,
           actorId: actor?.id,
         });
@@ -665,6 +670,7 @@ export class LeadsService {
       },
     });
 
+    await this.notifyMarketing(id);
     return this.mapToEntity(updated);
   }
 
@@ -1043,6 +1049,13 @@ export class LeadsService {
         result.conversionOrderId,
         result.deal as Record<string, unknown>,
       );
+      if (orderOwnerId !== actor.id) {
+        void this.saleAssignedNotifier?.notifyIfNeeded({
+          orderId: result.conversionOrderId,
+          newOwnerId: orderOwnerId,
+          actorId: actor.id,
+        });
+      }
     }
     const next = this.mapToEntity(result.updatedLead);
     const changes: Record<string, { previous?: unknown; current?: unknown }> = {
@@ -1062,6 +1075,7 @@ export class LeadsService {
       changes,
     );
 
+    await this.notifyMarketing(id);
     return {
       lead: next,
       contact: result.contact,
@@ -1182,6 +1196,13 @@ export class LeadsService {
         lineTotal: it.lineTotal,
         product: it.product ?? null,
       })),
+      marketingTouch: lead.marketingTouch
+        ? {
+            displayName: lead.marketingTouch.displayName ?? null,
+            platform: lead.marketingTouch.platform ?? null,
+            campaignExternalId: lead.marketingTouch.campaignExternalId ?? null,
+          }
+        : null,
       attribution: attribution
         ? {
             id: attribution.id,
@@ -1755,6 +1776,18 @@ export class LeadsService {
       },
     });
 
+    await this.notifyMarketing(lead.id);
     return { leadId: lead.id, deduped: false };
+  }
+
+  private async notifyMarketing(leadId: string): Promise<void> {
+    if (!this.marketing) return;
+    try {
+      await this.marketing.onLeadChanged(leadId);
+    } catch (error) {
+      this.logger.warn(
+        `marketing ${leadId}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
   }
 }

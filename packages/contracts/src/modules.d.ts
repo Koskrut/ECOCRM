@@ -4,6 +4,7 @@ export declare const ModuleIds: {
   readonly ManualCalling: "ext.manual_calling";
   readonly VoiceOutbound: "ext.voice_outbound";
   readonly Finance: "ext.finance";
+  readonly Marketing: "ext.marketing";
   readonly ProductionPlanning: "ext.production_planning";
   readonly Store: "ext.store";
   readonly RiskManagement: "ext.risk_management";
