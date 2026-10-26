@@ -71,6 +71,7 @@ export const en = {
     openList: "Open",
     backToLists: "All lists",
     progress: (packed: number, plan: number) => `${packed} / ${plan}`,
+    untilClose: "Until the request closes",
   },
   risk: {
     pageTitle: "Risk control tower",
@@ -1218,6 +1219,7 @@ export const en = {
       factoryTracking: "Delivery tracking",
       qtyReceived: "Received",
       qtyPacked: "Received (packed)",
+      untilRequestClose: "Until the request closes",
       searchPart: "Search part (SKU / name)…",
       addPartQty: "Qty",
       needQty: "Gap / need",

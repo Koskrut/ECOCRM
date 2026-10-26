@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
+import { FillBar, sumReceiptProgress } from "@/components/FillBar";
 import { strings } from "@/locales";
 import {
   planningApi,
@@ -494,20 +495,21 @@ function KitPartsCell({
 type PackWeekFilter = "all" | "can" | "blocked";
 
 function WeekFillBar({ used, limit }: { used: number; limit: number }) {
-  const pct = limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : 0;
-  const bar =
-    pct >= 90 ? "h-full bg-emerald-500" : pct >= 50 ? "h-full bg-cyan-600" : "h-full bg-amber-500";
+  return <FillBar used={used} limit={limit} />;
+}
+
+function ReceiptCloseBar({
+  ordered,
+  covered,
+}: {
+  ordered: number;
+  covered: number;
+}) {
+  if (ordered <= 0) return null;
   return (
-    <div>
-      <div className="mb-1 flex justify-between text-xs text-zinc-600">
-        <span>
-          {used} / {limit}
-        </span>
-        <span>{pct}%</span>
-      </div>
-      <div className="h-2 overflow-hidden rounded-full bg-zinc-100">
-        <div className={bar} style={{ width: `${pct}%` }} />
-      </div>
+    <div className="mb-4 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2">
+      <p className="mb-1 text-xs font-medium text-zinc-600">{strings.planning.labels.untilRequestClose}</p>
+      <FillBar used={covered} limit={ordered} />
     </div>
   );
 }
@@ -610,6 +612,18 @@ export function PackingPanel({
   const weekRequest = active?.capacityUsed ?? 0;
   const weekLimit = active?.capacityLimit ?? packCapacityFallback;
   const blockedCount = lines.filter((l) => (l.targetPack ?? 0) > 0 && l.maxFromParts <= 0).length;
+  const packingReceipt = useMemo(
+    () =>
+      sumReceiptProgress(
+        lines
+          .filter((l) => l.qtyApproved > 0)
+          .map((l) => ({
+            ordered: l.qtyApproved,
+            received: Number(packedQtys[l.kitProductId] ?? l.qtyPacked) || 0,
+          })),
+      ),
+    [lines, packedQtys],
+  );
 
   const filtered = useMemo(() => {
     if (filter === "can") return lines.filter((l) => l.maxFromParts > 0);
@@ -948,6 +962,9 @@ export function PackingPanel({
               </button>
               <p className="text-xs text-zinc-500">{t.labels.packingDueHint}</p>
             </div>
+          ) : null}
+          {active.status === "APPROVED" || active.status === "DONE" ? (
+            <ReceiptCloseBar ordered={packingReceipt.ordered} covered={packingReceipt.covered} />
           ) : null}
           <SimpleTable
             headers={[
@@ -1298,6 +1315,19 @@ export function FactoryPanel({
       setBusy(false);
     }
   };
+
+  const factoryReceipt = useMemo(
+    () =>
+      sumReceiptProgress(
+        (active?.lines ?? []).map((l) => ({
+          ordered: l.qtyOrdered,
+          received: Number(lineReceived[l.partProductId] ?? l.qtyReceived) || 0,
+        })),
+      ),
+    [active?.lines, lineReceived],
+  );
+  const showFactoryReceipt =
+    active?.status === "OPEN" || active?.status === "PARTIAL" || active?.status === "CLOSED";
 
   return (
     <div className="space-y-4" id="factory-tracking">
@@ -1712,6 +1742,10 @@ export function FactoryPanel({
             ) : null}
             <p className="text-xs text-zinc-500">{t.labels.factoryDueHint}</p>
           </div>
+
+          {showFactoryReceipt ? (
+            <ReceiptCloseBar ordered={factoryReceipt.ordered} covered={factoryReceipt.covered} />
+          ) : null}
 
           {active.status === "DRAFT" ? (
             <div className="mb-4 rounded-xl border border-zinc-100 bg-zinc-50 p-3">

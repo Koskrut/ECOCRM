@@ -72,6 +72,7 @@ export const uk = {
     openList: "Відкрити",
     backToLists: "Усі заявки",
     progress: (packed: number, plan: number) => `${packed} / ${plan}`,
+    untilClose: "До закриття заявки",
   },
   risk: {
     pageTitle: "Башта керування ризиками",
@@ -1221,6 +1222,7 @@ export const uk = {
       factoryTracking: "Відстеження поставок",
       qtyReceived: "Отримано",
       qtyPacked: "Отримано (упаковано)",
+      untilRequestClose: "До закриття заявки",
       searchPart: "Пошук деталі (артикул / назва)…",
       addPartQty: "Кількість",
       needQty: "Брак / Потрібно",

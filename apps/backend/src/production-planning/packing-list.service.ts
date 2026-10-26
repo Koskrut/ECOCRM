@@ -18,6 +18,7 @@ import { ForecastService } from "./forecast.service";
 import { packCycleEndUtc, packCycleStartUtc, resolvePackCycleStartUtc } from "./pack-cycle.util";
 import { PlanningCalculationService } from "./planning-calculation.service";
 import { PlanningSettingsService } from "./planning-settings.service";
+import { buildPackingListExcelAoA } from "./packing-list-excel.util";
 import { filterPackableProposedLines } from "./planning-packable-lines.util";
 import { assertFreshSnapshot, evaluateSnapshotFreshness } from "./snapshot-freshness.util";
 import { MrpConfigService } from "./mrp-config.service";
@@ -1100,20 +1101,20 @@ export class PackingListService {
 
   async exportExcel(id: string): Promise<StreamableFile> {
     const list = await this.get(id);
-    const rows = list.lines.map((l) => ({
-      kitSku: l.kitProduct.sku,
-      kitName: l.kitProduct.name,
-      parts: (l.parts ?? [])
-        .map((p) => `${p.name || p.sku} x${p.qtyPerKit} (stock ${p.available})`)
-        .join("; "),
-      need: l.targetPack,
-      canAssemble: l.maxFromParts,
-      inRequest: l.qtyApproved,
-      missingPart: l.bottleneckName ?? l.bottleneckSku ?? "",
-      why: l.priority === 0 ? "orders" : "stock",
-    }));
+    const aoa = buildPackingListExcelAoA(
+      list.lines.map((l) => ({
+        kitSku: l.kitProduct.sku,
+        kitName: l.kitProduct.name,
+        partSkus: (l.parts ?? []).map((p) => p.sku).filter((sku) => sku.trim().length > 0),
+        need: l.targetPack,
+        canAssemble: l.maxFromParts,
+        inRequest: l.qtyApproved,
+        missingPart: l.bottleneckName ?? l.bottleneckSku ?? "",
+        why: l.priority === 0 ? "orders" : "stock",
+      })),
+    );
     const wb = XLSX.utils.book_new();
-    const ws = XLSX.utils.json_to_sheet(rows);
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
     XLSX.utils.book_append_sheet(wb, ws, "PackingList");
     const buffer = XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer;
     const date = list.cycleStart.toISOString().slice(0, 10);

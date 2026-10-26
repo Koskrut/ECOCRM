@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { FillBar, sumReceiptProgress } from "@/components/FillBar";
 import { planningApi, type PackingList } from "@/lib/api/resources/planning";
 import { strings } from "@/locales";
 
@@ -92,15 +93,16 @@ export default function WarehousePackingPage() {
     [active],
   );
 
-  const totals = useMemo(() => {
-    let plan = 0;
-    let got = 0;
-    for (const line of lines) {
-      plan += line.qtyApproved;
-      got += Math.max(0, Math.floor(Number(packed[line.kitProductId]) || 0));
-    }
-    return { plan, got };
-  }, [lines, packed]);
+  const totals = useMemo(
+    () =>
+      sumReceiptProgress(
+        lines.map((line) => ({
+          ordered: line.qtyApproved,
+          received: Number(packed[line.kitProductId]) || 0,
+        })),
+      ),
+    [lines, packed],
+  );
 
   const editable = active?.status === "APPROVED";
 
@@ -229,8 +231,6 @@ export default function WarehousePackingPage() {
                   </h2>
                   <p className="text-sm text-zinc-500">
                     {active.status === "DONE" ? t.statusDone : t.statusApproved}
-                    {" · "}
-                    {t.progress(totals.got, totals.plan)}
                   </p>
                 </div>
                 {editable ? (
@@ -262,6 +262,13 @@ export default function WarehousePackingPage() {
                   </div>
                 ) : null}
               </div>
+
+              {totals.ordered > 0 ? (
+                <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2">
+                  <p className="mb-1 text-xs font-medium text-zinc-600">{t.untilClose}</p>
+                  <FillBar used={totals.covered} limit={totals.ordered} />
+                </div>
+              ) : null}
 
               <div className="overflow-x-auto rounded-xl border border-zinc-200">
                 <table className="min-w-full text-sm">
