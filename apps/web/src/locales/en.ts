@@ -763,7 +763,7 @@ export const en = {
       filterAll: "All",
       filterPack: "Pack now",
       filterPackHint:
-        "Kit stock is below 3-month sales and parts on 39/40 can already build it — add to packing.",
+        "Kit stock is below 3-month sales and parts on 39/40 can already build it — add to packing. Kits with no CRM sales can be packed too when parts are on hand.",
       filterMissing: "Missing parts",
       filterMissingHint:
         "3-month sales are not covered by stock, but parts are short — send to production.",

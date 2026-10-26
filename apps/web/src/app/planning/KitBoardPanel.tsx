@@ -243,8 +243,9 @@ export function KitBoardPanel() {
     const filtered = (board?.rows ?? []).filter((row) => {
       // Увага = залишок на 44/Suprex не покриває продажі за 3 міс. (need уже мінус alreadyInRequest).
       if (boardFilter === "attention" && !(row.need > 0)) return false;
-      // Пакувати зараз = є дірка по продажах і деталі дозволяють зібрати.
-      if (boardFilter === "pack" && !(row.toPack > 0)) return false;
+      // Пакувати зараз = деталі дозволяють зібрати: дірка по продажах або продажів не було.
+      const packableWithoutSales = !(row.avgMonthlySold > 0) && packCanDefaultQty(row) > 0;
+      if (boardFilter === "pack" && !(row.toPack > 0 || packableWithoutSales)) return false;
       // Немає деталей = дірка, яку не закрити упаковкою з наявних деталей.
       if (boardFilter === "missing" && !(row.toProduce > 0)) return false;
       if (abcFilter.size > 0 && !abcFilter.has(row.paretoClass)) return false;
@@ -293,7 +294,9 @@ export function KitBoardPanel() {
     sortKey === key ? (sortDir === "asc" ? " ↑" : " ↓") : "";
 
   const attentionCount = (board?.rows ?? []).filter((row) => row.need > 0).length;
-  const packReadyCount = (board?.rows ?? []).filter((row) => row.toPack > 0).length;
+  const packReadyCount = (board?.rows ?? []).filter(
+    (row) => row.toPack > 0 || (!(row.avgMonthlySold > 0) && packCanDefaultQty(row) > 0),
+  ).length;
   const missingCount = (board?.rows ?? []).filter((row) => row.toProduce > 0).length;
 
   const openConfirm = (next: PendingAdd) => {
@@ -925,18 +928,14 @@ function BoardRow({
                   ? t.packCanPhysical(row.canAssemble)
                   : undefined
               }
-              // Only add when there is a sales gap — packing with need=0 inflates GP.
-              allowAdd={row.toPack > 0 && (row.canAssembleRemaining ?? row.canAssemble) > 0}
+              // No CRM sales still packs from parts on hand. A covered sales gap does not.
+              allowAdd={freePackQty(row) > 0 && (row.toPack > 0 || !(row.avgMonthlySold > 0))}
               onSelect={() => onSelectQty(activeQty === canId ? null : canId)}
               onAdd={() =>
                 onAdd({
                   kind: "pack",
                   row,
-                  defaultQty: Math.min(
-                    row.canAssembleRemaining ?? row.canAssemble,
-                    // need/toPack already exclude alreadyInRequest from the API.
-                    row.toPack || row.need,
-                  ),
+                  defaultQty: packCanDefaultQty(row),
                   source: "can",
                 })
               }
@@ -968,8 +967,20 @@ function BoardRow({
   );
 }
 
+/** Parts still free for packing after open requests. Zero means nothing left to add. */
+function freePackQty(row: KitBoardRow): number {
+  return Math.max(0, row.canAssembleRemaining ?? row.canAssemble);
+}
+
+/** Qty offered from «можна». Without sales, the free part pool is the default. */
+function packCanDefaultQty(row: KitBoardRow): number {
+  const free = freePackQty(row);
+  if (row.toPack > 0) return Math.min(free, row.toPack);
+  return free;
+}
+
 function boardPackCap(row: KitBoardRow): number {
-  const remaining = row.canAssembleRemaining ?? row.canAssemble;
+  const remaining = freePackQty(row);
   if (row.toPack > 0) return row.toPack;
   return Math.min(remaining, row.need > 0 ? row.need : remaining);
 }
