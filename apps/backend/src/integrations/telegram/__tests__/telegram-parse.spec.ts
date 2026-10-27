@@ -52,6 +52,7 @@ describe("TelegramService.parseInbound", () => {
         contact: {
           phone_number: "+38 050 123 45 67",
           first_name: "Jane",
+          user_id: 111,
         },
       },
     };
@@ -76,17 +77,41 @@ describe("TelegramService.parseInbound", () => {
     assert.strictEqual(service.parseInbound(update), null);
   });
 
-  it("ignores edited_message updates", () => {
+  it("parses an edited message instead of dropping it", () => {
     const update = {
       update_id: 4,
       edited_message: {
         message_id: 104,
         date: 1700000003,
-        chat: { id: 555 },
+        chat: { id: 555, type: "private" },
         from: { id: 222, first_name: "Edit" },
         text: "Edited text",
       },
     };
-    assert.strictEqual(service.parseInbound(update), null);
+    const parsed = service.parseInbound(update);
+    assert.ok(parsed);
+    assert.equal(parsed.isEdit, true);
+    assert.equal(parsed.text, "Edited text");
+    assert.equal(parsed.messageId, 104);
+  });
+
+  it("does not treat a contact of another user as the sender phone", () => {
+    const update = {
+      update_id: 5,
+      message: {
+        message_id: 105,
+        date: 1700000004,
+        chat: { id: 111, type: "private" },
+        from: { id: 111, first_name: "Jane" },
+        contact: {
+          phone_number: "+380671112233",
+          first_name: "Other",
+          user_id: 999,
+        },
+      },
+    };
+    const parsed = service.parseInbound(update);
+    assert.equal(parsed.phone, null);
+    assert.match(parsed.text, /380671112233/);
   });
 });

@@ -37,7 +37,7 @@ describe("TelegramClientNotifyService", () => {
         }),
       },
       telegramAccount: {
-        findFirst: async () => ({ telegramChatId: "chat-1" }),
+        findMany: async () => [{ telegramChatId: "chat-1" }],
       },
       conversation: {
         findUnique: async () => ({ id: "conv1" }),
@@ -95,7 +95,7 @@ describe("TelegramClientNotifyService", () => {
           ttns: [],
         }),
       },
-      telegramAccount: { findFirst: async () => null },
+      telegramAccount: { findMany: async () => [] },
     };
     const service = new TelegramClientNotifyService(
       prisma as never,

@@ -36,6 +36,8 @@ export type AuthResponse = {
 const RESET_CODE_LENGTH = 6;
 const RESET_CODE_TTL_MINUTES = 15;
 const TELEGRAM_LINK_TOKEN_TTL_MINUTES = 10;
+const RESET_REQUEST_COOLDOWN_MS = 60_000;
+const RESET_ATTEMPT_LIMIT = 5;
 
 @Injectable()
 export class AuthService {
@@ -154,6 +156,18 @@ export class AuthService {
 
     const normalized = account.email.toLowerCase();
 
+    const latest = await this.prisma.passwordResetCode.findFirst({
+      where: { email: normalized },
+      orderBy: { createdAt: "desc" },
+    });
+    if (latest && Date.now() - latest.createdAt.getTime() < RESET_REQUEST_COOLDOWN_MS) {
+      return {
+        sentVia: account.telegramChatId ? "telegram" : null,
+        suggestConnectTelegram: !account.telegramChatId,
+        message: "Код уже отправлен. Подождите минуту перед повторным запросом.",
+      };
+    }
+
     const code = randomBytes(3).readUIntBE(0, 3) % 1_000_000;
     const codeStr = code.toString().padStart(RESET_CODE_LENGTH, "0");
     const expiresAt = new Date(Date.now() + RESET_CODE_TTL_MINUTES * 60 * 1000);
@@ -209,13 +223,24 @@ export class AuthService {
     const normalized = account.email.toLowerCase();
 
     const row = await this.prisma.passwordResetCode.findFirst({
-      where: { email: normalized, code: code.trim() },
+      where: { email: normalized },
       orderBy: { createdAt: "desc" },
     });
     if (!row) throw new UnauthorizedException("Недійсний або застарілий код");
     if (row.expiresAt < new Date()) {
       await this.prisma.passwordResetCode.deleteMany({ where: { email: normalized } });
       throw new UnauthorizedException("Код прострочено. Запитайте новий.");
+    }
+    if (row.code !== code.trim()) {
+      if (row.attempts + 1 >= RESET_ATTEMPT_LIMIT) {
+        await this.prisma.passwordResetCode.deleteMany({ where: { email: normalized } });
+      } else {
+        await this.prisma.passwordResetCode.update({
+          where: { id: row.id },
+          data: { attempts: row.attempts + 1 },
+        });
+      }
+      throw new UnauthorizedException("Недійсний або застарілий код");
     }
 
     await this.prisma.passwordResetCode.deleteMany({ where: { email: normalized } });
@@ -230,10 +255,9 @@ export class AuthService {
   /** Login with Telegram Login Widget data. User must have telegramUserId linked. */
   async loginWithTelegram(data: {
     id: number;
-    first_name?: string;
-    username?: string;
     auth_date: number;
     hash: string;
+    [key: string]: unknown;
   }): Promise<AuthResponse> {
     const botToken = (await this.settings.getTelegramSecrets()).botToken;
     if (!botToken) throw new BadRequestException("Telegram login not configured");
@@ -242,16 +266,7 @@ export class AuthService {
       throw new UnauthorizedException("Срок действия данных истёк. Войдите снова через Telegram.");
     }
 
-    const ok = verifyTelegramLoginHash(
-      {
-        id: data.id,
-        first_name: data.first_name,
-        username: data.username,
-        auth_date: data.auth_date,
-        hash: data.hash,
-      },
-      botToken,
-    );
+    const ok = verifyTelegramLoginHash(data, botToken);
     if (!ok) throw new UnauthorizedException("Invalid Telegram data");
 
     const user = await this.prisma.user.findUnique({

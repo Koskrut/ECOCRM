@@ -112,6 +112,8 @@ export type ParsedInbound = {
   fileId: string | null;
   /** True when the inbound came from an inline keyboard callback rather than a message. */
   isCallback: boolean;
+  /** True when Telegram delivered an edit of an existing message. */
+  isEdit: boolean;
   /** Present for callback_query updates (needed for answerCallbackQuery). */
   callbackQueryId: string | null;
 };

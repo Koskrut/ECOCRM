@@ -21,6 +21,7 @@ function parsed(overrides: Partial<ParsedInbound> = {}): ParsedInbound {
     mediaType: null,
     fileId: null,
     isCallback: false,
+    isEdit: false,
     callbackQueryId: null,
     ...overrides,
   };

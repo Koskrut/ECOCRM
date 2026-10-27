@@ -917,11 +917,7 @@ function BoardRow({
             <QtyAction
               id={canId}
               active={activeQty === canId}
-              qty={
-                (row.canAssembleRemaining ?? row.canAssemble) > 0
-                  ? (row.canAssembleRemaining ?? row.canAssemble)
-                  : row.canAssemble
-              }
+              qty={packCanShownQty(row)}
               label={t.packCan}
               accentClass="text-zinc-700"
               title={
@@ -930,8 +926,7 @@ function BoardRow({
                   ? t.packCanPhysical(row.canAssemble)
                   : undefined
               }
-              // No CRM sales still packs from parts on hand. A covered sales gap does not.
-              allowAdd={freePackQty(row) > 0 && (row.toPack > 0 || !(row.avgMonthlySold > 0))}
+              allowAdd={packCanShownQty(row) > 0}
               onSelect={() => onSelectQty(activeQty === canId ? null : canId)}
               onAdd={() =>
                 onAdd({
@@ -969,16 +964,23 @@ function BoardRow({
   );
 }
 
-/** Parts still free for packing after open requests. Zero means nothing left to add. */
+/** Parts still free for packing after open requests. */
 function freePackQty(row: KitBoardRow): number {
   return Math.max(0, row.canAssembleRemaining ?? row.canAssemble);
 }
 
-/** Qty offered from «можна». Without sales, the free part pool is the default. */
-function packCanDefaultQty(row: KitBoardRow): number {
+/** Number under «можна». Falls back to parts on 39/40 when the free pool is 0. */
+function packCanShownQty(row: KitBoardRow): number {
   const free = freePackQty(row);
-  if (row.toPack > 0) return Math.min(free, row.toPack);
-  return free;
+  if (free > 0) return free;
+  return Math.max(0, row.canAssemble);
+}
+
+/** Qty offered from «можна». The dialog must open on the number that is shown. */
+function packCanDefaultQty(row: KitBoardRow): number {
+  const shown = packCanShownQty(row);
+  if (row.toPack > 0) return Math.min(shown, row.toPack);
+  return shown;
 }
 
 function boardPackCap(row: KitBoardRow): number {

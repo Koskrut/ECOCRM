@@ -28,6 +28,12 @@ function getPhoneCandidatesForLookup(phoneNorm: string): string[] {
 
 const RESET_CODE_TTL_MINUTES = 15;
 const RESET_CODE_LENGTH = 6;
+const RESET_REQUEST_COOLDOWN_MS = 60_000;
+const RESET_ATTEMPT_LIMIT = 5;
+
+function isPrivateTelegramChatId(chatId: string | null | undefined): chatId is string {
+  return typeof chatId === "string" && chatId.length > 0 && !chatId.startsWith("-");
+}
 
 export type StoreAuthResponse = {
   token: string;
@@ -208,39 +214,7 @@ export class StoreAuthService {
     }
 
     if (!customer) {
-      let telegramChatIdForNew: string | null =
-        (await this.prisma.telegramAccount.findFirst({
-          where: { contactId: contact.id },
-          select: { telegramChatId: true },
-        }))?.telegramChatId ?? null;
-      if (!telegramChatIdForNew) {
-        const conv = await this.prisma.conversation.findFirst({
-          where: { contactId: contact.id },
-          select: { telegramChatId: true },
-        });
-        telegramChatIdForNew = conv?.telegramChatId ?? null;
-      }
-      if (!telegramChatIdForNew) {
-        const contactData = await this.prisma.contact.findUnique({
-          where: { id: contact.id },
-          select: { phoneNormalized: true, phones: { select: { phoneNormalized: true } } },
-        });
-        const contactNormals = new Set<string>();
-        if (contactData?.phoneNormalized) contactNormals.add(contactData.phoneNormalized);
-        contactData?.phones?.forEach((p) => {
-          if (p.phoneNormalized) contactNormals.add(p.phoneNormalized);
-        });
-        if (contactNormals.size > 0) {
-          const accountsWithPhone = await this.prisma.telegramAccount.findMany({
-            where: { phone: { not: null } },
-            select: { phone: true, telegramChatId: true },
-          });
-          const byPhone = accountsWithPhone.find(
-            (a) => a.phone && contactNormals.has(getPhoneNormalizedDigits(a.phone) ?? ""),
-          );
-          if (byPhone?.telegramChatId) telegramChatIdForNew = byPhone.telegramChatId;
-        }
-      }
+      const telegramChatIdForNew = await this.resolvePrivateTelegramChatId(contact.id);
       if (telegramChatIdForNew) {
         customer = await this.prisma.customer.create({
           data: {
@@ -256,41 +230,15 @@ export class StoreAuthService {
       }
     }
 
-    let telegramChatId: string | null =
-      (await this.prisma.telegramAccount.findFirst({
-        where: { contactId: contact.id },
-        select: { telegramChatId: true },
-      }))?.telegramChatId ?? null;
-
-    if (!telegramChatId) {
-      const conversation = await this.prisma.conversation.findFirst({
-        where: { contactId: contact.id },
-        select: { telegramChatId: true },
-      });
-      telegramChatId = conversation?.telegramChatId ?? null;
+    const recentCode = await this.prisma.storePasswordResetCode.findFirst({
+      where: { customerId: customer.id },
+      orderBy: { createdAt: "desc" },
+    });
+    if (recentCode && Date.now() - recentCode.createdAt.getTime() < RESET_REQUEST_COOLDOWN_MS) {
+      throw new BadRequestException("Зачекайте хвилину перед повторним запитом коду.");
     }
 
-    if (!telegramChatId) {
-      const contactData = await this.prisma.contact.findUnique({
-        where: { id: contact.id },
-        select: { phoneNormalized: true, phones: { select: { phoneNormalized: true } } },
-      });
-      const contactNormals = new Set<string>();
-      if (contactData?.phoneNormalized) contactNormals.add(contactData.phoneNormalized);
-      contactData?.phones?.forEach((p) => {
-        if (p.phoneNormalized) contactNormals.add(p.phoneNormalized);
-      });
-      if (contactNormals.size > 0) {
-        const accountsWithPhone = await this.prisma.telegramAccount.findMany({
-          where: { phone: { not: null } },
-          select: { phone: true, telegramChatId: true },
-        });
-        const byPhone = accountsWithPhone.find(
-          (a) => a.phone && contactNormals.has(getPhoneNormalizedDigits(a.phone) ?? ""),
-        );
-        if (byPhone?.telegramChatId) telegramChatId = byPhone.telegramChatId;
-      }
-    }
+    const telegramChatId = await this.resolvePrivateTelegramChatId(contact.id);
 
     if (!telegramChatId) {
       throw new BadRequestException("До цього контакту не привʼязано Telegram. Зверніться до менеджера магазину.");
@@ -345,13 +293,15 @@ export class StoreAuthService {
     const row = await this.prisma.storePasswordResetCode.findFirst({
       where: {
         customerId: { in: Array.from(customerIdsByPhone) },
-        code: code.trim(),
         expiresAt: { gt: now },
       },
       orderBy: { createdAt: "desc" },
       include: { customer: true },
     });
-    if (!row) throw new UnauthorizedException("Невірний або прострочений код");
+    if (!row || row.code !== code.trim()) {
+      if (row) await this.recordStoreResetFailure(row.id, row.customerId, row.attempts);
+      throw new UnauthorizedException("Невірний або прострочений код");
+    }
 
     await this.prisma.storePasswordResetCode.deleteMany({ where: { customerId: row.customerId } });
     await this.prisma.customer.update({
@@ -360,5 +310,38 @@ export class StoreAuthService {
     });
 
     return { ok: true };
+  }
+
+  /** Private chats only. A group id would publish the reset code to every member. */
+  private async resolvePrivateTelegramChatId(contactId: string): Promise<string | null> {
+    const accounts = await this.prisma.telegramAccount.findMany({
+      where: { contactId },
+      orderBy: { lastMessageAt: "desc" },
+      select: { telegramChatId: true },
+    });
+    const fromAccount = accounts.find((row) => isPrivateTelegramChatId(row.telegramChatId));
+    if (fromAccount) return fromAccount.telegramChatId;
+
+    const conversations = await this.prisma.conversation.findMany({
+      where: { contactId, telegramChatId: { not: null } },
+      orderBy: { lastMessageAt: "desc" },
+      select: { telegramChatId: true },
+    });
+    return conversations.find((row) => isPrivateTelegramChatId(row.telegramChatId))?.telegramChatId ?? null;
+  }
+
+  private async recordStoreResetFailure(
+    codeId: string,
+    customerId: string,
+    attempts: number,
+  ): Promise<void> {
+    if (attempts + 1 >= RESET_ATTEMPT_LIMIT) {
+      await this.prisma.storePasswordResetCode.deleteMany({ where: { customerId } });
+      return;
+    }
+    await this.prisma.storePasswordResetCode.update({
+      where: { id: codeId },
+      data: { attempts: attempts + 1 },
+    });
   }
 }

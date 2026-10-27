@@ -76,16 +76,7 @@ export class AuthController {
 
   @Public()
   @Post("/telegram-login")
-  public async telegramLogin(
-    @Body()
-    body: {
-      id?: number;
-      first_name?: string;
-      username?: string;
-      auth_date?: number;
-      hash?: string;
-    },
-  ) {
+  public async telegramLogin(@Body() body: Record<string, unknown>) {
     if (
       typeof body?.id !== "number" ||
       typeof body?.auth_date !== "number" ||
@@ -94,9 +85,8 @@ export class AuthController {
       throw new BadRequestException("id, auth_date and hash required");
     }
     return this.authService.loginWithTelegram({
+      ...body,
       id: body.id,
-      first_name: body.first_name,
-      username: body.username,
       auth_date: body.auth_date,
       hash: body.hash,
     });

@@ -246,18 +246,13 @@ export class ConversationsService {
       this.prisma.message.count({ where: { conversationId } }),
     ]);
 
-    const items = await Promise.all(
-      messages.map(async (m) => {
-        let fileUrl = m.fileUrl;
-        // Refresh Telegram photo URLs on read — Bot API paths expire.
-        if (m.fileId && m.mediaType === "photo") {
-          try {
-            fileUrl = await this.telegramService.resolveFileUrl(m.fileId);
-          } catch {
-            /* keep stored url / null */
-          }
-        }
-        return {
+    const items = messages.map((m) => {
+      let fileUrl = m.fileUrl;
+      // Never return a Bot API URL: it embeds the bot token.
+      if (fileUrl && (fileUrl.includes("/file/bot") || fileUrl.includes("api.telegram.org/file/bot"))) {
+        fileUrl = null;
+      }
+      return {
           id: m.id,
           conversationId: m.conversationId,
           direction: m.direction,
@@ -272,8 +267,7 @@ export class ConversationsService {
           fileUrl,
           status: m.status,
         };
-      }),
-    );
+    });
 
     return {
       items,
@@ -281,6 +275,27 @@ export class ConversationsService {
       page,
       pageSize,
     };
+  }
+
+  async getMessageFile(
+    conversationId: string,
+    messageId: string,
+    actor: AuthUser | undefined,
+  ): Promise<{ contentType: string; body: Buffer }> {
+    const safeActor = this.requireActor(actor);
+    const conv = await this.prisma.conversation.findUnique({
+      where: { id: conversationId },
+      select: { id: true, assignedToUserId: true },
+    });
+    if (!conv) throw new NotFoundException("Conversation not found");
+    this.assertManagerCanAccessConversation(safeActor, conv);
+
+    const message = await this.prisma.message.findFirst({
+      where: { id: messageId, conversationId },
+      select: { fileId: true },
+    });
+    if (!message?.fileId) throw new NotFoundException("File not found");
+    return this.telegramService.downloadFile(message.fileId);
   }
 
   async updateStatus(

@@ -809,6 +809,7 @@ model PasswordResetCode {
   email     String
   code      String
   expiresAt DateTime
+  attempts  Int      @default(0)
   createdAt DateTime @default(now())
 
   @@index([email])
@@ -1078,6 +1079,7 @@ model StorePasswordResetCode {
   customerId String
   code       String
   expiresAt  DateTime
+  attempts   Int      @default(0)
   createdAt  DateTime @default(now())
 
   customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)

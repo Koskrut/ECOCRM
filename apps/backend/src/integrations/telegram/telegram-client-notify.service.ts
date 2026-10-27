@@ -152,12 +152,13 @@ export class TelegramClientNotifyService implements OnModuleInit {
   ): Promise<string | null> {
     const ids = [clientId, contactId].filter(Boolean) as string[];
     if (ids.length === 0) return null;
-    const account = await this.prisma.telegramAccount.findFirst({
+    const account = await this.prisma.telegramAccount.findMany({
       where: { contactId: { in: ids } },
       orderBy: { lastMessageAt: "desc" },
       select: { telegramChatId: true },
     });
-    return account?.telegramChatId ?? null;
+    return account.find((row) => row.telegramChatId && !row.telegramChatId.startsWith("-"))
+      ?.telegramChatId ?? null;
   }
 
   private async tryPayUrl(orderId: string, contactId: string | null): Promise<string | null> {

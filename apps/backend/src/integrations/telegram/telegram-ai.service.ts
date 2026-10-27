@@ -8,6 +8,10 @@ const MAX_MESSAGES = 25;
 const MAX_SUGGESTIONS = 3;
 const OPENAI_TIMEOUT_MS = 20_000;
 
+function redactAiHistory(text: string): string {
+  return text.replace(/https?:\/\/\S+/gi, "[посилання]");
+}
+
 @Injectable()
 export class TelegramAiService {
   constructor(
@@ -54,7 +58,7 @@ export class TelegramAiService {
 
     const historyLines = chronologicalMessages.map((m) => {
       const who = m.direction === MessageDirection.INBOUND ? contactName : "Менеджер";
-      const text = (m.text || "").trim() || "(медіа)";
+      const text = redactAiHistory((m.text || "").trim() || "(медіа)");
       return `${who}: ${text}`;
     });
     const history = historyLines.join("\n") || "Немає повідомлень.";

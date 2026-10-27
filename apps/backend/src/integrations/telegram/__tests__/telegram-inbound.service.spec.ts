@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it, beforeEach } from "node:test";
 import { Prisma } from "@prisma/client";
+import { ServiceUnavailableException } from "@nestjs/common";
 import { TelegramService } from "../telegram.service";
 import type { TelegramUpdate } from "../telegram.types";
 
@@ -70,6 +71,7 @@ function makePrisma(overrides: AnyRec = {}) {
         return {};
       },
       count: async () => 1,
+      updateMany: async () => ({ count: 0 }),
     },
     $transaction: async (ops: unknown) => (Array.isArray(ops) ? Promise.all(ops) : ops),
     ...overrides,
@@ -146,11 +148,17 @@ function makeService(prisma: AnyRec) {
   };
   (service as unknown as AnyRec).resolveFileUrl = async () => null;
 
+  const leaveCalls: string[] = [];
+  (service as unknown as AnyRec).leaveChat = async (chatId: string) => {
+    leaveCalls.push(chatId);
+  };
+
   return {
     service,
     sent,
     upsertCalls,
     confirmLinkCalls,
+    leaveCalls,
     contactsService,
     phoneEntityLookup,
     settings,
@@ -178,7 +186,7 @@ function contactShareUpdate(phone: string, updateId = 2): TelegramUpdate {
       date: 1700000000,
       chat: { id: 12345, type: "private" },
       from: { id: 777, first_name: "Тест" },
-      contact: { phone_number: phone },
+      contact: { phone_number: phone, user_id: 777 },
     },
   };
 }
@@ -222,7 +230,10 @@ describe("TelegramService.handleInboundUpdate", () => {
     });
     harness = makeService(mock.prisma);
 
-    await harness.service.handleInboundUpdate(textUpdate("Привіт"));
+    await assert.rejects(
+      () => harness.service.handleInboundUpdate(textUpdate("Привіт")),
+      (err: unknown) => err instanceof ServiceUnavailableException,
+    );
 
     assert.equal(harness.upsertCalls.length, 0);
     assert.equal(harness.sent.length, 0);
@@ -280,7 +291,7 @@ describe("TelegramService.handleInboundUpdate", () => {
     assert.match(harness.sent[0].text, /Раді бачити/);
   });
 
-  it("rejects /link outside a private chat and does not confirm the link", async () => {
+  it("rejects /link in a group, leaves the chat, and does not confirm the link", async () => {
     const update: TelegramUpdate = {
       update_id: 5,
       message: {
@@ -295,8 +306,9 @@ describe("TelegramService.handleInboundUpdate", () => {
     await harness.service.handleInboundUpdate(update);
 
     assert.equal(harness.confirmLinkCalls.length, 0);
-    assert.equal(harness.sent.length, 1);
-    assert.match(harness.sent[0].text, /приватному чаті/);
+    assert.equal(harness.upsertCalls.length, 0);
+    assert.equal(harness.sent.length, 0);
+    assert.deepEqual(harness.leaveCalls, ["-100"]);
   });
 
   it("confirms /link in a private chat and replies with the linked account", async () => {
@@ -326,5 +338,143 @@ describe("TelegramService.handleInboundUpdate", () => {
     const data = mock.calls.messageCreate[0].data as AnyRec;
     assert.equal(data.mediaType, "photo");
     assert.equal(data.fileId, "large");
+    assert.equal(data.fileUrl, null);
+  });
+
+  it("does not bind a phone shared from a different Telegram user", async () => {
+    let lookups = 0;
+    harness.contactsService.findContactByPhone = async () => {
+      lookups += 1;
+      return { id: "contact-9" };
+    };
+    const update = contactShareUpdate("+380501112233", 8);
+    update.message!.contact = {
+      phone_number: "+380501112233",
+      user_id: 999,
+      first_name: "Інша",
+    };
+
+    await harness.service.handleInboundUpdate(update);
+
+    assert.equal(lookups, 0);
+    assert.equal(mock.calls.leadCreate.length, 0);
+    assert.equal(harness.upsertCalls[0]?.phone ?? null, null);
+    const saved = mock.calls.messageCreate[0]?.data as AnyRec;
+    assert.match(String(saved.text), /380501112233/);
+    assert.match(harness.sent[0]?.text ?? "", /номер/i);
+  });
+
+  it("does not create a lead in whichever company happens to be first", async () => {
+    mock = makePrisma({
+      company: { findFirst: async () => ({ id: "company-random" }) },
+    });
+    harness = makeService(mock.prisma);
+
+    await harness.service.handleInboundUpdate(contactShareUpdate("+380501234567", 10));
+
+    assert.equal(mock.calls.leadCreate.length, 0);
+  });
+
+  it("retries an update that previously failed", async () => {
+    mock = makePrisma({
+      telegramInboundUpdate: {
+        create: async () => {
+          throw p2002();
+        },
+        findUnique: async () => ({
+          id: "inb1",
+          processedAt: null,
+          processingError: "boom",
+          createdAt: new Date(),
+        }),
+        update: async () => ({}),
+        deleteMany: async () => ({ count: 0 }),
+      },
+    });
+    harness = makeService(mock.prisma);
+
+    await harness.service.handleInboundUpdate(textUpdate("Привіт", 11));
+
+    assert.equal(harness.upsertCalls.length, 1);
+  });
+
+  it("stores the new text of an edited private message and skips the menu", async () => {
+    const edits: AnyRec[] = [];
+    mock = makePrisma({
+      conversation: {
+        findUnique: async () => ({ id: "conv1" }),
+        create: async () => ({ id: "conv1" }),
+        update: async () => ({}),
+        updateMany: async () => ({ count: 0 }),
+      },
+      message: {
+        create: async () => ({}),
+        count: async () => 0,
+        updateMany: async (args: AnyRec) => {
+          edits.push(args);
+          return { count: 1 };
+        },
+      },
+    });
+    harness = makeService(mock.prisma);
+
+    await harness.service.handleInboundUpdate({
+      update_id: 12,
+      edited_message: {
+        message_id: 100,
+        date: 1700000000,
+        chat: { id: 12345, type: "private" },
+        from: { id: 777, first_name: "Тест" },
+        text: "Новий текст",
+      },
+    });
+
+    assert.equal(harness.upsertCalls.length, 0);
+    assert.equal(edits.length, 1);
+    assert.equal((edits[0].data as AnyRec).text, "Новий текст");
+  });
+});
+
+describe("TelegramService.upsertTelegramAccount", () => {
+  it("does not reassign a chat id that already belongs to another user", async () => {
+    let updated = false;
+    const prisma = {
+      telegramAccount: {
+        upsert: async () => {
+          throw p2002();
+        },
+        findUnique: async () => ({
+          id: "row",
+          telegramUserId: "owner",
+          telegramChatId: "-100",
+        }),
+        update: async () => {
+          updated = true;
+          return {};
+        },
+      },
+    };
+    const service = new TelegramService(
+      prisma as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+
+    await assert.rejects(() =>
+      (service as unknown as AnyRec).upsertTelegramAccount({
+        telegramUserId: "attacker",
+        telegramChatId: "-100",
+        username: null,
+        firstName: null,
+        lastName: null,
+        middleName: null,
+        phone: null,
+        lastMessageAt: new Date(),
+      }),
+    );
+    assert.equal(updated, false);
   });
 });

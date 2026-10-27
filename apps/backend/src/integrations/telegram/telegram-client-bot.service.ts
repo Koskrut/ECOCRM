@@ -67,6 +67,22 @@ type NpStreetHit = {
   description?: string;
 };
 
+function clientSafeCheckoutError(err: unknown): string {
+  const fallback = "Помилка оформлення";
+  if (!(err instanceof BadRequestException)) return fallback;
+  const response = err.getResponse();
+  const raw =
+    typeof response === "string"
+      ? response
+      : response && typeof response === "object" && "message" in response
+        ? (response as { message?: unknown }).message
+        : null;
+  const text = Array.isArray(raw) ? raw.filter((part) => typeof part === "string").join(", ") : raw;
+  if (typeof text !== "string" || !text.trim() || text.length > 300) return fallback;
+  if (/prisma|token|stack|sql|api\.telegram/i.test(text)) return fallback;
+  return text;
+}
+
 @Injectable()
 export class TelegramClientBotService {
   private readonly logger = new Logger(TelegramClientBotService.name);
@@ -1070,10 +1086,11 @@ export class TelegramClientBotService {
         hits.map((h, i) => [{ text: h.name.slice(0, 60), callback_data: `chk:city:${i}` }]),
       );
     } catch (err) {
+      this.logger.warn(`searchCities failed: ${err instanceof Error ? err.message : String(err)}`);
       await this.replyMenu(
         parsed.chatId,
         conversationId,
-        `Пошук міста недоступний: ${err instanceof Error ? err.message : "помилка"}`,
+        `Пошук міста тимчасово недоступний. Спробуйте ще раз або напишіть менеджеру.`,
       );
     }
   }
@@ -1121,10 +1138,13 @@ export class TelegramClientBotService {
         hits.map((h, i) => [{ text: h.name.slice(0, 60), callback_data: `chk:wh:${i}` }]),
       );
     } catch (err) {
+      this.logger.warn(
+        `searchWarehouses failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
       await this.replyMenu(
         parsed.chatId,
         conversationId,
-        `Пошук відділень недоступний: ${err instanceof Error ? err.message : "помилка"}`,
+        `Пошук відділень тимчасово недоступний. Спробуйте інший запит або напишіть менеджеру.`,
       );
     }
   }
@@ -1162,10 +1182,11 @@ export class TelegramClientBotService {
         hits.map((h, i) => [{ text: h.name.slice(0, 60), callback_data: `chk:st:${i}` }]),
       );
     } catch (err) {
+      this.logger.warn(`searchStreets failed: ${err instanceof Error ? err.message : String(err)}`);
       await this.replyMenu(
         parsed.chatId,
         conversationId,
-        `Пошук вулиць недоступний: ${err instanceof Error ? err.message : "помилка"}`,
+        `Пошук вулиць тимчасово недоступний. Спробуйте ще або напишіть менеджеру.`,
       );
     }
   }
@@ -1273,12 +1294,10 @@ export class TelegramClientBotService {
       text += "\n\nСтатус можна дивитись у «Замовлення».";
       await this.replyMenu(parsed.chatId, conversationId, text);
     } catch (err) {
-      const msg =
-        err instanceof BadRequestException
-          ? String((err as BadRequestException).message)
-          : err instanceof Error
-            ? err.message
-            : "Помилка оформлення";
+      this.logger.warn(
+        `finishCheckout failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      const msg = clientSafeCheckoutError(err);
       await this.replyMenu(
         parsed.chatId,
         conversationId,

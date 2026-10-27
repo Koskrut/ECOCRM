@@ -1,4 +1,13 @@
-import { BadRequestException, forwardRef, Inject, Injectable, Logger, Optional } from "@nestjs/common";
+import {
+  BadRequestException,
+  forwardRef,
+  Inject,
+  Injectable,
+  Logger,
+  NotFoundException,
+  Optional,
+  ServiceUnavailableException,
+} from "@nestjs/common";
 import { ConversationChannel, ConversationStatus, MessageDirection } from "@prisma/client";
 import { LeadSource } from "@prisma/client";
 import { LeadStatus } from "@prisma/client";
@@ -29,12 +38,26 @@ function normalizePhoneDigits(phone: string): string {
   return String(phone ?? "").replace(/\D/g, "");
 }
 
-/** Skip reprocessing a stuck (unprocessed) inbound record only after it is this old. */
-const INBOUND_RETRY_STALE_MS = 5 * 60 * 1000;
+/** A duplicate delivery is treated as in-flight only this long. After that, retry the update. */
+const INBOUND_RETRY_STALE_MS = 45 * 1000;
+const TELEGRAM_TEXT_LIMIT = 4096;
+const INBOUND_PRUNE_INTERVAL_MS = 60 * 60 * 1000;
+const INBOUND_RETAIN_MS = 30 * 24 * 60 * 60 * 1000;
+
+function clipTelegramText(text: string, limit = TELEGRAM_TEXT_LIMIT): string {
+  if (text.length <= limit) return text;
+  return `${text.slice(0, limit - 1)}…`;
+}
+
+function isPrivateTelegramChat(chatType: string | null, chatId: string): boolean {
+  if (chatType) return chatType === "private";
+  return !chatId.startsWith("-");
+}
 
 @Injectable()
 export class TelegramService {
   private readonly logger = new Logger(TelegramService.name);
+  private lastPruneAt = 0;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -107,20 +130,28 @@ export class TelegramService {
         mediaType: null,
         fileId: null,
         isCallback: true,
+        isEdit: false,
         callbackQueryId: cb.id ?? null,
       };
     }
 
-    const msg = update.message;
+    const msg = update.message ?? update.edited_message;
     if (!msg?.chat?.id || !msg.from?.id) return null;
+    const isEdit = !update.message && Boolean(update.edited_message);
 
     const from = msg.from;
     const chat = msg.chat;
     const media = this.extractMedia(msg);
     const caption = typeof msg.caption === "string" ? msg.caption : null;
-    const text = typeof msg.text === "string" ? msg.text : caption;
-    const phone =
-      msg.contact?.phone_number != null ? normalizePhoneDigits(msg.contact.phone_number) : null;
+    let text = typeof msg.text === "string" ? msg.text : caption;
+    const phone = this.ownContactPhone(msg);
+    if (msg.contact && !phone) {
+      const label = [msg.contact.first_name, msg.contact.last_name, msg.contact.phone_number]
+        .filter((part) => typeof part === "string" && part.trim())
+        .join(" ");
+      const note = label ? `[контакт: ${label}]` : "[контакт]";
+      text = text ? `${text}\n${note}` : note;
+    }
     const date = msg.date != null ? new Date(msg.date * 1000) : new Date();
 
     return {
@@ -130,15 +161,29 @@ export class TelegramService {
       username: from.username ?? null,
       firstName: from.first_name ?? null,
       lastName: from.last_name ?? null,
-      phone: phone && phone.length >= 5 ? msg.contact!.phone_number! : null,
+      phone,
       messageId: msg.message_id,
       date,
       text,
       mediaType: media?.mediaType ?? null,
       fileId: media?.fileId ?? null,
       isCallback: false,
+      isEdit,
       callbackQueryId: null,
     };
+  }
+
+  /**
+   * A shared contact is identity only when Telegram says it belongs to the sender
+   * (the "share my phone number" button sets contact.user_id = from.id).
+   */
+  private ownContactPhone(msg: TelegramMessage): string | null {
+    const contact = msg.contact;
+    if (!contact?.phone_number || msg.from?.id == null || contact.user_id == null) return null;
+    if (String(contact.user_id) !== String(msg.from.id)) return null;
+    const digits = normalizePhoneDigits(contact.phone_number);
+    if (digits.length < 5) return null;
+    return contact.phone_number;
   }
 
   /**
@@ -146,6 +191,7 @@ export class TelegramService {
    * link contact/lead, create inbound message.
    */
   async handleInboundUpdate(update: TelegramUpdate): Promise<void> {
+    if (!update || typeof update !== "object" || update.update_id == null) return;
     const parsed = this.parseInbound(update);
     if (!parsed) return;
     const updateId = String(update.update_id);
@@ -161,29 +207,34 @@ export class TelegramService {
       const existing = await this.prisma.telegramInboundUpdate.findUnique({
         where: { updateId },
       });
-      // Already processed, or a recent attempt is still in flight: skip to stay idempotent.
-      // Only reprocess a record that failed and has since gone stale.
-      if (
-        !existing ||
-        existing.processedAt ||
-        existing.createdAt.getTime() > Date.now() - INBOUND_RETRY_STALE_MS
-      ) {
-        return;
+      if (!existing || existing.processedAt) return;
+      const ageMs = Date.now() - existing.createdAt.getTime();
+      const failed = Boolean(existing.processingError);
+      // A recent row without an error is the request that is still running.
+      // 503 makes Telegram retry later instead of treating the update as delivered.
+      if (!failed && ageMs < INBOUND_RETRY_STALE_MS) {
+        throw new ServiceUnavailableException("Inbound update is still in progress");
       }
       inboundRecordId = existing.id;
     }
 
+    let succeeded = false;
     try {
-      // CRM user link: /link TOKEN
+      if (!isPrivateTelegramChat(parsed.chatType, parsed.chatId)) {
+        await this.leaveChat(parsed.chatId);
+        succeeded = true;
+        return;
+      }
+
+      if (parsed.isEdit) {
+        await this.applyEditedMessage(parsed);
+        succeeded = true;
+        return;
+      }
+
+      // CRM user link: /link TOKEN. Groups never reach this branch.
       const linkMatch = parsed.text?.match(/^\/link\s+(\S+)/);
       if (linkMatch) {
-        if (parsed.chatType !== "private") {
-          await this.sendMessageToChat(
-            parsed.chatId,
-            "Команда /link доступна лише в приватному чаті з ботом.",
-          );
-          return;
-        }
         try {
           const { email } = await this.authService.confirmTelegramLink(
             linkMatch[1],
@@ -200,6 +251,7 @@ export class TelegramService {
             "Недійсне або прострочене посилання. Запитайте нове в налаштуваннях CRM (Налаштування → підключити Telegram).",
           );
         }
+        succeeded = true;
         return;
       }
 
@@ -310,7 +362,6 @@ export class TelegramService {
                 targetCompanyId =
                   secrets.leadCompanyId ||
                   (process.env.TELEGRAM_LEAD_COMPANY_ID as string) ||
-                  (await this.prisma.company.findFirst({ select: { id: true } }))?.id ||
                   null;
               }
 
@@ -452,11 +503,7 @@ export class TelegramService {
       }
 
       // Callbacks are UX-only: do not pollute the transcript with callback_data.
-      let fileUrl: string | null = null;
-      if (parsed.fileId && !parsed.isCallback) {
-        fileUrl = await this.resolveFileUrl(parsed.fileId).catch(() => null);
-      }
-
+      // file_id only. The bot token must not be stored in Message.fileUrl.
       if (!parsed.isCallback) {
         try {
           await this.prisma.message.create({
@@ -466,16 +513,13 @@ export class TelegramService {
               text: parsed.text ?? this.mediaPlaceholderText(parsed.mediaType),
               mediaType: parsed.mediaType,
               fileId: parsed.fileId,
-              fileUrl,
+              fileUrl: null,
               tgMessageId: String(parsed.messageId),
               sentAt: parsed.date,
             },
           });
         } catch (error) {
-          if (this.isUniqueConstraintError(error)) {
-            return;
-          }
-          throw error;
+          if (!this.isUniqueConstraintError(error)) throw error;
         }
       }
 
@@ -513,23 +557,72 @@ export class TelegramService {
         });
       }
 
-      await this.prisma.telegramInboundUpdate
-        .update({ where: { id: inboundRecordId }, data: { processedAt: new Date() } })
-        .catch(() => {});
+      succeeded = true;
     } catch (error) {
-      // Keep the idempotency record (do not delete) so a Telegram retry with the
-      // same update_id is skipped instead of replaying side effects. Record the
-      // error for diagnostics; a stale unprocessed record may be retried later.
+      // Keep the idempotency row. A later delivery of the same update_id retries
+      // once processingError is set or the in-flight window has passed.
       await this.prisma.telegramInboundUpdate
         .update({
           where: { id: inboundRecordId },
           data: {
-            processingError:
-              error instanceof Error ? error.message.slice(0, 500) : String(error).slice(0, 500),
+            processingError: this.safeErrorText(error),
           },
         })
         .catch(() => {});
       throw error;
+    } finally {
+      if (succeeded) {
+        await this.prisma.telegramInboundUpdate
+          .update({
+            where: { id: inboundRecordId },
+            data: { processedAt: new Date(), processingError: null },
+          })
+          .catch(() => {});
+        void this.maybePruneInbound();
+      }
+    }
+  }
+
+  private async applyEditedMessage(parsed: ParsedInbound): Promise<void> {
+    const conversation = await this.prisma.conversation.findUnique({
+      where: { telegramChatId: parsed.chatId },
+      select: { id: true },
+    });
+    if (!conversation) return;
+    await this.prisma.message.updateMany({
+      where: {
+        conversationId: conversation.id,
+        tgMessageId: String(parsed.messageId),
+      },
+      data: { text: parsed.text ?? this.mediaPlaceholderText(parsed.mediaType) },
+    });
+  }
+
+  /** Drop the bot from a group or channel. Identity and orders stay in the private chat. */
+  async leaveChat(chatId: string): Promise<void> {
+    try {
+      await this.callBotApi<boolean>("leaveChat", { chat_id: chatId });
+    } catch (error) {
+      this.logger.warn(`leaveChat failed for ${chatId}: ${this.safeErrorText(error)}`);
+    }
+  }
+
+  private safeErrorText(error: unknown): string {
+    const raw = error instanceof Error ? error.message : String(error);
+    return raw.replace(/bot\d+:[A-Za-z0-9_-]+/g, "bot[redacted]").slice(0, 500);
+  }
+
+  private async maybePruneInbound(): Promise<void> {
+    const now = Date.now();
+    if (now - this.lastPruneAt < INBOUND_PRUNE_INTERVAL_MS) return;
+    this.lastPruneAt = now;
+    const cutoff = new Date(now - INBOUND_RETAIN_MS);
+    await this.prisma.telegramInboundUpdate
+      .deleteMany({ where: { processedAt: { not: null, lt: cutoff } } })
+      .catch(() => {});
+    const logs = this.prisma.telegramClientNotifyLog;
+    if (logs) {
+      await logs.deleteMany({ where: { createdAt: { lt: cutoff } } }).catch(() => {});
     }
   }
 
@@ -577,6 +670,12 @@ export class TelegramService {
         where: { telegramChatId: params.telegramChatId },
       });
       if (!byChat) throw error;
+      if (byChat.telegramUserId !== params.telegramUserId) {
+        this.logger.warn(
+          `Refusing to reassign telegram chat ${params.telegramChatId} from user ${byChat.telegramUserId} to ${params.telegramUserId}`,
+        );
+        throw error;
+      }
 
       return this.prisma.telegramAccount.update({
         where: { id: byChat.id },
@@ -603,7 +702,7 @@ export class TelegramService {
   ): Promise<{ messageId: number }> {
     const body: Record<string, unknown> = {
       chat_id: telegramChatId,
-      text,
+      text: clipTelegramText(text),
     };
     this.applyReplyMarkup(body, options);
 
@@ -639,12 +738,36 @@ export class TelegramService {
     });
   }
 
-  /** Resolve a Telegram file_id to a temporary Bot API file URL for CRM inbox. */
-  async resolveFileUrl(fileId: string): Promise<string | null> {
+  /**
+   * Fetch a Telegram file without exposing the bot token. Callers stream the bytes
+   * through an authenticated CRM route.
+   */
+  async downloadFile(fileId: string): Promise<{ contentType: string; body: Buffer }> {
     const token = await this.resolveBotToken();
     const file = await this.callBotApi<{ file_path?: string }>("getFile", { file_id: fileId });
-    if (!file?.file_path) return null;
-    return `https://api.telegram.org/file/bot${token}/${file.file_path}`;
+    const filePath = file?.file_path;
+    if (!filePath || filePath.includes("..") || filePath.startsWith("/") || filePath.includes("://")) {
+      throw new NotFoundException("File not found");
+    }
+    const url = `https://api.telegram.org/file/bot${token}/${filePath}`;
+    let res: Response;
+    try {
+      res = await fetch(url, { signal: AbortSignal.timeout(20_000) });
+    } catch (error) {
+      this.logger.warn(`telegram file download failed: ${this.safeErrorText(error)}`);
+      throw new NotFoundException("File unavailable");
+    }
+    if (!res.ok) throw new NotFoundException("File unavailable");
+    return {
+      contentType: res.headers.get("content-type") ?? "application/octet-stream",
+      body: Buffer.from(await res.arrayBuffer()),
+    };
+  }
+
+  /** @deprecated Token-bearing Bot API URLs must not leave the server. Use downloadFile. */
+  async resolveFileUrl(fileId: string): Promise<string | null> {
+    void fileId;
+    return null;
   }
 
   private applyReplyMarkup(body: Record<string, unknown>, options?: SendMessageOptions): void {

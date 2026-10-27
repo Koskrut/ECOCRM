@@ -73,6 +73,14 @@ type UnifiedMessage = {
   fileUrl?: string | null;
 };
 
+function telegramInboxFileUrl(m: MessageItem): string | null {
+  if (m.fileId) {
+    return `/api/conversations/${m.conversationId}/messages/${m.id}/file`;
+  }
+  if (!m.fileUrl || m.fileUrl.includes("/file/bot")) return null;
+  return m.fileUrl;
+}
+
 function formatTime(iso: string): string {
   const d = DateTime.fromISO(iso, { setZone: true }).setZone(CRM_TIME_ZONE);
   if (!d.isValid) return iso;
@@ -452,7 +460,7 @@ function UnifiedInboxContent() {
               sentAt: m.sentAt,
               status: m.status,
               mediaType: m.mediaType,
-              fileUrl: m.fileUrl,
+              fileUrl: telegramInboxFileUrl(m),
             })),
           );
         } else {
@@ -1075,7 +1083,7 @@ function UnifiedInboxContent() {
                                 rel="noopener noreferrer"
                                 className="mb-1 block overflow-hidden rounded-md"
                               >
-                                {/* Telegram Bot API file URLs are temporary; open in new tab. */}
+                                {/* Proxied through CRM so the bot token never reaches the browser. */}
                                 {/* eslint-disable-next-line @next/next/no-img-element */}
                                 <img
                                   src={m.fileUrl}

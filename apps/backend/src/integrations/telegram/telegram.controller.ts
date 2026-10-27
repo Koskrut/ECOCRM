@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "crypto";
 import {
   Body,
   Controller,
@@ -6,7 +7,6 @@ import {
   HttpCode,
   HttpStatus,
   Inject,
-  Logger,
   Post,
   UnauthorizedException,
 } from "@nestjs/common";
@@ -22,10 +22,16 @@ import { ModuleIds } from "../../modules/module-ids";
 
 const WEBHOOK_SECRET_HEADER = "x-telegram-bot-api-secret-token";
 
+function webhookSecretMatches(provided: string | undefined, expected: string | undefined): boolean {
+  if (!provided || !expected) return false;
+  const left = Buffer.from(provided);
+  const right = Buffer.from(expected);
+  if (left.length !== right.length) return false;
+  return timingSafeEqual(left, right);
+}
+
 @Controller("integrations/telegram")
 export class TelegramController {
-  private readonly logger = new Logger(TelegramController.name);
-
   constructor(
     @Inject(TelegramService) private readonly telegramService: TelegramService,
     @Inject(SettingsService) private readonly settings: SettingsService,
@@ -41,21 +47,13 @@ export class TelegramController {
   ): Promise<{ ok: true }> {
     const { webhookSecret } = await this.settings.getTelegramSecrets();
     const expected = webhookSecret ?? process.env.TELEGRAM_WEBHOOK_SECRET;
-    if (!expected || secretToken !== expected) {
+    if (!webhookSecretMatches(secretToken, expected)) {
       throw new UnauthorizedException("Invalid webhook secret");
     }
 
-    // Ack immediately; process in the background so Telegram does not retry
-    // on slow DB/Bot API work (same pattern as the Bitrix webhook).
-    setImmediate(() => {
-      this.telegramService.handleInboundUpdate(body).catch((err) => {
-        this.logger.error(
-          `Background inbound update process error (update_id=${body?.update_id})`,
-          err instanceof Error ? err.stack : String(err),
-        );
-      });
-    });
-
+    // Hold the response until the update is stored and handled. A 5xx makes
+    // Telegram redeliver; returning 200 first drops the update on a crash.
+    await this.telegramService.handleInboundUpdate(body);
     return { ok: true };
   }
 

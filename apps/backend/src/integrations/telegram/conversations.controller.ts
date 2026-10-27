@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Inject, Param, Patch, Post, Query, Req } from "@nestjs/common";
+import { Body, Controller, Get, Inject, Param, Patch, Post, Query, Req, StreamableFile } from "@nestjs/common";
 import type { Request } from "express";
 import { UserRole } from "@prisma/client";
 import type { AuthUser } from "../../auth/auth.types";
@@ -45,6 +45,19 @@ export class ConversationsController {
   @Get(":id/suggest-replies")
   suggestReplies(@Param("id") id: string, @Req() req: Request & { user?: AuthUser }) {
     return this.conversations.suggestReplies(id, req.user);
+  }
+
+  @Get(":id/messages/:messageId/file")
+  async messageFile(
+    @Param("id") id: string,
+    @Param("messageId") messageId: string,
+    @Req() req: Request & { user?: AuthUser },
+  ): Promise<StreamableFile> {
+    const file = await this.conversations.getMessageFile(id, messageId, req.user);
+    return new StreamableFile(file.body, {
+      type: file.contentType,
+      disposition: "inline",
+    });
   }
 
   @Get(":id/messages")
