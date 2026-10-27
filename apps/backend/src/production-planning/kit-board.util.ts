@@ -554,7 +554,7 @@ export function buildKitBoard(input: {
       kit,
       rawNeed,
       alreadyInRequest,
-      // Remaining gap after qty already on this week's packing request.
+      // Remaining gap after qty still open on the current draft and any approved list.
       need: Math.max(0, rawNeed - alreadyInRequest),
     };
   });
@@ -579,10 +579,17 @@ export function buildKitBoard(input: {
   for (const { kit, need, alreadyInRequest } of ranked) {
     const physical = packPoolCapacity(kit.parts, packWarehouses, null);
     const remainingBuild = packPoolCapacity(kit.parts, packWarehouses, remaining);
+    // Sales gap is the usual recommendation. No CRM sales still packs from
+    // parts that are not already reserved on an open request.
     const toPack =
-      kit.avgMonthlySold > 0 ? Math.min(need, remainingBuild.qty) : 0;
+      kit.avgMonthlySold > 0
+        ? Math.min(need, remainingBuild.qty)
+        : remainingBuild.qty;
     const toPackWarehouseId = toPack > 0 ? KIT_BOARD_PACK_POOL_ID : null;
-    const toProduce = Math.max(0, need - toPack);
+    // Shelf stock on 39/40 covers the gap. An open request may reserve those
+    // parts for packing (toPack), but that must not turn the same parts into
+    // a production order.
+    const toProduce = Math.max(0, need - physical.qty);
     const cls = kitClass.get(kit.productId) ?? { paretoClass: "C" as const, xyzClass: null };
 
     const parts = sortParts(

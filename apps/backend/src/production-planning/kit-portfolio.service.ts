@@ -39,6 +39,7 @@ import {
   suggestedPackTargetQty,
   weeksOfCover,
   isOpenPackingStatus,
+  openPackingListsWhere,
   packingLineReservedQty,
   remainingPackQty,
   type EndingReason,
@@ -272,10 +273,7 @@ export class KitPortfolioService {
         this.calculations.getPackDemandByProduct(),
         this.salesHistory.latestPosted(),
         this.prisma.packingList.findMany({
-          where: {
-            cycleStart: packCycleStartUtc(),
-            status: { in: [PackingListStatus.DRAFT, PackingListStatus.APPROVED] },
-          },
+          where: openPackingListsWhere(packCycleStartUtc()),
           orderBy: { createdAt: "desc" },
           include: {
             lines: {
@@ -523,17 +521,20 @@ export class KitPortfolioService {
       const inPackingDue = packingOpen ? (packingDueByKit.get(row.productId) ?? null) : null;
       const capacityLeft = weekLeft;
       const coverTarget = computeCoverTarget({ avgMonthlySold, warnWeeks });
+      const packFromPartsWithoutDemand = !(avgMonthlySold > 0) && weeklyPackNeed <= 0;
       const packTarget = suggestedPackTargetQty({
         weeklyPackNeed,
         maxBuildNow: build.maxBuildNow,
         alreadyInRequest,
         weekCapacityLeft: capacityLeft,
+        packFromPartsWithoutDemand,
       });
       const packQty = suggestedPackQty({
         weeklyPackNeed,
         maxBuildNow: build.maxBuildNow,
         alreadyInRequest,
         weekCapacityLeft: capacityLeft,
+        packFromPartsWithoutDemand,
       });
       const packIgnoringParts = suggestedPackQty({
         weeklyPackNeed,

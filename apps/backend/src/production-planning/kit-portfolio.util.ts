@@ -353,6 +353,22 @@ export function isOpenPackingStatus(status: string | null | undefined): boolean 
   return status === "DRAFT" || status === "APPROVED";
 }
 
+/**
+ * Board / portfolio reservation query.
+ * Current-week DRAFT plus every APPROVED list still open (including previous weeks
+ * whose lines were not received). DONE lists are omitted.
+ */
+export function openPackingListsWhere(currentCycleStart: Date): {
+  OR: [{ cycleStart: Date; status: "DRAFT" }, { status: "APPROVED" }];
+} {
+  return {
+    OR: [
+      { cycleStart: currentCycleStart, status: "DRAFT" },
+      { status: "APPROVED" },
+    ],
+  };
+}
+
 /** Qty still reserved on a packing line (draft full; approved = not yet packed). */
 export function packingLineReservedQty(input: {
   status: string;
@@ -376,10 +392,18 @@ export function suggestedPackTargetQty(input: {
   alreadyInRequest: number;
   weekCapacityLeft: number;
   ignoreParts?: boolean;
+  /** No CRM sales and no uncovered demand: pack from parts on hand. */
+  packFromPartsWithoutDemand?: boolean;
 }): number {
   const already = Math.max(0, Math.floor(input.alreadyInRequest));
   const need = Math.max(0, Math.floor(input.weeklyPackNeed));
-  if (need <= 0) return already;
+  if (need <= 0) {
+    if (!input.packFromPartsWithoutDemand || input.ignoreParts) return already;
+    const maxFromParts = Math.max(0, Math.floor(input.maxBuildNow));
+    if (maxFromParts <= 0) return already;
+    const room = Math.max(0, Math.floor(input.weekCapacityLeft));
+    return Math.floor(Math.min(maxFromParts, already + room));
+  }
   const maxFromParts = input.ignoreParts
     ? Number.POSITIVE_INFINITY
     : Math.max(0, Math.floor(input.maxBuildNow));
@@ -395,6 +419,7 @@ export function suggestedPackQty(input: {
   alreadyInRequest: number;
   weekCapacityLeft: number;
   ignoreParts?: boolean;
+  packFromPartsWithoutDemand?: boolean;
 }): number {
   const target = suggestedPackTargetQty(input);
   const already = Math.max(0, Math.floor(input.alreadyInRequest));

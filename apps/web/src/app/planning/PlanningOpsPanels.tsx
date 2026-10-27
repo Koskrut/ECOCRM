@@ -1017,7 +1017,7 @@ export function PackingPanel({
                     </span>
                   ) : null}
                 </span>,
-                active.status === "DRAFT" && line.maxFromParts > 0 ? (
+                active.status === "DRAFT" ? (
                   <input
                     key={`${line.id}-qty`}
                     className="w-24 rounded border border-zinc-200 px-2 py-1"

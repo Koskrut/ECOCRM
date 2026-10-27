@@ -179,6 +179,9 @@ export class PackingListService {
           targetStock = plan.targetStock;
           stockNow = plan.stockNow;
           canPackNow = plan.canPackNow;
+          if (!(avgMonthlySold > 0) && targetPack <= 0) {
+            canPackNow = Math.max(canPackNow, cap?.maxBuildNow ?? line.maxFromParts);
+          }
           toWork = plan.toWork;
           if (toWork > 0 && cap) {
             const bottleneck = cap.components.find(
@@ -589,14 +592,23 @@ export class PackingListService {
 
     const nextQty = new Map(list.lines.map((l) => [l.kitProductId, l.qtyApproved]));
     const nextDue = new Map(list.lines.map((l) => [l.kitProductId, l.dueAt ?? null]));
+    const liveMax = new Map<string, number>();
     for (const line of lines) {
       const existing = list.lines.find((l) => l.kitProductId === line.kitProductId);
       if (!existing) continue;
       if (qtyEditable && line.qtyApproved != null) {
         const qty = Math.max(0, Math.round(line.qtyApproved));
-        if (qty > existing.maxFromParts) {
+        let cap = existing.maxFromParts;
+        // Stored max can be 0 when the line was created with no sales demand.
+        // Re-read parts on hand so a kit without CRM sales can still be packed.
+        if (qty > cap && existing.kitProduct.kind !== ProductKind.PART) {
+          const live = await this.calculations.getKitCapacity(existing.kitProductId);
+          cap = live.maxBuildNow;
+          liveMax.set(existing.kitProductId, cap);
+        }
+        if (qty > cap) {
           throw new BadRequestException(
-            `Qty for ${existing.kitProduct.sku} exceeds parts capacity (${existing.maxFromParts})`,
+            `Qty for ${existing.kitProduct.sku} exceeds parts capacity (${cap})`,
           );
         }
         nextQty.set(line.kitProductId, qty);
@@ -624,7 +636,12 @@ export class PackingListService {
           where: { id: existing.id },
           data: {
             ...(qtyEditable
-              ? { qtyApproved: nextQty.get(existing.kitProductId) ?? existing.qtyApproved }
+              ? {
+                  qtyApproved: nextQty.get(existing.kitProductId) ?? existing.qtyApproved,
+                  ...(liveMax.has(existing.kitProductId)
+                    ? { maxFromParts: liveMax.get(existing.kitProductId) }
+                    : {}),
+                }
               : {}),
             dueAt: nextDue.has(existing.kitProductId)
               ? (nextDue.get(existing.kitProductId) ?? null)

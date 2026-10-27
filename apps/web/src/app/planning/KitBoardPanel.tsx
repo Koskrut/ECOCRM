@@ -825,6 +825,8 @@ function BoardRow({
   const canId = `${row.productId}:can`;
   const produceId = `${row.productId}:produce`;
   const alreadyInRequest = row.alreadyInRequest ?? 0;
+  const noSales = !(row.avgMonthlySold > 0);
+  const offeredPack = row.toPack > 0 ? row.toPack : noSales ? freePackQty(row) : 0;
 
   return (
     <tr className={`border-b border-zinc-100 align-top ${toneClass(row.tone)}`}>
@@ -898,16 +900,16 @@ function BoardRow({
             <QtyAction
               id={betterId}
               active={activeQty === betterId}
-              qty={row.toPack}
+              qty={offeredPack}
               label={t.packBetter}
               accentClass="text-emerald-800"
-              allowAdd={row.toPack > 0}
+              allowAdd={offeredPack > 0}
               onSelect={() => onSelectQty(activeQty === betterId ? null : betterId)}
               onAdd={() =>
                 onAdd({
                   kind: "pack",
                   row,
-                  defaultQty: row.toPack,
+                  defaultQty: offeredPack,
                   source: "better",
                 })
               }

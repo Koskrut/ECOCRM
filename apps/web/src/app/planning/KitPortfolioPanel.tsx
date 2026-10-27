@@ -469,7 +469,14 @@ export function KitPortfolioPanel({
           ) : (
             <ul className="divide-y divide-zinc-200">
               {idle.map((kit) => (
-                <CompactRow key={kit.productId} kit={kit} muted />
+                <CompactRow
+                  key={kit.productId}
+                  kit={kit}
+                  muted
+                  busy={acting === kit.productId}
+                  minPackLot={view?.week.minPackLot ?? 30}
+                  onPack={() => void addToPack(kit)}
+                />
               ))}
             </ul>
           )}
@@ -671,19 +678,46 @@ function EndingCard({
   );
 }
 
-function CompactRow({ kit, muted }: { kit: KitPortfolioKit; muted: boolean }) {
+function CompactRow({
+  kit,
+  muted,
+  busy = false,
+  minPackLot = 30,
+  onPack,
+}: {
+  kit: KitPortfolioKit;
+  muted: boolean;
+  busy?: boolean;
+  minPackLot?: number;
+  onPack?: () => void;
+}) {
   const kb = strings.planning.kitBoard;
   const weeks =
     kit.weeksOfCover != null ? `${kit.weeksOfCover} ${kb.weeksUnit}` : kb.weeksUnknown;
+  const canPackIdle =
+    muted &&
+    !!onPack &&
+    kit.suggestedPackQty >= minPackLot &&
+    kit.suggestedPackTargetQty <= kit.maxBuildNow &&
+    kit.maxBuildNow > 0;
   return (
     <li className={`flex items-baseline justify-between gap-2 px-1 py-2 ${muted ? "text-zinc-500" : "text-zinc-800"}`}>
       <div className="min-w-0">
         <p className="truncate text-sm font-medium">{kit.name}</p>
         <p className="text-xs text-zinc-500">
           {kit.sku} · {kb.finished(kit.stockFinished)}
-          {muted && kit.maxBuildNow > 0 ? ` · ${kb.dontPackMore}` : ""}
         </p>
         <PositionPlanRow kit={kit} compact />
+        {canPackIdle ? (
+          <button
+            type="button"
+            disabled={busy}
+            className="mt-1 rounded border border-cyan-200 bg-cyan-50 px-2 py-0.5 text-[11px] font-medium text-cyan-900 disabled:opacity-50"
+            onClick={onPack}
+          >
+            {kb.addToRequest(kit.suggestedPackTargetQty, kit.suggestedPackQty)}
+          </button>
+        ) : null}
       </div>
       <p className="shrink-0 text-xs">{weeks}</p>
     </li>

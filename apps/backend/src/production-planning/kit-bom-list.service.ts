@@ -40,6 +40,7 @@ import {
   fillPeriodSeries,
   isOpenPackingStatus,
   isoWeekKeyUtc,
+  openPackingListsWhere,
   packingLineReservedQty,
   recentIsoWeekKeys,
   recentYearMonthKeys,
@@ -293,10 +294,7 @@ export class KitBomListService {
         },
       }),
       this.prisma.packingList.findMany({
-        where: {
-          cycleStart: packCycleStartUtc(),
-          status: { in: [PackingListStatus.DRAFT, PackingListStatus.APPROVED] },
-        },
+        where: openPackingListsWhere(packCycleStartUtc()),
         orderBy: { createdAt: "desc" },
         include: {
           lines: {
@@ -501,7 +499,11 @@ export class KitBomListService {
         maxBuildNow: build.maxBuildNow,
         coverTarget,
       });
-      const remainingPackIdeal = remainingPackQty(idealPlan.canPackNow, alreadyInRequest);
+      const noSales = !(avgMonthlySold > 0) && weeklyPackNeed <= 0;
+      const partsStillFree = Math.max(0, build.maxBuildNow - alreadyInRequest);
+      const remainingPackIdeal = noSales
+        ? partsStillFree
+        : remainingPackQty(idealPlan.canPackNow, alreadyInRequest);
       const toWorkLot = applyMinProduceLot(idealPlan.toWork, planningSettings.minProduceLot);
       let factoryWaitingQty = 0;
       let factoryWaitingDueAt: Date | null = null;
@@ -556,7 +558,7 @@ export class KitBomListService {
         canPackNow: idealPlan.canPackNow,
         toWork: idealPlan.toWork,
         toWorkLot,
-        canPackCycle: positionPlan.canPackNow,
+        canPackCycle: noSales ? partsStillFree : positionPlan.canPackNow,
         toWorkCycle: positionPlan.toWork,
         alreadyInRequest,
         inPackingStatus: packingOpen ? packingStatus : null,

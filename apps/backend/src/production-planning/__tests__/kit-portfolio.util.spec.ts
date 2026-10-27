@@ -14,6 +14,7 @@ import {
   fillPeriodSeries,
   groupSharedBottlenecks,
   isOpenPackingStatus,
+  openPackingListsWhere,
   packingLineReservedQty,
   recentIsoWeekKeys,
   recentYearMonthKeys,
@@ -142,6 +143,38 @@ test("suggestedPackTargetQty is absolute qty in request (10.045 case)", () => {
       weekCapacityLeft: 500,
     }),
     0,
+  );
+});
+
+test("no sales still packs from parts up to the week room", () => {
+  assert.equal(
+    suggestedPackTargetQty({
+      weeklyPackNeed: 0,
+      maxBuildNow: 80,
+      alreadyInRequest: 10,
+      weekCapacityLeft: 25,
+      packFromPartsWithoutDemand: true,
+    }),
+    35,
+  );
+  assert.equal(
+    suggestedPackQty({
+      weeklyPackNeed: 0,
+      maxBuildNow: 80,
+      alreadyInRequest: 10,
+      weekCapacityLeft: 25,
+      packFromPartsWithoutDemand: true,
+    }),
+    25,
+  );
+  assert.equal(
+    suggestedPackTargetQty({
+      weeklyPackNeed: 0,
+      maxBuildNow: 80,
+      alreadyInRequest: 10,
+      weekCapacityLeft: 25,
+    }),
+    10,
   );
 });
 
@@ -355,6 +388,16 @@ test("isOpenPackingStatus includes DRAFT and APPROVED, not DONE", () => {
   assert.equal(isOpenPackingStatus("APPROVED"), true);
   assert.equal(isOpenPackingStatus("DONE"), false);
   assert.equal(isOpenPackingStatus(null), false);
+});
+
+test("open packing lists keep every approved week and only the current draft", () => {
+  const friday = new Date("2026-10-23T21:00:00.000Z");
+  assert.deepEqual(openPackingListsWhere(friday), {
+    OR: [
+      { cycleStart: friday, status: "DRAFT" },
+      { status: "APPROVED" },
+    ],
+  });
 });
 
 test("packingLineReservedQty: draft full; approved only unpaked remainder", () => {

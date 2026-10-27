@@ -27,6 +27,7 @@ import {
 } from "./kit-board.util";
 import {
   isOpenPackingStatus,
+  openPackingListsWhere,
   packingLineReservedQty,
   recentYearMonthKeys,
 } from "./kit-portfolio.util";
@@ -52,8 +53,9 @@ export type KitBoardPackRequestSummary = {
 
 export type KitBoardViewRow = KitBoardRow & {
   /**
-   * Qty still reserved for packing: DRAFT qtyApproved + APPROVED remaining
-   * (qtyApproved − qtyPacked). DONE lists do not count.
+   * Qty still reserved for packing: current-week DRAFT qtyApproved, plus every
+   * open APPROVED list's remainder (qtyApproved − qtyPacked), including previous weeks.
+   * DONE lists do not count.
    */
   alreadyInRequest: number;
   inPackingStatus: "DRAFT" | "APPROVED" | null;
@@ -102,10 +104,7 @@ export class KitBoardService {
       }),
       this.settings.getExchangeRates(),
       this.prisma.packingList.findMany({
-        where: {
-          cycleStart,
-          status: { in: [PackingListStatus.DRAFT, PackingListStatus.APPROVED] },
-        },
+        where: openPackingListsWhere(cycleStart),
         orderBy: { createdAt: "desc" },
         include: {
           lines: { select: { kitProductId: true, qtyApproved: true, qtyPacked: true } },
@@ -245,7 +244,7 @@ export class KitBoardService {
     // Capacity counter = editable DRAFT only (after approve → new empty draft = 0).
     const draftList =
       packingLists.find((list) => list.status === PackingListStatus.DRAFT) ?? null;
-    // alreadyInRequest: draft full qty + approved still outstanding (not yet packed).
+    // alreadyInRequest: current draft full qty + every approved list still not received.
     const alreadyByKit = new Map<string, number>();
     let anyApprovedOpen = false;
     for (const list of packingLists) {

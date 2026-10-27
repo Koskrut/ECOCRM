@@ -215,7 +215,9 @@ test("board packs each kit's sales gap from the same part pool", () => {
   assert.equal(bySku.get("OK")?.toProduce, 0);
   assert.equal(bySku.get("OK")?.tone, "enough");
 
-  assert.equal(bySku.get("Z")?.toPack, 0);
+  assert.equal(bySku.get("Z")?.need, 0);
+  assert.equal(bySku.get("Z")?.canAssemble, 100);
+  assert.equal(bySku.get("Z")?.toPack, 100);
   assert.equal(bySku.get("Z")?.toProduce, 0);
   assert.equal(bySku.get("Z")?.tone, "no_sales");
   assert.equal(rows[0]?.sku, "A");
@@ -642,7 +644,59 @@ test("alreadyInRequest reduces need/toPack and frees shared pool parts", () => {
   assert.equal(bySku.get("HI")?.toProduce, 0);
   assert.equal(bySku.get("LO")?.canAssembleRemaining, 40);
   assert.equal(bySku.get("LO")?.toPack, 40);
-  assert.equal(bySku.get("LO")?.toProduce, 10);
+  // Shelf still holds 100, which covers LO's need of 50. Do not produce the
+  // 10 that only appears after HI's open request reserved part of the pool.
+  assert.equal(bySku.get("LO")?.toProduce, 0);
+});
+
+test("shelf stock reduces production even when an open request reserved the pool", () => {
+  const screw = {
+    productId: "screw",
+    sku: "ST-BLX-SF",
+    name: "Screw",
+    qtyPerKit: 1,
+    scrapPct: 0,
+    constrains: true,
+    qtyByWarehouse: { pf: 61, gp: 55 },
+  };
+  const rows = buildKitBoard({
+    coverMonths: 3,
+    monthKeys,
+    warehouses,
+    alreadyInRequestByKit: { "kit-other": 116 },
+    kits: [
+      {
+        productId: "kit-other",
+        sku: "OTHER",
+        name: "Other BLX",
+        qtyByWarehouse: { s44: 0 },
+        avgMonthlySold: 40,
+        revenue: 1000,
+        monthlySold: flatMonthly(40),
+        system: "Straumann BLX",
+        category: "Платформа",
+        parts: [screw],
+      },
+      {
+        productId: "kit-07040",
+        sku: "07.040",
+        name: "Platform",
+        qtyByWarehouse: { s44: 30 },
+        avgMonthlySold: 58,
+        revenue: 500,
+        monthlySold: flatMonthly(58),
+        system: "Straumann BLX",
+        category: "Платформа",
+        parts: [screw],
+      },
+    ],
+  });
+  const row = rows.find((item) => item.sku === "07.040");
+  assert.equal(row?.need, 144);
+  assert.equal(row?.canAssemble, 116);
+  assert.equal(row?.canAssembleRemaining, 0);
+  assert.equal(row?.toPack, 0);
+  assert.equal(row?.toProduce, 28);
 });
 
 test("a higher-need kit does not reduce another kit's pack qty", () => {
