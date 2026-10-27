@@ -123,6 +123,8 @@ test("getCardSummary: uses canonical Order.clientId scope and visibility note", 
           returnAdjustmentAmount: 100,
           debtAmount: 200,
           creditAmount: 0,
+          currency: "USD",
+          paymentDueDate: new Date("2020-01-01T00:00:00.000Z"),
           financialStatus: "OVERDUE",
           orderStage: "SHIPPED",
           legacySource: null,
@@ -276,6 +278,117 @@ test("getCardSummary: excludes canceled order debt from KPI", async () => {
   const result = await service.getCardSummary("c-cancel", manager("m1"));
   assert.equal(result.kpi.debt, 100);
   assert.equal(result.kpi.overdue, 0);
+  assert.equal(result.kpi.revenue, 800);
+});
+
+test("getCardSummary: canceled credit does not hide live debt", async () => {
+  const { service } = createService({
+    contact: {
+      findUnique: mockFn(async () => ({
+        id: "c-cancel-credit",
+        ownerId: "m1",
+        firstName: "Cancel",
+        lastName: "Credit",
+        status: null,
+        clientType: null,
+        city: null,
+        region: null,
+        email: null,
+        phone: "+380111111111",
+        companyId: null,
+        company: null,
+        owner: { id: "m1", fullName: "Manager" },
+        phones: [],
+      })),
+    },
+    order: {
+      findMany: mockFn(async () => [
+        {
+          createdAt: new Date("2026-03-01T10:00:00.000Z"),
+          totalAmount: 500,
+          returnAdjustmentAmount: 0,
+          debtAmount: 0,
+          creditAmount: 500,
+          currency: "USD",
+          paymentDueDate: null,
+          financialStatus: "CLOSED",
+          orderStage: "CANCELED",
+          legacySource: null,
+        },
+        {
+          createdAt: new Date("2026-03-02T10:00:00.000Z"),
+          totalAmount: 200,
+          returnAdjustmentAmount: 0,
+          debtAmount: 100,
+          creditAmount: 0,
+          currency: "USD",
+          paymentDueDate: new Date("2020-01-01T00:00:00.000Z"),
+          financialStatus: "AWAITING_PAYMENT",
+          orderStage: "SHIPPED",
+          legacySource: null,
+        },
+      ]),
+      count: mockFn(async () => 2),
+    },
+    activity: { findFirst: mockFn(async () => null) },
+    task: { count: mockFn(async () => 0), findFirst: mockFn(async () => null) },
+  });
+
+  const result = await service.getCardSummary("c-cancel-credit", manager("m1"));
+  assert.equal(result.kpi.orderCredit, 0);
+  assert.equal(result.kpi.debt, 100);
+  assert.equal(result.kpi.overdue, 100);
+  assert.equal(result.kpi.revenue, 200);
+});
+
+test("getCardSummary: wallet balance reduces net debt in base currency", async () => {
+  const { service } = createService({
+    contact: {
+      findUnique: mockFn(async () => ({
+        id: "c-bal",
+        ownerId: "m1",
+        firstName: "Bal",
+        lastName: "Ance",
+        status: null,
+        clientType: null,
+        city: null,
+        region: null,
+        email: null,
+        phone: "+380111111111",
+        companyId: null,
+        company: null,
+        owner: { id: "m1", fullName: "Manager" },
+        phones: [],
+      })),
+    },
+    order: {
+      findMany: mockFn(async () => [
+        {
+          createdAt: new Date("2026-03-02T10:00:00.000Z"),
+          totalAmount: 200,
+          returnAdjustmentAmount: 0,
+          debtAmount: 200,
+          creditAmount: 0,
+          currency: "USD",
+          paymentDueDate: null,
+          financialStatus: "AWAITING_PAYMENT",
+          orderStage: "SHIPPED",
+          legacySource: null,
+        },
+      ]),
+      count: mockFn(async () => 1),
+    },
+    clientBalance: {
+      findMany: mockFn(async () => [{ amount: 50, currency: "USD" }]),
+    },
+    activity: { findFirst: mockFn(async () => null) },
+    task: { count: mockFn(async () => 0), findFirst: mockFn(async () => null) },
+  });
+
+  const result = await service.getCardSummary("c-bal", manager("m1"));
+  assert.equal(result.kpi.clientBalance, 50);
+  assert.equal(result.kpi.debt, 150);
+  assert.equal(result.kpi.currency, "USD");
 });
 
 test("getCardSummary: ADMIN sees full scope without finance restriction", async () => {

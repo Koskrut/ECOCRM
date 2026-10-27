@@ -16,6 +16,21 @@ export function toUsd(amount: number, currency: string | null | undefined, rates
   return amount;
 }
 
+/** Inverse of toUsd. Unknown currencies are returned unchanged. */
+export function fromUsd(usd: number, currency: string | null | undefined, rates: ExchangeRates): number {
+  const c = normalizeCurrencyCode(currency);
+  if (c === "USD") return usd;
+  if (c === "UAH") {
+    const rate = rates.UAH_TO_USD || 0;
+    return rate > 0 ? usd / rate : usd;
+  }
+  if (c === "EUR") {
+    const rate = rates.EUR_TO_USD || 0;
+    return rate > 0 ? usd / rate : usd;
+  }
+  return usd;
+}
+
 export function usdToBase(usd: number, rates: ExchangeRates): number {
   const base = getBaseCurrency(rates);
   if (base === "EUR") {

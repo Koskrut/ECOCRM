@@ -3,13 +3,14 @@ import { ContactsController } from "./contacts.controller";
 import { ContactsService } from "./contacts.service";
 import { CustomFieldsModule } from "../custom-fields/custom-fields.module";
 import { PrismaModule } from "../prisma/prisma.module";
+import { SettingsModule } from "../settings/settings.module";
 import { WorkflowsModule } from "../workflows/workflows.module";
 import { ContactsInsightsService } from "./contacts-insights.service";
 import { ContactsPriorityService } from "./contacts-priority.service";
 import { ContactsWorkQueueService } from "./contacts-work-queue.service";
 
 @Module({
-  imports: [PrismaModule, WorkflowsModule, CustomFieldsModule],
+  imports: [PrismaModule, WorkflowsModule, CustomFieldsModule, SettingsModule],
   controllers: [ContactsController],
   providers: [
     ContactsService,

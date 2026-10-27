@@ -21,6 +21,7 @@ export type ContactCardSummary = {
   };
   kpi: {
     ordersCount: number;
+    currency?: string;
     revenue: number;
     debt: number;
     overdue: number;

@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { RECEIVABLES_DEBT_ORDER_STAGES } from "../receivables.constants";
 import {
+  buildBitrixLegacyDebtOrderWhere,
   buildOperationalDebtOrderWhere,
+  buildReceivablesPositiveDebtOrderWhere,
   computeReconcileStatus,
   isReceivablesDeltaStatus,
 } from "../receivables-scope.util";
@@ -25,5 +27,14 @@ assert.equal(RECEIVABLES_DEBT_ORDER_STAGES.includes("CANCELED" as never), false)
 const operationalWhere = buildOperationalDebtOrderWhere({ clientId: "c1" });
 assert.ok(Array.isArray(operationalWhere.AND));
 assert.equal((operationalWhere.AND as unknown[]).length, 3);
+
+const scope = { orderScope: { actor: { id: "a", role: "ADMIN" } } } as never;
+const bitrixWhere = JSON.stringify(buildBitrixLegacyDebtOrderWhere(scope));
+assert.equal(bitrixWhere.includes('"not":"bitrix"'), false);
+assert.ok(bitrixWhere.includes('"bitrix"'));
+
+const debtOnly = JSON.stringify(buildReceivablesPositiveDebtOrderWhere(scope));
+assert.ok(debtOnly.includes('"debtAmount"'));
+assert.equal(debtOnly.includes("creditAmount"), false);
 
 console.log("receivables-scope.util.spec: ok");

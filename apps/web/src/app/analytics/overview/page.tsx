@@ -132,7 +132,7 @@ export default function AnalyticsOverviewPage() {
           <KpiDeltaCard
             variant="money"
             title="Заброньований дохід"
-            subtitle="max(0, total − returns) → USD за період (createdAt)"
+            subtitle={`max(0, total − returns) → ${currency} за період (createdAt)`}
             tooltip="Не змішувати з collected payments."
             value={formatMoneyBase(kpi?.bookedRevenue, currency)}
             deltaLabel={
@@ -144,7 +144,7 @@ export default function AnalyticsOverviewPage() {
           <KpiDeltaCard
             variant="money"
             title="Зібрані оплати"
-            subtitle="Завершені оплати, дата paidAt → USD"
+            subtitle={`Завершені оплати, дата paidAt → ${currency}`}
             tooltip="Окремо від booked revenue."
             value={formatMoneyBase(kpi?.collectedPayments, currency)}
             deltaLabel={
@@ -166,7 +166,7 @@ export default function AnalyticsOverviewPage() {
           <KpiDeltaCard
             variant="money"
             title="Середній чек"
-            subtitle="Дохід / замовлення (USD)"
+            subtitle={`Дохід / замовлення (${currency})`}
             tooltip="Те саме, що bookedRevenue / ordersCount для обраного періоду; порівняння — попередній період тієї ж довжини."
             value={formatMoneyBaseFine(kpi?.avgCheck, currency)}
             deltaLabel={
@@ -176,16 +176,16 @@ export default function AnalyticsOverviewPage() {
           <KpiDeltaCard
             variant="risk"
             title="Борг загалом"
-            subtitle="Сума debtAmount у замовленнях за вибраний період"
-            tooltip="Розрахунок у межах обраного діапазону дат overview."
+            subtitle="Поточний знімок дебіторки, не за період"
+            tooltip="Сума поточного операційного боргу в scope. Обраний період на цей показник не впливає."
             value={formatMoneyBase(kpi?.debtTotal, currency)}
             deltaLabel={null}
           />
           <KpiDeltaCard
             variant="risk"
             title="Прострочений борг"
-            subtitle="Прострочені + борг за вибраний період"
-            tooltip="Розрахунок у межах обраного діапазону дат overview."
+            subtitle="Поточний прострочений борг за датою оплати (Київ)"
+            tooltip="Борг із датою оплати раніше сьогоднішнього дня за календарем Києва."
             value={formatMoneyBase(kpi?.overdueDebt, currency)}
             deltaLabel={null}
             onDrill={() => router.push(`${attentionHref}#finance-overdue`, { scroll: false })}

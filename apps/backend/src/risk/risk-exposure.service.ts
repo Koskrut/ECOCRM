@@ -1,6 +1,8 @@
-import { BadRequestException, Injectable } from "@nestjs/common";
+import { BadRequestException, Injectable, Optional } from "@nestjs/common";
 import type { CreditProfile, Prisma } from "@prisma/client";
+import { toBaseCurrency } from "../common/currency.util";
 import { PrismaService } from "../prisma/prisma.service";
+import { SettingsService, type ExchangeRates } from "../settings/settings.service";
 import { DEFAULT_CREDIT_POLICY } from "./risk.constants";
 
 export type ExposureResult = {
@@ -16,7 +18,10 @@ export type ExposureResult = {
 
 @Injectable()
 export class RiskExposureService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly settings?: SettingsService,
+  ) {}
 
   async computeExposure(input: {
     contactId?: string | null;
@@ -35,6 +40,8 @@ export class RiskExposureService {
         ? await this.prisma.creditProfile.findUnique({ where: { companyId } })
         : null;
 
+    // Gross deferred book, including pre-ship stages. The limit is checked before
+    // the order is ready to ship, so this is wider than the client-card position.
     const openDebtWhere: Prisma.OrderWhereInput = {
       debtAmount: { gt: 0 },
       paymentType: "DEFERRED",
@@ -45,12 +52,18 @@ export class RiskExposureService {
 
     const orders = await this.prisma.order.findMany({
       where: openDebtWhere,
-      select: { id: true, debtAmount: true },
+      select: { id: true, debtAmount: true, currency: true },
     });
 
+    const rates: ExchangeRates = this.settings
+      ? await this.settings.getExchangeRates()
+      : { UAH_TO_USD: 1, EUR_TO_USD: 1, baseCurrency: "USD" };
     const bookUtilized = orders
       .filter((o) => o.id !== input.excludeOrderId)
-      .reduce((sum, o) => sum + Number(o.debtAmount ?? 0), 0);
+      .reduce(
+        (sum, o) => sum + toBaseCurrency(Number(o.debtAmount ?? 0), o.currency || "USD", rates),
+        0,
+      );
     const additional = input.additionalAmount ?? 0;
     const totalExposure = bookUtilized + additional;
     const creditLimit = profile ? Number(profile.creditLimit) : 0;

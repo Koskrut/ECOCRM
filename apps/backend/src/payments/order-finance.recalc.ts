@@ -1,8 +1,7 @@
 import { PaymentStatus } from "@prisma/client";
 import type { PrismaService } from "../prisma/prisma.service";
 import type { SettingsService } from "../settings/settings.service";
-import { toUsd } from "../common/currency.util";
-import { computeOrderDebtAndCredit } from "./order-finance.utils";
+import { computeOrderDebtAndCredit, paymentAmountInOrderCurrency, roundMoney } from "./order-finance.utils";
 import {
   computeFinancialStatusFromOrder,
   orderStageToDeliveryStatus,
@@ -22,16 +21,10 @@ export async function recalcOrderFinance(
     }),
     settings.getExchangeRates(),
   ]);
-  const paidAmount = payments.reduce((sum, p) => {
-    const usd =
-      p.amountUsd != null
-        ? Number(p.amountUsd)
-        : toUsd(Number(p.amount), p.currency || "USD", rates);
-    return sum + usd;
-  }, 0);
   const order = await prisma.order.findUnique({
     where: { id: orderId },
     select: {
+      currency: true,
       totalAmount: true,
       subtotalAmount: true,
       paidAmount: true,
@@ -44,6 +37,22 @@ export async function recalcOrderFinance(
     },
   });
   if (!order) return;
+  const paidAmount = roundMoney(
+    payments.reduce(
+      (sum, p) =>
+        sum +
+        paymentAmountInOrderCurrency(
+          {
+            amount: Number(p.amount),
+            currency: p.currency,
+            amountUsd: p.amountUsd != null ? Number(p.amountUsd) : null,
+          },
+          order.currency,
+          rates,
+        ),
+      0,
+    ),
+  );
   const { effectiveTotal, debtAmount, creditAmount } = computeOrderDebtAndCredit({
     totalAmount: order.totalAmount,
     returnAdjustmentAmount: order.returnAdjustmentAmount,

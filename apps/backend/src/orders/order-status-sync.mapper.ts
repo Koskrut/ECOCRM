@@ -62,6 +62,18 @@ function kyivDaysUntilDue(due: Date, now = new Date()): number {
   return Math.round(dueDt.diff(todayDt, "days").days);
 }
 
+/** Debt is overdue when the due date's Kyiv calendar day is before today. */
+export function isDebtOverdueByDueDate(
+  paymentDueDate: Date | null | undefined,
+  debtAmount: number,
+  now = new Date(),
+): boolean {
+  if (!(Number(debtAmount) > 0) || !paymentDueDate) return false;
+  const due = paymentDueDate instanceof Date ? paymentDueDate : new Date(paymentDueDate);
+  if (Number.isNaN(due.getTime())) return false;
+  return kyivDaysUntilDue(due, now) < 0;
+}
+
 /**
  * Maps legacy OrderStatus to orderStage (for setStatus -> setOrderStage delegation).
  */
@@ -175,12 +187,11 @@ function computeFinancialStatus(
     return paid > 0 ? "PAID" : "CLOSED";
   }
 
-  // Has debt
-  if (paymentType === "PREPAYMENT") {
+  // Has debt. Prepayment without a due date stays awaiting; a due date uses the same Kyiv buckets.
+  if (paymentType === "PREPAYMENT" && !due) {
     return "AWAITING_PAYMENT";
   }
 
-  // DEFERRED or null: invoice/due date logic
   if (!due) {
     return "INVOICE_PENDING"; // no due date set yet
   }

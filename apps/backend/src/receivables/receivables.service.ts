@@ -13,8 +13,17 @@ import {
   UserRole,
 } from "@prisma/client";
 import type { AuthUser } from "../auth/auth.types";
-import { AnalyticsScopeService } from "../analytics/analytics-scope.service";
-import { getBaseCurrency, paymentToBase, toBaseCurrency } from "../common/currency.util";
+import {
+  AnalyticsScopeService,
+  type AnalyticsScope,
+} from "../analytics/analytics-scope.service";
+import {
+  computeOrderExchangeRate,
+  getBaseCurrency,
+  paymentToBase,
+  toBaseCurrency,
+  toUsd,
+} from "../common/currency.util";
 import { safeNum } from "../analytics/utils/analytics-currency.util";
 import { normalizePagination } from "../common/pagination";
 import { todayYmdKyiv } from "../crm-timezone";
@@ -33,7 +42,8 @@ import {
   normalizeCounterpartyCode1C,
   parseReceivablesExcel,
 } from "./receivables-excel.parser";
-import { financialOverdueWhere } from "../orders/order-status-sync.mapper";
+import { financialOverdueWhere, isDebtOverdueByDueDate } from "../orders/order-status-sync.mapper";
+import { aggregateClientFinance } from "../finance/client-finance";
 import { DateTime } from "luxon";
 import { CRM_TIME_ZONE } from "../crm-timezone";
 import {
@@ -68,6 +78,7 @@ import {
   buildOperationalDebtOrderWhere,
   buildOverdueDebtOrderWhere,
   buildReceivablesDebtOrderWhere,
+  buildReceivablesPositiveDebtOrderWhere,
   computeReconcileStatus,
   isReceivablesDeltaStatus,
 } from "./receivables-scope.util";
@@ -105,8 +116,8 @@ type ContactDebtMap = Map<string, ContactDebtRow>;
 const CONTACT_DEBT_CACHE_TTL_MS = 5_000;
 const CALL_TASK_TITLE_PREFIX = "Дзвінок: дебіторка";
 
-/** debtAmount / creditAmount on Order are stored in USD (see recalcOrder). */
-function orderStoredUsdAmount(value: unknown): number {
+/** Order money fields are in the order currency. Callers convert to the base currency. */
+function orderStoredAmount(value: unknown): number {
   return safeNum(value);
 }
 
@@ -114,9 +125,7 @@ function isOrderOverdueByDueDate(
   paymentDueDate: Date | null | undefined,
   debtAmount: number,
 ): boolean {
-  if (!(debtAmount > 0) || !paymentDueDate) return false;
-  const startOfToday = DateTime.fromISO(todayYmdKyiv(), { zone: CRM_TIME_ZONE }).startOf("day");
-  return paymentDueDate < startOfToday.toJSDate();
+  return isDebtOverdueByDueDate(paymentDueDate, debtAmount);
 }
 
 function overdueDaysByDueDate(paymentDueDate: Date | null | undefined): number {
@@ -478,13 +487,16 @@ export class ReceivablesService {
   /** Deduplicates the summary/clients/aging calls of a single page load. */
   private loadContactDebtMap(
     scope: Awaited<ReturnType<AnalyticsScopeService["resolveDashboardScope"]>> | null,
-    _rates: Awaited<ReturnType<SettingsService["getExchangeRates"]>>,
+    rates: Awaited<ReturnType<SettingsService["getExchangeRates"]>>,
   ): Promise<ContactDebtMap> {
     const key = JSON.stringify({
       all: scope == null,
       managerId: scope?.orderScope.managerId ?? null,
       allowedOwnerIds: scope?.orderScope.allowedOwnerIds ?? null,
       today: todayYmdKyiv(),
+      base: getBaseCurrency(rates),
+      uah: rates.UAH_TO_USD,
+      eur: rates.EUR_TO_USD,
     });
     const now = Date.now();
     for (const [k, v] of this.contactDebtCache) {
@@ -492,7 +504,7 @@ export class ReceivablesService {
     }
     const cached = this.contactDebtCache.get(key);
     if (cached) return cached.value;
-    const value = this.computeContactDebtMap(scope);
+    const value = this.computeContactDebtMap(scope, rates);
     this.contactDebtCache.set(key, { at: now, value });
     value.catch(() => this.contactDebtCache.delete(key));
     return value;
@@ -518,6 +530,7 @@ export class ReceivablesService {
 
   private async computeContactDebtMap(
     scope: Awaited<ReturnType<AnalyticsScopeService["resolveDashboardScope"]>> | null,
+    rates: Awaited<ReturnType<SettingsService["getExchangeRates"]>>,
   ): Promise<ContactDebtMap> {
     const orderWhere: Prisma.OrderWhereInput = scope
       ? buildReceivablesDebtOrderWhere(scope)
@@ -555,11 +568,11 @@ export class ReceivablesService {
     for (const o of orders) {
       const client = o.client;
       if (!client) continue;
-      const debtUsd = orderStoredUsdAmount(o.debtAmount);
-      const creditUsd = orderStoredUsdAmount(o.creditAmount);
-      const debtBase = debtUsd > 0 ? debtUsd : 0;
-      const creditBase = creditUsd > 0 ? creditUsd : 0;
-      const overdueBase = isOrderOverdueByDueDate(o.paymentDueDate, debtUsd) ? debtBase : 0;
+      const debtRaw = orderStoredAmount(o.debtAmount);
+      const creditRaw = orderStoredAmount(o.creditAmount);
+      const debtBase = debtRaw > 0 ? toBaseCurrency(debtRaw, o.currency, rates) : 0;
+      const creditBase = creditRaw > 0 ? toBaseCurrency(creditRaw, o.currency, rates) : 0;
+      const overdueBase = isOrderOverdueByDueDate(o.paymentDueDate, debtBase) ? debtBase : 0;
       const days = overdueBase > 0 ? overdueDaysByDueDate(o.paymentDueDate) : 0;
       const code = normalizeCounterpartyCode1C(client.externalCode ?? "");
       const overdueOrder = overdueBase > 0 && days > 0 ? { days, amount: overdueBase } : null;
@@ -818,19 +831,20 @@ export class ReceivablesService {
       };
     }
 
-    const debtWhere = buildReceivablesDebtOrderWhere(scope);
     const bitrixDebtWhere = buildBitrixLegacyDebtOrderWhere(scope);
     const contactDebt = await this.loadContactDebtMap(scope, rates);
 
     let debtTotal = 0;
     let overdueDebt = 0;
+    let clientsWithDebtCount = 0;
     for (const row of contactDebt.values()) {
       debtTotal += row.debtBase;
       overdueDebt += row.overdueBase;
+      if (row.debtBase > 0.009) clientsWithDebtCount += 1;
     }
 
     const [ordersWithDebtCount, bitrixLegacyOrdersCount, bitrixLegacyDebt] = await Promise.all([
-      this.prisma.order.count({ where: debtWhere }),
+      this.prisma.order.count({ where: buildReceivablesPositiveDebtOrderWhere(scope) }),
       this.prisma.order.count({ where: bitrixDebtWhere }),
       this.sumOrderDebtBase(bitrixDebtWhere, rates),
     ]);
@@ -899,7 +913,7 @@ export class ReceivablesService {
       kpi: {
         debtTotal: Math.round(debtTotal * 100) / 100,
         overdueDebt: Math.round(overdueDebt * 100) / 100,
-        clientsWithDebtCount: contactDebt.size,
+        clientsWithDebtCount,
         ordersWithDebtCount,
         bitrixLegacyDebt: Math.round(bitrixLegacyDebt * 100) / 100,
         bitrixLegacyOrdersCount,
@@ -912,15 +926,15 @@ export class ReceivablesService {
 
   private async sumOrderDebtBase(
     where: Prisma.OrderWhereInput,
-    _rates: Awaited<ReturnType<SettingsService["getExchangeRates"]>>,
+    rates: Awaited<ReturnType<SettingsService["getExchangeRates"]>>,
   ): Promise<number> {
     const rows = await this.prisma.order.findMany({
       where,
-      select: { debtAmount: true },
+      select: { debtAmount: true, currency: true },
     });
     let total = 0;
     for (const row of rows) {
-      total += orderStoredUsdAmount(row.debtAmount);
+      total += toBaseCurrency(orderStoredAmount(row.debtAmount), row.currency, rates);
     }
     return total;
   }
@@ -1565,9 +1579,19 @@ export class ReceivablesService {
       contactId?: string;
       clientId?: string;
       aging?: string;
+      /**
+       * Contact card tab: same owner filter as the card KPI (manager sees own orders,
+       * lead and admin see the client's orders). The work queue keeps dashboard scope.
+       */
+      cardScope?: boolean;
     },
   ) {
-    const scope = await this.scopeService.resolveDashboardScope(actor, { managerId: query.ownerId });
+    const scope: AnalyticsScope = query.cardScope
+      ? {
+          orderScope:
+            actor.role === UserRole.MANAGER ? { actor, managerId: actor.id } : { actor },
+        }
+      : await this.scopeService.resolveDashboardScope(actor, { managerId: query.ownerId });
     const pagination = normalizePagination(query, { page: 1, pageSize: 50 });
     const aging = parseAgingParam(query.aging);
 
@@ -1641,7 +1665,7 @@ export class ReceivablesService {
         id: o.id,
         orderNumber: o.orderNumber,
         debtAmount: safeNum(o.debtAmount),
-        debtAmountBase: orderStoredUsdAmount(o.debtAmount),
+        debtAmountBase: Math.round(toBaseCurrency(orderStoredAmount(o.debtAmount), o.currency, rates) * 100) / 100,
         creditAmount: safeNum(o.creditAmount),
         paidAmount: safeNum(o.paidAmount),
         totalAmount: safeNum(o.totalAmount),
@@ -1671,7 +1695,7 @@ export class ReceivablesService {
 
   /**
    * Create or reuse a PENDING payment request covering the contact's full operational debt
-   * (sum of USD debts → UAH). Attached to the primary/anchor debt order; public /pay/[token] unchanged.
+   * (order-currency debt × UAH rate). Attached to the primary/anchor debt order; public /pay/[token] unchanged.
    */
   async ensureContactFullDebtPaymentLink(actor: AuthUser, contactId: string) {
     const contact = await this.prisma.contact.findUnique({
@@ -1701,23 +1725,29 @@ export class ReceivablesService {
       },
     });
 
+    const rates = await this.settings.getExchangeRates();
     const debtOrders = orders
-      .map((o) => ({
-        id: o.id,
-        orderNumber: o.orderNumber,
-        debtAmount: orderStoredUsdAmount(o.debtAmount),
-        exchangeRate: o.exchangeRate != null ? Number(o.exchangeRate) : null,
-        paymentDueDate: o.paymentDueDate,
-        bankAccountId: o.bankAccountId,
-        currency: o.currency,
-      }))
+      .map((o) => {
+        const storedRate = o.exchangeRate != null ? Number(o.exchangeRate) : null;
+        return {
+          id: o.id,
+          orderNumber: o.orderNumber,
+          debtAmount: orderStoredAmount(o.debtAmount),
+          exchangeRate:
+            storedRate != null && storedRate > 0
+              ? storedRate
+              : computeOrderExchangeRate(o.currency, rates),
+          paymentDueDate: o.paymentDueDate,
+          bankAccountId: o.bankAccountId,
+          currency: o.currency,
+        };
+      })
       .filter((o) => o.debtAmount > 0);
 
     if (debtOrders.length === 0) {
       throw new BadRequestException("No operational debt for this client");
     }
 
-    const rates = await this.settings.getExchangeRates();
     const fallbackUahPerUsd = rates.UAH_TO_USD > 0 ? 1 / rates.UAH_TO_USD : 41;
     const amountUah = computeFullDebtPayAmountUah(debtOrders, fallbackUahPerUsd);
     if (!(amountUah > 0)) {
@@ -1750,7 +1780,9 @@ export class ReceivablesService {
         currency: row.currency,
         orderId: row.orderId,
         debtOrderCount: debtOrders.length,
-        debtAmountUsd: Math.round(debtOrders.reduce((s, o) => s + o.debtAmount, 0) * 100) / 100,
+        debtAmountUsd: Math.round(
+          debtOrders.reduce((s, o) => s + toUsd(o.debtAmount, o.currency, rates), 0) * 100,
+        ) / 100,
         reused: true,
       };
     }
@@ -1781,9 +1813,38 @@ export class ReceivablesService {
       currency: created.currency,
       orderId: created.orderId,
       debtOrderCount: debtOrders.length,
-      debtAmountUsd: Math.round(debtOrders.reduce((s, o) => s + o.debtAmount, 0) * 100) / 100,
+      debtAmountUsd: Math.round(
+        debtOrders.reduce((s, o) => s + toUsd(o.debtAmount, o.currency, rates), 0) * 100,
+      ) / 100,
       reused: false,
     };
+  }
+
+  /** Same position as the contact card: all of this client's orders, manager-scoped. */
+  private async loadContactFinanceSnapshot(contactId: string, actor: AuthUser) {
+    const rates = await this.settings.getExchangeRates();
+    const where: Prisma.OrderWhereInput = { clientId: contactId };
+    if (actor.role === UserRole.MANAGER) where.ownerId = actor.id;
+    const [orders, balances] = await Promise.all([
+      this.prisma.order.findMany({
+        where,
+        select: {
+          totalAmount: true,
+          returnAdjustmentAmount: true,
+          debtAmount: true,
+          creditAmount: true,
+          currency: true,
+          orderStage: true,
+          legacySource: true,
+          paymentDueDate: true,
+        },
+      }),
+      this.prisma.clientBalance.findMany({
+        where: { holderKind: "CONTACT", holderId: contactId },
+        select: { amount: true, currency: true },
+      }),
+    ]);
+    return aggregateClientFinance(orders, balances, rates);
   }
 
   async getContactReceivables(
@@ -1818,37 +1879,10 @@ export class ReceivablesService {
       clientId: contactId,
       page: query?.ordersPage ?? 1,
       pageSize: query?.ordersPageSize ?? 100,
+      cardScope: true,
     });
 
-    const scope = await this.scopeService.resolveDashboardScope(actor, {});
-    const rates = await this.settings.getExchangeRates();
-    const bitrixLegacyDebt = scope.emptyTeam
-      ? 0
-      : await this.sumOrderDebtBase(
-          {
-            AND: [
-              buildBitrixLegacyDebtOrderWhere(scope),
-              { clientId: contactId },
-            ],
-          },
-          rates,
-        );
-
-    let debtTotal = 0;
-    let overdueDebt = 0;
-    let overpaymentTotal = 0;
-    for (const order of ordersResult.items) {
-      debtTotal += order.debtAmountBase;
-      overpaymentTotal += order.creditAmount ?? 0;
-      if (
-        isOrderOverdueByDueDate(
-          order.paymentDueDate ? new Date(order.paymentDueDate) : null,
-          order.debtAmount,
-        )
-      ) {
-        overdueDebt += order.debtAmountBase;
-      }
-    }
+    const finance = await this.loadContactFinanceSnapshot(contactId, actor);
 
     const paymentsPagination = normalizePagination(
       { page: query?.paymentsPage, pageSize: query?.paymentsPageSize },
@@ -1923,16 +1957,18 @@ export class ReceivablesService {
     const comments = await this.listDebtComments(actor, contactId, 20);
 
     return {
-      currency: ordersResult.currency,
+      currency: finance.currency,
       externalCode: contact.externalCode,
       snoozedUntil,
       snoozedByName: snoozedBy?.fullName ?? null,
       kpi: {
-        debtTotal: Math.round(debtTotal * 100) / 100,
-        overdueDebt: Math.round(overdueDebt * 100) / 100,
-        overpaymentTotal: Math.round(overpaymentTotal * 100) / 100,
-        ordersWithDebtCount: ordersResult.total,
-        bitrixLegacyDebt: Math.round(bitrixLegacyDebt * 100) / 100,
+        debtTotal: finance.netDebt,
+        grossDebt: finance.grossDebt,
+        overdueDebt: finance.overdue,
+        overpaymentTotal: finance.orderCredit,
+        clientBalance: finance.clientBalance,
+        ordersWithDebtCount: finance.ordersWithDebtCount,
+        bitrixLegacyDebt: finance.bitrixDebt,
       },
       reconciliation,
       orders: ordersResult.items,

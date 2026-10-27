@@ -1,17 +1,12 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import { Cron } from "@nestjs/schedule";
-import type { OrderStage } from "@prisma/client";
 import { withAuditSource } from "../audit/audit-context";
 import { ModuleStateService } from "../modules/module-state.service";
 import { ModuleIds } from "../modules/module-ids";
 import { computeFinancialStatusFromOrder } from "../orders/order-status-sync.mapper";
-import { RECEIVABLES_DEBT_ORDER_STAGES } from "../receivables/receivables.constants";
 import { PrismaService } from "../prisma/prisma.service";
 
 const BATCH_SIZE = 200;
-
-/** Terminal stages: no need to refresh financial status for debt tracking. */
-const TERMINAL_STAGES: OrderStage[] = ["COMPLETED", "CANCELED", "REFUSED", "FULLY_RETURNED"];
 
 @Injectable()
 export class PaymentsFinancialStatusCron {
@@ -22,7 +17,7 @@ export class PaymentsFinancialStatusCron {
     @Inject(ModuleStateService) private readonly modules: ModuleStateService,
   ) {}
 
-  /** Daily at 00:05 Europe/Kyiv — refresh stored financialStatus for open debt orders. */
+  /** Daily at 00:05 Europe/Kyiv — refresh stored financialStatus for every order that still has debt. */
   @Cron("5 0 * * *", { timeZone: "Europe/Kyiv" })
   async runDaily(): Promise<void> {
     if (process.env.FINANCE_CRON_DISABLED === "true") return;
@@ -40,7 +35,6 @@ export class PaymentsFinancialStatusCron {
           const rows = await this.prisma.order.findMany({
             where: {
               debtAmount: { gt: 0 },
-              orderStage: { in: [...RECEIVABLES_DEBT_ORDER_STAGES].filter((s) => !TERMINAL_STAGES.includes(s)) },
             },
             take: BATCH_SIZE,
             ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),

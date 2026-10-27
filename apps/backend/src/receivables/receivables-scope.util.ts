@@ -35,18 +35,20 @@ export function isOperationalDebtOrder(order: {
   );
 }
 
-function buildReceivablesDebtOrderBase(scope: AnalyticsScope): Prisma.OrderWhereInput {
-  const extra: Prisma.OrderWhereInput = {
-    OR: [{ debtAmount: { gt: 0 } }, { creditAmount: { gt: 0 } }],
-    clientId: { not: null },
-  };
-
+function applyOrderOwnerScope(extra: Prisma.OrderWhereInput, scope: AnalyticsScope): void {
   if (scope.orderScope.managerId) {
     extra.ownerId = scope.orderScope.managerId;
   } else if (scope.orderScope.allowedOwnerIds !== undefined) {
     extra.ownerId = { in: scope.orderScope.allowedOwnerIds };
   }
+}
 
+function buildReceivablesDebtOrderBase(scope: AnalyticsScope): Prisma.OrderWhereInput {
+  const extra: Prisma.OrderWhereInput = {
+    OR: [{ debtAmount: { gt: 0 } }, { creditAmount: { gt: 0 } }],
+    clientId: { not: null },
+  };
+  applyOrderOwnerScope(extra, scope);
   return buildOperationalDebtOrderWhere(extra);
 }
 
@@ -54,9 +56,37 @@ export function buildReceivablesDebtOrderWhere(scope: AnalyticsScope): Prisma.Or
   return buildReceivablesDebtOrderBase(scope);
 }
 
+/** Operational orders that still have debt. Credit-only orders are excluded. */
+export function buildReceivablesPositiveDebtOrderWhere(scope: AnalyticsScope): Prisma.OrderWhereInput {
+  const extra: Prisma.OrderWhereInput = {
+    debtAmount: { gt: 0 },
+    clientId: { not: null },
+  };
+  applyOrderOwnerScope(extra, scope);
+  return buildOperationalDebtOrderWhere(extra);
+}
+
+/**
+ * Bitrix imports are excluded from operational debt. This filter must not reuse
+ * that exclusion, or the legacy total is always empty.
+ */
 export function buildBitrixLegacyDebtOrderWhere(scope: AnalyticsScope): Prisma.OrderWhereInput {
+  const extra: Prisma.OrderWhereInput = {
+    debtAmount: { gt: 0 },
+    clientId: { not: null },
+    legacySource: "bitrix",
+  };
+  applyOrderOwnerScope(extra, scope);
   return {
-    AND: [buildReceivablesDebtOrderBase(scope), { legacySource: "bitrix" }],
+    AND: [
+      {
+        OR: [
+          { orderStage: { in: [...RECEIVABLES_DEBT_ORDER_STAGES] } },
+          { orderStage: null },
+        ],
+      },
+      extra,
+    ],
   };
 }
 

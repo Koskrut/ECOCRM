@@ -74,14 +74,6 @@ export function ContactReceivablesTab({
     void load();
   }, [load]);
 
-  if (financeRestricted) {
-    return (
-      <p className="text-sm text-zinc-500">
-        Фінансові дані обмежені вашим scope — частина боргу може бути прихована.
-      </p>
-    );
-  }
-
   if (loading) {
     return <div className="text-sm text-zinc-500">{strings.common.loading}</div>;
   }
@@ -102,6 +94,11 @@ export function ContactReceivablesTab({
 
   return (
     <div className="space-y-4">
+      {financeRestricted ? (
+        <p className="rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-600">
+          {t.financeScopeNote}
+        </p>
+      ) : null}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="text-sm text-zinc-600">
           {data.externalCode ? (
@@ -153,7 +150,7 @@ export function ContactReceivablesTab({
 
       <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
         <KpiCard
-          title={t.kpiDebtOperational}
+          title={strings.contacts.card.kpi.debt}
           value={formatMoney(data.kpi.debtTotal, currency)}
           variant={
             data.kpi.overdueDebt > 0
@@ -168,6 +165,24 @@ export function ContactReceivablesTab({
           value={formatMoney(data.kpi.overdueDebt, currency)}
           variant={data.kpi.overdueDebt > 0 ? "risk" : "default"}
         />
+        {(data.kpi.grossDebt ?? 0) > data.kpi.debtTotal + 0.009 ? (
+          <KpiCard
+            title={t.kpiGrossDebt}
+            value={formatMoney(data.kpi.grossDebt ?? 0, currency)}
+          />
+        ) : null}
+        {(data.kpi.overpaymentTotal ?? 0) > 0 ? (
+          <KpiCard
+            title={strings.contacts.card.kpi.orderCredit}
+            value={formatMoney(data.kpi.overpaymentTotal ?? 0, currency)}
+          />
+        ) : null}
+        {(data.kpi.clientBalance ?? 0) > 0 ? (
+          <KpiCard
+            title={strings.contacts.card.kpi.clientBalance}
+            value={formatMoney(data.kpi.clientBalance ?? 0, currency)}
+          />
+        ) : null}
         <KpiCard title={t.kpiOrders} value={String(data.kpi.ordersWithDebtCount)} />
         <KpiCard
           title={t.kpiBitrixLegacy}

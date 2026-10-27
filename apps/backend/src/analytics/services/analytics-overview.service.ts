@@ -182,10 +182,10 @@ export class AnalyticsOverviewService {
         where: orderWhere,
         _count: { id: true },
       }),
-      this.prisma.order.findMany({ where: snapshotDebtWhere, select: { debtAmount: true } }),
+      this.prisma.order.findMany({ where: snapshotDebtWhere, select: { debtAmount: true, currency: true } }),
       this.prisma.order.findMany({
         where: overduePaymentsWhere,
-        select: { debtAmount: true },
+        select: { debtAmount: true, currency: true },
       }),
       this.prisma.lead.count({ where: leadWhere }),
       this.prisma.lead.count({ where: { ...leadWhere, status: "WON" } }),
@@ -216,9 +216,11 @@ export class AnalyticsOverviewService {
     }
 
     let debtTotal = 0;
-    for (const o of debtOrders) debtTotal += safeNum(o.debtAmount);
+    for (const o of debtOrders) debtTotal += toBaseCurrency(safeNum(o.debtAmount), o.currency, rates);
     let overdueDebt = 0;
-    for (const o of overdueDebtOrders) overdueDebt += safeNum(o.debtAmount);
+    for (const o of overdueDebtOrders) {
+      overdueDebt += toBaseCurrency(safeNum(o.debtAmount), o.currency, rates);
+    }
     const overdueDebtAmount = overdueDebt;
 
     const charts: OverviewCharts = {

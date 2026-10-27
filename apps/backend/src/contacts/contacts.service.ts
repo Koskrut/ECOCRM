@@ -48,10 +48,10 @@ import {
   selectRootMovementOrders,
 } from "./contact-orders-movement.mapper";
 import { WorkflowDomainEmitterService } from "../workflows/workflow-domain-emitter.service";
-import {
-  buildOperationalDebtOrderWhere,
-  isOperationalDebtOrder,
-} from "../receivables/receivables-scope.util";
+import { buildOperationalDebtOrderWhere } from "../receivables/receivables-scope.util";
+import { aggregateClientFinance, countsTowardClientRevenue } from "../finance/client-finance";
+import { getBaseCurrency, toBaseCurrency } from "../common/currency.util";
+import { SettingsService, type ExchangeRates } from "../settings/settings.service";
 
 function shallowFieldChanges(
   keys: string[],
@@ -104,7 +104,15 @@ export class ContactsService {
     private readonly prisma: PrismaService,
     private readonly workflowEmitter: WorkflowDomainEmitterService,
     @Optional() private readonly customFields?: CustomFieldsService,
+    @Optional() private readonly settings?: SettingsService,
   ) {}
+
+  private async exchangeRates(): Promise<ExchangeRates> {
+    if (!this.settings) {
+      return { UAH_TO_USD: 1, EUR_TO_USD: 1, baseCurrency: "USD" };
+    }
+    return this.settings.getExchangeRates();
+  }
 
   /** Варианты номера для проверки уникальности (0XX ↔ 380XX и т.д.). */
   private getPhoneCandidatesForUniqueness(phoneNorm: string): string[] {
@@ -190,6 +198,8 @@ export class ContactsService {
             returnAdjustmentAmount: true,
             debtAmount: true,
             creditAmount: true,
+            currency: true,
+            paymentDueDate: true,
             financialStatus: true,
             orderStage: true,
             legacySource: true,
@@ -218,28 +228,19 @@ export class ContactsService {
         }),
         this.prisma.clientBalance.findMany({
           where: { holderKind: "CONTACT", holderId: id },
-          select: { amount: true },
+          select: { amount: true, currency: true },
         }),
       ]);
 
-    let revenue = 0;
-    let debt = 0;
-    let orderCredit = 0;
-    let overdue = 0;
+    const rates = await this.exchangeRates();
+    const finance = aggregateClientFinance(visibleOrders, balanceRows, rates);
     let lastOrderAt: Date | null = null;
-    const clientBalance = balanceRows.reduce((sum, row) => sum + Number(row.amount ?? 0), 0);
     for (const order of visibleOrders) {
-      revenue += Math.max(0, Number(order.totalAmount ?? 0) - Number(order.returnAdjustmentAmount ?? 0));
-      orderCredit += Math.max(0, Number(order.creditAmount ?? 0));
-      if (isOperationalDebtOrder(order)) {
-        debt += Math.max(0, Number(order.debtAmount ?? 0));
-        if (order.financialStatus === "OVERDUE" && Number(order.debtAmount ?? 0) > 0) {
-          overdue += Number(order.debtAmount ?? 0);
-        }
-      }
       if (!lastOrderAt || order.createdAt > lastOrderAt) lastOrderAt = order.createdAt;
     }
-    const netDebt = Math.max(0, debt - orderCredit);
+    const netDebt = finance.netDebt;
+    const overdue = finance.overdue;
+    const orderCredit = finance.orderCredit;
 
     const lastActivityAt = lastActivity?.occurredAt ?? lastActivity?.createdAt ?? null;
     const daysSinceActivity = lastActivityAt
@@ -290,11 +291,12 @@ export class ContactsService {
       },
       kpi: {
         ordersCount: visibleOrders.length,
-        revenue,
+        currency: finance.currency,
+        revenue: finance.revenue,
         debt: netDebt,
         overdue,
         orderCredit,
-        clientBalance,
+        clientBalance: finance.clientBalance,
         lastOrderAt: lastOrderAt ? lastOrderAt.toISOString() : null,
         lastActivityAt: lastActivityAt ? new Date(lastActivityAt).toISOString() : null,
         openTasksCount,
@@ -465,6 +467,9 @@ export class ContactsService {
           createdAt: true,
           totalAmount: true,
           returnAdjustmentAmount: true,
+          currency: true,
+          orderStage: true,
+          legacySource: true,
           items: {
             select: {
               productId: true,
@@ -486,13 +491,19 @@ export class ContactsService {
     const ordersByPeriod = new Map<string, number>();
     const topProducts = new Map<string, { productId: string | null; productName: string; qty: number; revenue: number }>();
 
+    const rates = await this.exchangeRates();
     let revenue = 0;
+    let revenueOrders = 0;
     for (const order of visibleOrders) {
-      const orderRevenue = Math.max(
-        0,
-        Number(order.totalAmount ?? 0) - Number(order.returnAdjustmentAmount ?? 0),
+      if (!countsTowardClientRevenue(order)) continue;
+      const orderCurrency = order.currency || getBaseCurrency(rates);
+      const orderRevenue = toBaseCurrency(
+        Math.max(0, Number(order.totalAmount ?? 0) - Number(order.returnAdjustmentAmount ?? 0)),
+        orderCurrency,
+        rates,
       );
       revenue += orderRevenue;
+      revenueOrders += 1;
 
       const bucket = this.bucketFromDate(order.createdAt, opts.range);
       revenueByPeriod.set(bucket, (revenueByPeriod.get(bucket) ?? 0) + orderRevenue);
@@ -507,7 +518,7 @@ export class ContactsService {
           revenue: 0,
         };
         current.qty += Number(item.qty ?? 0);
-        current.revenue += Number(item.lineTotal ?? 0);
+        current.revenue += toBaseCurrency(Number(item.lineTotal ?? 0), orderCurrency, rates);
         topProducts.set(key, current);
       }
     }
@@ -525,8 +536,8 @@ export class ContactsService {
       },
       kpi: {
         revenue,
-        ordersCount: visibleOrders.length,
-        avgOrderValue: visibleOrders.length > 0 ? revenue / visibleOrders.length : 0,
+        ordersCount: revenueOrders,
+        avgOrderValue: revenueOrders > 0 ? revenue / revenueOrders : 0,
       },
       series: {
         revenueByPeriod: Array.from(revenueByPeriod.entries())
@@ -802,12 +813,14 @@ export class ContactsService {
     let hasCallTodayIds = new Set<string>();
     let hasMissedCallIds = new Set<string>();
     const debtByContact = new Map<string, number>();
+    let financeRestrictedIds = new Set<string>();
 
     if (contactIds.length > 0) {
       const now = new Date();
       const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const managerId = actor?.role === UserRole.MANAGER ? actor.id : null;
 
-      const [callsToday, missedCalls, debts] = await Promise.all([
+      const [callsToday, missedCalls, financeOrders, balanceRows, hiddenDebt, rates] = await Promise.all([
         this.prisma.call.groupBy({
           by: ["contactId"],
           where: {
@@ -827,25 +840,66 @@ export class ContactsService {
           },
           _count: { _all: true },
         }),
-        this.prisma.order.groupBy({
-          by: ["clientId"],
-          where: buildOperationalDebtOrderWhere({
-            clientId: { in: contactIds },
-          }),
-          _sum: { debtAmount: true, creditAmount: true },
+        this.prisma.order.findMany({
+          where: {
+            ...buildOperationalDebtOrderWhere({ clientId: { in: contactIds } }),
+            ...(managerId ? { ownerId: managerId } : {}),
+          },
+          select: {
+            clientId: true,
+            totalAmount: true,
+            returnAdjustmentAmount: true,
+            debtAmount: true,
+            creditAmount: true,
+            currency: true,
+            orderStage: true,
+            legacySource: true,
+            paymentDueDate: true,
+          },
         }),
+        this.prisma.clientBalance.findMany({
+          where: { holderKind: "CONTACT", holderId: { in: contactIds } },
+          select: { holderId: true, amount: true, currency: true },
+        }),
+        managerId
+          ? this.prisma.order.findMany({
+              where: buildOperationalDebtOrderWhere({
+                clientId: { in: contactIds },
+                ownerId: { not: managerId },
+                debtAmount: { gt: 0 },
+              }),
+              select: { clientId: true },
+              distinct: ["clientId"],
+            })
+          : Promise.resolve([] as Array<{ clientId: string | null }>),
+        this.exchangeRates(),
       ]);
       hasCallTodayIds = new Set(callsToday.map((c) => c.contactId as string));
       hasMissedCallIds = new Set(missedCalls.map((c) => c.contactId as string));
-      for (const row of debts) {
-        const id = row.clientId ?? null;
-        if (!id) continue;
-        const debt = Math.max(
-          0,
-          Number(row._sum.debtAmount ?? 0) - Number(row._sum.creditAmount ?? 0),
-        );
-        if (debt > 0) debtByContact.set(id, debt);
+      const ordersByClient = new Map<string, typeof financeOrders>();
+      for (const order of financeOrders) {
+        if (!order.clientId) continue;
+        const list = ordersByClient.get(order.clientId) ?? [];
+        list.push(order);
+        ordersByClient.set(order.clientId, list);
       }
+      const balancesByClient = new Map<string, Array<{ amount: number; currency: string }>>();
+      for (const row of balanceRows) {
+        const list = balancesByClient.get(row.holderId) ?? [];
+        list.push({ amount: Number(row.amount ?? 0), currency: row.currency });
+        balancesByClient.set(row.holderId, list);
+      }
+      for (const id of contactIds) {
+        const snap = aggregateClientFinance(
+          ordersByClient.get(id) ?? [],
+          balancesByClient.get(id) ?? [],
+          rates,
+        );
+        if (snap.netDebt > 0.009) debtByContact.set(id, snap.netDebt);
+      }
+      financeRestrictedIds = new Set(
+        hiddenDebt.map((row) => row.clientId).filter((id): id is string => !!id),
+      );
     }
 
     const mappedAll = contacts.map((c) => {
@@ -856,6 +910,7 @@ export class ContactsService {
         hasMissedCall: hasMissedCallIds.has(base.id),
         hasDebt: debtByContact.has(base.id),
         debtAmount: debtByContact.get(base.id) ?? 0,
+        financeRestricted: financeRestrictedIds.has(base.id),
       };
     });
 

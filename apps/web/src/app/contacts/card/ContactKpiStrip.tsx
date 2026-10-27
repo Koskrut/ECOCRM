@@ -5,8 +5,9 @@ import { strings } from "@/locales";
 
 const t = strings.contacts.card.kpi;
 
-function fmtMoney(value: number): string {
-  return `${new Intl.NumberFormat("uk-UA", { maximumFractionDigits: 0 }).format(value)} ₴`;
+function fmtMoney(value: number, currency: string): string {
+  const sym = currency === "EUR" ? "€" : currency === "UAH" ? "₴" : "$";
+  return `${value.toFixed(2)} ${sym}`;
 }
 
 type KpiCardVariant = "default" | "amber" | "risk";
@@ -42,23 +43,25 @@ export function ContactKpiStrip({
 }) {
   const hasOverdue = kpi.overdue > 0;
   const hasDebt = kpi.debt > 0;
+  const currency = kpi.currency || "USD";
+  const money = (value: number) => fmtMoney(value, currency);
 
   const primaryCards: Array<{ title: string; value: string; variant: KpiCardVariant }> = [
-    { title: t.revenue, value: fmtMoney(kpi.revenue), variant: "default" },
+    { title: t.revenue, value: money(kpi.revenue), variant: "default" },
     ...(hasDebt
       ? [
           {
             title: t.debt,
-            value: fmtMoney(kpi.debt),
+            value: money(kpi.debt),
             variant: hasOverdue ? ("risk" as const) : ("amber" as const),
           },
         ]
       : []),
     ...(kpi.orderCredit > 0
-      ? [{ title: t.orderCredit, value: fmtMoney(kpi.orderCredit), variant: "default" as const }]
+      ? [{ title: t.orderCredit, value: money(kpi.orderCredit), variant: "default" as const }]
       : []),
     ...(kpi.clientBalance > 0
-      ? [{ title: t.clientBalance, value: fmtMoney(kpi.clientBalance), variant: "default" as const }]
+      ? [{ title: t.clientBalance, value: money(kpi.clientBalance), variant: "default" as const }]
       : []),
     { title: t.orders, value: String(kpi.ordersCount), variant: "default" },
     { title: t.openTasks, value: String(kpi.openTasksCount), variant: "default" },
@@ -72,12 +75,12 @@ export function ContactKpiStrip({
           <div className="mt-1 space-y-0.5 tabular-nums">
             <div>
               {t.overdueAmount}:{" "}
-              <span className="font-semibold">{fmtMoney(kpi.overdue)}</span>
+              <span className="font-semibold">{money(kpi.overdue)}</span>
             </div>
             {hasDebt ? (
               <div>
                 {t.clientTotalDebt}:{" "}
-                <span className="font-semibold">{fmtMoney(kpi.debt)}</span>
+                <span className="font-semibold">{money(kpi.debt)}</span>
               </div>
             ) : null}
           </div>

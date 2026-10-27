@@ -64,6 +64,8 @@ export type Contact = {
   hasMissedCall?: boolean;
   hasDebt?: boolean;
   debtAmount?: number;
+  /** Manager sees only their orders; other owners still have debt on this client. */
+  financeRestricted?: boolean;
   nextActionType?: ContactNextActionType | null;
   nextActionAt?: string | null;
   nextActionNote?: string | null;

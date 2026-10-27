@@ -155,9 +155,9 @@ export default function AnalyticsFinancePage() {
         <h2 className="text-lg font-semibold text-zinc-900">Фінанси — KPI</h2>
         <p className="mt-1 text-sm text-zinc-500">
           <strong>Зібрано</strong> — період (завершені, paidAt).{" "}
-          <strong>Борг / прострочення</strong> — замовлення з{" "}
-          <code className="rounded bg-zinc-100 px-1">createdAt</code> у вибраному періоді; дельта
-          «vs попередній» лише для збору платежів. Заброньований дохід тут не показуємо.
+          <strong>Борг / прострочення</strong> — поточний знімок операційної дебіторки, не когорта
+          періоду. Дельта «vs попередній» лише для збору платежів. Заброньований дохід тут не
+          показуємо.
         </p>
         <div className="mt-4 grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <KpiDeltaCard
@@ -197,15 +197,15 @@ export default function AnalyticsFinancePage() {
           <KpiDeltaCard
             variant="risk"
             title="Борг загалом"
-            subtitle="Сума debtAmount, замовлення за період (createdAt)"
-            tooltip="У межах обраного діапазону дат і scope."
+            subtitle="Поточний знімок дебіторки, не за період"
+            tooltip="Сума поточного операційного боргу в scope. Обраний період на цей показник не впливає."
             value={formatMoneyBase(kpi?.debtTotal, currency)}
             deltaLabel={null}
           />
           <KpiDeltaCard
             variant="risk"
             title="Прострочений борг"
-            subtitle="Прострочені + борг за той самий когортний період"
+            subtitle="Поточний прострочений борг за датою оплати (Київ)"
             value={formatMoneyBase(kpi?.overdueDebt, currency)}
             deltaLabel={null}
             onDrill={() => router.push(`${attentionHref}#finance-overdue`, { scroll: false })}
@@ -221,7 +221,7 @@ export default function AnalyticsFinancePage() {
           <KpiDeltaCard
             variant="risk"
             title="Клієнти з простроченням"
-            subtitle="Унікальні клієнти в когорті прострочених за період"
+            subtitle="Унікальні клієнти з поточним простроченням"
             value={formatNumber(kpi?.customersWithOverdueCount)}
             deltaLabel={null}
           />
@@ -239,8 +239,8 @@ export default function AnalyticsFinancePage() {
       <section className="min-w-0">
         <h2 className="text-lg font-semibold text-zinc-900">Графіки</h2>
         <p className="mt-1 text-sm text-zinc-500">
-          Збір платежів і борг за віком — для обраного періоду (вік рахується відносно кінця
-          періоду).
+          Збір платежів — за обраний період. Вік боргу рахується від кінця періоду по поточному
+          знімку дебіторки.
         </p>
         <div className="mt-4 grid min-w-0 gap-4 lg:grid-cols-2">
           <CollectedPaymentsTrendChart
@@ -258,7 +258,7 @@ export default function AnalyticsFinancePage() {
       <section className="min-w-0 rounded-xl border border-amber-200/60 bg-amber-50/20 p-5 shadow-sm">
         <h2 className="text-lg font-semibold text-zinc-900">Операційні сигнали</h2>
         <p className="mt-1 text-sm text-amber-900/85">
-          Борг, прострочення та очікуючі оплати на цій сторінці — у межах обраного періоду (див. KPI).
+          Борг і прострочення — поточний знімок (див. KPI). Очікуючі оплати — на замовленнях періоду.
           Детальні черги:{" "}
           <Link
             href={`${attentionHref}#finance-overdue`}

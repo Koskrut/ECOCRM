@@ -1,6 +1,6 @@
 /**
  * Helpers for receivables "full client debt" payment links.
- * Order.debtAmount is stored in USD (base); NBU pay links use UAH.
+ * Order.debtAmount is in the order currency. exchangeRate is UAH per 1 unit of that currency.
  */
 
 export type DebtOrderForPayLink = {
@@ -61,7 +61,7 @@ export function pickPayLinkAnchorOrder<T extends DebtOrderForPayLink>(
   return pickPrimaryDebtOrder(withBank, asOfStartOfDay);
 }
 
-/** Sum of USD debts converted to UAH via each order's rate (fallback UAH per 1 USD). */
+/** Sum of order-currency debts converted to UAH. A missing rate falls back to UAH per 1 USD. */
 export function computeFullDebtPayAmountUah(
   orders: Array<Pick<DebtOrderForPayLink, "debtAmount" | "exchangeRate">>,
   fallbackUahPerUsd: number,

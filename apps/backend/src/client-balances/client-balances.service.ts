@@ -18,6 +18,7 @@ import { PaymentsService } from "../payments/payments.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { SettingsService, type ExchangeRates } from "../settings/settings.service";
 import { toUsd } from "../common/currency.util";
+import { computeOrderDebtAndCredit } from "../payments/order-finance.utils";
 import { computeOrderOverpayment, resolveBalanceHolder } from "./balance-holder.utils";
 import type { ApplyCreditDto } from "./dto/apply-credit.dto";
 import type { SettleReturnDto } from "./dto/settle-return.dto";
@@ -262,12 +263,53 @@ export class ClientBalancesService {
 
     const holder = resolveBalanceHolder(ret.order);
     const currency = (ret.order.currency || "UAH").toUpperCase();
+    const rates = await this.settings.getExchangeRates();
 
     await this.prisma.$transaction(async (tx) => {
+      const fresh = await tx.order.findUnique({
+        where: { id: ret.orderId },
+        select: {
+          totalAmount: true,
+          subtotalAmount: true,
+          paidAmount: true,
+        },
+      });
+      if (!fresh) throw new NotFoundException("Order not found");
+      const [closedOthers, thisReturn] = await Promise.all([
+        tx.orderReturn.findMany({
+          where: { orderId: ret.orderId, status: "CLOSED", id: { not: returnId } },
+          include: { items: { include: { orderItem: true } } },
+        }),
+        tx.orderReturn.findUnique({
+          where: { id: returnId },
+          include: { items: { include: { orderItem: true } } },
+        }),
+      ]);
+      if (!thisReturn) throw new NotFoundException("Return not found");
+      const adjustmentAfter = computeReturnAdjustmentAmount(
+        [...closedOthers, { items: thisReturn.items }],
+        {
+          subtotalAmount: fresh.subtotalAmount ?? 0,
+          totalAmount: fresh.totalAmount ?? 0,
+        },
+      );
+      const overpayment = computeOrderOverpayment({
+        totalAmount: Number(fresh.totalAmount ?? 0),
+        returnAdjustmentAmount: adjustmentAfter,
+        paidAmount: Number(fresh.paidAmount ?? 0),
+      });
+      if (totalSettle > roundMoney(overpayment) + 0.009) {
+        throw new BadRequestException(
+          `Settlement total ${totalSettle} exceeds overpayment ${roundMoney(overpayment)}`,
+        );
+      }
+
       const balance = await this.ensureBalanceTx(tx, holder, currency);
+      let creditTxId: string | null = null;
+      let refundTxId: string | null = null;
 
       if (settlement.creditAmount > 0) {
-        await this.postTransactionTx(tx, {
+        const creditTx = await this.postTransactionTx(tx, {
           balanceId: balance.id,
           type: "CREDIT_FROM_RETURN",
           amount: settlement.creditAmount,
@@ -279,10 +321,11 @@ export class ClientBalancesService {
           note: dto.note ?? `Залік з повернення по замовленню ${ret.order.orderNumber ?? ret.orderId}`,
           actorId: actor?.id,
         });
+        creditTxId = creditTx.id;
       }
 
       if (settlement.refundAmount > 0) {
-        await this.postTransactionTx(tx, {
+        const refundTx = await this.postTransactionTx(tx, {
           balanceId: balance.id,
           type: "REFUND_OUT",
           amount: settlement.refundAmount,
@@ -296,10 +339,42 @@ export class ClientBalancesService {
             `Повернення коштів ${settlement.refundAmount} ${currency} по замовленню ${ret.order.orderNumber ?? ret.orderId}`,
           actorId: actor?.id,
         });
+        refundTxId = refundTx.id;
       }
 
-      await tx.orderReturn.update({
-        where: { id: returnId },
+      const amountUsd = convertToUsd(totalSettle, currency, rates);
+      const note =
+        dto.note ??
+        (settlement.type === "REFUND"
+          ? `Повернення коштів клієнту ${totalSettle} ${currency} по замовленню ${ret.order.orderNumber ?? ret.orderId}`
+          : settlement.type === "SPLIT"
+            ? `Залік ${settlement.creditAmount} і повернення ${settlement.refundAmount} ${currency} по замовленню ${ret.order.orderNumber ?? ret.orderId}`
+            : `Перенесення переплати ${totalSettle} ${currency} на баланс клієнта по замовленню ${ret.order.orderNumber ?? ret.orderId}`);
+      const payment = await tx.payment.create({
+        data: {
+          orderId: ret.orderId,
+          contactId: holder.contactId,
+          companyId: holder.companyId,
+          sourceType: PaymentSourceType.CREDIT,
+          amount: -totalSettle,
+          currency,
+          amountUsd: -amountUsd,
+          paidAt: new Date(),
+          status: PaymentStatus.COMPLETED,
+          createdByUserId: actor?.id ?? null,
+          note,
+        },
+      });
+      const linkId = creditTxId ?? refundTxId;
+      if (linkId) {
+        await tx.clientBalanceTransaction.update({
+          where: { id: linkId },
+          data: { paymentId: payment.id },
+        });
+      }
+
+      const marked = await tx.orderReturn.updateMany({
+        where: { id: returnId, settledAt: null },
         data: {
           settlementType: settlement.type,
           creditAmount: settlement.creditAmount || null,
@@ -308,7 +383,12 @@ export class ClientBalancesService {
           settledByUserId: actor?.id ?? null,
         },
       });
+      if (marked.count !== 1) {
+        throw new BadRequestException("Return is already settled");
+      }
     });
+
+    await this.payments.recalcOrder(ret.orderId);
 
     return this.getReturnSettlementPreview(returnId, actor);
   }
@@ -327,6 +407,8 @@ export class ClientBalancesService {
         totalAmount: true,
         paidAmount: true,
         returnAdjustmentAmount: true,
+        fxWriteOffAmount: true,
+        orderStage: true,
         clientId: true,
         contactId: true,
         companyId: true,
@@ -335,11 +417,14 @@ export class ClientBalancesService {
     if (!order) throw new NotFoundException("Order not found");
     this.assertManagerOrderAccess(order, actor);
 
-    const effectiveDebt = Math.max(
-      0,
-      Number(order.totalAmount ?? 0) -
-        Number(order.returnAdjustmentAmount ?? 0) -
-        Number(order.paidAmount ?? 0),
+    const effectiveDebt = roundMoney(
+      computeOrderDebtAndCredit({
+        totalAmount: order.totalAmount,
+        returnAdjustmentAmount: order.returnAdjustmentAmount,
+        paidAmount: order.paidAmount,
+        fxWriteOffAmount: order.fxWriteOffAmount,
+        orderStage: order.orderStage,
+      }).debtAmount,
     );
     if (effectiveDebt <= 0.009) {
       throw new BadRequestException("Order has no debt to apply credit to");

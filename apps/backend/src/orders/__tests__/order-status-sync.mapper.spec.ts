@@ -23,6 +23,31 @@ test("legacyStatusesForOrderStages includes IN_WORK when CONFIRMED requested", (
   assert.ok(statuses.includes("READY_TO_SHIP"));
 });
 
+test("computeFinancialStatusFromOrder: prepayment with a past due date is OVERDUE", () => {
+  const asOf = new Date("2026-06-10T12:00:00.000Z");
+  const status = computeFinancialStatusFromOrder({
+    paymentType: "PREPAYMENT",
+    totalAmount: 1000,
+    paidAmount: 0,
+    debtAmount: 1000,
+    paymentDueDate: new Date("2026-06-01T12:00:00.000Z"),
+    orderStage: "SHIPPED",
+    asOf,
+  });
+  assert.equal(status, "OVERDUE");
+});
+
+test("computeFinancialStatusFromOrder: prepayment without a due date stays AWAITING_PAYMENT", () => {
+  const status = computeFinancialStatusFromOrder({
+    paymentType: "PREPAYMENT",
+    totalAmount: 1000,
+    paidAmount: 0,
+    debtAmount: 1000,
+    orderStage: "SHIPPED",
+  });
+  assert.equal(status, "AWAITING_PAYMENT");
+});
+
 test("computeFinancialStatusFromOrder: deferred debt overdue by Kyiv calendar day", () => {
   const asOf = new Date("2026-06-10T12:00:00.000Z");
   const status = computeFinancialStatusFromOrder({

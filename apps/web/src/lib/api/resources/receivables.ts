@@ -147,9 +147,12 @@ export type ContactReceivablesResponse = {
   snoozedUntil?: string | null;
   snoozedByName?: string | null;
   kpi: {
+    /** Net position, same formula as the contact card. */
     debtTotal: number;
+    grossDebt?: number;
     overdueDebt: number;
     overpaymentTotal?: number;
+    clientBalance?: number;
     ordersWithDebtCount: number;
     bitrixLegacyDebt: number;
   };

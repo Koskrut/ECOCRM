@@ -836,13 +836,18 @@ function ContactsPageContent() {
                       {c.lastName} {c.firstName}
                     </div>
                     <div className="mt-1 text-sm text-zinc-600">{formatPhoneDisplay(c.phone)}</div>
-                    {c.hasDebt && (
+                    {c.hasDebt || c.financeRestricted ? (
                       <div className="mt-1">
-                        <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-800">
-                          {t.debt}
-                        </span>
+                        {c.hasDebt ? (
+                          <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-800">
+                            {t.debt}
+                          </span>
+                        ) : null}
+                        {c.financeRestricted ? (
+                          <div className="mt-1 text-[10px] text-zinc-500">{t.debtPartial}</div>
+                        ) : null}
                       </div>
-                    )}
+                    ) : null}
                     {c.email ? (
                       <div className="mt-0.5 truncate text-xs text-zinc-500">{c.email}</div>
                     ) : null}
@@ -1048,6 +1053,9 @@ function ContactsPageContent() {
                             {t.debt}
                           </span>
                         )}
+                        {c.financeRestricted ? (
+                          <div className="mt-1 text-[10px] font-normal text-zinc-500">{t.debtPartial}</div>
+                        ) : null}
                       </td>
                       <td className="px-4 py-4 text-zinc-600">{formatPhoneDisplay(c.phone)}</td>
                       <td className="hidden px-4 py-4 text-zinc-600 md:table-cell">
