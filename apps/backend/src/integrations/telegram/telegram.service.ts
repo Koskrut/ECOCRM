@@ -27,6 +27,7 @@ import type {
   TelegramWebhookInfo,
 } from "./telegram.types";
 import {
+  CLIENT_MENU_BUTTONS,
   CLIENT_MENU_KEYBOARD,
   TELEGRAM_EXISTING_CLIENT,
   TELEGRAM_REQUEST_PHONE,
@@ -269,11 +270,13 @@ export class TelegramService {
       const isStartPlainCommand =
         trimmedText.toLowerCase() === "/start" ||
         (trimmedText.toLowerCase().startsWith("/start") && trimmedText.length <= 6);
+      const isClientMenuAction = (CLIENT_MENU_BUTTONS as readonly string[]).includes(trimmedText);
       const isCommandMessage =
         isHelpCommand ||
         isStartPlainCommand ||
         trimmedText.startsWith("/") ||
-        parsed.isCallback;
+        parsed.isCallback ||
+        isClientMenuAction;
 
       const account = await this.upsertTelegramAccount({
         telegramUserId: parsed.userId,
@@ -393,7 +396,7 @@ export class TelegramService {
               }
             }
           }
-        } else if (!isCommandMessage) {
+        } else if (!isCommandMessage && !account.phone) {
           await this.sendMessageToChat(parsed.chatId, TELEGRAM_REQUEST_PHONE, {
             requestContactButton: true,
           });

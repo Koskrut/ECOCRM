@@ -31,8 +31,11 @@ function makeBot(opts: {
   sessionState?: string;
   products?: Array<AnyRec>;
   orders?: Array<AnyRec>;
+  account?: AnyRec | null;
 }) {
-  const sent: Array<{ text: string; inline?: boolean }> = [];
+  const sent: Array<{ text: string; inline?: boolean; keyboard?: unknown }> = [];
+  const listCalls: unknown[][] = [];
+  const checkoutCalls: AnyRec[] = [];
   const sessions = {
     state: opts.sessionState ?? "idle",
     payload: {} as AnyRec,
@@ -54,7 +57,11 @@ function makeBot(opts: {
   const telegram = {
     answerCallbackQuery: async () => undefined,
     sendMessageToChat: async (_chat: string, text: string, options?: AnyRec) => {
-      sent.push({ text, inline: Boolean(options?.inlineKeyboard) });
+      sent.push({
+        text,
+        inline: Boolean(options?.inlineKeyboard),
+        keyboard: options?.menuKeyboard,
+      });
       return { messageId: sent.length };
     },
     sendPhotoToChat: async () => ({ messageId: 99 }),
@@ -69,24 +76,27 @@ function makeBot(opts: {
     },
     lead: { findUnique: async () => null },
     telegramAccount: {
-      findUnique: async () => null,
+      findUnique: async () => opts.account ?? null,
       updateMany: async () => ({ count: 0 }),
     },
   };
   const products = {
-    listActive: async () => ({
-      items: opts.products ?? [
-        {
-          id: "p1",
-          name: "Товар 1",
-          sku: "SKU1",
-          basePrice: 10,
-          stock: 5,
-          primaryImageUrl: null,
-        },
-      ],
-      total: 1,
-    }),
+    listActive: async (...args: unknown[]) => {
+      listCalls.push(args);
+      return {
+        items: opts.products ?? [
+          {
+            id: "p1",
+            name: "Товар 1",
+            sku: "SKU1",
+            basePrice: 10,
+            stock: 5,
+            primaryImageUrl: null,
+          },
+        ],
+        total: 1,
+      };
+    },
     findActiveById: async (id: string) =>
       id === "p1"
         ? {
@@ -110,7 +120,10 @@ function makeBot(opts: {
     prisma as never,
     sessions as never,
     cart as never,
-    { checkout: async () => ({ orderId: "o1", orderNumber: "1", contactId: "c1" }) } as never,
+    { checkout: async (dto: AnyRec) => {
+      checkoutCalls.push(dto);
+      return { orderId: "o1", orderNumber: "1", contactId: "c1" };
+    } } as never,
     { createPaymentLink: async () => ({ payPath: "/pay/t" }) } as never,
     products as never,
     settings as never,
@@ -119,7 +132,7 @@ function makeBot(opts: {
     telegram as never,
   );
 
-  return { service, sent, sessions, telegram };
+  return { service, sent, sessions, telegram, listCalls, checkoutCalls };
 }
 
 describe("TelegramClientBotService menu / idle", () => {
@@ -134,6 +147,133 @@ describe("TelegramClientBotService menu / idle", () => {
     assert.equal(result.handled, true);
     assert.equal(result.notifyManager, false);
     assert.ok(sent.some((s) => /Каталог/i.test(s.text)));
+    const menu = sent.find((s) => Array.isArray(s.keyboard) && !s.inline);
+    const systems = sent.find((s) => s.inline && /Системи/.test(s.text));
+    assert.ok(menu);
+    assert.ok(systems);
+  });
+
+  it("opens one system and does not print a zero price", async () => {
+    const { service, sent, listCalls } = makeBot({
+      products: [
+        {
+          id: "p0",
+          name: "00.105",
+          sku: "00.105",
+          basePrice: 0,
+          stock: 2,
+          primaryImageUrl: null,
+        },
+      ],
+    });
+    const result = await service.handleClientTurn({
+      parsed: parsed({ text: "Викрутки SUPREX" }),
+      conversationId: "conv1",
+      contactId: null,
+      leadId: null,
+    });
+    assert.equal(result.handled, true);
+    assert.equal(result.notifyManager, false);
+    assert.equal(listCalls[0]?.[1], "00");
+    const body = sent.map((s) => s.text).join("\n");
+    assert.match(body, /Викрутки SUPREX/);
+    assert.match(body, /ціну уточніть/);
+    assert.equal(body.includes("0 грн"), false);
+  });
+
+  it("does not open a catalog system while checkout is in progress", async () => {
+    const { service, sent, sessions, listCalls } = makeBot({});
+    sessions.state = "checkout_city";
+    sessions.payload = { region: "Київська", deliveryMethod: "NOVA_POSHTA", deliveryType: "WAREHOUSE" };
+    const result = await service.handleClientTurn({
+      parsed: parsed({ text: "Викрутки SUPREX" }),
+      conversationId: "conv1",
+      contactId: "c1",
+      leadId: null,
+    });
+    assert.equal(result.handled, true);
+    assert.equal(result.notifyManager, false);
+    assert.equal(listCalls.length, 0);
+    assert.equal(sessions.state, "checkout_city");
+    assert.ok(sent.some((s) => /не знайдено|недоступний|місто/i.test(s.text)));
+  });
+
+  it("saves a checkout comment and waits for confirmation", async () => {
+    const { service, sent, sessions, checkoutCalls } = makeBot({});
+    sessions.state = "checkout_comment";
+    sessions.payload = {
+      region: "Київська",
+      deliveryMethod: "PICKUP",
+      paymentType: "PREPAYMENT",
+      paymentMethod: "FOP",
+    };
+    const result = await service.handleClientTurn({
+      parsed: parsed({ text: "можна на завтра?" }),
+      conversationId: "conv1",
+      contactId: "c1",
+      leadId: null,
+    });
+    assert.equal(result.handled, true);
+    assert.equal(result.notifyManager, false);
+    assert.equal(checkoutCalls.length, 0);
+    assert.equal(sessions.state, "checkout_comment");
+    assert.equal(sessions.payload.comment, "можна на завтра?");
+    assert.ok(sent.some((s) => /Оформити/.test(s.text)));
+  });
+
+  it("stores cash on delivery without deferred credit terms", async () => {
+    const { service, sessions } = makeBot({});
+    sessions.payload = { region: "Київська", deliveryMethod: "PICKUP" };
+    await service.handleClientTurn({
+      parsed: parsed({ text: "chk:pay:cod", isCallback: true, callbackQueryId: "cb-cod" }),
+      conversationId: "conv1",
+      contactId: "c1",
+      leadId: null,
+      callbackQueryId: "cb-cod",
+    });
+    assert.equal(sessions.payload.cod, true);
+    assert.equal(sessions.payload.paymentMethod, "CASH");
+    assert.notEqual(sessions.payload.paymentType, "DEFERRED");
+  });
+
+  it("rejects a city button that no longer matches the latest search", async () => {
+    const { service, sent, sessions } = makeBot({});
+    sessions.payload = {
+      deliveryType: "WAREHOUSE",
+      cityHits: [{ ref: "new-ref", name: "Львів" }],
+    };
+    await service.handleClientTurn({
+      parsed: parsed({ text: "chk:city:old-ref", isCallback: true, callbackQueryId: "cb-city" }),
+      conversationId: "conv1",
+      contactId: "c1",
+      leadId: null,
+      callbackQueryId: "cb-city",
+    });
+    assert.equal(sessions.payload.cityRef, undefined);
+    assert.ok(sent.some((s) => /недійсний/.test(s.text)));
+  });
+
+  it("resumes checkout after the phone is shared", async () => {
+    const { service, checkoutCalls, sessions } = makeBot({
+      account: { phone: "+380501112233", firstName: "Оля", lastName: "Тест", contactId: null },
+    });
+    sessions.state = "checkout_phone";
+    sessions.payload = {
+      region: "Київська",
+      deliveryMethod: "PICKUP",
+      paymentType: "PREPAYMENT",
+      paymentMethod: "FOP",
+    };
+    const result = await service.handleClientTurn({
+      parsed: parsed({ phone: "+380501112233", text: null }),
+      conversationId: "conv1",
+      contactId: "c1",
+      leadId: null,
+    });
+    assert.equal(result.handled, true);
+    assert.equal(result.notifyManager, false);
+    assert.equal(checkoutCalls.length, 1);
+    assert.equal(sessions.state, "idle");
   });
 
   it("routes free text in idle to the manager", async () => {

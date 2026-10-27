@@ -1153,6 +1153,16 @@ export class OrdersService {
     }
   }
 
+  notifyOrderCreated(mapped: { id?: string }): void {
+    const id = mapped.id;
+    if (!id) return;
+    this.workflowEmitter.emitRecordCreated(
+      CustomFieldEntityType.ORDER,
+      id,
+      mapped as unknown as Record<string, unknown>,
+    );
+  }
+
   async update(id: string, dto: UpdateOrderDto, actor?: AuthUser) {
     const existing = await this.prisma.order.findUnique({
       where: { id },

@@ -8,6 +8,27 @@ export const MENU_MANAGER = "💬 Менеджер";
 
 export const CLIENT_MENU_BUTTONS = [MENU_CATALOG, MENU_CART, MENU_ORDERS, MENU_MANAGER];
 
+/** Reply-keyboard label that starts catalog search. Exact match, so it is not sent to a manager. */
+export const CATALOG_SEARCH_BUTTON = "🔍 Пошук";
+
+/**
+ * Store catalog systems. Ids are SKU prefixes.
+ * Keep in sync with apps/store/src/lib/categories.ts and apps/web/src/lib/product-groups.ts.
+ */
+export const CATALOG_SYSTEMS: { id: string; name: string }[] = [
+  { id: "00", name: "Викрутки SUPREX" },
+  { id: "01", name: "Straumann RC" },
+  { id: "02", name: "Straumann NC" },
+  { id: "03", name: "MegaGen AnyRidge" },
+  { id: "04", name: "MegaGen AnyOne" },
+  { id: "05", name: "MIS Seven" },
+  { id: "06", name: "ICX" },
+  { id: "07", name: "Straumann BLX" },
+  { id: "08", name: "NeoDent" },
+  { id: "09", name: "Straumann RN" },
+  { id: "10", name: "OSSTEM Regular" },
+];
+
 /** Reply keyboard layout: 2×2. */
 export const CLIENT_MENU_KEYBOARD: string[][] = [
   [MENU_CATALOG, MENU_CART],
@@ -94,6 +115,7 @@ export type BotSessionState =
   | "checkout_street"
   | "checkout_building"
   | "checkout_flat"
-  | "checkout_comment";
+  | "checkout_comment"
+  | "checkout_phone";
 
 export type InlineBtn = { text: string; callback_data: string };

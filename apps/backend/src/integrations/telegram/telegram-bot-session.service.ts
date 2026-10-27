@@ -6,6 +6,8 @@ import type { BotSessionState } from "./telegram-client.constants";
 export type BotSessionPayload = {
   catalogPage?: number;
   catalogSearch?: string;
+  /** SKU prefix of the open catalog system, e.g. "01". */
+  catalogGroup?: string;
   productId?: string;
   ordersPage?: number;
   /** Checkout draft */
@@ -24,6 +26,8 @@ export type BotSessionPayload = {
   building?: string;
   flat?: string;
   comment?: string;
+  /** Cash on delivery (Nova Poshta), not CRM credit terms. */
+  cod?: boolean;
   /** Short-lived search result lists for callback indices */
   cityHits?: Array<{ ref: string; name: string }>;
   warehouseHits?: Array<{ ref: string; name: string }>;

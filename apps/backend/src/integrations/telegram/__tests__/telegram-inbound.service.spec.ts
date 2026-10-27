@@ -247,6 +247,31 @@ describe("TelegramService.handleInboundUpdate", () => {
     assert.match(harness.sent[0].text, /номер/i);
   });
 
+  it("does not replace the menu with the share-phone button on catalog", async () => {
+    await harness.service.handleInboundUpdate(textUpdate("🛍 Каталог", 4));
+
+    assert.equal(
+      harness.sent.some((message) => /поділіться номером/i.test(message.text)),
+      false,
+    );
+  });
+
+  it("does not ask for a phone again when the account already has one", async () => {
+    (harness.service as unknown as AnyRec).upsertTelegramAccount = async () => ({
+      id: "acc1",
+      contactId: null,
+      leadId: null,
+      phone: "+380501112233",
+    });
+
+    await harness.service.handleInboundUpdate(textUpdate("Привіт", 5));
+
+    assert.equal(
+      harness.sent.some((message) => /поділіться номером/i.test(message.text)),
+      false,
+    );
+  });
+
   it("sends a single welcome for plain /start without phone", async () => {
     await harness.service.handleInboundUpdate(textUpdate("/start"));
 

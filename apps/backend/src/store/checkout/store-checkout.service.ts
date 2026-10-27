@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from "@nestjs/common";
+import { BadRequestException, Injectable, Logger } from "@nestjs/common";
 import {
   NpDeliveryType,
   NpRecipientType,
@@ -40,6 +40,7 @@ function getPhoneCandidatesForLookup(phoneNorm: string): string[] {
 
 @Injectable()
 export class StoreCheckoutService {
+  private readonly logger = new Logger(StoreCheckoutService.name);
   constructor(
     private readonly prisma: PrismaService,
     private readonly contactsService: ContactsService,
@@ -373,44 +374,19 @@ export class StoreCheckoutService {
       }
     }
 
-    const rates = await this.settings.getExchangeRates();
-    const uahPerUsd = rates.UAH_TO_USD > 0 ? 1 / rates.UAH_TO_USD : 41;
-
     const bankAccountId = await this.integrations.resolveStoreDefaultBankAccountIdForCheckout();
 
-    const order = await this.ordersService.create(
-      {
-        ownerId,
-        clientId: contact.id,
-        contactId: contact.id,
-        orderSource: OrderSource.STORE,
-        comment: dto.comment ?? undefined,
-        deliveryMethod: dto.deliveryMethod ?? undefined,
-        paymentMethod: dto.paymentMethod ?? undefined,
-        paymentType: dto.paymentType ?? undefined,
-        deliveryData: (orderDeliveryData ?? undefined) as CreateOrderDto["deliveryData"],
-        bankAccountId: bankAccountId ?? undefined,
-      },
-      undefined,
-    ) as { id: string; orderNumber: string };
-
-    for (const item of cart.items) {
-      const priceUsd = Math.round(item.price * 100) / 100;
-      await this.ordersService.addItem(
-        order.id,
-        { productId: item.productId, qty: item.qty, price: priceUsd },
-        undefined,
-      );
-    }
-
-    await this.cartService.clearCart({ sessionId });
+    const jwtSecret = process.env.JWT_SECRET;
+    if (!jwtSecret) throw new Error("JWT_SECRET is not set");
 
     let setPasswordToken: string | null = null;
     let alreadyHadAccount = false;
-    let customer = await this.prisma.customer.findUnique({
+    const existingCustomer = await this.prisma.customer.findUnique({
       where: { contactId: contact.id },
     });
-    if (!customer) {
+    if (existingCustomer) {
+      alreadyHadAccount = true;
+    } else {
       let rawPassword = (dto.password ?? "").trim();
       if (rawPassword.length < 6) {
         if (options?.autoCreateCustomer) {
@@ -419,19 +395,55 @@ export class StoreCheckoutService {
           throw new BadRequestException("Пароль має бути не менше 6 символів");
         }
       }
-      customer = await this.prisma.customer.create({
+      await this.prisma.customer.create({
         data: {
           contactId: contact.id,
           email: dto.email?.trim() || null,
           passwordHash: hashPassword(rawPassword),
         },
       });
-    } else {
-      alreadyHadAccount = true;
     }
 
-    const jwtSecret = process.env.JWT_SECRET;
-    if (!jwtSecret) throw new Error("JWT_SECRET is not set");
+    const order = await this.prisma.$transaction(async (tx) => {
+      const created = (await this.ordersService.create(
+        {
+          ownerId,
+          clientId: contact.id,
+          contactId: contact.id,
+          orderSource: OrderSource.STORE,
+          comment: dto.comment ?? undefined,
+          deliveryMethod: dto.deliveryMethod ?? undefined,
+          paymentMethod: dto.paymentMethod ?? undefined,
+          paymentType: dto.paymentType ?? undefined,
+          deliveryData: (orderDeliveryData ?? undefined) as CreateOrderDto["deliveryData"],
+          bankAccountId: bankAccountId ?? undefined,
+        },
+        undefined,
+        tx,
+      )) as { id: string; orderNumber: string };
+
+      for (const item of cart.items) {
+        const priceUsd = Math.round(item.price * 100) / 100;
+        await this.ordersService.addItem(
+          created.id,
+          { productId: item.productId, qty: item.qty, price: priceUsd },
+          undefined,
+          tx,
+        );
+      }
+      return created;
+    }, { timeout: 20_000 });
+
+    this.ordersService.notifyOrderCreated(order);
+
+    try {
+      await this.cartService.clearCart({ sessionId });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      // The order is already committed. A cart-clear failure must not look like a failed checkout.
+      this.logger.warn(`store checkout cart clear failed for ${order.id}: ${message}`);
+    }
+
     const orderPayToken = signJwt(
       { typ: "store_order_pay", orderId: order.id, contactId: contact.id },
       jwtSecret,
