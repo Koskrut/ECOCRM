@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  countsTowardOrderReturnAdjustment,
   getAllowedReturnStatusTransitions,
   isMisPickChecklistComplete,
   shouldExcludeReturnFromOrderFinancialSync,
@@ -20,6 +21,31 @@ test("mis-pick replacement active excludes return from financial sync", () => {
     shouldExcludeReturnFromOrderFinancialSync({
       reason: "CUSTOMER_CHANGE",
       status: "INSPECTION",
+      outboundWaivedAt: null,
+      items: [],
+    }),
+    false,
+  );
+});
+
+test("return adjustment starts at warehouse receipt", () => {
+  const base = {
+    reason: "CUSTOMER_CHANGE" as const,
+    outboundWaivedAt: null,
+    items: [],
+  };
+  assert.equal(countsTowardOrderReturnAdjustment({ ...base, status: "REQUESTED" }), false);
+  assert.equal(countsTowardOrderReturnAdjustment({ ...base, status: "APPROVED" }), false);
+  assert.equal(countsTowardOrderReturnAdjustment({ ...base, status: "IN_TRANSIT_BACK" }), false);
+  assert.equal(
+    countsTowardOrderReturnAdjustment({ ...base, status: "RECEIVED_BY_WAREHOUSE" }),
+    true,
+  );
+  assert.equal(countsTowardOrderReturnAdjustment({ ...base, status: "CLOSED" }), true);
+  assert.equal(
+    countsTowardOrderReturnAdjustment({
+      reason: "WRONG_ITEM",
+      status: "RECEIVED_BY_WAREHOUSE",
       outboundWaivedAt: null,
       items: [],
     }),

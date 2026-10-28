@@ -485,8 +485,8 @@ export const uk = {
         desc: "HTTP-провайдер вихідних дзвінків, секрет вебхука, шлях і розбір відповіді create-call",
       },
       telegram: {
-        title: "Вхідні Telegram",
-        desc: "Bot token, webhook secret і публічний URL для вхідних повідомлень",
+        title: "Telegram",
+        desc: "Бот, webhook, ліди і URL вітрини для каталогу Mini App",
       },
       inboxTemplates: {
         title: "Шаблони відповідей Inbox",
@@ -498,7 +498,7 @@ export const uk = {
       },
       store: {
         title: "Інтернет-магазин",
-        desc: "Тема, банери, контакти, URL CRM для оплати з магазину",
+        desc: "Тема, банери, оплата в CRM і публічна URL вітрини для Mini App",
       },
     },
     metaMessagingPage: {
@@ -1603,6 +1603,7 @@ export const uk = {
     reasonNameMatch: "ім'я",
     reasonEdrpou: "ЄДРПОУ",
     reasonAmountFit: "сума",
+    reasonPayerName: "ПІБ у призначенні",
     invoiceLabel: (n: string) => `Рахунок ${n}`,
     waybillLabel: (n: string) => `РН ${n}`,
     date: "Дата",

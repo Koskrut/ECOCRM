@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { apiHttp } from "@/lib/api/client";
 import { getUserFriendlyApiError } from "@/lib/api/errors";
@@ -49,13 +50,19 @@ export default function TelegramSettingsPage() {
   const [webhookBusy, setWebhookBusy] = useState(false);
   const [webhookMsg, setWebhookMsg] = useState<string | null>(null);
   const [webhookInfo, setWebhookInfo] = useState<WebhookInfo | null>(null);
+  const [publicStoreUrl, setPublicStoreUrl] = useState("");
 
   async function load() {
     setLoading(true);
     setError(null);
     try {
-      const res = await apiHttp.get<TelegramConfig>("/settings/telegram");
-      const data = res.data ?? {};
+      const [tgRes, storeRes] = await Promise.all([
+        apiHttp.get<TelegramConfig>("/settings/telegram"),
+        apiHttp.get<{ publicStoreUrl?: string }>("/settings/store").catch(
+          (): { data: { publicStoreUrl?: string } } => ({ data: {} }),
+        ),
+      ]);
+      const data = tgRes.data ?? {};
       setConfig(data);
       setBotToken("");
       setWebhookSecret("");
@@ -64,6 +71,9 @@ export default function TelegramSettingsPage() {
       setAiEnabled(data.aiEnabled ?? false);
       setAiOpenaiApiKey("");
       setAiModel(data.aiModel ?? "");
+      setPublicStoreUrl(
+        typeof storeRes.data?.publicStoreUrl === "string" ? storeRes.data.publicStoreUrl : "",
+      );
     } catch (e) {
       setError(getApiErrorMessage(e, "Не вдалося завантажити налаштування."));
     } finally {
@@ -88,7 +98,12 @@ export default function TelegramSettingsPage() {
       if (botToken !== "") body.botToken = botToken;
       if (webhookSecret !== "") body.webhookSecret = webhookSecret;
       if (aiOpenaiApiKey !== "") body.aiOpenaiApiKey = aiOpenaiApiKey;
-      const res = await apiHttp.patch<TelegramConfig>("/settings/telegram", body);
+      const [res, storeRes] = await Promise.all([
+        apiHttp.patch<TelegramConfig>("/settings/telegram", body),
+        apiHttp.patch<{ publicStoreUrl?: string }>("/settings/store", {
+          publicStoreUrl: publicStoreUrl.trim(),
+        }),
+      ]);
       const data = res.data ?? {};
       setConfig(data);
       setBotToken("");
@@ -98,6 +113,11 @@ export default function TelegramSettingsPage() {
       setLeadCompanyId(data.leadCompanyId ?? leadCompanyId);
       setAiEnabled(data.aiEnabled ?? aiEnabled);
       setAiModel(data.aiModel ?? aiModel);
+      setPublicStoreUrl(
+        typeof storeRes.data?.publicStoreUrl === "string"
+          ? storeRes.data.publicStoreUrl
+          : publicStoreUrl.trim(),
+      );
     } catch (e) {
       setError(getApiErrorMessage(e, "Не вдалося зберегти налаштування."));
     } finally {
@@ -158,8 +178,8 @@ export default function TelegramSettingsPage() {
   return (
     <SettingsPageShell
       maxWidthClassName="max-w-xl"
-      title="Telegram Inbox"
-      subtitle="Bot token, webhook secret and public URL for receiving messages. Use the same secret in setWebhook and request header."
+      title="Telegram"
+      subtitle="Бот, webhook, компанія для лідів і каталог Mini App. Усе налаштовується тут у CRM."
     >
       {error ? <ErrorPanel variant="inline" message={error} /> : null}
       {loading ? (
@@ -274,6 +294,26 @@ export default function TelegramSettingsPage() {
                 onChange={(e) => setLeadCompanyId(e.target.value)}
                 placeholder="Company ID"
                 className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
+              />
+            </div>
+            <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-3">
+              <label className="block text-sm font-medium text-zinc-700">
+                URL вітрини для Mini App (HTTPS)
+              </label>
+              <p className="mt-0.5 text-xs text-zinc-500">
+                Той самий публічний URL магазину, що в{" "}
+                <Link href="/settings/store" className="text-zinc-800 underline underline-offset-2">
+                  Налаштування → Інтернет-магазин
+                </Link>
+                . Якщо задано — кнопка «Каталог» у боті відкриває магазин у Telegram. Без URL
+                лишається каталог кнопками в чаті.
+              </p>
+              <input
+                type="url"
+                value={publicStoreUrl}
+                onChange={(e) => setPublicStoreUrl(e.target.value)}
+                placeholder="https://shop.example.com"
+                className="mt-2 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
               />
             </div>
           </div>

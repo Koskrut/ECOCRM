@@ -8,6 +8,7 @@ import { signJwt } from "../../auth/jwt";
 import {
   CLIENT_PUSH_STAGES,
   CLIENT_MENU_KEYBOARD,
+  buildClientMenuKeyboard,
   humanOrderStage,
 } from "./telegram-client.constants";
 import { TelegramService } from "./telegram.service";
@@ -185,11 +186,22 @@ export class TelegramClientNotifyService implements OnModuleInit {
     }
   }
 
+  private async clientMenuKeyboard() {
+    try {
+      const store = await this.settings.getStoreConfig();
+      const url = (store.publicStoreUrl ?? "").trim().replace(/\/+$/, "");
+      if (/^https:\/\//i.test(url)) return buildClientMenuKeyboard(url);
+    } catch {
+      /* fall through */
+    }
+    return CLIENT_MENU_KEYBOARD;
+  }
+
   /** @returns false when Telegram send failed (caller should release dedup). */
   private async sendAndRecord(chatId: string, text: string): Promise<boolean> {
     try {
       const { messageId } = await this.telegram.sendMessageToChat(chatId, text, {
-        menuKeyboard: CLIENT_MENU_KEYBOARD,
+        menuKeyboard: await this.clientMenuKeyboard(),
       });
       const conversation = await this.prisma.conversation.findUnique({
         where: { telegramChatId: chatId },

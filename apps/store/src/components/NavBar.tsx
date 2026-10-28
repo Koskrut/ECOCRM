@@ -62,6 +62,7 @@ export function NavBar() {
 
   return (
     <nav
+      data-site-nav
       className="hidden border-b border-[var(--border)] bg-white md:block"
       aria-label="Головне меню"
     >

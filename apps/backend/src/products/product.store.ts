@@ -49,6 +49,13 @@ export type ProductListItemWithStockByWarehouse = ProductListItemWithAvailabilit
   isActive?: boolean;
 };
 
+export type CatalogBranch = {
+  name: string;
+  /** The label is a subcategory_name that has no category_name. */
+  subcategoryOnly?: boolean;
+  children: string[];
+};
+
 type ProductListResult = {
   items: ProductListItemWithAvailability[];
   total: number;
@@ -876,6 +883,120 @@ export class ProductStore {
       ORDER BY sub ASC
     `;
     return rows.map((r) => r.sub).filter(Boolean);
+  }
+
+  /**
+   * Catalog tree for one implant system: category_name, then subcategory_name.
+   * A subcategory without a category becomes its own top-level branch.
+   */
+  public async listCatalogTree(category: string): Promise<CatalogBranch[]> {
+    const groupId = this.normalizeCategory(category);
+    if (!groupId) return [];
+    const skuCond = this.skuGroupSql(groupId);
+    const rows = await this.prisma.$queryRaw<
+      Array<{ cat_name: string | null; sub_name: string | null }>
+    >`
+      SELECT DISTINCT
+        NULLIF(TRIM(p.characteristics->>'category_name'), '') AS cat_name,
+        NULLIF(TRIM(p.characteristics->>'subcategory_name'), '') AS sub_name
+      FROM "Product" p
+      WHERE p."isActive" = true
+        AND p."showOnStore" = true
+        ${skuCond}
+        AND p.characteristics IS NOT NULL
+        AND (
+          NULLIF(TRIM(p.characteristics->>'category_name'), '') IS NOT NULL
+          OR NULLIF(TRIM(p.characteristics->>'subcategory_name'), '') IS NOT NULL
+        )
+    `;
+    const categories = new Map<string, Set<string>>();
+    const orphanSubs = new Set<string>();
+    for (const row of rows) {
+      const catName = row.cat_name?.trim() || "";
+      const subName = row.sub_name?.trim() || "";
+      if (catName) {
+        const kids = categories.get(catName) ?? new Set<string>();
+        if (subName && subName !== catName) kids.add(subName);
+        categories.set(catName, kids);
+      } else if (subName) {
+        orphanSubs.add(subName);
+      }
+    }
+    const branches: CatalogBranch[] = [...categories.entries()]
+      .sort((a, b) => a[0].localeCompare(b[0], "uk"))
+      .map(([name, kids]) => ({
+        name,
+        children: [...kids].sort((a, b) => a.localeCompare(b, "uk")),
+      }));
+    for (const sub of [...orphanSubs].sort((a, b) => a.localeCompare(b, "uk"))) {
+      if (!categories.has(sub)) branches.push({ name: sub, subcategoryOnly: true, children: [] });
+    }
+    return branches;
+  }
+
+  /** Products inside one catalog branch. Category and subcategory are both required to match. */
+  public async listActiveByCatalogPath(
+    category: string,
+    pagination: Pagination,
+    path: { categoryName?: string; subcategoryName?: string },
+  ): Promise<ProductListResult> {
+    const groupId = this.normalizeCategory(category);
+    const categoryName = this.normalizeSubcategory(path.categoryName);
+    const subcategoryName = this.normalizeSubcategory(path.subcategoryName);
+    if (!groupId || (!categoryName && !subcategoryName)) {
+      return this.listActive(undefined, groupId, pagination);
+    }
+    const skuCond = this.skuGroupSql(groupId);
+    const categorySql = categoryName
+      ? Prisma.sql`AND NULLIF(TRIM(characteristics->>'category_name'), '') = ${categoryName}`
+      : Prisma.empty;
+    const subSql = subcategoryName
+      ? Prisma.sql`AND NULLIF(TRIM(characteristics->>'subcategory_name'), '') = ${subcategoryName}`
+      : Prisma.empty;
+    const rows = await this.prisma.$queryRaw<
+      Array<{
+        id: string;
+        sku: string;
+        name: string;
+        unit: string;
+        basePrice: number;
+        stock: number;
+        kind: ProductKind;
+        showOnStore: boolean;
+        characteristics: Prisma.JsonValue | null;
+      }>
+    >`
+      SELECT id, sku, name, unit, "basePrice", stock, kind, "showOnStore", characteristics
+      FROM "Product"
+      WHERE "isActive" = true AND "showOnStore" = true
+        ${skuCond}
+        ${categorySql}
+        ${subSql}
+      ORDER BY name
+      LIMIT ${pagination.limit} OFFSET ${pagination.offset}
+    `;
+    const [{ count }] = await this.prisma.$queryRaw<[{ count: bigint }]>`
+      SELECT COUNT(*)::int AS count
+      FROM "Product"
+      WHERE "isActive" = true AND "showOnStore" = true
+        ${skuCond}
+        ${categorySql}
+        ${subSql}
+    `;
+    const enriched = await this.enrichWithPrimaryImage(rows);
+    const itemsBase = enriched.map((item) => ({
+      ...item,
+      characteristics: parseCharacteristicsJson(
+        (item as { characteristics?: Prisma.JsonValue | null }).characteristics ?? null,
+      ),
+    }));
+    const hardReservedByProductId = await this.getActiveHardReservationsByProductIds(
+      itemsBase.map((item) => item.id),
+    );
+    return {
+      items: this.attachAvailableStock(itemsBase, hardReservedByProductId),
+      total: Number(count),
+    };
   }
 
   public async listActive(

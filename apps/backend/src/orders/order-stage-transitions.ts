@@ -37,13 +37,16 @@ const CAN_REFUSE: Set<OrderStage> = new Set(["SHIPPED", "AWAITING_RECEIPT"]);
 const CAN_RETURN: Set<OrderStage> = new Set(["RECEIVED", "COMPLETED"]);
 
 /** Stages that require full payment for PREPAYMENT before entering. */
-const REQUIRES_PAYMENT_FOR_PREPAYMENT: Set<OrderStage> = new Set([
+export const REQUIRES_PAYMENT_FOR_PREPAYMENT: Set<OrderStage> = new Set([
   "READY_TO_SHIP",
   "SHIPPED",
   "AWAITING_RECEIPT",
   "RECEIVED",
   "COMPLETED",
 ]);
+
+/** Stages before the parcel is handed to the carrier (NP may cancel the order here). */
+export const BEFORE_SHIPPED_STAGES: Set<OrderStage> = BEFORE_SHIPPED;
 
 type OrderContext = OrderPaymentContext & {
   orderStage?: OrderStage | null;
@@ -79,6 +82,12 @@ export function validateOrderStageTransition(
 
   assertPaymentTypeForForwardTransition(from, toStage, ctx.paymentType);
   assertNovaPoshtaTtnBeforeConfirmed(toStage, ctx.deliveryMethod, ctx.hasTtn === true);
+
+  // Escape hatch when a return was cancelled without closing the order stage.
+  // Open-return check lives in setOrderStage (needs DB).
+  if (from === "RETURN_IN_PROGRESS" && toStage === "RECEIVED") {
+    return;
+  }
 
   const allowed = allowedTransitions[from];
   if (!allowed?.includes(toStage)) {

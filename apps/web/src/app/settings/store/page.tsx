@@ -168,7 +168,7 @@ export default function StoreSettingsPage() {
           </Link>
           <h1 className="mt-2 text-2xl font-bold text-zinc-900">Інтернет-магазин</h1>
           <p className="mt-1 text-sm text-zinc-500">
-            Тема, баннери, контакти, посилання на сторінку оплати в CRM
+            Тема, баннери, контакти, оплата в CRM і URL вітрини для Telegram Mini App
           </p>
         </div>
 
@@ -367,21 +367,21 @@ export default function StoreSettingsPage() {
               </div>
               <div className="mt-4 border-t border-zinc-100 pt-4">
                 <label className="block text-sm font-medium text-zinc-600">
-                  Публічна URL вітрини
+                  Публічна URL вітрини (HTTPS)
                 </label>
                 <p className="mt-1 text-xs text-zinc-500">
-                  Базовий URL інтернет-магазину (apps/store), без слеша в кінці, наприклад{" "}
+                  Базовий URL інтернет-магазину без слеша в кінці, наприклад{" "}
                   <span className="font-mono text-zinc-600">https://shop.example.com</span>.
-                  Потрібен для готового посилання «встановити пароль» після скидання з картки
-                  контакту. Якщо порожньо — у CRM може використовуватись{" "}
-                  <span className="font-mono">NEXT_PUBLIC_STORE_PUBLIC_URL</span> при збірці web.
+                  З цього поля бот відкриває каталог як Telegram Mini App і будує посилання
+                  «встановити пароль» з картки контакту. Без HTTPS-адреси каталог у боті лишається
+                  кнопковим деревом у чаті.
                 </p>
                 <input
                   type="url"
                   value={config.publicStoreUrl ?? ""}
                   onChange={(e) => setConfig((c) => ({ ...c, publicStoreUrl: e.target.value }))}
                   className="mt-2 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm"
-                  placeholder="https://…"
+                  placeholder="https://shop.example.com"
                   autoComplete="off"
                 />
               </div>

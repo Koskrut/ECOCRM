@@ -20,6 +20,7 @@ import { StoreCartService } from "../cart/store-cart.service";
 import { ProductStore } from "../../products/product.store";
 import type { CreateOrderDto } from "../../orders/dto/create-order.dto";
 import type { StoreCheckoutDto } from "./dto/store-checkout.dto";
+import { StoreCheckoutPaymentLinkService } from "./store-checkout-payment-link.service";
 
 /** Mirrors store auth lookup so checkout does not create duplicate contacts. */
 function getPhoneCandidatesForLookup(phoneNorm: string): string[] {
@@ -49,6 +50,7 @@ export class StoreCheckoutService {
     private readonly settings: SettingsService,
     private readonly integrations: IntegrationPortsService,
     private readonly productStore: ProductStore,
+    private readonly paymentLinks: StoreCheckoutPaymentLinkService,
   ) {}
 
   /**
@@ -458,5 +460,57 @@ export class StoreCheckoutService {
       alreadyHadAccount,
       orderPayToken,
     };
+  }
+
+  /** After Mini App checkout: link account and tell the client in chat. */
+  async notifyTelegramWebAppOrder(params: {
+    orderId: string;
+    orderNumber: string;
+    contactId: string;
+    telegramUserId: string;
+    chatId: string;
+    orderPayToken?: string | null;
+  }): Promise<void> {
+    try {
+      await this.prisma.telegramAccount.updateMany({
+        where: { telegramUserId: params.telegramUserId },
+        data: { contactId: params.contactId, leadId: null },
+      });
+      await this.prisma.conversation.updateMany({
+        where: { telegramChatId: params.chatId },
+        data: { contactId: params.contactId, leadId: null },
+      });
+    } catch (err) {
+      this.logger.warn(
+        `telegram link after webapp checkout: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+
+    let text = `✅ Замовлення №${params.orderNumber} створено.`;
+    if (params.orderPayToken) {
+      try {
+        const { payPath } = await this.paymentLinks.createPaymentLink(params.orderPayToken);
+        const store = await this.settings.getStoreConfig();
+        const base = (store.crmPayPageUrl ?? "").trim().replace(/\/+$/, "");
+        if (base) {
+          const path = payPath.startsWith("/") ? payPath : `/${payPath}`;
+          text += `\n\nОплата:\n${base}${path}`;
+        }
+      } catch (err) {
+        this.logger.debug(
+          `webapp pay link: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        text += "\n\nМенеджер надішле реквізити для оплати.";
+      }
+    }
+    text += "\n\nСтатус можна дивитись у «Замовлення».";
+
+    try {
+      await this.integrations.sendMessageToChat(params.chatId, text);
+    } catch (err) {
+      this.logger.warn(
+        `webapp order notify chat=${params.chatId}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
   }
 }

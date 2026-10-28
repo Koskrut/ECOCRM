@@ -21,6 +21,7 @@ import {
   isMisPickChecklistComplete,
   isMisPickReturn,
   misPickItemsNeedDisposition,
+  countsTowardOrderReturnAdjustment,
   shouldExcludeReturnFromOrderFinancialSync,
 } from "./order-return-mis-pick.utils";
 import {
@@ -96,25 +97,22 @@ export class OrderReturnsService {
     ]);
     if (!orderSnapshot) throw new NotFoundException("Order not found");
 
+    const financialReturns = allReturns.filter((r) => countsTowardOrderReturnAdjustment(r));
+
     const coverage = computeReturnCoverage(
       orderSnapshot.items,
-      allReturns
-        .filter((r) => !shouldExcludeReturnFromOrderFinancialSync(r))
-        .flatMap((r) =>
-          r.items.map((ri) => ({
-            orderItemId: ri.orderItemId,
-            qtyReturned: ri.qtyReturned,
-          })),
-        ),
+      financialReturns.flatMap((r) =>
+        r.items.map((ri) => ({
+          orderItemId: ri.orderItemId,
+          qtyReturned: ri.qtyReturned,
+        })),
+      ),
     );
 
-    const totalAdjustment = computeReturnAdjustmentAmount(
-      allReturns.filter((r) => !shouldExcludeReturnFromOrderFinancialSync(r)),
-      {
-        subtotalAmount: orderSnapshot.subtotalAmount ?? 0,
-        totalAmount: orderSnapshot.totalAmount ?? 0,
-      },
-    );
+    const totalAdjustment = computeReturnAdjustmentAmount(financialReturns, {
+      subtotalAmount: orderSnapshot.subtotalAmount ?? 0,
+      totalAmount: orderSnapshot.totalAmount ?? 0,
+    });
 
     await this.prisma.order.update({
       where: { id: orderId },
@@ -732,6 +730,100 @@ export class OrderReturnsService {
 
   async syncMisPickOutboundForReplacementOrder(orderId: string, orderStage: OrderStage | null) {
     await syncMisPickOutboundForReplacementOrder(this.prisma, orderId, orderStage);
+  }
+
+  /**
+   * Carrier / manual refusal before receipt: create a warehouse-received return for
+   * uncovered lines (or promote early-status returns) and sync order finance/stage.
+   * Orders with no lines become REFUSED and are recalculated like a cancel.
+   */
+  async applyCarrierRefusal(orderId: string): Promise<void> {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: { items: true },
+    });
+    if (!order) throw new NotFoundException("Order not found");
+
+    if (order.items.length === 0) {
+      const deliveryStatus = orderStageToDeliveryStatus("REFUSED");
+      const financialStatus = computeFinancialStatusFromOrder({
+        paymentType: order.paymentType,
+        totalAmount: Number(order.totalAmount),
+        paidAmount: Number(order.paidAmount),
+        debtAmount: Number(order.debtAmount),
+        paymentDueDate: order.paymentDueDate ?? undefined,
+        orderStage: "REFUSED",
+      });
+      await this.prisma.order.update({
+        where: { id: orderId },
+        data: {
+          orderStage: "REFUSED",
+          deliveryStatus,
+          financialStatus,
+        },
+      });
+      await this.integrations.recalcOrderFinance(orderId);
+      await this.materialReservations.applyReservationPolicy(orderId, "REFUSED");
+      return;
+    }
+
+    const existing = await this.prisma.orderReturn.findMany({
+      where: { orderId },
+      include: { items: true },
+    });
+
+    const earlyStatuses: ReturnStatus[] = ["REQUESTED", "APPROVED", "IN_TRANSIT_BACK"];
+    for (const ret of existing) {
+      if (earlyStatuses.includes(ret.status) && ret.items.length > 0) {
+        await this.prisma.orderReturn.update({
+          where: { id: ret.id },
+          data: { status: "RECEIVED_BY_WAREHOUSE" },
+        });
+      }
+    }
+
+    const returnedByItem = new Map<string, number>();
+    const refreshed = await this.prisma.orderReturn.findMany({
+      where: { orderId },
+      include: { items: true },
+    });
+    for (const ret of refreshed) {
+      for (const ri of ret.items) {
+        returnedByItem.set(
+          ri.orderItemId,
+          (returnedByItem.get(ri.orderItemId) ?? 0) + ri.qtyReturned,
+        );
+      }
+    }
+
+    const uncovered = order.items
+      .map((oi) => {
+        const already = returnedByItem.get(oi.id) ?? 0;
+        const qtyReturned = Math.max(0, oi.qty - already);
+        return { orderItemId: oi.id, qtyReturned };
+      })
+      .filter((row) => row.qtyReturned > 0);
+
+    if (uncovered.length > 0) {
+      const warehouseId = await resolveReturnWarehouseId(this.prisma, { orderId });
+      await this.prisma.orderReturn.create({
+        data: {
+          orderId,
+          status: "RECEIVED_BY_WAREHOUSE",
+          reason: "CUSTOMER_CHANGE",
+          warehouseId,
+          itemsPending: false,
+          items: {
+            create: uncovered.map((row) => ({
+              orderItemId: row.orderItemId,
+              qtyReturned: row.qtyReturned,
+            })),
+          },
+        },
+      });
+    }
+
+    await this.syncOrderStateFromReturns(orderId);
   }
 
   private async recomputeMisPickOutboundIfNeeded(ret: {

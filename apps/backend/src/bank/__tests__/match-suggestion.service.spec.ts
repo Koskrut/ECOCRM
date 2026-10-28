@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { MatchSuggestionService } from "../match-suggestion.service";
+import { MatchSuggestionService, proposeAllocations } from "../match-suggestion.service";
 
 type AnyFn = (...args: any[]) => any;
 
@@ -314,4 +314,80 @@ test("getSuggestions: ordinary IBAN still applies iban_history", async () => {
   assert.ok(top);
   assert.strictEqual(top!.contactId, "c-ivan");
   assert.ok(top!.reasons.includes("iban_history"));
+});
+
+test("proposeAllocations: proportional cents sum to the payment", () => {
+  const orders = Array.from({ length: 6 }, (_, i) =>
+    orderRow({ id: `o${i}`, orderNumber: `70${i}`, debtAmount: 10 }),
+  );
+  const rows = proposeAllocations({
+    orders,
+    explicitAmounts: {},
+    matchAmount: 1,
+    txCurrency: "UAH",
+  });
+  const sum = Math.round(rows.reduce((s, a) => s + a.amount, 0) * 100) / 100;
+  assert.strictEqual(sum, 1);
+  assert.ok(rows.every((a) => a.amount > 0));
+  assert.ok(rows.every((a) => a.source === "proportional"));
+});
+
+test("proposeAllocations: debt within 1 unit is fitted to the payment", () => {
+  const rows = proposeAllocations({
+    orders: [
+      orderRow({ id: "a", orderNumber: "7001", debtAmount: 600.4 }),
+      orderRow({ id: "b", orderNumber: "7002", debtAmount: 400 }),
+    ],
+    explicitAmounts: {},
+    matchAmount: 1000,
+    txCurrency: "UAH",
+  });
+  assert.strictEqual(rows.reduce((s, a) => s + a.amount, 0), 1000);
+  assert.ok(rows.every((a) => a.source === "debt"));
+  assert.strictEqual(rows[0]!.amount, 600.4);
+  assert.strictEqual(rows[1]!.amount, 399.6);
+});
+
+test("proposeAllocations: explicit amounts keep their ratio when they miss the payment", () => {
+  const rows = proposeAllocations({
+    orders: [
+      orderRow({ id: "a", orderNumber: "7001", debtAmount: 9999 }),
+      orderRow({ id: "b", orderNumber: "7002", debtAmount: 9999 }),
+    ],
+    explicitAmounts: { "7001": 1200, "7002": 800 },
+    matchAmount: 2500,
+    txCurrency: "UAH",
+  });
+  assert.strictEqual(rows.reduce((s, a) => s + a.amount, 0), 2500);
+  assert.strictEqual(rows[0]!.amount, 1500);
+  assert.strictEqual(rows[1]!.amount, 1000);
+});
+
+test("proposeAllocations: converts USD debt into the payment currency", () => {
+  const rows = proposeAllocations({
+    orders: [
+      orderRow({
+        id: "a",
+        orderNumber: "7001",
+        debtAmount: 10,
+        currency: "USD",
+        exchangeRate: 40,
+      }),
+      orderRow({
+        id: "b",
+        orderNumber: "7002",
+        debtAmount: 10,
+        currency: "USD",
+        exchangeRate: 40,
+      }),
+    ],
+    explicitAmounts: {},
+    matchAmount: 800,
+    txCurrency: "UAH",
+  });
+  assert.deepStrictEqual(
+    rows.map((a) => a.amount),
+    [400, 400],
+  );
+  assert.ok(rows.every((a) => a.source === "debt"));
 });

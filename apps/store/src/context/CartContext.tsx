@@ -11,6 +11,7 @@ import {
 import type { Cart } from "@/lib/api";
 import { getCart } from "@/lib/api";
 import { getCartSessionId } from "@/lib/cart-session";
+import { useTelegramWebApp } from "@/context/TelegramWebAppContext";
 
 const emptyCart: Cart = { id: null, uahPerUsd: 41, items: [], subtotal: 0 };
 
@@ -39,6 +40,7 @@ export function useCart() {
 }
 
 export function CartProvider({ children }: { children: React.ReactNode }) {
+  const telegram = useTelegramWebApp();
   const [cart, setCart] = useState<Cart>(emptyCart);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -66,8 +68,9 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
+    if (!telegram.ready) return;
     void refresh();
-  }, [refresh]);
+  }, [refresh, telegram.ready, telegram.cartSessionId]);
 
   const { count, sumUah } = useMemo(
     () => ({

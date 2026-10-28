@@ -82,6 +82,9 @@ describe("OrderReturnsService", () => {
         count: async () => 1,
         findMany: async () => [
           {
+            status: "REQUESTED",
+            reason: "CUSTOMER_CHANGE",
+            outboundWaivedAt: null,
             items: [
               {
                 orderItemId: "i1",
@@ -100,11 +103,11 @@ describe("OrderReturnsService", () => {
 
     assert.ok(orderUpdates.some((u) => u.orderStage === "RECEIVED"));
     assert.ok(!orderUpdates.some((u) => u.orderStage === "RETURN_IN_PROGRESS"));
-    // (300 / 3) * 2 * (100 / 100) = 200 — applied while return is still open
-    assert.ok(orderUpdates.some((u) => u.returnAdjustmentAmount === 200));
+    // REQUESTED does not reduce order total until warehouse receipt
+    assert.ok(orderUpdates.some((u) => u.returnAdjustmentAmount === 0));
   });
 
-  it("full create sets order stage to RETURN_IN_PROGRESS", async () => {
+  it("full create in REQUESTED does not set RETURN_IN_PROGRESS or adjust total", async () => {
     const orderUpdates: Array<Record<string, unknown>> = [];
     const prisma = {
       order: {
@@ -145,6 +148,9 @@ describe("OrderReturnsService", () => {
         count: async () => 1,
         findMany: async () => [
           {
+            status: "REQUESTED",
+            reason: "CUSTOMER_CHANGE",
+            outboundWaivedAt: null,
             items: [
               {
                 orderItemId: "i1",
@@ -161,6 +167,77 @@ describe("OrderReturnsService", () => {
 
     await svc.create("o1", { items: [{ orderItemId: "i1", qtyReturned: 3 }] });
 
+    assert.ok(orderUpdates.some((u) => u.orderStage === "COMPLETED"));
+    assert.ok(!orderUpdates.some((u) => u.orderStage === "RETURN_IN_PROGRESS"));
+    assert.ok(orderUpdates.some((u) => u.returnAdjustmentAmount === 0));
+  });
+
+  it("warehouse receipt of full return sets RETURN_IN_PROGRESS and adjusts total", async () => {
+    const orderUpdates: Array<Record<string, unknown>> = [];
+    const prisma = {
+      orderReturn: {
+        findUnique: async () => ({
+          id: "r1",
+          orderId: "o1",
+          status: "IN_TRANSIT_BACK",
+          reason: "CUSTOMER_CHANGE",
+          outboundWaivedAt: null,
+          order: { ownerId: "u1" },
+          itemsPending: false,
+          items: [
+            {
+              orderItemId: "i1",
+              qtyReturned: 3,
+              orderItem: { qty: 3, lineTotal: 300, price: 100 },
+            },
+          ],
+        }),
+        update: async () => ({
+          id: "r1",
+          status: "RECEIVED_BY_WAREHOUSE",
+          orderId: "o1",
+          items: [],
+          order: {},
+        }),
+        count: async () => 1,
+        findMany: async () => [
+          {
+            status: "RECEIVED_BY_WAREHOUSE",
+            reason: "CUSTOMER_CHANGE",
+            outboundWaivedAt: null,
+            items: [
+              {
+                orderItemId: "i1",
+                qtyReturned: 3,
+                orderItem: { qty: 3, lineTotal: 300, price: 100 },
+              },
+            ],
+          },
+        ],
+      },
+      order: {
+        findUnique: async () => ({
+          orderStage: "COMPLETED",
+          subtotalAmount: 300,
+          totalAmount: 300,
+          debtAmount: 0,
+          paymentType: "POSTPAYMENT",
+          paidAmount: 300,
+          returnAdjustmentAmount: 0,
+          paymentDueDate: null,
+          items: [{ id: "i1", qty: 3 }],
+        }),
+        update: async (args: { data: Record<string, unknown> }) => {
+          orderUpdates.push(args.data);
+          return {};
+        },
+      },
+    } as unknown as PrismaSvc;
+
+    const svc = createService(prisma);
+    await svc.updateStatus("r1", "RECEIVED_BY_WAREHOUSE");
+
+    assert.ok(orderUpdates.some((u) => u.returnAdjustmentAmount === 300));
     assert.ok(orderUpdates.some((u) => u.orderStage === "RETURN_IN_PROGRESS"));
     assert.ok(orderUpdates.some((u) => u.deliveryStatus === "RETURN_TO_WAREHOUSE"));
   });
@@ -190,6 +267,8 @@ describe("OrderReturnsService", () => {
         findMany: async () => [
           {
             status: "CLOSED",
+            reason: "CUSTOMER_CHANGE",
+            outboundWaivedAt: null,
             settledAt: new Date(),
             items: [
               {
@@ -308,6 +387,8 @@ describe("OrderReturnsService", () => {
         findMany: async () => [
           {
             status: "CLOSED",
+            reason: "CUSTOMER_CHANGE",
+            outboundWaivedAt: null,
             settledAt: new Date(),
             items: [
               {
@@ -344,7 +425,7 @@ describe("OrderReturnsService", () => {
     assert.ok(stageUpdates.includes("FULLY_RETURNED"));
   });
 
-  it("cumulative partial returns that become full set RETURN_IN_PROGRESS while open", async () => {
+  it("cumulative REQUESTED returns that cover the order do not set RETURN_IN_PROGRESS", async () => {
     const orderUpdates: Array<Record<string, unknown>> = [];
     const prisma = {
       order: {
@@ -382,9 +463,12 @@ describe("OrderReturnsService", () => {
           },
         }),
       orderReturn: {
-        count: async () => 1,
+        count: async () => 2,
         findMany: async () => [
           {
+            status: "REQUESTED",
+            reason: "CUSTOMER_CHANGE",
+            outboundWaivedAt: null,
             items: [
               {
                 orderItemId: "i1",
@@ -394,6 +478,9 @@ describe("OrderReturnsService", () => {
             ],
           },
           {
+            status: "REQUESTED",
+            reason: "CUSTOMER_CHANGE",
+            outboundWaivedAt: null,
             items: [
               {
                 orderItemId: "i1",
@@ -410,7 +497,9 @@ describe("OrderReturnsService", () => {
 
     await svc.create("o1", { items: [{ orderItemId: "i1", qtyReturned: 2 }] });
 
-    assert.ok(orderUpdates.some((u) => u.orderStage === "RETURN_IN_PROGRESS"));
+    assert.ok(orderUpdates.some((u) => u.orderStage === "RECEIVED"));
+    assert.ok(!orderUpdates.some((u) => u.orderStage === "RETURN_IN_PROGRESS"));
+    assert.ok(orderUpdates.some((u) => u.returnAdjustmentAmount === 0));
   });
 
   it("closing cumulative partials that sum to full sets FULLY_RETURNED", async () => {
@@ -436,6 +525,8 @@ describe("OrderReturnsService", () => {
         findMany: async () => [
           {
             status: "CLOSED",
+            reason: "CUSTOMER_CHANGE",
+            outboundWaivedAt: null,
             settledAt: new Date(),
             items: [
               {
@@ -447,6 +538,8 @@ describe("OrderReturnsService", () => {
           },
           {
             status: "CLOSED",
+            reason: "CUSTOMER_CHANGE",
+            outboundWaivedAt: null,
             settledAt: new Date(),
             items: [
               {
@@ -782,5 +875,105 @@ describe("OrderReturnsService", () => {
         },
       },
     });
+  });
+
+  it("applyCarrierRefusal creates RECEIVED_BY_WAREHOUSE return and is idempotent", async () => {
+    const creates: Array<Record<string, unknown>> = [];
+    let findManyPass = 0;
+    const orderUpdates: Array<Record<string, unknown>> = [];
+
+    const prisma = {
+      warehouse: { findUnique: async () => null },
+      order: {
+        findUnique: async () => ({
+          id: "o1",
+          paymentType: "DEFERRED",
+          paidAmount: 0,
+          totalAmount: 300,
+          debtAmount: 300,
+          paymentDueDate: null,
+          subtotalAmount: 300,
+          orderStage: "SHIPPED",
+          warehouseId: null,
+          items: [{ id: "i1", qty: 3, lineTotal: 300, price: 100 }],
+        }),
+        update: async (args: { data: Record<string, unknown> }) => {
+          orderUpdates.push(args.data);
+          return {};
+        },
+      },
+      orderReturn: {
+        findMany: async () => {
+          findManyPass += 1;
+          // First two calls (before/after promote) empty; after create, sync sees the return.
+          if (creates.length === 0) return [];
+          return [
+            {
+              status: "RECEIVED_BY_WAREHOUSE",
+              reason: "CUSTOMER_CHANGE",
+              outboundWaivedAt: null,
+              items: [
+                {
+                  orderItemId: "i1",
+                  qtyReturned: 3,
+                  orderItem: { qty: 3, lineTotal: 300, price: 100 },
+                },
+              ],
+            },
+          ];
+        },
+        count: async () => (creates.length > 0 ? 1 : 0),
+        create: async (args: { data: Record<string, unknown> }) => {
+          creates.push(args.data);
+          return { id: "r-ref", ...args.data };
+        },
+        update: async () => ({}),
+      },
+    } as unknown as PrismaSvc;
+
+    const svc = createService(prisma);
+    await svc.applyCarrierRefusal("o1");
+    assert.equal(creates.length, 1);
+    assert.equal(creates[0]?.status, "RECEIVED_BY_WAREHOUSE");
+    assert.ok(orderUpdates.some((u) => u.returnAdjustmentAmount === 300));
+
+    // Second call: items already covered → no new create
+    await svc.applyCarrierRefusal("o1");
+    assert.equal(creates.length, 1);
+    assert.ok(findManyPass >= 2);
+  });
+
+  it("applyCarrierRefusal on empty order sets REFUSED and recalcs", async () => {
+    let recalc = false;
+    const stages: string[] = [];
+    const prisma = {
+      order: {
+        findUnique: async () => ({
+          id: "o-empty",
+          paymentType: "DEFERRED",
+          paidAmount: 100,
+          totalAmount: 100,
+          debtAmount: 0,
+          paymentDueDate: null,
+          orderStage: "SHIPPED",
+          items: [],
+        }),
+        update: async (args: { data: Record<string, unknown> }) => {
+          if (typeof args.data.orderStage === "string") stages.push(args.data.orderStage);
+          return {};
+        },
+      },
+      orderReturn: { findMany: async () => [] },
+    } as unknown as PrismaSvc;
+
+    const svc = createService(
+      prisma,
+      mockIntegrations(() => {
+        recalc = true;
+      }),
+    );
+    await svc.applyCarrierRefusal("o-empty");
+    assert.deepEqual(stages, ["REFUSED"]);
+    assert.equal(recalc, true);
   });
 });

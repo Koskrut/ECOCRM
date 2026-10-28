@@ -29,6 +29,7 @@ import type {
 import {
   CLIENT_MENU_BUTTONS,
   CLIENT_MENU_KEYBOARD,
+  buildClientMenuKeyboard,
   TELEGRAM_EXISTING_CLIENT,
   TELEGRAM_REQUEST_PHONE,
 } from "./telegram-client.constants";
@@ -318,6 +319,27 @@ export class TelegramService {
       let leadId: string | null = account.leadId;
 
       if (!contactId && !leadId) {
+        const linkedChat = await this.prisma.conversation.findUnique({
+          where: { telegramChatId: parsed.chatId },
+          select: { contactId: true, leadId: true },
+        });
+        if (linkedChat?.contactId) {
+          contactId = linkedChat.contactId;
+          leadId = null;
+          await this.prisma.telegramAccount.update({
+            where: { id: account.id },
+            data: { contactId, leadId: null },
+          });
+        } else if (linkedChat?.leadId) {
+          leadId = linkedChat.leadId;
+          await this.prisma.telegramAccount.update({
+            where: { id: account.id },
+            data: { leadId },
+          });
+        }
+      }
+
+      if (!contactId && !leadId) {
         if (parsed.phone) {
           const digits =
             getPhoneNormalizedDigits(parsed.phone) ?? normalizePhoneDigits(parsed.phone);
@@ -541,13 +563,13 @@ export class TelegramService {
         } else if (shouldSendExistingClientMenu && !botReplySent && !parsed.phone) {
           // Fallback when client bot did not handle (should be rare).
           await this.sendMessageToChat(parsed.chatId, TELEGRAM_EXISTING_CLIENT, {
-            menuKeyboard: CLIENT_MENU_KEYBOARD,
+            menuKeyboard: await this.clientMenuKeyboard(),
           });
           notifyManager = false;
         }
       } else if (shouldSendExistingClientMenu && !botReplySent) {
         await this.sendMessageToChat(parsed.chatId, TELEGRAM_EXISTING_CLIENT, {
-          menuKeyboard: CLIENT_MENU_KEYBOARD,
+          menuKeyboard: await this.clientMenuKeyboard(),
         });
         notifyManager = false;
       }
@@ -773,6 +795,25 @@ export class TelegramService {
     return null;
   }
 
+  private async clientMenuKeyboard() {
+    try {
+      const config = await this.settings.getStoreConfig();
+      const url = (config.publicStoreUrl ?? "").trim().replace(/\/+$/, "");
+      if (/^https:\/\//i.test(url)) return buildClientMenuKeyboard(url);
+    } catch {
+      /* fall through */
+    }
+    return CLIENT_MENU_KEYBOARD;
+  }
+
+  private mapMenuButton(button: string | { text: string; webAppUrl?: string; requestContact?: boolean }) {
+    if (typeof button === "string") return { text: button };
+    const cell: Record<string, unknown> = { text: button.text };
+    if (button.webAppUrl) cell.web_app = { url: button.webAppUrl };
+    if (button.requestContact) cell.request_contact = true;
+    return cell;
+  }
+
   private applyReplyMarkup(body: Record<string, unknown>, options?: SendMessageOptions): void {
     if (options?.requestContactButton) {
       body.reply_markup = {
@@ -793,7 +834,7 @@ export class TelegramService {
       // Prefer inline for wizard steps; attach reply keyboard on plain menu replies instead.
       if (replyKeyboard?.length && !options.inlineKeyboard.length) {
         body.reply_markup = {
-          keyboard: replyKeyboard.map((row) => row.map((text) => ({ text }))),
+          keyboard: replyKeyboard.map((row) => row.map((button) => this.mapMenuButton(button))),
           resize_keyboard: true,
         };
       }
@@ -801,7 +842,7 @@ export class TelegramService {
     }
     if (replyKeyboard?.length) {
       body.reply_markup = {
-        keyboard: replyKeyboard.map((row) => row.map((text) => ({ text }))),
+        keyboard: replyKeyboard.map((row) => row.map((button) => this.mapMenuButton(button))),
         resize_keyboard: true,
       };
     }

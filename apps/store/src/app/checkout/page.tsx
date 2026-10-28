@@ -19,12 +19,15 @@ import {
 import { getCartSessionId } from "@/lib/cart-session";
 import { formatPhoneDisplay, formatUaPhoneInput } from "@/lib/formatPhone";
 import { Button } from "@/components/Button";
+import { useTelegramWebApp } from "@/context/TelegramWebAppContext";
 
 const inputClass =
   "mt-1 w-full min-h-[48px] rounded-lg border border-[var(--border)] bg-white px-3 py-3 text-zinc-900 outline-none transition focus:border-[var(--primary)] focus:ring-1 focus:ring-[var(--primary)] sm:min-h-[44px] sm:py-2.5";
 
 export default function CheckoutPage() {
   const router = useRouter();
+  const telegram = useTelegramWebApp();
+  const isTelegramCheckout = telegram.isTelegram && Boolean(telegram.token);
   const [phone, setPhone] = useState("");
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
@@ -90,6 +93,13 @@ export default function CheckoutPage() {
       })
       .catch(() => setLoggedIn(false));
   }, []);
+
+  useEffect(() => {
+    if (!isTelegramCheckout || !telegram.profile) return;
+    if (telegram.profile.phone) setPhone(formatUaPhoneInput(telegram.profile.phone));
+    if (telegram.profile.firstName) setFirstName(telegram.profile.firstName);
+    if (telegram.profile.lastName) setLastName(telegram.profile.lastName);
+  }, [isTelegramCheckout, telegram.profile]);
 
   useEffect(() => {
     getCheckoutRegions()
@@ -263,7 +273,12 @@ export default function CheckoutPage() {
         setSubmitting(false);
         return;
       }
-      if (!loggedIn && phoneDigits.length >= 10 && password.trim().length < 6) {
+      if (
+        !isTelegramCheckout &&
+        !loggedIn &&
+        phoneDigits.length >= 10 &&
+        password.trim().length < 6
+      ) {
         setError("Придумайте пароль (мінімум 6 символів)");
         setSubmitting(false);
         return;
@@ -361,12 +376,16 @@ export default function CheckoutPage() {
         lastName: lastName.trim(),
         email: email.trim() || undefined,
         comment: comment.trim() || undefined,
-        password: !loggedIn ? password.trim() : undefined,
+        password: !isTelegramCheckout && !loggedIn ? password.trim() : undefined,
         region: region.trim(),
         deliveryMethod,
         deliveryData: deliveryData ?? null,
         sessionId,
       });
+      if (isTelegramCheckout) {
+        telegram.close();
+        return;
+      }
       const q = new URLSearchParams();
       q.set("orderNumber", result.orderNumber);
       if (result.setPasswordToken) q.set("setPasswordToken", result.setPasswordToken);
@@ -451,7 +470,7 @@ export default function CheckoutPage() {
               ))}
             </select>
           </div>
-          {!loggedIn && phone.replace(/\D/g, "").length >= 10 && (
+          {!isTelegramCheckout && !loggedIn && phone.replace(/\D/g, "").length >= 10 && (
             <div>
               <label className="block text-sm font-medium text-zinc-700">Придумайте пароль *</label>
               <input
@@ -468,6 +487,11 @@ export default function CheckoutPage() {
               </p>
             </div>
           )}
+          {isTelegramCheckout ? (
+            <p className="rounded-lg bg-[var(--surface)] p-3 text-sm text-zinc-600">
+              Після оформлення підтвердження прийде в чат з ботом.
+            </p>
+          ) : null}
           <div>
             <label className="block text-sm font-medium text-zinc-700">Спосіб доставки *</label>
             <div className="mt-2 space-y-2">

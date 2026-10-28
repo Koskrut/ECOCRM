@@ -75,6 +75,26 @@ describe("aggregateClientFinance", () => {
     assert.equal(snap.currency, "USD");
   });
 
+  it("excludes REFUSED orders from revenue", () => {
+    const snap = aggregateClientFinance(
+      [
+        {
+          totalAmount: 400,
+          debtAmount: 0,
+          creditAmount: 400,
+          currency: "USD",
+          orderStage: "REFUSED",
+          legacySource: null,
+        },
+      ],
+      [],
+      rates,
+      now,
+    );
+    assert.equal(snap.revenue, 0);
+    assert.equal(snap.grossDebt, 0);
+  });
+
   it("does not treat prepayment debt as overdue before the Kyiv due date", () => {
     const snap = aggregateClientFinance(
       [

@@ -118,13 +118,19 @@ export type ParsedInbound = {
   callbackQueryId: string | null;
 };
 
-export type TelegramInlineButton = { text: string; callback_data: string };
+export type TelegramInlineButton =
+  | { text: string; callback_data: string }
+  | { text: string; web_app: { url: string } };
+
+export type TelegramMenuButton =
+  | string
+  | { text: string; webAppUrl?: string; requestContact?: boolean };
 
 export type SendMessageOptions = {
   requestContactButton?: boolean;
   /** Legacy flat list (one button per row). Prefer menuKeyboard. */
   menuButtons?: string[];
   /** Reply keyboard rows, e.g. 2×2 main menu. */
-  menuKeyboard?: string[][];
+  menuKeyboard?: TelegramMenuButton[][];
   inlineKeyboard?: TelegramInlineButton[][];
 };

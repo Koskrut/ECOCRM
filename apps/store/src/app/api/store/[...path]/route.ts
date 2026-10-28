@@ -47,7 +47,10 @@ async function proxy(
   headers.delete("transfer-encoding");
   headers.delete("connection");
   headers.delete("upgrade");
-  if (storeToken) headers.set("Authorization", `Bearer ${storeToken}`);
+  // Client Authorization (Mini App store_tg JWT) wins over the store_token cookie.
+  if (storeToken && !headers.get("authorization")) {
+    headers.set("Authorization", `Bearer ${storeToken}`);
+  }
 
   let body: ArrayBuffer | string | undefined;
   if (req.method !== "GET" && req.method !== "HEAD") {

@@ -84,6 +84,7 @@ import {
   sumQtyForSamePrice,
   type OrderPromoType,
 } from "./order-line-total.utils";
+import { OrderReturnsService } from "../order-returns/order-returns.service";
 import { syncMisPickOutboundForReplacementOrder } from "../order-returns/order-return-replacement.utils";
 import { PICKUP_AUTO_SHIP_REASON, PICKUP_AUTO_SHIP_WHERE } from "./pickup-auto-ship.util";
 import { kyivInstantRangeFromQuery } from "../crm-timezone";
@@ -139,6 +140,7 @@ export class OrdersService {
     private readonly warehouseNotifier: OrderWarehouseNotifierService,
     private readonly saleAssignedNotifier: OrderSaleAssignedNotifierService,
     private readonly materialReservations: OrderMaterialReservationService,
+    @Optional() private readonly orderReturns?: OrderReturnsService,
     @Optional() @Inject(RiskPolicyService) private readonly riskPolicy?: RiskPolicyService,
     @Optional() @Inject(ModuleStateService) private readonly modules?: ModuleStateService,
     @Optional() private readonly customFields?: CustomFieldsService,
@@ -2180,6 +2182,56 @@ export class OrdersService {
           "Cannot set stage RETURN_IN_PROGRESS: order has no active returns",
         );
       }
+    }
+
+    if (current.orderStage === "RETURN_IN_PROGRESS" && toStage === "RECEIVED") {
+      const openReturnsCount = await this.prisma.orderReturn.count({
+        where: { orderId: id, status: { not: "CLOSED" } },
+      });
+      if (openReturnsCount > 0) {
+        throw new BadRequestException(
+          "Cannot leave RETURN_IN_PROGRESS while a return is still open. Close the return first.",
+        );
+      }
+    }
+
+    if (toStage === "REFUSED") {
+      if (!this.orderReturns) {
+        throw new BadRequestException("Return service is not available for refusal");
+      }
+      const changedBy = actor?.id ?? "system";
+      await this.orderReturns.applyCarrierRefusal(id);
+      const after = await this.prisma.order.findUnique({
+        where: { id },
+        include: ORDER_INCLUDE,
+      });
+      if (!after) throw new NotFoundException("Order not found");
+      const resultStage = (after.orderStage ?? "REFUSED") as OrderStage;
+      await this.prisma.orderStatusHistory.create({
+        data: {
+          orderId: id,
+          fromStatus: current.status ?? undefined,
+          toStatus: orderStageToLegacyStatus(resultStage, {
+            debtAmount: after.debtAmount,
+          }),
+          fromOrderStage: current.orderStage ?? undefined,
+          toOrderStage: resultStage,
+          changedBy,
+          reason: reason ?? "Відмова до отримання",
+        },
+      });
+      void this.warehouseNotifier.notifyStageChanged({
+        orderId: id,
+        fromStage: current.orderStage,
+        toStage: resultStage,
+        actor,
+      });
+      void this.integrations.notifyClientOrderStageChanged({
+        orderId: id,
+        fromStage: current.orderStage,
+        toStage: resultStage,
+      });
+      return this.mapToEntity(after as unknown as Record<string, unknown>);
     }
 
     const deliveryStatus = orderStageToDeliveryStatus(toStage);

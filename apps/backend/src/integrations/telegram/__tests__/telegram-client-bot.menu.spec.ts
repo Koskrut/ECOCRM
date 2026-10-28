@@ -32,9 +32,15 @@ function makeBot(opts: {
   products?: Array<AnyRec>;
   orders?: Array<AnyRec>;
   account?: AnyRec | null;
+  contact?: AnyRec | null;
+  lead?: AnyRec | null;
+  cartItems?: Array<AnyRec>;
+  tree?: Array<AnyRec>;
+  storeUrl?: string | null;
 }) {
-  const sent: Array<{ text: string; inline?: boolean; keyboard?: unknown }> = [];
+  const sent: Array<{ text: string; inline?: boolean; keyboard?: unknown; contact?: boolean; buttons?: string[] }> = [];
   const listCalls: unknown[][] = [];
+  const pathCalls: unknown[][] = [];
   const checkoutCalls: AnyRec[] = [];
   const sessions = {
     state: opts.sessionState ?? "idle",
@@ -57,10 +63,13 @@ function makeBot(opts: {
   const telegram = {
     answerCallbackQuery: async () => undefined,
     sendMessageToChat: async (_chat: string, text: string, options?: AnyRec) => {
+      const inline = options?.inlineKeyboard as Array<Array<{ text?: string }>> | undefined;
       sent.push({
         text,
         inline: Boolean(options?.inlineKeyboard),
         keyboard: options?.menuKeyboard,
+        contact: Boolean(options?.requestContactButton),
+        buttons: inline?.flat().map((button) => button.text ?? "").filter(Boolean),
       });
       return { messageId: sent.length };
     },
@@ -74,7 +83,8 @@ function makeBot(opts: {
       count: async () => (opts.orders ?? []).length,
       findFirst: async () => null,
     },
-    lead: { findUnique: async () => null },
+    lead: { findUnique: async () => opts.lead ?? null },
+    contact: { findUnique: async () => opts.contact ?? null },
     telegramAccount: {
       findUnique: async () => opts.account ?? null,
       updateMany: async () => ({ count: 0 }),
@@ -108,10 +118,32 @@ function makeBot(opts: {
             primaryImageUrl: null,
           }
         : null,
+    listCatalogTree: async () => opts.tree ?? [],
+    listActiveByCatalogPath: async (...args: unknown[]) => {
+      pathCalls.push(args);
+      return {
+        items: opts.products ?? [
+          {
+            id: "p1",
+            name: "Товар 1",
+            sku: "SKU1",
+            basePrice: 10,
+            stock: 5,
+            primaryImageUrl: null,
+          },
+        ],
+        total: 1,
+      };
+    },
   };
-  const settings = { getExchangeRates: async () => ({ UAH_TO_USD: 1 / 41 }), getStoreConfig: async () => ({}) };
+  const settings = {
+    getExchangeRates: async () => ({ UAH_TO_USD: 1 / 41 }),
+    getStoreConfig: async () => ({
+      ...(opts.storeUrl ? { publicStoreUrl: opts.storeUrl } : {}),
+    }),
+  };
   const cart = {
-    getCart: async () => ({ items: [], subtotal: 0, uahPerUsd: 41 }),
+    getCart: async () => ({ items: opts.cartItems ?? [], subtotal: 0, uahPerUsd: 41 }),
     addItem: async () => ({ items: [{ id: "1" }], subtotal: 10, uahPerUsd: 41 }),
     clearCart: async () => undefined,
   };
@@ -132,7 +164,7 @@ function makeBot(opts: {
     telegram as never,
   );
 
-  return { service, sent, sessions, telegram, listCalls, checkoutCalls };
+  return { service, sent, sessions, telegram, listCalls, pathCalls, checkoutCalls };
 }
 
 describe("TelegramClientBotService menu / idle", () => {
@@ -153,7 +185,112 @@ describe("TelegramClientBotService menu / idle", () => {
     assert.ok(systems);
   });
 
-  it("opens one system and does not print a zero price", async () => {
+  it("opens the Mini App when the public store URL is configured", async () => {
+    const { service, sent } = makeBot({
+      storeUrl: "https://shop.example.com",
+    });
+    const result = await service.handleClientTurn({
+      parsed: parsed({ text: MENU_CATALOG }),
+      conversationId: "conv1",
+      contactId: "c1",
+      leadId: null,
+    });
+    assert.equal(result.handled, true);
+    const body = sent.map((s) => s.text).join("\n");
+    assert.match(body, /магазині Telegram|Відкрити каталог/i);
+    assert.equal(
+      sent.some((s) => (s.buttons ?? []).some((label) => /Відкрити каталог/i.test(label))),
+      true,
+    );
+    assert.equal(body.includes("Системи:"), false);
+  });
+
+  it("opens categories inside a system instead of every product", async () => {
+    const { service, sent, listCalls, sessions } = makeBot({
+      tree: [
+        { name: "Абатменти", children: ["Тимчасові", "Постійні"] },
+        { name: "Гвинти", children: [] },
+      ],
+    });
+    const result = await service.handleClientTurn({
+      parsed: parsed({ text: "Викрутки SUPREX" }),
+      conversationId: "conv1",
+      contactId: null,
+      leadId: null,
+    });
+    assert.equal(result.handled, true);
+    assert.equal(listCalls.length, 0);
+    const body = sent.map((s) => s.text).join("\n");
+    const buttons = sent.flatMap((s) => s.buttons ?? []).join("\n");
+    assert.match(body, /Оберіть категорію/);
+    assert.match(buttons, /Абатменти/);
+    assert.match(buttons, /Гвинти/);
+    assert.equal(sessions.payload.catalogGroup, "00");
+  });
+
+  it("opens subcategories before the product list", async () => {
+    const { service, sent, pathCalls, sessions } = makeBot({
+      tree: [{ name: "Абатменти", children: ["Тимчасові", "Постійні"] }],
+    });
+    sessions.payload = {
+      catalogGroup: "00",
+      catalogBranches: [{ name: "Абатменти", children: ["Тимчасові", "Постійні"] }],
+    };
+    const result = await service.handleClientTurn({
+      parsed: parsed({ text: "cat:k:0", isCallback: true }),
+      conversationId: "conv1",
+      contactId: null,
+      leadId: null,
+    });
+    assert.equal(result.handled, true);
+    assert.equal(pathCalls.length, 0);
+    const body = sent.map((s) => s.text).join("\n");
+    const buttons = sent.flatMap((s) => s.buttons ?? []).join("\n");
+    assert.match(body, /Оберіть підкатегорію/);
+    assert.match(buttons, /Тимчасові/);
+    assert.match(buttons, /Постійні/);
+  });
+
+  it("lists products only inside the chosen subcategory", async () => {
+    const { service, sent, listCalls, pathCalls, sessions } = makeBot({
+      products: [
+        {
+          id: "p0",
+          name: "00.105",
+          sku: "00.105",
+          basePrice: 0,
+          stock: 2,
+          primaryImageUrl: null,
+        },
+      ],
+    });
+    sessions.payload = {
+      catalogGroup: "01",
+      catalogCategory: "Абатменти",
+      catalogSubHits: ["Тимчасові", "Постійні"],
+      catalogBranches: [{ name: "Абатменти", children: ["Тимчасові", "Постійні"] }],
+    };
+    const result = await service.handleClientTurn({
+      parsed: parsed({ text: "cat:n:0", isCallback: true }),
+      conversationId: "conv1",
+      contactId: null,
+      leadId: null,
+    });
+    assert.equal(result.handled, true);
+    assert.equal(listCalls.length, 0);
+    assert.equal(pathCalls.length, 1);
+    assert.equal(pathCalls[0]?.[0], "01");
+    const filter = pathCalls[0]?.[2] as AnyRec;
+    assert.equal(filter.categoryName, "Абатменти");
+    assert.equal(filter.subcategoryName, "Тимчасові");
+    const body = sent.map((s) => s.text).join("\n");
+    assert.match(body, /Абатменти/);
+    assert.match(body, /Тимчасові/);
+    assert.match(body, /ціну уточніть/);
+    assert.equal(body.includes("0 грн"), false);
+  });
+
+  it("lists products when a system has no categories", async () => {
     const { service, sent, listCalls } = makeBot({
       products: [
         {
@@ -356,5 +493,67 @@ describe("TelegramClientBotService menu / idle", () => {
     assert.equal(result.handled, true);
     assert.equal(result.notifyManager, false);
     assert.ok(sent.some((s) => /Раді бачити/i.test(s.text)));
+  });
+
+  it("greets a linked client without asking for a phone", async () => {
+    const { service, sent } = makeBot({});
+    const result = await service.handleClientTurn({
+      parsed: parsed({ text: "/start" }),
+      conversationId: "conv1",
+      contactId: "c1",
+      leadId: null,
+    });
+    assert.equal(result.handled, true);
+    const body = sent.map((s) => s.text).join("\n");
+    assert.match(body, /Раді бачити/);
+    assert.equal(/поділіться номером/i.test(body), false);
+    assert.equal(sent.some((s) => s.contact), false);
+  });
+
+  it("asks for a phone only when the chat is not a known client", async () => {
+    const { service, sent } = makeBot({});
+    await service.handleClientTurn({
+      parsed: parsed({ text: "/start" }),
+      conversationId: "conv1",
+      contactId: null,
+      leadId: null,
+    });
+    assert.equal(
+      sent.some((s) => s.contact && /поділіться номером/i.test(s.text)),
+      true,
+    );
+  });
+
+  it("does not ask again when the telegram account already has a phone", async () => {
+    const { service, sent } = makeBot({
+      account: { phone: "+380501112233", contactId: null, leadId: null },
+    });
+    await service.handleClientTurn({
+      parsed: parsed({ text: "/start" }),
+      conversationId: "conv1",
+      contactId: null,
+      leadId: null,
+    });
+    const body = sent.map((s) => s.text).join("\n");
+    assert.match(body, /Раді бачити/);
+    assert.equal(/поділіться номером/i.test(body), false);
+  });
+
+  it("uses the CRM contact phone and does not ask a linked client to share", async () => {
+    const { service, sent } = makeBot({
+      cartItems: [{ id: "1" }],
+      account: { phone: null, contactId: "c1", leadId: null },
+      contact: { phone: "+380671112233" },
+    });
+    const result = await service.handleClientTurn({
+      parsed: parsed({ text: "cart:chk", isCallback: true }),
+      conversationId: "conv1",
+      contactId: "c1",
+      leadId: null,
+    });
+    assert.equal(result.handled, true);
+    const body = sent.map((s) => s.text).join("\n");
+    assert.equal(/поділіться номером/i.test(body), false);
+    assert.match(body, /область/);
   });
 });

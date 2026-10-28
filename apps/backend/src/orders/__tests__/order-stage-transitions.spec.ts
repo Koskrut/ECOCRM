@@ -61,4 +61,15 @@ describe("validateOrderStageTransition payment gates", () => {
       BadRequestException,
     );
   });
+
+  it("allows RETURN_IN_PROGRESS → RECEIVED even when the graph edge is missing", () => {
+    assert.doesNotThrow(() =>
+      validateOrderStageTransition(
+        "RETURN_IN_PROGRESS",
+        "RECEIVED",
+        { paymentType: "DEFERRED", debtAmount: 0 },
+        { RETURN_IN_PROGRESS: [] } as never,
+      ),
+    );
+  });
 });

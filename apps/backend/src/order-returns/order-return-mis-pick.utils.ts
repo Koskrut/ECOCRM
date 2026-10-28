@@ -70,6 +70,23 @@ export function shouldExcludeReturnFromOrderFinancialSync(ret: MisPickReturnForS
   return isMisPickReplacementActive(ret);
 }
 
+/** Statuses that reduce order total / debt. Earlier logistics statuses do not. */
+const RETURN_STATUSES_COUNTING_TOWARD_ADJUSTMENT = new Set([
+  "RECEIVED_BY_WAREHOUSE",
+  "INSPECTION",
+  "REFUND_OR_ADJUSTMENT",
+  "CLOSED",
+]);
+
+/**
+ * Whether this return contributes to returnAdjustmentAmount and return-stage coverage.
+ * Mis-pick replacement path is still excluded while replacement is active.
+ */
+export function countsTowardOrderReturnAdjustment(ret: MisPickReturnForSync): boolean {
+  if (shouldExcludeReturnFromOrderFinancialSync(ret)) return false;
+  return RETURN_STATUSES_COUNTING_TOWARD_ADJUSTMENT.has(ret.status);
+}
+
 export function getAllowedReturnStatusTransitions(
   current: string,
   ret: MisPickReturnSnapshot,

@@ -21,6 +21,8 @@ import { StoreLeadsService } from "./leads/store-leads.service";
 import { MarketingModule } from "../marketing/marketing.module";
 import { StoreConfigController } from "./store-config.controller";
 import { StoreTelegramLinkService } from "./telegram/store-telegram-link.service";
+import { StoreTelegramWebAppController } from "./telegram/store-telegram-webapp.controller";
+import { StoreTelegramWebAppService } from "./telegram/store-telegram-webapp.service";
 
 @Module({
   imports: [
@@ -42,6 +44,7 @@ import { StoreTelegramLinkService } from "./telegram/store-telegram-link.service
     StoreLeadsController,
     StoreCabinetController,
     StoreCustomerController,
+    StoreTelegramWebAppController,
   ],
   providers: [
     StoreCartService,
@@ -50,6 +53,7 @@ import { StoreTelegramLinkService } from "./telegram/store-telegram-link.service
     StoreLeadsService,
     StoreCabinetService,
     StoreTelegramLinkService,
+    StoreTelegramWebAppService,
   ],
   exports: [
     StoreCartService,
@@ -57,6 +61,7 @@ import { StoreTelegramLinkService } from "./telegram/store-telegram-link.service
     StoreCheckoutPaymentLinkService,
     StoreCabinetService,
     StoreTelegramLinkService,
+    StoreTelegramWebAppService,
   ],
 })
 export class StoreModule {}

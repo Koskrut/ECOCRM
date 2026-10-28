@@ -1,4 +1,15 @@
+import { getTelegramStoreToken } from "@/lib/telegram-session";
+
 const API = "/api/store";
+
+function storeAuthHeaders(extra?: Record<string, string>): HeadersInit {
+  const headers: Record<string, string> = { ...(extra ?? {}) };
+  if (typeof window !== "undefined") {
+    const tgToken = getTelegramStoreToken();
+    if (tgToken) headers.Authorization = `Bearer ${tgToken}`;
+  }
+  return headers;
+}
 
 async function api<T>(
   path: string,
@@ -7,7 +18,9 @@ async function api<T>(
   const res = await fetch(API + path, {
     method: opts?.method ?? "GET",
     credentials: "include",
-    headers: opts?.body ? { "Content-Type": "application/json" } : undefined,
+    headers: storeAuthHeaders(
+      opts?.body ? { "Content-Type": "application/json" } : undefined,
+    ),
     body: opts?.body ? JSON.stringify(opts.body) : undefined,
   });
   if (!res.ok) {
@@ -80,6 +93,7 @@ export async function getSubcategoryFacets(category: string): Promise<string[]> 
 export async function getProduct(id: string) {
   const res = await fetch(API + "/products/" + encodeURIComponent(id), {
     credentials: "include",
+    headers: storeAuthHeaders(),
   });
   if (res.status === 404) {
     throw new Error("Товар не знайдено");

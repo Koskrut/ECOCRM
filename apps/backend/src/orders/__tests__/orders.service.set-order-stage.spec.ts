@@ -246,6 +246,7 @@ describe("OrdersService.setOrderStage", () => {
         recalcCalled = true;
         assert.equal(orderId, "o1");
       },
+      notifyClientOrderStageChanged: async () => undefined,
     };
     const pipeline = {
       getEffectiveTransitionGraph: async () => ({
@@ -272,6 +273,7 @@ describe("OrdersService.setOrderStage", () => {
       pipeline,
       {} as never,
       { notifyStageChanged: async () => undefined } as never,
+      {} as never,
       {
         applyReservationPolicy: async () => undefined,
         syncActiveReservationsForOrder: async () => undefined,

@@ -35,6 +35,20 @@ export const CLIENT_MENU_KEYBOARD: string[][] = [
   [MENU_ORDERS, MENU_MANAGER],
 ];
 
+/** When the public store URL is set, Catalog opens as a Mini App. */
+export function buildClientMenuKeyboard(
+  storeUrl?: string | null,
+): Array<Array<string | { text: string; webAppUrl?: string }>> {
+  const catalog =
+    storeUrl && /^https:\/\//i.test(storeUrl)
+      ? { text: MENU_CATALOG, webAppUrl: storeUrl }
+      : MENU_CATALOG;
+  return [
+    [catalog, MENU_CART],
+    [MENU_ORDERS, MENU_MANAGER],
+  ];
+}
+
 export const TELEGRAM_WELCOME =
   "Вітаємо! Це бот магазину: каталог, кошик, оформлення та статус замовлень.\n\nЩоб почати — поділіться номером телефону або оберіть дію в меню.";
 export const TELEGRAM_HELP =
@@ -118,4 +132,6 @@ export type BotSessionState =
   | "checkout_comment"
   | "checkout_phone";
 
-export type InlineBtn = { text: string; callback_data: string };
+export type InlineBtn =
+  | { text: string; callback_data: string }
+  | { text: string; web_app: { url: string } };

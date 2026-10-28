@@ -42,18 +42,19 @@ export function formatDebtForAllocation(
   const amount = debt > 0 ? debt : Number(order.totalAmount ?? 0);
   if (!(amount > 0)) return "";
 
+  const orderCur = String(order.currency ?? "USD").toUpperCase();
   const payCur = String(paymentCurrency || "UAH").toUpperCase();
   const paySym = orderCurrencySymbol(payCur);
-  // Order.debtAmount is maintained in USD (sum of payment amountUsd); convert for display.
-  const converted = debtInPaymentCurrency(amount, "USD", payCur, order.exchangeRate);
+  const orderSym = orderCurrencySymbol(orderCur);
+  const converted = debtInPaymentCurrency(amount, orderCur, payCur, order.exchangeRate);
 
-  if (converted != null && payCur !== "USD") {
-    return `${converted.toFixed(2)} ${paySym} (${amount.toFixed(2)} $)`;
+  if (converted != null && payCur !== orderCur) {
+    return `${converted.toFixed(2)} ${paySym} (${amount.toFixed(2)} ${orderSym})`;
   }
   if (converted != null) {
     return `${converted.toFixed(2)} ${paySym}`;
   }
-  return `${amount.toFixed(2)} $`;
+  return `${amount.toFixed(2)} ${orderSym}`;
 }
 
 export function suggestedAllocationAmount(
@@ -66,6 +67,11 @@ export function suggestedAllocationAmount(
 ): string {
   const debt = Number(order.debtAmount ?? 0);
   if (!(debt > 0)) return "";
-  const converted = debtInPaymentCurrency(debt, "USD", paymentCurrency, order.exchangeRate);
+  const converted = debtInPaymentCurrency(
+    debt,
+    order.currency ?? "USD",
+    paymentCurrency,
+    order.exchangeRate,
+  );
   return converted != null && converted > 0 ? converted.toFixed(2) : "";
 }

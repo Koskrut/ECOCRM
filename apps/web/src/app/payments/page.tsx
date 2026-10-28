@@ -9,11 +9,15 @@ import { strings as t } from "@/locales";
 import { formatDate } from "@/lib/crmDatetime";
 import { useToast } from "@/components/feedback";
 import { formatOrderAmount } from "@/lib/formatOrderAmount";
+import { formatDebtForAllocation } from "@/lib/debt-in-payment-currency";
 import {
-  debtInPaymentCurrency,
-  formatDebtForAllocation,
-  suggestedAllocationAmount,
-} from "@/lib/debt-in-payment-currency";
+  buildSplitRowsFromOrders,
+  buildSplitRowsFromOrdersFifo,
+  orderDebtInPaymentCurrency,
+  rowsFromProposedAllocations,
+  suggestedRowAmount,
+  type SplitRow,
+} from "@/lib/payment-split-rows";
 import {
   convertPaymentToUsd,
   paymentUsdVarianceExceedsTolerance,
@@ -169,6 +173,8 @@ function reasonLabel(code: string): string {
       return t.payments.reasonEdrpou;
     case "amount_fit":
       return t.payments.reasonAmountFit;
+    case "payer_name_in_purpose":
+      return t.payments.reasonPayerName;
     default:
       return code;
   }
@@ -187,6 +193,50 @@ type OrderOption = {
   paymentDueDate?: string | null;
   createdAt?: string;
 };
+
+function suggestionOwnsPlan(
+  sug: ClientMatchSuggestion,
+  allocations: Array<{ orderId: string }>,
+): boolean {
+  if (allocations.length === 0) return false;
+  return allocations.every(
+    (a) =>
+      sug.ordersWithDebt.some((o) => o.orderId === a.orderId) ||
+      sug.proposedAllocations?.some((p) => p.orderId === a.orderId),
+  );
+}
+
+/** Prefer the client who actually owns an eligible auto-match plan. */
+function suggestionForRow(tx: BankTransaction): ClientMatchSuggestion | undefined {
+  const plan = tx.autoMatchPlan?.allocations ?? [];
+  if (tx.autoMatchEligible && plan.length > 0) {
+    const owner = tx.suggestions?.find((s) => suggestionOwnsPlan(s, plan));
+    if (owner) return owner;
+  }
+  return tx.suggestions?.[0];
+}
+
+function displayedProposal(tx: BankTransaction, sug: ClientMatchSuggestion) {
+  const plan = tx.autoMatchPlan?.allocations ?? [];
+  if (tx.autoMatchEligible && suggestionOwnsPlan(sug, plan)) return plan;
+  return sug.proposedAllocations ?? [];
+}
+
+function proposalPreview(tx: BankTransaction, topSug: ClientMatchSuggestion): string | null {
+  const proposal = displayedProposal(tx, topSug);
+  if (proposal.length < 2) return null;
+  const label = proposal
+    .slice(0, 4)
+    .map((a) => {
+      const num =
+        topSug.ordersWithDebt.find((o) => o.orderId === a.orderId)?.orderNumber ??
+        tx.parsedOrders?.found?.find((o) => o.orderId === a.orderId)?.orderNumber ??
+        a.orderId;
+      return `${num}: ${Number(a.amount).toFixed(2)}`;
+    })
+    .join(" · ");
+  return proposal.length > 4 ? `${label} …` : label;
+}
 
 function formatOrderSearchLabel(o: OrderOption): string {
   const parts = [o.orderNumber || o.id];
@@ -283,103 +333,6 @@ function formatPaymentAmount(p: { amount: number; currency: string; amountUsd?: 
     return `${p.amount.toFixed(2)} $`;
   }
   return `${p.amount.toFixed(2)} ${sym} (${usd.toFixed(2)} $)`;
-}
-
-type SplitRow = { orderId: string; orderNumber: string; amount: string };
-
-function orderDebtInPaymentCurrency(order: OrderOption, paymentCurrency: string): number {
-  const debt = Number(order.debtAmount ?? 0);
-  if (!(debt > 0)) return 0;
-  return debtInPaymentCurrency(debt, "USD", paymentCurrency, order.exchangeRate) ?? 0;
-}
-
-/** Prefill split rows using debts converted into the payment currency (FIFO by due date). */
-function buildSplitRowsFromOrdersFifo(
-  orders: OrderOption[],
-  totalAmount: number,
-  paymentCurrency: string,
-): SplitRow[] {
-  const sorted = [...orders].sort((a, b) => {
-    const aDue = a.paymentDueDate ? new Date(a.paymentDueDate).getTime() : Number.MAX_SAFE_INTEGER;
-    const bDue = b.paymentDueDate ? new Date(b.paymentDueDate).getTime() : Number.MAX_SAFE_INTEGER;
-    if (aDue !== bDue) return aDue - bDue;
-    return new Date(a.createdAt ?? 0).getTime() - new Date(b.createdAt ?? 0).getTime();
-  });
-  const debts = sorted.map((o) => orderDebtInPaymentCurrency(o, paymentCurrency));
-  const totalDebt = debts.reduce((s, d) => s + d, 0);
-  let rows: SplitRow[];
-  if (totalDebt > 0) {
-    let remaining = totalAmount;
-    rows = sorted.map((o, i) => {
-      const debt = debts[i] ?? 0;
-      const amount = Math.min(remaining, debt);
-      remaining -= amount;
-      return {
-        orderId: o.id,
-        orderNumber: o.orderNumber ?? o.id,
-        amount: amount.toFixed(2),
-      };
-    });
-    if (remaining > 0.01 && rows.length > 0) {
-      rows[rows.length - 1]!.amount = (
-        parseFloat(rows[rows.length - 1]!.amount) + remaining
-      ).toFixed(2);
-    }
-  } else if (sorted.length > 0) {
-    const perOrder = totalAmount / sorted.length;
-    rows = sorted.map((o, i) => ({
-      orderId: o.id,
-      orderNumber: o.orderNumber ?? o.id,
-      amount: (
-        i === sorted.length - 1 ? totalAmount - perOrder * (sorted.length - 1) : perOrder
-      ).toFixed(2),
-    }));
-  } else {
-    rows = [];
-  }
-  return rows.filter((r) => parseFloat(r.amount) > 0);
-}
-
-/** Prefill split rows using debts converted into the payment currency. */
-function buildSplitRowsFromOrders(
-  orders: OrderOption[],
-  totalAmount: number,
-  paymentCurrency: string,
-): SplitRow[] {
-  const sorted = [...orders].sort(
-    (a, b) => new Date(a.createdAt ?? 0).getTime() - new Date(b.createdAt ?? 0).getTime(),
-  );
-  const debts = sorted.map((o) => orderDebtInPaymentCurrency(o, paymentCurrency));
-  const totalDebt = debts.reduce((s, d) => s + d, 0);
-  let rows: SplitRow[];
-  if (totalDebt > 0) {
-    let remaining = totalAmount;
-    rows = sorted.map((o, i) => {
-      const debt = debts[i] ?? 0;
-      const amount = Math.min(remaining, debt);
-      remaining -= amount;
-      return {
-        orderId: o.id,
-        orderNumber: o.orderNumber ?? o.id,
-        amount: amount.toFixed(2),
-      };
-    });
-    if (remaining > 0.01 && rows.length > 0) {
-      rows[rows.length - 1]!.amount = (
-        parseFloat(rows[rows.length - 1]!.amount) + remaining
-      ).toFixed(2);
-    }
-  } else {
-    const perOrder = totalAmount / sorted.length;
-    rows = sorted.map((o, i) => ({
-      orderId: o.id,
-      orderNumber: o.orderNumber ?? o.id,
-      amount: (
-        i === sorted.length - 1 ? totalAmount - perOrder * (sorted.length - 1) : perOrder
-      ).toFixed(2),
-    }));
-  }
-  return rows.filter((r) => parseFloat(r.amount) > 0);
 }
 
 function formatOrderOptionAmounts(order: OrderOption, paymentCurrency: string): string {
@@ -537,6 +490,7 @@ function PaymentsContent() {
   const [splitSubmitting, setSplitSubmitting] = useState(false);
   const [bankSyncLoading, setBankSyncLoading] = useState(false);
   const [splitContactId, setSplitContactId] = useState<string | null>(null);
+  const [splitCompanyId, setSplitCompanyId] = useState<string | null>(null);
   const [splitContactName, setSplitContactName] = useState("");
   const [splitContactSearch, setSplitContactSearch] = useState("");
   const [splitContacts, setSplitContacts] = useState<ContactOption[]>([]);
@@ -1407,22 +1361,33 @@ function PaymentsContent() {
     }
   };
 
-  const loadSplitClientOrders = useCallback(async (contactId: string) => {
-    setSplitClientOrdersLoading(true);
-    try {
-      const r = await apiHttp.get<{ items: OrderOption[] }>(
-        `/orders?partyContactId=${encodeURIComponent(contactId)}&page=1&pageSize=100&withCompanyClient=true&sortBy=paymentDueDate&sortDir=asc`,
-      );
-      setSplitClientOrders(r.data?.items ?? []);
-    } catch {
-      setSplitClientOrders([]);
-    } finally {
-      setSplitClientOrdersLoading(false);
-    }
-  }, []);
+  const loadSplitClientOrders = useCallback(
+    async (contactId: string | null, companyId?: string | null) => {
+      if (!contactId && !companyId) {
+        setSplitClientOrders([]);
+        return;
+      }
+      setSplitClientOrdersLoading(true);
+      try {
+        const filter = contactId
+          ? `partyContactId=${encodeURIComponent(contactId)}`
+          : `companyId=${encodeURIComponent(companyId!)}`;
+        const r = await apiHttp.get<{ items: OrderOption[] }>(
+          `/orders?${filter}&page=1&pageSize=100&withCompanyClient=true&sortBy=paymentDueDate&sortDir=asc`,
+        );
+        setSplitClientOrders(r.data?.items ?? []);
+      } catch {
+        setSplitClientOrders([]);
+      } finally {
+        setSplitClientOrdersLoading(false);
+      }
+    },
+    [],
+  );
 
   const resetSplitContactState = useCallback(() => {
     setSplitContactId(null);
+    setSplitCompanyId(null);
     setSplitContactName("");
     setSplitContactSearch("");
     setSplitContacts([]);
@@ -1477,13 +1442,20 @@ function PaymentsContent() {
   useEffect(() => {
     if (!splitTx && !splitFromEditPayment) return;
     const q = splitContactSearch.trim();
-    if (q.length < 3 || splitContactId) {
+    if (q.length < 3 || splitContactId || splitCompanyId) {
       setSplitContacts([]);
       return;
     }
     const timer = setTimeout(() => void searchContactsForSplit(splitContactSearch), 300);
     return () => clearTimeout(timer);
-  }, [splitTx, splitFromEditPayment, splitContactSearch, splitContactId, searchContactsForSplit]);
+  }, [
+    splitTx,
+    splitFromEditPayment,
+    splitContactSearch,
+    splitContactId,
+    splitCompanyId,
+    searchContactsForSplit,
+  ]);
 
   const closeAllocateModal = useCallback(() => {
     setAllocateTxId(null);
@@ -1542,6 +1514,7 @@ function PaymentsContent() {
       ? (typeof splitTx.remainingAmount === "number" ? splitTx.remainingAmount : splitTx.amount)
       : 0;
   const splitCurrency = splitFromEditPayment?.currency ?? splitTx?.currency ?? "";
+  const splitPartySelected = Boolean(splitContactId || splitCompanyId);
 
   const openDistributeFromSuggestion = (tx: BankTransaction, sug?: ClientMatchSuggestion) => {
     const top = sug ?? tx.suggestions?.[0];
@@ -1549,28 +1522,32 @@ function PaymentsContent() {
     setSplitTx(tx);
     setSplitOrderSearch("");
     setSplitOrderForRowIndex(null);
-    const allocs = top?.proposedAllocations?.length
-      ? top.proposedAllocations
+    const allocs = top
+      ? displayedProposal(tx, top)
       : tx.autoMatchPlan?.allocations;
+    const total =
+      typeof tx.remainingAmount === "number" ? tx.remainingAmount : tx.amount;
     if (allocs?.length) {
-      const orderMap = new Map(
-        (top?.ordersWithDebt ?? []).map((o) => [o.orderId, o.orderNumber]),
-      );
-      setSplitRows(
-        allocs.map((a) => ({
-          orderId: a.orderId,
-          orderNumber: orderMap.get(a.orderId) ?? a.orderId,
-          amount: String(a.amount),
-        })),
-      );
+      const orderMap = new Map<string, string>();
+      for (const o of top?.ordersWithDebt ?? []) orderMap.set(o.orderId, o.orderNumber);
+      for (const o of tx.parsedOrders?.found ?? []) orderMap.set(o.orderId, o.orderNumber);
+      const rows = rowsFromProposedAllocations(allocs, orderMap, total);
+      setSplitRows(rows.length > 0 ? rows : [{ orderId: "", orderNumber: "", amount: "" }]);
     } else {
       setSplitRows([{ orderId: "", orderNumber: "", amount: "" }]);
     }
     if (top?.contactId) {
       setSplitContactId(top.contactId);
+      setSplitCompanyId(null);
       setSplitContactName(top.label);
       setSplitContactSearch("");
       void loadSplitClientOrders(top.contactId);
+    } else if (top?.companyId) {
+      setSplitContactId(null);
+      setSplitCompanyId(top.companyId);
+      setSplitContactName(top.label);
+      setSplitContactSearch("");
+      void loadSplitClientOrders(null, top.companyId);
     }
   };
 
@@ -2376,7 +2353,8 @@ function PaymentsContent() {
               </thead>
               <tbody>
                 {unmatched.map((tx) => {
-                  const topSug = tx.suggestions?.[0];
+                  const topSug = suggestionForRow(tx);
+                  const preview = topSug ? proposalPreview(tx, topSug) : null;
                   const foundOrders = tx.parsedOrders?.found?.map((o) => o.orderNumber) ?? [];
                   const remaining =
                     typeof tx.remainingAmount === "number" ? tx.remainingAmount : tx.amount;
@@ -2465,7 +2443,9 @@ function PaymentsContent() {
                           {topSug.warnings?.includes("amount_mismatch") ? (
                             <div className="text-amber-700">{t.payments.warningAmountMismatch}</div>
                           ) : null}
-                          {tx.autoMatchEligible ? (
+                          {preview ? <div className="text-zinc-600">{preview}</div> : null}
+                          {tx.autoMatchEligible &&
+                          suggestionOwnsPlan(topSug, tx.autoMatchPlan?.allocations ?? []) ? (
                             <button
                               type="button"
                               disabled={allocating === tx.id}
@@ -2475,6 +2455,14 @@ function PaymentsContent() {
                               {allocating === tx.id
                                 ? t.payments.allocating
                                 : t.payments.applyProposed}
+                            </button>
+                          ) : (topSug.proposedAllocations?.length ?? 0) > 1 ? (
+                            <button
+                              type="button"
+                              onClick={() => openDistributeFromSuggestion(tx, topSug)}
+                              className="rounded border border-emerald-300 bg-emerald-50 px-2 py-0.5 font-medium text-emerald-900 hover:bg-emerald-100"
+                            >
+                              {t.payments.distribute}
                             </button>
                           ) : topSug.ordersWithDebt[0] ? (
                             <button
@@ -3126,6 +3114,7 @@ function PaymentsContent() {
                     setSplitOrderForRowIndex(null);
                     if (cid) {
                       setSplitContactId(cid);
+                      setSplitCompanyId(null);
                       setSplitContactName(allocateContactName);
                       setSplitContactSearch("");
                       void loadSplitClientOrders(cid);
@@ -3179,9 +3168,9 @@ function PaymentsContent() {
                 <label className="block text-xs font-medium text-zinc-500">{t.payments.contact}</label>
                 <input
                   type="text"
-                  value={splitContactId ? splitContactName : splitContactSearch}
+                  value={splitPartySelected ? splitContactName : splitContactSearch}
                   onChange={(e) => {
-                    if (splitContactId) {
+                    if (splitPartySelected) {
                       resetSplitContactState();
                       setSplitContactSearch(e.target.value);
                     } else {
@@ -3189,7 +3178,7 @@ function PaymentsContent() {
                     }
                   }}
                   onFocus={() => {
-                    if (splitContactId) {
+                    if (splitPartySelected) {
                       const name = splitContactName;
                       resetSplitContactState();
                       setSplitContactSearch(name);
@@ -3201,7 +3190,7 @@ function PaymentsContent() {
                 {splitContactSearch.trim().length >= 3 && splitContactsLoading && (
                   <p className="mt-1 text-xs text-zinc-500">{t.payments.searching}</p>
                 )}
-                {splitContactCandidates.length > 0 && !splitContactId && (
+                {splitContactCandidates.length > 0 && !splitPartySelected && (
                   <ul className="mt-1 max-h-32 overflow-auto rounded-lg border border-zinc-200 bg-white py-1">
                     {splitContactCandidates.map((c) => (
                       <li key={c.id}>
@@ -3209,6 +3198,7 @@ function PaymentsContent() {
                           type="button"
                           onClick={() => {
                             setSplitContactId(c.id);
+                            setSplitCompanyId(null);
                             setSplitContactName(
                               [c.lastName, c.firstName].filter(Boolean).join(" ") || c.phone,
                             );
@@ -3224,7 +3214,7 @@ function PaymentsContent() {
                     ))}
                   </ul>
                 )}
-                {splitContactId && (
+                {splitPartySelected && (
                   <div className="mt-2 flex flex-wrap items-center gap-2">
                     {splitClientOrdersLoading ? (
                       <p className="text-xs text-zinc-500">{t.payments.loadingClientOrders}</p>
@@ -3260,7 +3250,7 @@ function PaymentsContent() {
                   <div className="min-w-0 flex-1">
                     {splitOrderForRowIndex === idx ? (
                       <>
-                        {splitContactId && (
+                        {splitPartySelected && (
                           <div className="mb-2">
                             {splitClientOrdersLoading ? (
                               <p className="text-xs text-zinc-500">{t.payments.loadingClientOrders}</p>
@@ -3281,9 +3271,12 @@ function PaymentsContent() {
                                               ...next[idx]!,
                                               orderId: o.id,
                                               orderNumber: o.orderNumber,
-                                              amount: suggestedAllocationAmount(
+                                              amount: suggestedRowAmount(
                                                 o,
                                                 splitCurrency || "UAH",
+                                                prev,
+                                                idx,
+                                                splitTotalAmount,
                                               ),
                                             };
                                             return next;
@@ -3328,9 +3321,12 @@ function PaymentsContent() {
                                         ...next[idx]!,
                                         orderId: o.id,
                                         orderNumber: o.orderNumber,
-                                        amount: suggestedAllocationAmount(
+                                        amount: suggestedRowAmount(
                                           o,
                                           splitCurrency || "UAH",
+                                          prev,
+                                          idx,
+                                          splitTotalAmount,
                                         ),
                                       };
                                       return next;

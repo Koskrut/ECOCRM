@@ -9,7 +9,7 @@ import { signJwt } from "../../auth/jwt";
 import { ContactsService } from "../../contacts/contacts.service";
 import { IntegrationPortsService } from "../../integration-ports/integration-ports.service";
 import { PrismaService } from "../../prisma/prisma.service";
-import { ProductStore } from "../../products/product.store";
+import { ProductStore, type CatalogBranch } from "../../products/product.store";
 import { SettingsService } from "../../settings/settings.service";
 import { UKRAINE_REGIONS } from "../../store/checkout/uk-regions";
 import { StoreCartService } from "../../store/cart/store-cart.service";
@@ -22,6 +22,7 @@ import {
   CATALOG_SYSTEMS,
   CITY_RESULTS_LIMIT,
   CLIENT_MENU_KEYBOARD,
+  buildClientMenuKeyboard,
   MENU_CART,
   MENU_CATALOG,
   MENU_MANAGER,
@@ -99,6 +100,14 @@ function npChoiceButton(kind: "city" | "wh" | "st", hit: { ref: string; name: st
   return { text: hit.name.slice(0, 60), callback_data: callbackData };
 }
 
+function usablePhone(phone: string | null | undefined): string | null {
+  if (!phone) return null;
+  const trimmed = phone.trim();
+  const digits = trimmed.replace(/\D/g, "");
+  if (digits.length < 10 || digits.startsWith("0000")) return null;
+  return trimmed;
+}
+
 function clientSafeCheckoutError(err: unknown): string {
   const fallback = "Помилка оформлення";
   if (!(err instanceof BadRequestException)) return fallback;
@@ -114,6 +123,14 @@ function clientSafeCheckoutError(err: unknown): string {
   if (/prisma|token|stack|sql|api\.telegram/i.test(text)) return fallback;
   return text;
 }
+
+type CatalogView = {
+  category?: string;
+  subcategory?: string;
+  categoryOnlySub?: boolean;
+  subHits?: string[];
+  branches?: CatalogBranch[];
+};
 
 @Injectable()
 export class TelegramClientBotService {
@@ -167,29 +184,10 @@ export class TelegramClientBotService {
     }
     if (
       lower === "/start" ||
-      (lower.startsWith("/start") && text.length <= 6) ||
-      (lower.startsWith("/start ") && !text.slice(7).trim())
+      lower.startsWith("/start ") ||
+      (lower.startsWith("/start") && text.length <= 6)
     ) {
-      await this.sessions.resetIdle(parsed.userId);
-      if (contactId || leadId) {
-        await this.replyMenu(parsed.chatId, conversationId, TELEGRAM_WELCOME);
-      } else {
-        await this.telegram.sendMessageToChat(parsed.chatId, TELEGRAM_WELCOME, {
-          requestContactButton: true,
-        });
-      }
-      return { handled: true, notifyManager: false };
-    }
-    if (lower.startsWith("/start ")) {
-      // Deep-link token already consumed by TelegramService; show menu if linked.
-      await this.sessions.resetIdle(parsed.userId);
-      if (contactId || leadId) {
-        await this.replyMenu(parsed.chatId, conversationId, TELEGRAM_WELCOME);
-      } else {
-        await this.telegram.sendMessageToChat(parsed.chatId, TELEGRAM_WELCOME, {
-          requestContactButton: true,
-        });
-      }
+      await this.replyStart(parsed, conversationId, contactId, leadId);
       return { handled: true, notifyManager: false };
     }
 
@@ -252,7 +250,7 @@ export class TelegramClientBotService {
       }
       const system = CATALOG_SYSTEMS.find((item) => item.name === text);
       if (system) {
-        await this.showCatalog(parsed, conversationId, 1, undefined, system.id);
+        await this.showCatalogGroup(parsed, conversationId, system.id);
         return { handled: true, notifyManager: false };
       }
     }
@@ -293,7 +291,28 @@ export class TelegramClientBotService {
           await this.showCatalogHome(parsed, conversationId);
           return;
         }
-        await this.showCatalog(parsed, conversationId, 1, undefined, rest[0]);
+        await this.showCatalogGroup(parsed, conversationId, rest[0]);
+        return;
+      }
+      if (action === "k" && rest[0] != null) {
+        await this.openCatalogBranch(parsed, conversationId, Number(rest[0]));
+        return;
+      }
+      if (action === "n" && rest[0] != null) {
+        await this.openCatalogSubcategory(parsed, conversationId, Number(rest[0]));
+        return;
+      }
+      if (action === "branch") {
+        const session = await this.sessions.get(parsed.userId);
+        if (session.payload.catalogGroup && session.payload.catalogCategory && session.payload.catalogSubHits?.length) {
+          await this.showCatalogSubcategories(parsed, conversationId, session.payload);
+          return;
+        }
+        if (session.payload.catalogGroup) {
+          await this.showCatalogGroup(parsed, conversationId, session.payload.catalogGroup);
+          return;
+        }
+        await this.showCatalogHome(parsed, conversationId);
         return;
       }
       if (action === "p") {
@@ -305,7 +324,13 @@ export class TelegramClientBotService {
           await this.showCatalogHome(parsed, conversationId);
           return;
         }
-        await this.showCatalog(parsed, conversationId, page, search, group);
+        await this.showCatalog(parsed, conversationId, page, search, group, {
+          category: session.payload.catalogCategory,
+          subcategory: session.payload.catalogSubcategory,
+          categoryOnlySub: session.payload.catalogCategoryOnlySub,
+          subHits: session.payload.catalogSubHits,
+          branches: session.payload.catalogBranches,
+        });
         return;
       }
       if (action === "s") {
@@ -335,7 +360,7 @@ export class TelegramClientBotService {
         return;
       }
       if (action === "chk") {
-        await this.startCheckout(parsed, conversationId, contactId);
+        await this.startCheckout(parsed, conversationId, contactId, leadId);
         return;
       }
       if (action === "show") {
@@ -418,6 +443,17 @@ export class TelegramClientBotService {
       return;
     }
     if (state === "checkout_phone") {
+      const phone = await this.resolveKnownPhone(parsed.userId, contactId, leadId);
+      if (phone) {
+        if (payload.region) {
+          await this.replyMenu(parsed.chatId, conversationId, "Номер уже є в картці. Оформлюємо замовлення.");
+          await this.finishCheckout(parsed, conversationId, contactId, payload);
+        } else {
+          await this.replyMenu(parsed.chatId, conversationId, "Номер уже є в картці клієнта. Продовжуємо оформлення.");
+          await this.startCheckout(parsed, conversationId, contactId);
+        }
+        return;
+      }
       await this.telegram.sendMessageToChat(
         parsed.chatId,
         "Щоб продовжити оформлення, поділіться номером кнопкою нижче.",
@@ -440,8 +476,32 @@ export class TelegramClientBotService {
 
   // ─── Catalog ─────────────────────────────────────────────────────────────
 
+  private async resolveStoreMiniAppUrl(): Promise<string | null> {
+    try {
+      const config = await this.settings.getStoreConfig();
+      const url = (config.publicStoreUrl ?? "").trim().replace(/\/+$/, "");
+      return /^https:\/\//i.test(url) ? url : null;
+    } catch {
+      return null;
+    }
+  }
+
   private async showCatalogHome(parsed: ParsedInbound, conversationId: string): Promise<void> {
     await this.sessions.set(parsed.userId, "idle", {});
+    const storeUrl = await this.resolveStoreMiniAppUrl();
+    if (storeUrl) {
+      await this.replyMenu(
+        parsed.chatId,
+        conversationId,
+        "Каталог відкривається в магазині Telegram.\n\nЯкщо вікно не з’явилось — натисніть кнопку нижче.",
+      );
+      await this.replyInline(parsed.chatId, conversationId, "Магазин SUPREX:", [
+        [{ text: "🛍 Відкрити каталог", web_app: { url: storeUrl } }],
+        [{ text: "🛒 Кошик у чаті", callback_data: "cart:show" }],
+      ]);
+      return;
+    }
+
     const rows: InlineBtn[][] = [];
     for (let i = 0; i < CATALOG_SYSTEMS.length; i += 2) {
       const row: InlineBtn[] = [
@@ -466,39 +526,185 @@ export class TelegramClientBotService {
     await this.replyInline(parsed.chatId, conversationId, "Системи:", rows);
   }
 
+  /** System → categories. Products are shown only at a leaf, or when the system has no categories. */
+  private async showCatalogGroup(
+    parsed: ParsedInbound,
+    conversationId: string,
+    groupId: string,
+  ): Promise<void> {
+    const group = CATALOG_SYSTEMS.find((item) => item.id === groupId);
+    if (!group) {
+      await this.showCatalogHome(parsed, conversationId);
+      return;
+    }
+    let branches: CatalogBranch[] = [];
+    try {
+      branches = await this.products.listCatalogTree(groupId);
+    } catch (err) {
+      this.logger.warn(
+        `listCatalogTree failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+    if (branches.length === 0) {
+      await this.showCatalog(parsed, conversationId, 1, undefined, groupId);
+      return;
+    }
+    const shown = branches.slice(0, 90);
+    await this.sessions.set(parsed.userId, "idle", {
+      catalogGroup: groupId,
+      catalogBranches: shown,
+    });
+    const rows: InlineBtn[][] = shown.map((branch, index) => [
+      { text: branch.name.slice(0, 64), callback_data: `cat:k:${index}` },
+    ]);
+    rows.push([{ text: "« Системи", callback_data: "cat:home" }]);
+    rows.push([{ text: CATALOG_SEARCH_BUTTON, callback_data: "cat:s" }]);
+    await this.replyInline(
+      parsed.chatId,
+      conversationId,
+      `${group.name}\n\nОберіть категорію:`,
+      rows,
+    );
+  }
+
+  private async openCatalogBranch(
+    parsed: ParsedInbound,
+    conversationId: string,
+    index: number,
+  ): Promise<void> {
+    const session = await this.sessions.get(parsed.userId);
+    const branch = session.payload.catalogBranches?.[index];
+    const groupId = session.payload.catalogGroup;
+    if (!branch || !groupId) {
+      await this.replyMenu(
+        parsed.chatId,
+        conversationId,
+        "Список категорій застарів. Відкрийте систему ще раз.",
+      );
+      return;
+    }
+    const children = (branch.children ?? []).filter((name) => name.trim().length > 0);
+    if (children.length > 0 && !branch.subcategoryOnly) {
+      await this.sessions.set(parsed.userId, "idle", {
+        catalogGroup: groupId,
+        catalogBranches: session.payload.catalogBranches,
+        catalogCategory: branch.name,
+        catalogSubHits: children,
+      });
+      await this.showCatalogSubcategories(parsed, conversationId, {
+        catalogGroup: groupId,
+        catalogCategory: branch.name,
+        catalogSubHits: children,
+      });
+      return;
+    }
+    await this.showCatalog(parsed, conversationId, 1, undefined, groupId, {
+      category: branch.subcategoryOnly ? undefined : branch.name,
+      subcategory: branch.subcategoryOnly ? branch.name : undefined,
+      categoryOnlySub: Boolean(branch.subcategoryOnly),
+      branches: session.payload.catalogBranches,
+    });
+  }
+
+  private async openCatalogSubcategory(
+    parsed: ParsedInbound,
+    conversationId: string,
+    index: number,
+  ): Promise<void> {
+    const session = await this.sessions.get(parsed.userId);
+    const subcategory = session.payload.catalogSubHits?.[index];
+    if (!subcategory || !session.payload.catalogGroup || !session.payload.catalogCategory) {
+      await this.replyMenu(
+        parsed.chatId,
+        conversationId,
+        "Список підкатегорій застарів. Відкрийте категорію ще раз.",
+      );
+      return;
+    }
+    await this.showCatalog(parsed, conversationId, 1, undefined, session.payload.catalogGroup, {
+      category: session.payload.catalogCategory,
+      subcategory,
+      subHits: session.payload.catalogSubHits,
+      branches: session.payload.catalogBranches,
+    });
+  }
+
+  private async showCatalogSubcategories(
+    parsed: ParsedInbound,
+    conversationId: string,
+    payload: BotSessionPayload,
+  ): Promise<void> {
+    const group = CATALOG_SYSTEMS.find((item) => item.id === payload.catalogGroup);
+    const hits = payload.catalogSubHits ?? [];
+    const rows: InlineBtn[][] = hits.map((name, index) => [
+      { text: name.slice(0, 64), callback_data: `cat:n:${index}` },
+    ]);
+    if (payload.catalogGroup) {
+      rows.push([{ text: "« Категорії", callback_data: `cat:g:${payload.catalogGroup}` }]);
+    }
+    rows.push([{ text: CATALOG_SEARCH_BUTTON, callback_data: "cat:s" }]);
+    await this.replyInline(
+      parsed.chatId,
+      conversationId,
+      `${group?.name ?? "Каталог"}${payload.catalogCategory ? ` · ${payload.catalogCategory}` : ""}\n\nОберіть підкатегорію:`,
+      rows,
+    );
+  }
+
   private async showCatalog(
     parsed: ParsedInbound,
     conversationId: string,
     page: number,
     search: string | undefined,
     groupId?: string,
+    path?: CatalogView,
   ): Promise<void> {
     const safePage = Math.max(1, page);
     const pageSize = CATALOG_PAGE_SIZE;
     const group = CATALOG_SYSTEMS.find((item) => item.id === groupId);
-    const { items, total } = await this.products.listActive(
-      search?.trim() || undefined,
-      group?.id,
-      {
-        page: safePage,
-        pageSize,
-        offset: (safePage - 1) * pageSize,
-        limit: pageSize,
-      },
-    );
+    const pagination = {
+      page: safePage,
+      pageSize,
+      offset: (safePage - 1) * pageSize,
+      limit: pageSize,
+    };
+    const categoryName = path?.categoryOnlySub ? undefined : path?.category;
+    const subcategoryName = path?.categoryOnlySub ? path?.category : path?.subcategory;
+    const { items, total } =
+      group && (categoryName || subcategoryName)
+        ? await this.products.listActiveByCatalogPath(group.id, pagination, {
+            categoryName,
+            subcategoryName,
+          })
+        : await this.products.listActive(search?.trim() || undefined, group?.id, pagination);
     const rates = await this.settings.getExchangeRates();
     const uahPerUsd = rates.UAH_TO_USD > 0 ? 1 / rates.UAH_TO_USD : 41;
 
-    const backRow: InlineBtn[] = [{ text: "« Системи", callback_data: "cat:home" }];
+    const backRow: InlineBtn[] =
+      path?.subcategory && path.subHits && path.subHits.length > 0
+        ? [{ text: "« Підкатегорії", callback_data: "cat:branch" }]
+        : path?.category || path?.categoryOnlySub
+          ? [{ text: "« Категорії", callback_data: `cat:g:${group?.id ?? ""}` }]
+          : [{ text: "« Системи", callback_data: "cat:home" }];
+    const remembered = {
+      catalogSearch: search,
+      catalogGroup: group?.id,
+      catalogCategory: path?.category,
+      catalogSubcategory: path?.subcategory,
+      catalogCategoryOnlySub: path?.categoryOnlySub,
+      catalogSubHits: path?.subHits,
+      catalogBranches: path?.branches,
+    };
     if (items.length === 0) {
-      await this.sessions.set(parsed.userId, "idle", {
-        catalogSearch: search,
-        catalogGroup: group?.id,
-      });
+      await this.sessions.set(parsed.userId, "idle", remembered);
       await this.replyInline(
         parsed.chatId,
         conversationId,
-        search ? `Нічого не знайдено за «${search}».` : "У цій системі поки немає товарів.",
+        search
+          ? `Нічого не знайдено за «${search}».`
+          : path?.category || path?.subcategory
+            ? "У цій категорії поки немає товарів."
+            : "У цій системі поки немає товарів.",
         [backRow, [{ text: CATALOG_SEARCH_BUTTON, callback_data: "cat:s" }], [{ text: "🛒 Кошик", callback_data: "cart:show" }]],
       );
       return;
@@ -524,15 +730,13 @@ export class TelegramClientBotService {
     });
 
     await this.sessions.set(parsed.userId, "idle", {
+      ...remembered,
       catalogPage: safePage,
-      catalogSearch: search,
-      catalogGroup: group?.id,
       catalogHits: items.map((p) => ({ id: p.id, name: p.name })),
     });
 
-    const title = search
-      ? `Пошук «${search}» · ${total}`
-      : `${group?.name ?? "Каталог"} · ${total}`;
+    const crumb = [group?.name, path?.category, path?.subcategory].filter(Boolean).join(" · ");
+    const title = search ? `Пошук «${search}» · ${total}` : `${crumb || "Каталог"} · ${total}`;
     await this.replyInline(
       parsed.chatId,
       conversationId,
@@ -675,9 +879,11 @@ export class TelegramClientBotService {
   ): Promise<void> {
     const resolved = await this.resolveContactId(contactId, leadId);
     if (!resolved) {
-      await this.replyMenu(
-        parsed.chatId,
+      await this.replyWhenNoContact(
+        parsed,
         conversationId,
+        contactId,
+        leadId,
         "Щоб бачити замовлення, поділіться номером телефону.",
       );
       return;
@@ -738,7 +944,13 @@ export class TelegramClientBotService {
   ): Promise<void> {
     const resolved = await this.resolveContactId(contactId, leadId);
     if (!resolved) {
-      await this.replyMenu(parsed.chatId, conversationId, "Спочатку поділіться номером телефону.");
+      await this.replyWhenNoContact(
+        parsed,
+        conversationId,
+        contactId,
+        leadId,
+        "Спочатку поділіться номером телефону.",
+      );
       return;
     }
     const order = await this.prisma.order.findFirst({
@@ -801,7 +1013,13 @@ export class TelegramClientBotService {
   ): Promise<void> {
     const resolved = await this.resolveContactId(contactId, leadId);
     if (!resolved) {
-      await this.replyMenu(parsed.chatId, conversationId, "Спочатку поділіться номером телефону.");
+      await this.replyWhenNoContact(
+        parsed,
+        conversationId,
+        contactId,
+        leadId,
+        "Спочатку поділіться номером телефону.",
+      );
       return;
     }
     const url = await this.buildPayUrl(orderId, resolved);
@@ -857,22 +1075,127 @@ export class TelegramClientBotService {
 
   // ─── Checkout wizard ─────────────────────────────────────────────────────
 
+  private async replyStart(
+    parsed: ParsedInbound,
+    conversationId: string,
+    contactId: string | null,
+    leadId: string | null,
+  ): Promise<void> {
+    await this.sessions.resetIdle(parsed.userId);
+    if (await this.identityKnown(parsed.userId, contactId, leadId)) {
+      await this.replyMenu(parsed.chatId, conversationId, TELEGRAM_EXISTING_CLIENT);
+      return;
+    }
+    await this.telegram.sendMessageToChat(parsed.chatId, TELEGRAM_WELCOME, {
+      requestContactButton: true,
+    });
+  }
+
+  /** Linked contact/lead, or a phone already stored on the Telegram account. */
+  private async identityKnown(
+    telegramUserId: string,
+    contactId: string | null,
+    leadId: string | null,
+  ): Promise<boolean> {
+    if (contactId || leadId) return true;
+    const account = await this.prisma.telegramAccount.findUnique({
+      where: { telegramUserId },
+      select: { phone: true, contactId: true, leadId: true },
+    });
+    if (!account) return false;
+    if (account.contactId || account.leadId) return true;
+    return usablePhone(account.phone) != null;
+  }
+
+  private async replyWhenNoContact(
+    parsed: ParsedInbound,
+    conversationId: string,
+    contactId: string | null,
+    leadId: string | null,
+    unknownText: string,
+  ): Promise<void> {
+    const known = await this.identityKnown(parsed.userId, contactId, leadId);
+    await this.replyMenu(
+      parsed.chatId,
+      conversationId,
+      known ? "У CRM поки немає ваших замовлень." : unknownText,
+    );
+  }
+
+  /**
+   * Phone for checkout: Telegram account, then the linked CRM contact, then the lead.
+   * A known client must not be asked to share the number again.
+   */
+  private async resolveKnownPhone(
+    telegramUserId: string,
+    contactId: string | null,
+    leadId: string | null,
+  ): Promise<string | null> {
+    const account = await this.prisma.telegramAccount.findUnique({
+      where: { telegramUserId },
+      select: { phone: true, contactId: true, leadId: true },
+    });
+    const own = usablePhone(account?.phone);
+    if (own) return own;
+
+    const cid = contactId || account?.contactId || null;
+    const lid = leadId || account?.leadId || null;
+    if (cid) {
+      const contact = await this.prisma.contact.findUnique({
+        where: { id: cid },
+        select: { phone: true },
+      });
+      const fromContact = usablePhone(contact?.phone);
+      if (fromContact) {
+        await this.rememberPhone(telegramUserId, fromContact);
+        return fromContact;
+      }
+    }
+    if (lid) {
+      const lead = await this.prisma.lead.findUnique({
+        where: { id: lid },
+        select: { phone: true, contactId: true },
+      });
+      if (lead?.contactId && lead.contactId !== cid) {
+        const contact = await this.prisma.contact.findUnique({
+          where: { id: lead.contactId },
+          select: { phone: true },
+        });
+        const fromContact = usablePhone(contact?.phone);
+        if (fromContact) {
+          await this.rememberPhone(telegramUserId, fromContact);
+          return fromContact;
+        }
+      }
+      const fromLead = usablePhone(lead?.phone);
+      if (fromLead) {
+        await this.rememberPhone(telegramUserId, fromLead);
+        return fromLead;
+      }
+    }
+    return null;
+  }
+
+  private async rememberPhone(telegramUserId: string, phone: string): Promise<void> {
+    await this.prisma.telegramAccount.updateMany({
+      where: { telegramUserId },
+      data: { phone },
+    });
+  }
+
   private async startCheckout(
     parsed: ParsedInbound,
     conversationId: string,
     contactId: string | null,
+    leadId: string | null = null,
   ): Promise<void> {
-    void contactId;
     const cart = await this.cart.getCart({ sessionId: cartSessionId(parsed.userId) });
     if (!cart.items.length) {
       await this.replyMenu(parsed.chatId, conversationId, "Кошик порожній.");
       return;
     }
-    const account = await this.prisma.telegramAccount.findUnique({
-      where: { telegramUserId: parsed.userId },
-      select: { phone: true },
-    });
-    if (!account?.phone) {
+    const phone = await this.resolveKnownPhone(parsed.userId, contactId, leadId);
+    if (!phone) {
       await this.sessions.set(parsed.userId, "checkout_phone", {});
       await this.telegram.sendMessageToChat(
         parsed.chatId,
@@ -896,7 +1219,7 @@ export class TelegramClientBotService {
     await this.replyInline(
       parsed.chatId,
       conversationId,
-      "Оберіть область доставки (потрібна для нового клієнта й призначення менеджера):",
+      "Оберіть область доставки:",
       regionRows,
     );
   }
@@ -1118,7 +1441,7 @@ export class TelegramClientBotService {
         await this.askComment(parsed, conversationId, payload);
         return;
       }
-      await this.continueCheckoutAddress(parsed, conversationId, payload);
+      await this.continueCheckoutAddress(parsed, conversationId, payload, contactId);
       return;
     }
 
@@ -1148,9 +1471,10 @@ export class TelegramClientBotService {
     parsed: ParsedInbound,
     conversationId: string,
     payload: BotSessionPayload,
+    contactId: string | null,
   ): Promise<void> {
     if (payload.deliveryMethod !== "NOVA_POSHTA") {
-      await this.startCheckout(parsed, conversationId, null);
+      await this.startCheckout(parsed, conversationId, contactId);
       return;
     }
     if (!payload.deliveryType) {
@@ -1379,7 +1703,11 @@ export class TelegramClientBotService {
     const account = await this.prisma.telegramAccount.findUnique({
       where: { telegramUserId: parsed.userId },
     });
-    const phone = account?.phone;
+    const phone = await this.resolveKnownPhone(
+      parsed.userId,
+      contactId || account?.contactId || null,
+      account?.leadId ?? null,
+    );
     if (!phone) {
       await this.sessions.set(parsed.userId, "checkout_phone", payload);
       await this.telegram.sendMessageToChat(
@@ -1515,15 +1843,20 @@ export class TelegramClientBotService {
 
   // ─── Send helpers (persist outbound in CRM) ──────────────────────────────
 
+  private async clientMenuKeyboard() {
+    const storeUrl = await this.resolveStoreMiniAppUrl();
+    return storeUrl ? buildClientMenuKeyboard(storeUrl) : CLIENT_MENU_KEYBOARD;
+  }
+
   private async replyMenu(chatId: string, conversationId: string, text: string): Promise<void> {
-    await this.replyKeyboard(chatId, conversationId, text, CLIENT_MENU_KEYBOARD);
+    await this.replyKeyboard(chatId, conversationId, text, await this.clientMenuKeyboard());
   }
 
   private async replyKeyboard(
     chatId: string,
     conversationId: string,
     text: string,
-    keyboard: string[][],
+    keyboard: Array<Array<string | { text: string; webAppUrl?: string }>>,
   ): Promise<void> {
     const { messageId } = await this.telegram.sendMessageToChat(chatId, text, {
       menuKeyboard: keyboard,
@@ -1538,7 +1871,7 @@ export class TelegramClientBotService {
     inlineKeyboard: InlineBtn[][],
   ): Promise<void> {
     const { messageId } = await this.telegram.sendMessageToChat(chatId, text, {
-      menuKeyboard: CLIENT_MENU_KEYBOARD,
+      menuKeyboard: await this.clientMenuKeyboard(),
       inlineKeyboard,
     });
     await this.recordOutbound(conversationId, text, messageId);

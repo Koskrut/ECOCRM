@@ -64,6 +64,7 @@ export function countsTowardClientRevenue(order: {
 }): boolean {
   if (order.legacySource === "bitrix") return false;
   if (order.orderStage === "CANCELED") return false;
+  if (order.orderStage === "REFUSED") return false;
   return true;
 }
 

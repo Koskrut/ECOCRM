@@ -3,6 +3,8 @@
 import {
   BadRequestException,
   ConflictException,
+  forwardRef,
+  Inject,
   Injectable,
   NotFoundException,
   ServiceUnavailableException,
@@ -10,7 +12,7 @@ import {
 import { NpClient } from "./np-client.service";
 import type { CreateNpTtnDto, NpParcelDto } from "./dto/create-np-ttn.dto";
 import { NpDeliveryType, NpRecipientType } from "./dto/create-np-ttn.dto";
-import { Prisma } from "@prisma/client";
+import { PaymentSourceType, PaymentStatus, Prisma } from "@prisma/client";
 import type { Carrier, OrderStage, ShipmentStatus } from "@prisma/client";
 import {
   computeFinancialStatusFromOrder,
@@ -27,13 +29,25 @@ import {
   assertContactExternalCodeToLeaveNew,
   isNewOrderStage,
 } from "../orders/order-stage-prerequisites";
+import {
+  BEFORE_SHIPPED_STAGES,
+  REQUIRES_PAYMENT_FOR_PREPAYMENT,
+} from "../orders/order-stage-transitions";
+import { assertPrepaymentSatisfiedForStage } from "../orders/order-payment-guards";
+import { getOrderCompletionBlockers } from "../orders/order-completion-guards";
 import { OrderMaterialReservationService } from "../orders/order-material-reservation.service";
+import { OrderReturnsService } from "../order-returns/order-returns.service";
 import { IntegrationPortsService } from "../integration-ports/integration-ports.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { SettingsService } from "../settings/settings.service";
 import { kyivWallToUtc } from "../crm-timezone";
-import { orderAmountToUah } from "../common/currency.util";
+import { fromUsd, orderAmountToUah, toUsd } from "../common/currency.util";
 import { resolveNpFinancialFields } from "./np-financial.util";
+import {
+  capCodByDebt,
+  codAmountMismatchesDebtUah,
+  isNpCodMoneyTransferStatusCode,
+} from "./np-cod.util";
 
 function npSyncHistoryReason(status: Record<string, unknown>): string {
   const text = status?.Status != null ? String(status.Status).trim() : "";
@@ -60,6 +74,8 @@ export class NpTtnService {
     private readonly settings: SettingsService,
     private readonly materialReservations: OrderMaterialReservationService,
     private readonly integrations: IntegrationPortsService,
+    @Inject(forwardRef(() => OrderReturnsService))
+    private readonly orderReturns: OrderReturnsService,
   ) {}
 
   // ======================
@@ -127,6 +143,7 @@ export class NpTtnService {
 
     await this.assertCodAllowed(dto);
     await this.assertCodRequiresOrderItems(orderId, dto);
+    await this.assertCodMatchesOrderDebt(order, dto);
 
     // ✅ fallback: если contactId не задан — берём clientId
     const contactId = order.contactId ?? order.clientId ?? null;
@@ -725,6 +742,26 @@ export class NpTtnService {
     if (!codFeatureEnabled) {
       throw new BadRequestException(
         "Наложений платіж вимкнено в налаштуваннях Nova Poshta (Settings → Nova Poshta).",
+      );
+    }
+  }
+
+  /** COD in UAH must match order debt in UAH within 1 UAH (zero COD stays allowed). */
+  private async assertCodMatchesOrderDebt(
+    order: { debtAmount: unknown; currency: string | null },
+    dto: CreateNpTtnDto,
+  ): Promise<void> {
+    const amount =
+      dto.afterpaymentOnGoodsCost != null && Number.isFinite(Number(dto.afterpaymentOnGoodsCost))
+        ? Number(dto.afterpaymentOnGoodsCost)
+        : 0;
+    if (amount <= 0) return;
+    const debt = Math.max(0, Number(order.debtAmount ?? 0));
+    const rates = await this.settings.getExchangeRates();
+    const debtUah = orderAmountToUah(debt, order.currency, rates);
+    if (codAmountMismatchesDebtUah(amount, debtUah)) {
+      throw new BadRequestException(
+        `Наложений платіж ${amount.toFixed(2)} ₴ не збігається з боргом замовлення ${debtUah.toFixed(2)} ₴ (допуск 1 ₴).`,
       );
     }
   }
@@ -1824,13 +1861,24 @@ export class NpTtnService {
         paymentType: true,
         paidAmount: true,
         totalAmount: true,
+        subtotalAmount: true,
+        returnAdjustmentAmount: true,
+        fxWriteOffAmount: true,
         paymentDueDate: true,
         deliveryMethod: true,
         deliveryData: true,
+        currency: true,
+        clientId: true,
+        contactId: true,
+        companyId: true,
         ttns: {
           take: 1,
           orderBy: { createdAt: "desc" },
-          select: { id: true },
+          select: {
+            id: true,
+            documentNumber: true,
+            payloadSnapshot: true,
+          },
         },
       },
     });
@@ -1840,7 +1888,9 @@ export class NpTtnService {
     if (order.deliveryMethod === "PICKUP") return true;
 
     const prev = (order.deliveryData as Record<string, unknown>) ?? {};
-    const prevNp = prev?.novaPoshta ?? {};
+    const prevNp = (prev?.novaPoshta ?? {}) as Record<string, unknown>;
+    const npCode = status?.StatusCode != null ? String(status.StatusCode).trim() : "";
+    const npText = status?.Status != null ? String(status.Status) : undefined;
 
     const nextDeliveryData = {
       ...prev,
@@ -1850,49 +1900,139 @@ export class NpTtnService {
       },
     };
 
-    // orderStage is the source of truth. A leftover Order.status = NEW must not
-    // turn «создана, не сдана» into CONFIRMED.
     const currentLegacy = legacyStatusForNpSync({
       status: order.status,
       orderStage: order.orderStage,
       debtAmount: order.debtAmount,
     });
     const mappedLegacy = mapNpTrackingToLegacyStatus({
-      npCode: status?.StatusCode != null ? String(status.StatusCode) : undefined,
-      npText: status?.Status != null ? String(status.Status) : undefined,
+      npCode,
+      npText,
       debtAmount: order.debtAmount,
     });
-    const stageLegacy = resolveNpOrderStageUpdate({
-      currentStage: order.orderStage,
-      currentLegacy,
-      mappedLegacy,
-    });
 
+    const historyReason = npSyncHistoryReason(status);
     const updateData: Prisma.OrderUpdateInput = {
       deliveryData: nextDeliveryData as Prisma.InputJsonValue,
       lastNpStatusSyncAt: new Date(),
     };
 
-    // CONFIRMED is manual via setOrderStage. Code 1 does not change orderStage.
-    // History is written only when the stage value actually changes.
     let nextStage: OrderStage | null = null;
-    if (stageLegacy) {
-      const newFields = legacyStatusToOrderUpdate(stageLegacy, {
-        paymentType: order.paymentType,
-        paidAmount: order.paidAmount,
-        totalAmount: order.totalAmount,
-        debtAmount: order.debtAmount,
-        paymentDueDate: order.paymentDueDate,
-      });
-      if (newFields.orderStage !== "CONFIRMED" && newFields.orderStage !== order.orderStage) {
-        nextStage = newFields.orderStage;
-        updateData.orderStage = newFields.orderStage;
-        updateData.deliveryStatus = newFields.deliveryStatus;
-        updateData.financialStatus = newFields.financialStatus;
-      }
+    let skipStageWrite = false;
+    let cancelShipmentOnly = false;
+    let applyRefusal = false;
+    let recalcAfterCancel = false;
+
+    const currentStage = order.orderStage;
+    const beforeShip =
+      currentStage == null || BEFORE_SHIPPED_STAGES.has(currentStage);
+
+    // Refusal before receipt → full warehouse return + finance sync (not bare RETURN_IN_PROGRESS).
+    if (
+      mappedLegacy === "RETURNING" &&
+      (currentStage === "SHIPPED" || currentStage === "AWAITING_RECEIPT")
+    ) {
+      applyRefusal = true;
+      skipStageWrite = true;
     }
 
-    const historyReason = npSyncHistoryReason(status);
+    // Deleted TTN: cancel order only before ship; after ship cancel shipment only.
+    if (mappedLegacy === "CANCELED") {
+      if (beforeShip) {
+        const stageLegacy = resolveNpOrderStageUpdate({
+          currentStage: order.orderStage,
+          currentLegacy,
+          mappedLegacy: "CANCELED",
+        });
+        if (stageLegacy) {
+          const newFields = legacyStatusToOrderUpdate(stageLegacy, {
+            paymentType: order.paymentType,
+            paidAmount: order.paidAmount,
+            totalAmount: order.totalAmount,
+            debtAmount: order.debtAmount,
+            paymentDueDate: order.paymentDueDate,
+          });
+          nextStage = newFields.orderStage;
+          updateData.orderStage = newFields.orderStage;
+          updateData.deliveryStatus = newFields.deliveryStatus;
+          updateData.financialStatus = newFields.financialStatus;
+          recalcAfterCancel = true;
+        }
+      } else {
+        cancelShipmentOnly = true;
+        skipStageWrite = true;
+      }
+    } else if (!skipStageWrite) {
+      let stageLegacy = resolveNpOrderStageUpdate({
+        currentStage: order.orderStage,
+        currentLegacy,
+        mappedLegacy,
+      });
+
+      // Unpaid prepayment must not advance into ship/receive stages via tracking.
+      if (stageLegacy && order.paymentType === "PREPAYMENT") {
+        const candidate = legacyStatusToOrderUpdate(stageLegacy, {
+          paymentType: order.paymentType,
+          paidAmount: order.paidAmount,
+          totalAmount: order.totalAmount,
+          debtAmount: order.debtAmount,
+          paymentDueDate: order.paymentDueDate,
+        }).orderStage;
+        if (REQUIRES_PAYMENT_FOR_PREPAYMENT.has(candidate)) {
+          try {
+            assertPrepaymentSatisfiedForStage({
+              totalAmount: order.totalAmount,
+              paidAmount: order.paidAmount,
+              returnAdjustmentAmount: order.returnAdjustmentAmount,
+              debtAmount: order.debtAmount,
+              fxWriteOffAmount: order.fxWriteOffAmount,
+            });
+          } catch {
+            stageLegacy = null;
+          }
+        }
+      }
+
+      if (stageLegacy) {
+        let newFields = legacyStatusToOrderUpdate(stageLegacy, {
+          paymentType: order.paymentType,
+          paidAmount: order.paidAmount,
+          totalAmount: order.totalAmount,
+          debtAmount: order.debtAmount,
+          paymentDueDate: order.paymentDueDate,
+        });
+
+        // SUCCESS with unsettled returns / open debt → RECEIVED, not COMPLETED.
+        if (newFields.orderStage === "COMPLETED") {
+          const blockers = await getOrderCompletionBlockers(this.prisma, order.id, {
+            paymentType: order.paymentType,
+            paidAmount: order.paidAmount,
+            totalAmount: order.totalAmount,
+            subtotalAmount: order.subtotalAmount ?? 0,
+            debtAmount: order.debtAmount,
+            returnAdjustmentAmount: order.returnAdjustmentAmount,
+            fxWriteOffAmount: order.fxWriteOffAmount,
+            paymentDueDate: order.paymentDueDate,
+          });
+          if (blockers.length > 0) {
+            newFields = legacyStatusToOrderUpdate("CONTROL_PAYMENT", {
+              paymentType: order.paymentType,
+              paidAmount: order.paidAmount,
+              totalAmount: order.totalAmount,
+              debtAmount: order.debtAmount,
+              paymentDueDate: order.paymentDueDate,
+            });
+          }
+        }
+
+        if (newFields.orderStage !== "CONFIRMED" && newFields.orderStage !== order.orderStage) {
+          nextStage = newFields.orderStage;
+          updateData.orderStage = newFields.orderStage;
+          updateData.deliveryStatus = newFields.deliveryStatus;
+          updateData.financialStatus = newFields.financialStatus;
+        }
+      }
+    }
 
     await this.prisma.$transaction(async (tx) => {
       if (nextStage) {
@@ -1914,29 +2054,64 @@ export class NpTtnService {
         data: updateData,
       });
 
-      // Обновим последнюю TTN полями статуса (если есть)
       const lastTtnId = order.ttns?.[0]?.id;
       if (lastTtnId) {
         await tx.orderTtn.update({
           where: { id: lastTtnId },
           data: {
-            statusCode: status?.StatusCode != null ? String(status.StatusCode) : null,
-            statusText: status?.Status != null ? String(status.Status) : null,
+            statusCode: npCode || null,
+            statusText: npText ?? null,
             estimatedDeliveryDate:
               this.tryParseNpDateTime(status?.ScheduledDeliveryDate as unknown) ?? null,
-            // updatedAt в Prisma @updatedAt обновится сам на update
           },
         });
       }
 
-      // NP used to write orderStage directly and leave ACTIVE HARD reservations stuck.
+      if (cancelShipmentOnly) {
+        await tx.shipment.updateMany({
+          where: { orderId: order.id },
+          data: { status: "CANCELED" },
+        });
+      }
+
       if (nextStage) {
         await this.materialReservations.applyReservationPolicy(order.id, nextStage, tx);
       }
     });
 
-    // Stage push already includes TTN/NP text for SHIPPED — avoid a second message
-    // on the same sync. TTN-only updates (status text without stage change) still notify.
+    if (applyRefusal) {
+      await this.orderReturns.applyCarrierRefusal(order.id);
+      const after = await this.prisma.order.findUnique({
+        where: { id: order.id },
+        select: { orderStage: true, debtAmount: true },
+      });
+      if (after?.orderStage && after.orderStage !== order.orderStage) {
+        await this.prisma.orderStatusHistory.create({
+          data: {
+            orderId: order.id,
+            fromStatus: currentLegacy,
+            toStatus: orderStageToLegacyStatus(after.orderStage, {
+              debtAmount: after.debtAmount,
+            }),
+            fromOrderStage: order.orderStage,
+            toOrderStage: after.orderStage,
+            changedBy: "system",
+            reason: historyReason,
+          },
+        });
+        nextStage = after.orderStage;
+      }
+    }
+
+    if (recalcAfterCancel) {
+      await this.integrations.recalcOrderFinance(order.id);
+    }
+
+    // COD money transfer (NP codes 10/11) → payment capped by current debt.
+    if (isNpCodMoneyTransferStatusCode(npCode)) {
+      await this.tryRecordNpCodPayment(order, status);
+    }
+
     if (nextStage) {
       void this.integrations.notifyClientOrderStageChanged({
         orderId: order.id,
@@ -1960,6 +2135,68 @@ export class NpTtnService {
     }
 
     return true;
+  }
+
+  /** Create an idempotent NP_COD payment from AfterpaymentOnGoodsCost when money is transferred. */
+  private async tryRecordNpCodPayment(
+    order: {
+      id: string;
+      currency: string | null;
+      debtAmount: unknown;
+      clientId: string | null;
+      contactId: string | null;
+      companyId: string | null;
+      ttns: Array<{ id: string; documentNumber: string; payloadSnapshot: unknown }>;
+    },
+    status: Record<string, unknown>,
+  ): Promise<void> {
+    const ttn = order.ttns[0];
+    if (!ttn?.documentNumber) return;
+
+    const existing = await this.prisma.payment.findFirst({
+      where: { npTtnDocumentNumber: ttn.documentNumber },
+      select: { id: true },
+    });
+    if (existing) return;
+
+    const snapshot = (ttn.payloadSnapshot ?? {}) as Record<string, unknown>;
+    const request = (snapshot.request ?? snapshot) as Record<string, unknown>;
+    const rawCod =
+      request.AfterpaymentOnGoodsCost ??
+      status.AfterpaymentOnGoodsCost ??
+      status.afterpaymentOnGoodsCost;
+    const codUah = Number(rawCod);
+    if (!(Number.isFinite(codUah) && codUah > 0.009)) return;
+
+    const debt = Math.max(0, Number(order.debtAmount ?? 0));
+    if (debt <= 0.009) return;
+
+    const rates = await this.settings.getExchangeRates();
+    const orderCurrency = (order.currency || "UAH").trim().toUpperCase();
+    const amountInOrderCurrency =
+      orderCurrency === "UAH"
+        ? codUah
+        : fromUsd(toUsd(codUah, "UAH", rates), orderCurrency, rates);
+    const amount = capCodByDebt(amountInOrderCurrency, debt);
+    if (!(amount > 0.009)) return;
+
+    const amountUsd = toUsd(amount, orderCurrency, rates);
+    await this.prisma.payment.create({
+      data: {
+        orderId: order.id,
+        contactId: order.clientId ?? order.contactId,
+        companyId: order.companyId,
+        sourceType: PaymentSourceType.NP_COD,
+        amount,
+        currency: orderCurrency,
+        amountUsd,
+        paidAt: new Date(),
+        status: PaymentStatus.COMPLETED,
+        npTtnDocumentNumber: ttn.documentNumber,
+        note: `Наложений платіж НП (ТТН ${ttn.documentNumber})`,
+      },
+    });
+    await this.integrations.recalcOrderFinance(order.id);
   }
 
   private tryParseNpDateTime(v: unknown): Date | null {

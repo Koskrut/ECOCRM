@@ -17,6 +17,7 @@ import { PromoBanner } from "@/components/PromoBanner";
 import { AboutBlock } from "@/components/AboutBlock";
 import { LeadCtaBlock } from "@/components/cta/LeadCtaBlock";
 import { useStoreConfig } from "@/context/StoreConfigContext";
+import { useTelegramWebApp } from "@/context/TelegramWebAppContext";
 import { PRODUCT_GROUPS } from "@/lib/categories";
 
 const SKELETON_COUNT = 9;
@@ -29,6 +30,7 @@ function HomeContent() {
   const category = searchParams.get("category");
   const subcategory = searchParams.get("subcategory");
   const { config, loading: configLoading } = useStoreConfig();
+  const telegram = useTelegramWebApp();
   const banners = config.banners ?? [];
 
   const [products, setProducts] = useState<Product[]>([]);
@@ -102,6 +104,23 @@ function HomeContent() {
       })
       .finally(() => setLoadingMore(false));
   };
+
+  if (telegram.isTelegram && !isCatalogMode) {
+    return (
+      <div className="min-h-screen">
+        <section className="mx-auto max-w-6xl px-4 py-6 sm:px-6">
+          <h1 className="font-heading text-xl font-semibold text-zinc-900">Каталог</h1>
+          <p className="mt-1 text-sm text-zinc-600">Оберіть систему імплантів</p>
+          <div className="mt-4">
+            <PopularSystems />
+          </div>
+          <div className="mt-6">
+            <CategoryNav />
+          </div>
+        </section>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen">

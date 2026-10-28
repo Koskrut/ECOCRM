@@ -256,6 +256,30 @@ describe("TelegramService.handleInboundUpdate", () => {
     );
   });
 
+  it("does not ask for a phone when the chat is already linked to a contact", async () => {
+    mock = makePrisma({
+      conversation: {
+        findUnique: async () => ({
+          id: "conv1",
+          contactId: "c-known",
+          leadId: null,
+          status: "OPEN",
+        }),
+        create: async () => ({ id: "conv1" }),
+        update: async () => ({}),
+        updateMany: async () => ({ count: 0 }),
+      },
+    });
+    harness = makeService(mock.prisma);
+
+    await harness.service.handleInboundUpdate(textUpdate("Привіт", 6));
+
+    assert.equal(
+      harness.sent.some((message) => /поділіться номером/i.test(message.text)),
+      false,
+    );
+  });
+
   it("does not ask for a phone again when the account already has one", async () => {
     (harness.service as unknown as AnyRec).upsertTelegramAccount = async () => ({
       id: "acc1",

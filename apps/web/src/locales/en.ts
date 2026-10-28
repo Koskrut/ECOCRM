@@ -484,8 +484,8 @@ export const en = {
         desc: "HTTP provider for outbound calls, webhook secret, path and create-call response parsing",
       },
       telegram: {
-        title: "Telegram Inbox",
-        desc: "Bot token, webhook secret and public URL for Inbox",
+        title: "Telegram",
+        desc: "Bot, webhook, leads and storefront URL for the Mini App catalog",
       },
       inboxTemplates: {
         title: "Inbox reply templates",
@@ -497,7 +497,7 @@ export const en = {
       },
       store: {
         title: "Online store",
-        desc: "Theme, banners, contacts, CRM URL for store-side payment",
+        desc: "Theme, banners, CRM pay URL and public storefront URL for Mini App",
       },
     },
     metaMessagingPage: {
@@ -1599,6 +1599,7 @@ export const en = {
     reasonNameMatch: "name",
     reasonEdrpou: "EDRPOU",
     reasonAmountFit: "amount",
+    reasonPayerName: "payer name",
     invoiceLabel: (n: string) => `Invoice ${n}`,
     waybillLabel: (n: string) => `Waybill ${n}`,
     unmatchedIntro: (n: number) => `Unmatched incoming (client) operations: ${n}`,

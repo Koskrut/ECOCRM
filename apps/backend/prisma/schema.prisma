@@ -308,6 +308,7 @@ enum PaymentSourceType {
   CREDIT
   CREDIT_TRANSFER
   ONE_C
+  NP_COD
 }
 
 enum BalanceHolderKind {
@@ -3468,6 +3469,8 @@ model Payment {
   linkedOrderId     String?
   /// Idempotency key for 1C payment import: hash(date+docNumber+enterpriseCode+amountLv).
   oneCImportKey     String?           @unique
+  /// Nova Poshta TTN document number for NP_COD idempotency (one COD payment per TTN).
+  npTtnDocumentNumber String?         @unique
   createdAt         DateTime          @default(now())
   updatedAt         DateTime          @updatedAt
 

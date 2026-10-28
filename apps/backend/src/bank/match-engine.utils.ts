@@ -449,6 +449,7 @@ export function expectedPaymentAmountInCurrency(
   if (txCur === "UAH" && orderCur === "USD" && rate > 0) return debtAmount * rate;
   if (txCur === "UAH" && orderCur === "EUR" && rate > 0) return debtAmount * rate;
   if (txCur === "USD" && orderCur === "UAH" && rate > 0) return debtAmount / rate;
+  if (txCur === "EUR" && orderCur === "UAH" && rate > 0) return debtAmount / rate;
   return null;
 }
 

@@ -76,7 +76,7 @@ export const DEFAULT_ALLOWED_TRANSITIONS: Record<OrderStage, OrderStage[]> = {
   COMPLETED: ["RETURN_IN_PROGRESS"],
   CANCELED: ["NEW"],
   REFUSED: [],
-  RETURN_IN_PROGRESS: [],
+  RETURN_IN_PROGRESS: ["RECEIVED"],
   FULLY_RETURNED: [],
 };
 

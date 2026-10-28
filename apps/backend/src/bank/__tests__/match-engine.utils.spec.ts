@@ -229,6 +229,7 @@ describe("extractPersonNameFromDescription", () => {
   it("matches amount within 1% tolerance using exchange rate", () => {
     const expected = expectedPaymentAmountInCurrency(56, "USD", "UAH", 45);
     assert.strictEqual(expected, 2520);
+    assert.strictEqual(expectedPaymentAmountInCurrency(410, "UAH", "EUR", 41), 10);
     assert.strictEqual(amountsMatchWithinTolerance(2520, 2520), true);
     assert.strictEqual(amountsMatchWithinTolerance(2520, 2510), true);
     assert.strictEqual(amountsMatchWithinTolerance(2520, 2400), false);

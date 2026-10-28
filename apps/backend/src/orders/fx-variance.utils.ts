@@ -60,7 +60,9 @@ export function computeFxVarianceSnapshot(
     .filter(
       (p) =>
         p.status === PaymentStatus.COMPLETED &&
-        (p.sourceType === PaymentSourceType.BANK || p.sourceType === PaymentSourceType.CASH) &&
+        (p.sourceType === PaymentSourceType.BANK ||
+          p.sourceType === PaymentSourceType.CASH ||
+          p.sourceType === PaymentSourceType.NP_COD) &&
         (p.currency || "").trim().toUpperCase() === "UAH",
     )
     .reduce((s, p) => s + Number(p.amount), 0);
@@ -71,7 +73,9 @@ export function computeFxVarianceSnapshot(
   const hasCompletedPayment = payments.some(
     (p) =>
       p.status === PaymentStatus.COMPLETED &&
-      (p.sourceType === PaymentSourceType.BANK || p.sourceType === PaymentSourceType.CASH),
+      (p.sourceType === PaymentSourceType.BANK ||
+        p.sourceType === PaymentSourceType.CASH ||
+        p.sourceType === PaymentSourceType.NP_COD),
   );
 
   const isCandidate =

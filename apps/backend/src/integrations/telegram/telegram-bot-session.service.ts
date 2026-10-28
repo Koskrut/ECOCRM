@@ -8,6 +8,16 @@ export type BotSessionPayload = {
   catalogSearch?: string;
   /** SKU prefix of the open catalog system, e.g. "01". */
   catalogGroup?: string;
+  /** category_name open in the catalog tree. */
+  catalogCategory?: string;
+  /** subcategory_name open under catalogCategory. */
+  catalogSubcategory?: string;
+  /** catalogCategory is itself a subcategory with no parent category. */
+  catalogCategoryOnlySub?: boolean;
+  /** Categories of the open system, so a button index stays valid. */
+  catalogBranches?: Array<{ name: string; subcategoryOnly?: boolean; children: string[] }>;
+  /** Subcategories of the open category. */
+  catalogSubHits?: string[];
   productId?: string;
   ordersPage?: number;
   /** Checkout draft */

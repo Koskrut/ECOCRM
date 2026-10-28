@@ -635,41 +635,7 @@ export class MatchSuggestionService {
     matchAmount: number;
     txCurrency: string;
   }): ProposedAllocation[] {
-    const withPurpose = ctx.orders.filter((o) => ctx.explicitAmounts[o.orderNumber] != null);
-    if (withPurpose.length > 0) {
-      return withPurpose.map((o) => ({
-        orderId: o.id,
-        amount: ctx.explicitAmounts[o.orderNumber]!,
-        source: "purpose_amount" as const,
-      }));
-    }
-
-    const debts = ctx.orders
-      .map((o) => {
-        const debt = Number(o.debtAmount ?? 0);
-        const expected =
-          expectedPaymentAmountInCurrency(debt, o.currency, ctx.txCurrency, o.exchangeRate) ?? 0;
-        return { orderId: o.id, expected };
-      })
-      .filter((d) => d.expected > 0);
-
-    if (debts.length === 0) return [];
-
-    const sum = debts.reduce((s, d) => s + d.expected, 0);
-    if (amountsMatchAbsolute(sum, ctx.matchAmount, BANK_DEBT_ABS_TOLERANCE)) {
-      return debts.map((d) => ({
-        orderId: d.orderId,
-        amount: Math.round(d.expected * 100) / 100,
-        source: "debt" as const,
-      }));
-    }
-
-    // Proportional fallback for UI prefill only (not auto).
-    return debts.map((d) => ({
-      orderId: d.orderId,
-      amount: Math.round(((d.expected / sum) * ctx.matchAmount) * 100) / 100,
-      source: "proportional" as const,
-    }));
+    return proposeAllocations(ctx);
   }
 
   /**
@@ -701,15 +667,17 @@ export class MatchSuggestionService {
     if (withExplicit.length === ctx.resolvedFound.length) {
       const sum = withExplicit.reduce((s, o) => s + Number(o.explicitAmount), 0);
       if (!amountsMatchAbsolute(sum, ctx.matchAmount, BANK_ALLOCATION_EPSILON)) return null;
+      const allocations = this.fitAllocationsToAmount(
+        withExplicit.map((o) => ({
+          orderId: o.id,
+          amount: Number(o.explicitAmount),
+          source: "purpose_amount" as const,
+        })),
+        ctx.matchAmount,
+      );
+      if (!allocations) return null;
       return {
-        allocations: this.fitAllocationsToAmount(
-          withExplicit.map((o) => ({
-            orderId: o.id,
-            amount: Number(o.explicitAmount),
-            source: "purpose_amount" as const,
-          })),
-          ctx.matchAmount,
-        ),
+        allocations,
         reason: "multi_order_purpose_amounts",
       };
     }
@@ -726,15 +694,17 @@ export class MatchSuggestionService {
     if (ctx.matchAmount > debtSum + BANK_DEBT_ABS_TOLERANCE) return null; // overpay
     if (!amountsMatchAbsolute(debtSum, ctx.matchAmount, BANK_DEBT_ABS_TOLERANCE)) return null;
 
+    const allocations = this.fitAllocationsToAmount(
+      debtParts.map((d) => ({
+        orderId: d.orderId,
+        amount: Math.round(d.expected * 100) / 100,
+        source: "debt" as const,
+      })),
+      ctx.matchAmount,
+    );
+    if (!allocations) return null;
     return {
-      allocations: this.fitAllocationsToAmount(
-        debtParts.map((d) => ({
-          orderId: d.orderId,
-          amount: Math.round(d.expected * 100) / 100,
-          source: "debt" as const,
-        })),
-        ctx.matchAmount,
-      ),
+      allocations,
       reason: "multi_order_debt_sum",
     };
   }
@@ -743,16 +713,116 @@ export class MatchSuggestionService {
   private fitAllocationsToAmount(
     allocations: ProposedAllocation[],
     target: number,
-  ): ProposedAllocation[] {
-    if (allocations.length === 0) return allocations;
-    const out = allocations.map((a) => ({
-      ...a,
-      amount: Math.round(Number(a.amount) * 100) / 100,
-    }));
-    const sumExceptLast = out.slice(0, -1).reduce((s, a) => s + a.amount, 0);
-    const last = out[out.length - 1]!;
-    last.amount = Math.round((target - sumExceptLast) * 100) / 100;
-    if (last.amount <= 0) return allocations; // caller will reject
-    return out;
+  ): ProposedAllocation[] | null {
+    return fitProposedAllocations(allocations, target);
   }
+}
+
+function roundProposalMoney(n: number): number {
+  return Math.round(n * 100 + (n >= 0 ? 1e-8 : -1e-8)) / 100;
+}
+
+/**
+ * Prefill for the distribute modal. Every non-empty result sums to the payment
+ * (last row absorbs rounding and the 1-unit debt tolerance).
+ */
+export function proposeAllocations(ctx: {
+  orders: Array<{
+    id: string;
+    orderNumber: string;
+    debtAmount: number | null;
+    currency: string;
+    exchangeRate: number | null;
+  }>;
+  explicitAmounts: Record<string, number>;
+  matchAmount: number;
+  txCurrency: string;
+}): ProposedAllocation[] {
+  const target = roundProposalMoney(ctx.matchAmount);
+  if (!(target > 0) || ctx.orders.length === 0) return [];
+
+  const withPurpose = ctx.orders.filter((o) => {
+    const amount = ctx.explicitAmounts[o.orderNumber];
+    return amount != null && Number(amount) > 0;
+  });
+  if (withPurpose.length > 0 && withPurpose.length === ctx.orders.length) {
+    const raw: ProposedAllocation[] = withPurpose.map((o) => ({
+      orderId: o.id,
+      amount: Number(ctx.explicitAmounts[o.orderNumber]),
+      source: "purpose_amount",
+    }));
+    const sum = raw.reduce((s, a) => s + a.amount, 0);
+    if (amountsMatchAbsolute(sum, target, BANK_DEBT_ABS_TOLERANCE)) {
+      const fitted = fitProposedAllocations(raw, target);
+      if (fitted) return fitted;
+    }
+    const scaled = scaleProposedAllocations(raw, target, "proportional");
+    if (scaled) return scaled;
+  }
+
+  const debts = ctx.orders
+    .map((o) => {
+      const debt = Number(o.debtAmount ?? 0);
+      const expected =
+        expectedPaymentAmountInCurrency(debt, o.currency, ctx.txCurrency, o.exchangeRate) ?? 0;
+      return { orderId: o.id, expected };
+    })
+    .filter((d) => d.expected > 0);
+  if (debts.length === 0) return [];
+
+  const debtRows: ProposedAllocation[] = debts.map((d) => ({
+    orderId: d.orderId,
+    amount: d.expected,
+    source: "debt",
+  }));
+  const debtSum = debts.reduce((s, d) => s + d.expected, 0);
+  if (amountsMatchAbsolute(debtSum, target, BANK_DEBT_ABS_TOLERANCE)) {
+    const fitted = fitProposedAllocations(debtRows, target);
+    if (fitted) return fitted;
+  }
+  return scaleProposedAllocations(debtRows, target, "proportional") ?? [];
+}
+
+function scaleProposedAllocations(
+  allocations: ProposedAllocation[],
+  target: number,
+  source: ProposedAllocation["source"],
+): ProposedAllocation[] | null {
+  const positive = allocations.filter((a) => Number(a.amount) > 0);
+  const sum = positive.reduce((s, a) => s + Number(a.amount), 0);
+  if (!(sum > 0)) return null;
+  return fitProposedAllocations(
+    positive.map((a) => ({
+      ...a,
+      amount: (Number(a.amount) / sum) * target,
+      source,
+    })),
+    target,
+  );
+}
+
+/** Last row absorbs cent drift so the rows sum to `target`. Null when that row would be ≤ 0. */
+export function fitProposedAllocations(
+  allocations: ProposedAllocation[],
+  target: number,
+): ProposedAllocation[] | null {
+  const positive = allocations.filter((a) => Number(a.amount) > 0.000001);
+  if (positive.length === 0) return null;
+  const goal = roundProposalMoney(target);
+  if (!(goal > 0)) return null;
+  const rounded = positive.map((a) => ({
+    ...a,
+    amount: roundProposalMoney(Number(a.amount)),
+  }));
+  const rows = rounded.filter((a) => a.amount > 0);
+  if (rows.length === 0) return null;
+  const sumExceptLast = roundProposalMoney(
+    rows.slice(0, -1).reduce((s, a) => s + a.amount, 0),
+  );
+  const last = rows[rows.length - 1]!;
+  last.amount = roundProposalMoney(goal - sumExceptLast);
+  if (!(last.amount > 0)) return null;
+  const sum = roundProposalMoney(rows.reduce((s, a) => s + a.amount, 0));
+  if (Math.abs(sum - goal) > 0.001) return null;
+  return rows;
 }

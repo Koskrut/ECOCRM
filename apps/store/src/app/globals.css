@@ -118,3 +118,18 @@ body {
     transform: translate3d(0, -50%, 0);
   }
 }
+
+/* Telegram Mini App: keep catalog/cart/checkout, hide marketing chrome. */
+html[data-tg-miniapp="1"] body {
+  background: var(--tg-bg, var(--surface));
+}
+
+html[data-tg-miniapp="1"] footer,
+html[data-tg-miniapp="1"] [data-consent-banner],
+html[data-tg-miniapp="1"] [data-site-nav] {
+  display: none !important;
+}
+
+html[data-tg-miniapp="1"] header .tg-hide-on-miniapp {
+  display: none !important;
+}
