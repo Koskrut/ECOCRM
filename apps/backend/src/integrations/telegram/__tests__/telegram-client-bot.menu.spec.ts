@@ -92,7 +92,18 @@ function makeBot(opts: {
       findFirst: async () => null,
     },
     lead: { findUnique: async () => opts.lead ?? null },
-    contact: { findUnique: async () => opts.contact ?? null },
+    contact: {
+      findUnique: async () =>
+        opts.contact === undefined
+          ? {
+              firstName: "Тест",
+              lastName: "Клієнт",
+              region: "Київська",
+              clientType: "Врач",
+              phone: "+380671112233",
+            }
+          : opts.contact,
+    },
     telegramAccount: {
       findUnique: async () => opts.account ?? null,
       updateMany: async () => ({ count: 0 }),
@@ -251,7 +262,7 @@ describe("TelegramClientBotService menu / idle", () => {
     const result = await service.handleClientTurn({
       parsed: parsed({ text: "Викрутки SUPREX" }),
       conversationId: "conv1",
-      contactId: null,
+      contactId: "c1",
       leadId: null,
     });
     assert.equal(result.handled, true);
@@ -275,7 +286,7 @@ describe("TelegramClientBotService menu / idle", () => {
     const result = await service.handleClientTurn({
       parsed: parsed({ text: "cat:k:0", isCallback: true }),
       conversationId: "conv1",
-      contactId: null,
+      contactId: "c1",
       leadId: null,
     });
     assert.equal(result.handled, true);
@@ -309,7 +320,7 @@ describe("TelegramClientBotService menu / idle", () => {
     const result = await service.handleClientTurn({
       parsed: parsed({ text: "cat:n:0", isCallback: true }),
       conversationId: "conv1",
-      contactId: null,
+      contactId: "c1",
       leadId: null,
     });
     assert.equal(result.handled, true);
@@ -342,7 +353,7 @@ describe("TelegramClientBotService menu / idle", () => {
     const result = await service.handleClientTurn({
       parsed: parsed({ text: "Викрутки SUPREX" }),
       conversationId: "conv1",
-      contactId: null,
+      contactId: "c1",
       leadId: null,
     });
     assert.equal(result.handled, true);
@@ -532,6 +543,201 @@ describe("TelegramClientBotService menu / idle", () => {
     assert.ok(sent.some((s) => /Раді бачити/i.test(s.text)));
   });
 
+  it("phone share skips onboarding when lead already has a CRM contact", async () => {
+    const { service, sent, sessions, accountUpdates } = makeBot({
+      lead: { contactId: "c-from-lead", companyId: "co-1" },
+    });
+    const result = await service.handleClientTurn({
+      parsed: parsed({ phone: "+380501234567", text: null }),
+      conversationId: "conv1",
+      contactId: null,
+      leadId: "lead-1",
+    });
+    assert.equal(result.handled, true);
+    assert.equal(sessions.state, "idle");
+    assert.ok(sent.some((s) => /Раді бачити/i.test(s.text)));
+    assert.ok(accountUpdates.some((u) => u?.data?.contactId === "c-from-lead"));
+  });
+
+  it("/menu during onboarding re-prompts and keeps collected name", async () => {
+    const { service, sent, sessions } = makeBot({
+      sessionState: "onboarding_role",
+      sessionPayload: {
+        onboardingFirstName: "Олена",
+        onboardingLastName: "Коваленко",
+      },
+    });
+    await service.handleClientTurn({
+      parsed: parsed({ text: "/menu" }),
+      conversationId: "conv1",
+      contactId: null,
+      leadId: "lead-1",
+    });
+    assert.equal(sessions.state, "onboarding_role");
+    assert.equal(sessions.payload.onboardingFirstName, "Олена");
+    assert.ok(sent.some((s) => /лікар чи технік/i.test(s.text)));
+  });
+
+  it("/start mid-onboarding resumes the current step without wiping payload", async () => {
+    const { service, sent, sessions } = makeBot({
+      account: { phone: "+380501112233", contactId: null, leadId: "lead-1" },
+      sessionState: "onboarding_region",
+      sessionPayload: {
+        onboardingFirstName: "Олена",
+        onboardingLastName: "Коваленко",
+        onboardingClientType: "Врач",
+      },
+    });
+    await service.handleClientTurn({
+      parsed: parsed({ text: "/start" }),
+      conversationId: "conv1",
+      contactId: null,
+      leadId: "lead-1",
+    });
+    assert.equal(sessions.state, "onboarding_region");
+    assert.equal(sessions.payload.onboardingClientType, "Врач");
+    assert.ok(sent.some((s) => /Оберіть область/i.test(s.text)));
+  });
+
+  it("stale onboarding callback does not wipe an active checkout session", async () => {
+    const { service, sessions } = makeBot({
+      sessionState: "checkout_city",
+      sessionPayload: { region: "Київська", deliveryMethod: "NOVA_POSHTA" },
+    });
+    await service.handleClientTurn({
+      parsed: parsed({ text: "onb:role:doctor", isCallback: true }),
+      conversationId: "conv1",
+      contactId: "c1",
+      leadId: null,
+      callbackQueryId: "stale-onb",
+    });
+    assert.equal(sessions.state, "checkout_city");
+    assert.equal(sessions.payload.region, "Київська");
+  });
+
+  it("region callback without role keeps the name and re-asks role", async () => {
+    const { service, sent, sessions } = makeBot({
+      sessionState: "onboarding_role",
+      sessionPayload: {
+        onboardingFirstName: "Олена",
+        onboardingLastName: "Коваленко",
+      },
+    });
+    await service.handleClientTurn({
+      parsed: parsed({ text: "onb:reg:9", isCallback: true }),
+      conversationId: "conv1",
+      contactId: null,
+      leadId: "lead-1",
+      callbackQueryId: "reg-early",
+    });
+    assert.equal(sessions.state, "onboarding_role");
+    assert.equal(sessions.payload.onboardingFirstName, "Олена");
+    assert.equal(sessions.payload.onboardingClientType, undefined);
+    assert.ok(sent.some((s) => /лікар чи технік/i.test(s.text)));
+  });
+
+  it("catalog menu during name step does not become a fake first/last name", async () => {
+    const { service, sent, sessions } = makeBot({
+      sessionState: "onboarding_name",
+      sessionPayload: {},
+    });
+    await service.handleClientTurn({
+      parsed: parsed({ text: MENU_CATALOG }),
+      conversationId: "conv1",
+      contactId: null,
+      leadId: "lead-1",
+    });
+    assert.equal(sessions.state, "onboarding_name");
+    assert.equal(sessions.payload.onboardingFirstName, undefined);
+    assert.ok(sent.some((s) => /ім'я та прізвище/i.test(s.text)));
+  });
+
+  it("blocks catalog until CRM profile exists (asks for phone)", async () => {
+    const { service, sent, sessions } = makeBot({});
+    await service.handleClientTurn({
+      parsed: parsed({ text: MENU_CATALOG }),
+      conversationId: "conv1",
+      contactId: null,
+      leadId: null,
+    });
+    assert.equal(sessions.state, "idle");
+    assert.equal(sent.some((s) => s.contact), true);
+    assert.ok(sent.some((s) => /поділіться номером/i.test(s.text)));
+  });
+
+  it("blocks catalog when phone exists but onboarding is incomplete", async () => {
+    const { service, sent, sessions } = makeBot({
+      account: { phone: "+380501112233", contactId: null, leadId: null },
+    });
+    await service.handleClientTurn({
+      parsed: parsed({ text: MENU_CATALOG }),
+      conversationId: "conv1",
+      contactId: null,
+      leadId: null,
+    });
+    assert.equal(sessions.state, "onboarding_name");
+    assert.ok(sent.some((s) => /профіль/i.test(s.text)));
+    assert.ok(sent.some((s) => /ім'я та прізвище/i.test(s.text)));
+  });
+
+  it("/cancel during onboarding pauses with a resume hint", async () => {
+    const { service, sent, sessions } = makeBot({
+      sessionState: "onboarding_role",
+      sessionPayload: {
+        onboardingFirstName: "Олена",
+        onboardingLastName: "Коваленко",
+      },
+    });
+    await service.handleClientTurn({
+      parsed: parsed({ text: "/cancel" }),
+      conversationId: "conv1",
+      contactId: null,
+      leadId: "lead-1",
+    });
+    assert.equal(sessions.state, "idle");
+    assert.ok(sent.some((s) => /Профіль ще не завершено/i.test(s.text)));
+  });
+
+  it("preserves checkout draft while starting onboarding after checkout phone", async () => {
+    const { service, sessions } = makeBot({
+      sessionState: "checkout_phone",
+      sessionPayload: {
+        deliveryMethod: "PICKUP",
+        paymentType: "PREPAYMENT",
+        cod: false,
+      },
+    });
+    await service.handleClientTurn({
+      parsed: parsed({ phone: "+380501112233", text: null }),
+      conversationId: "conv1",
+      contactId: null,
+      leadId: null,
+    });
+    assert.equal(sessions.state, "onboarding_name");
+    assert.equal(sessions.payload.deliveryMethod, "PICKUP");
+    assert.equal(sessions.payload.paymentType, "PREPAYMENT");
+  });
+
+  it("asks missing role for an existing contact without clientType", async () => {
+    const { service, sent, sessions } = makeBot({
+      contact: {
+        firstName: "Олена",
+        lastName: "Коваленко",
+        region: "Київська",
+        clientType: null,
+      },
+    });
+    await service.handleClientTurn({
+      parsed: parsed({ text: "/start" }),
+      conversationId: "conv1",
+      contactId: "c1",
+      leadId: null,
+    });
+    assert.equal(sessions.state, "onboarding_role");
+    assert.equal(sessions.payload.onboardingContactId, "c1");
+    assert.ok(sent.some((s) => /лікар чи технік/i.test(s.text)));
+  });
+
   it("greets a linked client without asking for a phone", async () => {
     const { service, sent } = makeBot({});
     const result = await service.handleClientTurn({
@@ -641,7 +847,13 @@ describe("TelegramClientBotService menu / idle", () => {
     const { service, sent } = makeBot({
       cartItems: [{ id: "1" }],
       account: { phone: null, contactId: "c1", leadId: null },
-      contact: { phone: "+380671112233" },
+      contact: {
+        phone: "+380671112233",
+        firstName: "Оля",
+        lastName: "Тест",
+        region: "Київська",
+        clientType: "Врач",
+      },
     });
     const result = await service.handleClientTurn({
       parsed: parsed({ text: "cart:chk", isCallback: true }),

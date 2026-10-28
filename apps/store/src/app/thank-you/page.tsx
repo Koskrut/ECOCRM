@@ -7,10 +7,12 @@ import { Button } from "@/components/Button";
 import { createCheckoutPaymentLink } from "@/lib/api";
 import { buildPublicPayUrl, getCrmPayPageOrigin } from "@/lib/crm-pay-url";
 import { useStoreConfig } from "@/context/StoreConfigContext";
+import { useTelegramWebApp } from "@/context/TelegramWebAppContext";
 import { PUBLIC_SITE_URL } from "@/lib/public-site-url";
 
 function ThankYouContent() {
   const { config, loading: storeConfigLoading } = useStoreConfig();
+  const telegram = useTelegramWebApp();
   const searchParams = useSearchParams();
   const orderNumber = searchParams.get("orderNumber") ?? "";
   const setPasswordToken = searchParams.get("setPasswordToken");
@@ -140,10 +142,17 @@ function ThankYouContent() {
             <Link href="/" className="text-[var(--primary)] hover:underline">
               Повернутися в каталог
             </Link>
-            <Link href="/login" className="text-[var(--primary)] hover:underline">
-              Вхід в кабінет
-            </Link>
+            {!telegram.isTelegram ? (
+              <Link href="/login" className="text-[var(--primary)] hover:underline">
+                Вхід в кабінет
+              </Link>
+            ) : null}
           </div>
+          {telegram.isTelegram ? (
+            <Button type="button" className="mt-2 w-full" onClick={() => telegram.close()}>
+              Закрити і повернутись у чат
+            </Button>
+          ) : null}
         </div>
       </div>
     </div>

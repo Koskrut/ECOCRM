@@ -60,6 +60,7 @@ export class StoreTelegramWebAppService {
         telegramChatId: true,
         phone: true,
         contactId: true,
+        leadId: true,
         firstName: true,
         lastName: true,
       },
@@ -69,6 +70,19 @@ export class StoreTelegramWebAppService {
     let contactId = account?.contactId ?? null;
     let firstName = account?.firstName ?? parsed.user.first_name ?? null;
     let lastName = account?.lastName ?? parsed.user.last_name ?? null;
+
+    if (!contactId && account?.leadId) {
+      const lead = await this.prisma.lead.findUnique({
+        where: { id: account.leadId },
+        select: { contactId: true, phone: true, firstName: true, lastName: true },
+      });
+      if (lead?.contactId) {
+        contactId = lead.contactId;
+        phone = phone ?? lead.phone ?? null;
+        firstName = firstName || lead.firstName || null;
+        lastName = lastName || lead.lastName || null;
+      }
+    }
 
     if (!contactId && phone) {
       const digits = getPhoneNormalizedDigits(phone);
@@ -80,12 +94,13 @@ export class StoreTelegramWebAppService {
           break;
         }
       }
-      if (contactId) {
-        await this.prisma.telegramAccount.updateMany({
-          where: { telegramUserId },
-          data: { contactId, leadId: null },
-        });
-      }
+    }
+
+    if (contactId && contactId !== account?.contactId) {
+      await this.prisma.telegramAccount.updateMany({
+        where: { telegramUserId },
+        data: { contactId, leadId: null },
+      });
     }
 
     if (contactId && !phone) {

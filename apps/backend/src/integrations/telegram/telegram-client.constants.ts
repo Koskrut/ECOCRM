@@ -50,17 +50,15 @@ export function buildClientMenuKeyboard(
 }
 
 export const TELEGRAM_WELCOME =
-  "Вітаємо! Це бот магазину: каталог, кошик, оформлення та статус замовлень.\n\nЩоб почати — поділіться номером телефону або оберіть дію в меню.";
+  "Вітаємо! Це бот магазину SUPREX.\n\nЩоб відкрити каталог, кошик і кабінет — спочатку поділіться номером телефону кнопкою нижче.";
 export const TELEGRAM_HELP =
   "Команди: /menu /catalog /cart /orders /cancel\n\nВільне повідомлення в головному меню потрапляє менеджеру. Під час оформлення текст використовується для кроків (місто, адреса тощо).";
 export const TELEGRAM_REQUEST_PHONE =
   "Щоб ідентифікувати вас у CRM і показувати замовлення, поділіться номером телефону кнопкою нижче.";
 export const TELEGRAM_EXISTING_CLIENT =
   "Раді бачити вас знову! Оберіть дію в меню або напишіть менеджеру.";
-export const TELEGRAM_PHONE_SAVED_NEW =
-  "Дякуємо! Номер збережено. Оберіть дію в меню нижче.\n\nОбласть доставки запитаємо під час оформлення замовлення.";
-export const TELEGRAM_PHONE_SAVED_NO_CRM =
-  "Дякуємо! Номер збережено. Можете обрати каталог у меню або написати менеджеру.\n\nОбласть доставки запитаємо під час оформлення.";
+export const TELEGRAM_PROFILE_REQUIRED =
+  "Спочатку завершіть короткий профіль — тоді відкриються каталог, кошик і замовлення.";
 export const TELEGRAM_ONBOARDING_INTRO =
   "Дякуємо! Номер збережено.\n\nЩоб закріпити менеджера й відкрити кабінет — коротко познайомимось.";
 export const TELEGRAM_ONBOARDING_ASK_NAME = "Напишіть ваше ім'я та прізвище одним повідомленням:";
@@ -69,6 +67,10 @@ export const TELEGRAM_ONBOARDING_ASK_REGION =
   "Оберіть область — за нею закріпимо менеджера:";
 export const TELEGRAM_ONBOARDING_DONE =
   "Готово! Профіль збережено в CRM. Можна відкривати каталог або писати менеджеру.";
+export const TELEGRAM_ONBOARDING_DONE_NO_MANAGER =
+  "Готово! Профіль збережено в CRM.\n\nДля вашої області менеджер ще не закріплений у системі — напишіть нам у чат, і ми допоможемо вручну.";
+export const TELEGRAM_ONBOARDING_PAUSED =
+  "Профіль ще не завершено. Натисніть /start, щоб продовжити — без цього каталог і оформлення недоступні.";
 export const TELEGRAM_CLIENT_TYPE_DOCTOR = "Врач";
 export const TELEGRAM_CLIENT_TYPE_TECH = "Техник";
 export const TELEGRAM_MANAGER_PROMPT =

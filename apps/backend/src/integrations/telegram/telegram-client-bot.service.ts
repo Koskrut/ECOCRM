@@ -47,7 +47,11 @@ import {
   TELEGRAM_ONBOARDING_ASK_REGION,
   TELEGRAM_ONBOARDING_ASK_ROLE,
   TELEGRAM_ONBOARDING_DONE,
+  TELEGRAM_ONBOARDING_DONE_NO_MANAGER,
   TELEGRAM_ONBOARDING_INTRO,
+  TELEGRAM_ONBOARDING_PAUSED,
+  TELEGRAM_PROFILE_REQUIRED,
+  TELEGRAM_REQUEST_PHONE,
   TELEGRAM_WELCOME,
   WAREHOUSE_RESULTS_LIMIT,
   cartSessionId,
@@ -124,8 +128,13 @@ function usablePhone(phone: string | null | undefined): string | null {
 }
 
 function parsePersonName(text: string): { firstName: string; lastName: string } | null {
-  const parts = text.trim().split(/\s+/).filter(Boolean);
+  const parts = text
+    .trim()
+    .split(/\s+/)
+    .map((part) => part.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, ""))
+    .filter(Boolean);
   if (parts.length < 2) return null;
+  if (parts.some((part) => part.length < 2)) return null;
   return { firstName: parts[0]!, lastName: parts.slice(1).join(" ") };
 }
 
@@ -134,6 +143,43 @@ function isOnboardingState(state: string): state is Extract<
   "onboarding_name" | "onboarding_role" | "onboarding_region"
 > {
   return state === "onboarding_name" || state === "onboarding_role" || state === "onboarding_region";
+}
+
+/** Keep checkout draft fields while collecting CRM profile. */
+function pickCheckoutDraft(payload: BotSessionPayload): BotSessionPayload {
+  const draft: BotSessionPayload = {};
+  if (payload.region) draft.region = payload.region;
+  if (payload.deliveryMethod) draft.deliveryMethod = payload.deliveryMethod;
+  if (payload.paymentMethod) draft.paymentMethod = payload.paymentMethod;
+  if (payload.paymentType) draft.paymentType = payload.paymentType;
+  if (payload.profileId) draft.profileId = payload.profileId;
+  if (payload.deliveryType) draft.deliveryType = payload.deliveryType;
+  if (payload.cityRef) draft.cityRef = payload.cityRef;
+  if (payload.cityName) draft.cityName = payload.cityName;
+  if (payload.warehouseRef) draft.warehouseRef = payload.warehouseRef;
+  if (payload.warehouseName) draft.warehouseName = payload.warehouseName;
+  if (payload.streetRef) draft.streetRef = payload.streetRef;
+  if (payload.streetName) draft.streetName = payload.streetName;
+  if (payload.building) draft.building = payload.building;
+  if (payload.flat) draft.flat = payload.flat;
+  if (payload.comment) draft.comment = payload.comment;
+  if (payload.cod != null) draft.cod = payload.cod;
+  return draft;
+}
+
+function withOnboardingFields(
+  draft: BotSessionPayload,
+  fields: Partial<
+    Pick<
+      BotSessionPayload,
+      | "onboardingFirstName"
+      | "onboardingLastName"
+      | "onboardingClientType"
+      | "onboardingContactId"
+    >
+  >,
+): BotSessionPayload {
+  return { ...pickCheckoutDraft(draft), ...fields };
 }
 
 function clientSafeCheckoutError(err: unknown): string {
@@ -200,10 +246,34 @@ export class TelegramClientBotService {
       }
     }
 
-    // Global cancel / menu
-    if (lower === "/cancel" || lower === "/menu") {
+    const earlySession = await this.sessions.get(parsed.userId);
+    const inOnboarding = isOnboardingState(earlySession.state);
+
+    // Explicit cancel always exits any wizard (including onboarding).
+    if (lower === "/cancel") {
+      const wasOnboarding = inOnboarding;
       await this.sessions.resetIdle(parsed.userId);
-      await this.replyMenu(parsed.chatId, conversationId, lower === "/cancel" ? TELEGRAM_CANCELLED : "Головне меню:");
+      await this.replyMenu(
+        parsed.chatId,
+        conversationId,
+        wasOnboarding ? TELEGRAM_ONBOARDING_PAUSED : TELEGRAM_CANCELLED,
+      );
+      return { handled: true, notifyManager: false };
+    }
+
+    // /menu during onboarding must not wipe name/role/region progress.
+    if (lower === "/menu") {
+      if (inOnboarding) {
+        await this.repromptOnboarding(
+          parsed,
+          conversationId,
+          earlySession.state,
+          earlySession.payload,
+        );
+        return { handled: true, notifyManager: false };
+      }
+      await this.sessions.resetIdle(parsed.userId);
+      await this.replyMenu(parsed.chatId, conversationId, "Головне меню:");
       return { handled: true, notifyManager: false };
     }
     if (lower === "/help") {
@@ -222,21 +292,26 @@ export class TelegramClientBotService {
     // Contact share — acknowledge and show the menu. A checkout waiting for a phone resumes.
     if (parsed.phone) {
       const session = await this.sessions.get(parsed.userId);
+      const resolvedContactId = await this.resolveContactId(contactId, leadId);
       if (session.state === "checkout_phone") {
-        if (session.payload.region) {
+        if (session.payload.region && resolvedContactId) {
           await this.replyMenu(parsed.chatId, conversationId, "Номер збережено. Оформлюємо замовлення.");
-          await this.finishCheckout(parsed, conversationId, contactId, session.payload);
-        } else {
+          await this.finishCheckout(parsed, conversationId, resolvedContactId, session.payload);
+        } else if (resolvedContactId) {
           await this.sessions.resetIdle(parsed.userId);
           await this.replyMenu(
             parsed.chatId,
             conversationId,
             "Номер збережено. Можна продовжити оформлення з кошика.",
           );
+        } else {
+          // Keep checkout draft; collect CRM profile before finishing the order.
+          await this.startOnboarding(parsed, conversationId, session.payload);
         }
         return { handled: true, notifyManager: false };
       }
-      if (contactId) {
+      if (resolvedContactId) {
+        await this.linkTelegramToContact(parsed.userId, parsed.chatId, resolvedContactId);
         await this.sessions.resetIdle(parsed.userId);
         await this.replyMenu(parsed.chatId, conversationId, TELEGRAM_EXISTING_CLIENT);
         return { handled: true, notifyManager: false };
@@ -247,40 +322,63 @@ export class TelegramClientBotService {
     }
 
     // Incomplete CRM profile: keep the user in the onboarding wizard.
-    const onboardingSession = await this.sessions.get(parsed.userId);
-    if (isOnboardingState(onboardingSession.state)) {
+    if (inOnboarding) {
       if (parsed.isCallback && text.startsWith("onb:")) {
         await this.handleCallback(parsed, conversationId, contactId, leadId, text);
         return { handled: true, notifyManager: false };
       }
-      if (text && !parsed.isCallback) {
-        await this.handleWizardText(
+      const isMenuShortcut =
+        text === MENU_CATALOG ||
+        text === MENU_CART ||
+        text === MENU_ORDERS ||
+        text === MENU_MANAGER ||
+        text === CATALOG_SEARCH_BUTTON ||
+        lower === "/catalog" ||
+        lower === "/cart" ||
+        lower === "/orders";
+      // Reply-keyboard taps must not be stored as a person name.
+      if (isMenuShortcut || parsed.isCallback || !text) {
+        await this.repromptOnboarding(
           parsed,
           conversationId,
-          contactId,
-          leadId,
-          onboardingSession.state,
-          onboardingSession.payload,
-          text,
+          earlySession.state,
+          earlySession.payload,
         );
         return { handled: true, notifyManager: false };
       }
-      await this.repromptOnboarding(parsed, conversationId, onboardingSession.state, onboardingSession.payload);
+      await this.handleWizardText(
+        parsed,
+        conversationId,
+        contactId,
+        leadId,
+        earlySession.state,
+        earlySession.payload,
+        text,
+      );
       return { handled: true, notifyManager: false };
     }
 
-    // Reply-keyboard menu
+    // Reply-keyboard menu — commerce requires a CRM contact (profile gate).
     if (text === MENU_CATALOG || lower === "/catalog") {
+      if (!(await this.ensureCrmProfile(parsed, conversationId, contactId, leadId))) {
+        return { handled: true, notifyManager: false };
+      }
       await this.sessions.resetIdle(parsed.userId);
       await this.showCatalogHome(parsed, conversationId);
       return { handled: true, notifyManager: false };
     }
     if (text === MENU_CART || lower === "/cart") {
+      if (!(await this.ensureCrmProfile(parsed, conversationId, contactId, leadId))) {
+        return { handled: true, notifyManager: false };
+      }
       await this.sessions.resetIdle(parsed.userId);
       await this.showCart(parsed, conversationId);
       return { handled: true, notifyManager: false };
     }
     if (text === MENU_ORDERS || lower === "/orders") {
+      if (!(await this.ensureCrmProfile(parsed, conversationId, contactId, leadId))) {
+        return { handled: true, notifyManager: false };
+      }
       await this.sessions.resetIdle(parsed.userId);
       await this.showOrders(parsed, conversationId, contactId, leadId, 1);
       return { handled: true, notifyManager: false };
@@ -293,6 +391,9 @@ export class TelegramClientBotService {
     const catalogSession = await this.sessions.get(parsed.userId);
     if (catalogSession.state === "idle") {
       if (text === CATALOG_SEARCH_BUTTON) {
+        if (!(await this.ensureCrmProfile(parsed, conversationId, contactId, leadId))) {
+          return { handled: true, notifyManager: false };
+        }
         await this.sessions.set(parsed.userId, "catalog_search", {});
         await this.replyMenu(
           parsed.chatId,
@@ -303,6 +404,9 @@ export class TelegramClientBotService {
       }
       const system = CATALOG_SYSTEMS.find((item) => item.name === text);
       if (system) {
+        if (!(await this.ensureCrmProfile(parsed, conversationId, contactId, leadId))) {
+          return { handled: true, notifyManager: false };
+        }
         await this.showCatalogGroup(parsed, conversationId, system.id);
         return { handled: true, notifyManager: false };
       }
@@ -310,6 +414,10 @@ export class TelegramClientBotService {
 
     // Callbacks
     if (parsed.isCallback && text) {
+      const commerceNs = text.startsWith("cat:") || text.startsWith("cart:") || text.startsWith("ord:") || text.startsWith("chk:");
+      if (commerceNs && !(await this.ensureCrmProfile(parsed, conversationId, contactId, leadId))) {
+        return { handled: true, notifyManager: false };
+      }
       await this.handleCallback(parsed, conversationId, contactId, leadId, text);
       return { handled: true, notifyManager: false };
     }
@@ -471,10 +579,15 @@ export class TelegramClientBotService {
         );
         return;
       }
-      await this.sessions.set(parsed.userId, "onboarding_role", {
-        onboardingFirstName: name.firstName,
-        onboardingLastName: name.lastName,
-      });
+      await this.sessions.set(
+        parsed.userId,
+        "onboarding_role",
+        withOnboardingFields(payload, {
+          onboardingFirstName: name.firstName,
+          onboardingLastName: name.lastName,
+          onboardingContactId: payload.onboardingContactId,
+        }),
+      );
       await this.askOnboardingRole(parsed, conversationId);
       return;
     }
@@ -1160,17 +1273,33 @@ export class TelegramClientBotService {
     contactId: string | null,
     leadId: string | null,
   ): Promise<void> {
-    await this.sessions.resetIdle(parsed.userId);
-    if (contactId) {
+    const session = await this.sessions.get(parsed.userId);
+    const resolvedContactId = await this.resolveContactId(contactId, leadId);
+
+    // Resume mid-onboarding without wiping collected name/role.
+    if (isOnboardingState(session.state)) {
+      await this.repromptOnboarding(parsed, conversationId, session.state, session.payload);
+      return;
+    }
+
+    if (resolvedContactId) {
+      await this.linkTelegramToContact(parsed.userId, parsed.chatId, resolvedContactId);
+      if (await this.startContactGapFillIfNeeded(parsed, conversationId, resolvedContactId)) {
+        return;
+      }
+      await this.sessions.resetIdle(parsed.userId);
       await this.replyMenu(parsed.chatId, conversationId, TELEGRAM_EXISTING_CLIENT);
       return;
     }
+
     const phone = await this.resolveKnownPhone(parsed.userId, contactId, leadId);
     if (phone) {
       // Phone known but no CRM contact yet — finish profile (name / role / region).
       await this.startOnboarding(parsed, conversationId);
       return;
     }
+
+    await this.sessions.resetIdle(parsed.userId);
     await this.telegram.sendMessageToChat(parsed.chatId, TELEGRAM_WELCOME, {
       requestContactButton: true,
     });
@@ -1178,8 +1307,115 @@ export class TelegramClientBotService {
 
   // ─── New-client onboarding ───────────────────────────────────────────────
 
-  private async startOnboarding(parsed: ParsedInbound, conversationId: string): Promise<void> {
-    await this.sessions.set(parsed.userId, "onboarding_name", {});
+  /**
+   * Catalog / cart / orders / checkout require a CRM contact.
+   * Returns the contact id when ready; otherwise starts phone/onboarding and returns null.
+   */
+  private async ensureCrmProfile(
+    parsed: ParsedInbound,
+    conversationId: string,
+    contactId: string | null,
+    leadId: string | null,
+  ): Promise<string | null> {
+    const resolved = await this.resolveContactId(contactId, leadId);
+    if (resolved) {
+      await this.linkTelegramToContact(parsed.userId, parsed.chatId, resolved);
+      if (await this.startContactGapFillIfNeeded(parsed, conversationId, resolved)) {
+        return null;
+      }
+      return resolved;
+    }
+
+    const session = await this.sessions.get(parsed.userId);
+    if (isOnboardingState(session.state)) {
+      await this.replyMenu(parsed.chatId, conversationId, TELEGRAM_PROFILE_REQUIRED);
+      await this.repromptOnboarding(parsed, conversationId, session.state, session.payload);
+      return null;
+    }
+
+    const phone = await this.resolveKnownPhone(parsed.userId, contactId, leadId);
+    if (phone) {
+      await this.replyMenu(parsed.chatId, conversationId, TELEGRAM_PROFILE_REQUIRED);
+      await this.startOnboarding(parsed, conversationId, session.payload);
+      return null;
+    }
+
+    await this.telegram.sendMessageToChat(parsed.chatId, TELEGRAM_REQUEST_PHONE, {
+      requestContactButton: true,
+    });
+    return null;
+  }
+
+  private async startContactGapFillIfNeeded(
+    parsed: ParsedInbound,
+    conversationId: string,
+    contactId: string,
+  ): Promise<boolean> {
+    const contact = await this.prisma.contact.findUnique({
+      where: { id: contactId },
+      select: {
+        firstName: true,
+        lastName: true,
+        region: true,
+        clientType: true,
+      },
+    });
+    if (!contact) return false;
+    const missingRole = !String(contact.clientType ?? "").trim();
+    const missingRegion = !String(contact.region ?? "").trim();
+    if (!missingRole && !missingRegion) return false;
+
+    const firstName = String(contact.firstName ?? "").trim() || parsed.firstName || "Клієнт";
+    const lastName = String(contact.lastName ?? "").trim() || parsed.lastName || "Telegram";
+    const draft = withOnboardingFields({}, {
+      onboardingContactId: contactId,
+      onboardingFirstName: firstName,
+      onboardingLastName: lastName,
+      ...(missingRole ? {} : { onboardingClientType: String(contact.clientType).trim() }),
+    });
+
+    if (missingRole) {
+      await this.sessions.set(parsed.userId, "onboarding_role", draft);
+      await this.replyMenu(
+        parsed.chatId,
+        conversationId,
+        "У профілі не вистачає даних. Оберіть, ви лікар чи технік:",
+      );
+      await this.askOnboardingRole(parsed, conversationId);
+      return true;
+    }
+
+    await this.sessions.set(parsed.userId, "onboarding_region", draft);
+    await this.replyMenu(
+      parsed.chatId,
+      conversationId,
+      "У профілі немає області — оберіть її, щоб закріпити менеджера:",
+    );
+    await this.askOnboardingRegion(parsed, conversationId);
+    return true;
+  }
+
+  private async linkTelegramToContact(
+    telegramUserId: string,
+    telegramChatId: string,
+    contactId: string,
+  ): Promise<void> {
+    await this.prisma.telegramAccount.updateMany({
+      where: { telegramUserId },
+      data: { contactId, leadId: null },
+    });
+    await this.prisma.conversation.updateMany({
+      where: { telegramChatId },
+      data: { contactId, leadId: null },
+    });
+  }
+
+  private async startOnboarding(
+    parsed: ParsedInbound,
+    conversationId: string,
+    preservePayload: BotSessionPayload = {},
+  ): Promise<void> {
+    await this.sessions.set(parsed.userId, "onboarding_name", pickCheckoutDraft(preservePayload));
     await this.replyMenu(
       parsed.chatId,
       conversationId,
@@ -1237,7 +1473,8 @@ export class TelegramClientBotService {
     rest: string[],
   ): Promise<void> {
     const session = await this.sessions.get(parsed.userId);
-    if (!isOnboardingState(session.state) && action !== "role" && action !== "reg") {
+    // Stale inline buttons must not hijack checkout / catalog sessions.
+    if (!isOnboardingState(session.state)) {
       return;
     }
 
@@ -1255,15 +1492,26 @@ export class TelegramClientBotService {
       const firstName = session.payload.onboardingFirstName;
       const lastName = session.payload.onboardingLastName;
       if (!firstName || !lastName) {
-        await this.sessions.set(parsed.userId, "onboarding_name", {});
+        await this.sessions.set(
+          parsed.userId,
+          "onboarding_name",
+          withOnboardingFields(session.payload, {
+            onboardingContactId: session.payload.onboardingContactId,
+          }),
+        );
         await this.replyMenu(parsed.chatId, conversationId, TELEGRAM_ONBOARDING_ASK_NAME);
         return;
       }
-      await this.sessions.set(parsed.userId, "onboarding_region", {
-        onboardingFirstName: firstName,
-        onboardingLastName: lastName,
-        onboardingClientType: clientType,
-      });
+      await this.sessions.set(
+        parsed.userId,
+        "onboarding_region",
+        withOnboardingFields(session.payload, {
+          onboardingFirstName: firstName,
+          onboardingLastName: lastName,
+          onboardingClientType: clientType,
+          onboardingContactId: session.payload.onboardingContactId,
+        }),
+      );
       await this.askOnboardingRegion(parsed, conversationId);
       return;
     }
@@ -1278,8 +1526,29 @@ export class TelegramClientBotService {
       const firstName = session.payload.onboardingFirstName;
       const lastName = session.payload.onboardingLastName;
       const clientType = session.payload.onboardingClientType;
-      if (!firstName || !lastName || !clientType) {
-        await this.startOnboarding(parsed, conversationId);
+      if (!firstName || !lastName) {
+        await this.sessions.set(
+          parsed.userId,
+          "onboarding_name",
+          withOnboardingFields(session.payload, {
+            onboardingClientType: clientType,
+            onboardingContactId: session.payload.onboardingContactId,
+          }),
+        );
+        await this.replyMenu(parsed.chatId, conversationId, TELEGRAM_ONBOARDING_ASK_NAME);
+        return;
+      }
+      if (!clientType) {
+        await this.sessions.set(
+          parsed.userId,
+          "onboarding_role",
+          withOnboardingFields(session.payload, {
+            onboardingFirstName: firstName,
+            onboardingLastName: lastName,
+            onboardingContactId: session.payload.onboardingContactId,
+          }),
+        );
+        await this.askOnboardingRole(parsed, conversationId);
         return;
       }
       await this.finishOnboarding(parsed, conversationId, {
@@ -1287,6 +1556,8 @@ export class TelegramClientBotService {
         lastName,
         clientType,
         region,
+        contactId: session.payload.onboardingContactId,
+        checkoutDraft: pickCheckoutDraft(session.payload),
       });
     }
   }
@@ -1299,10 +1570,21 @@ export class TelegramClientBotService {
       lastName: string;
       clientType: string;
       region: string;
+      contactId?: string;
+      checkoutDraft?: BotSessionPayload;
     },
   ): Promise<void> {
-    const phone = await this.resolveKnownPhone(parsed.userId, null, null);
-    if (!phone) {
+    const account = await this.prisma.telegramAccount.findUnique({
+      where: { telegramUserId: parsed.userId },
+      select: { leadId: true, contactId: true, phone: true },
+    });
+
+    const phone = await this.resolveKnownPhone(
+      parsed.userId,
+      profile.contactId ?? account?.contactId ?? null,
+      account?.leadId ?? null,
+    );
+    if (!phone && !profile.contactId) {
       await this.sessions.resetIdle(parsed.userId);
       await this.telegram.sendMessageToChat(
         parsed.chatId,
@@ -1322,74 +1604,85 @@ export class TelegramClientBotService {
       );
     }
 
-    const account = await this.prisma.telegramAccount.findUnique({
-      where: { telegramUserId: parsed.userId },
-      select: { leadId: true, contactId: true },
-    });
-    if (account?.contactId) {
-      await this.sessions.resetIdle(parsed.userId);
-      await this.replyMenu(parsed.chatId, conversationId, TELEGRAM_EXISTING_CLIENT);
-      return;
-    }
-
     let companyId: string | null = null;
+    let leadContactId: string | null = null;
     if (account?.leadId) {
       const lead = await this.prisma.lead.findUnique({
         where: { id: account.leadId },
-        select: { companyId: true },
+        select: { companyId: true, contactId: true },
       });
       companyId = lead?.companyId ?? null;
+      leadContactId = lead?.contactId ?? null;
     }
 
-    let contactId: string | null = null;
-    try {
-      const created = await this.contacts.create({
-        companyId,
-        firstName: profile.firstName,
-        lastName: profile.lastName,
-        phone,
-        region: profile.region,
-        clientType: profile.clientType,
-        ownerId,
-      });
-      contactId = created.id;
-    } catch (err) {
-      if (err instanceof ConflictException) {
-        const digits = getPhoneNormalizedDigits(phone);
-        const existing = digits ? await this.contacts.findContactByPhone(digits) : null;
-        if (existing?.id) {
-          contactId = existing.id;
-          try {
-            await this.contacts.update(existing.id, {
-              firstName: profile.firstName,
-              lastName: profile.lastName,
-              region: profile.region,
-              clientType: profile.clientType,
-              ...(ownerId ? { ownerId } : {}),
-            });
-          } catch (updateErr) {
-            this.logger.warn(
-              `onboarding contact update: ${updateErr instanceof Error ? updateErr.message : String(updateErr)}`,
-            );
+    let contactId: string | null =
+      profile.contactId ?? account?.contactId ?? leadContactId ?? null;
+
+    const profileData = {
+      firstName: profile.firstName,
+      lastName: profile.lastName,
+      region: profile.region,
+      clientType: profile.clientType,
+      ...(ownerId ? { ownerId } : {}),
+    };
+
+    if (contactId) {
+      try {
+        await this.contacts.update(contactId, {
+          ...profileData,
+          ...(phone ? { phone } : {}),
+        });
+      } catch (updateErr) {
+        this.logger.warn(
+          `onboarding contact update: ${updateErr instanceof Error ? updateErr.message : String(updateErr)}`,
+        );
+      }
+    } else {
+      try {
+        const created = await this.contacts.create({
+          companyId,
+          phone: phone!,
+          ...profileData,
+        });
+        contactId = created.id;
+      } catch (err) {
+        if (err instanceof ConflictException) {
+          const digits = phone ? getPhoneNormalizedDigits(phone) : null;
+          const existing = digits ? await this.contacts.findContactByPhone(digits) : null;
+          if (existing?.id) {
+            contactId = existing.id;
+            try {
+              await this.contacts.update(existing.id, profileData);
+            } catch (updateErr) {
+              this.logger.warn(
+                `onboarding contact update: ${updateErr instanceof Error ? updateErr.message : String(updateErr)}`,
+              );
+            }
           }
         }
-      }
-      if (!contactId) {
-        this.logger.warn(
-          `finishOnboarding create failed: ${err instanceof Error ? err.message : String(err)}`,
-        );
-        await this.replyMenu(
-          parsed.chatId,
-          conversationId,
-          "Не вдалося зберегти профіль. Спробуйте ще раз або напишіть менеджеру.",
-        );
-        return;
+        if (!contactId) {
+          this.logger.warn(
+            `finishOnboarding create failed: ${err instanceof Error ? err.message : String(err)}`,
+          );
+          await this.replyMenu(
+            parsed.chatId,
+            conversationId,
+            "Не вдалося зберегти профіль. Спробуйте ще раз або напишіть менеджеру.",
+          );
+          return;
+        }
       }
     }
 
     await this.prisma.telegramAccount.updateMany({
       where: { telegramUserId: parsed.userId },
-      data: { contactId, leadId: null, phone },
+      data: {
+        contactId,
+        leadId: null,
+        ...(phone ? { phone } : {}),
+        firstName: profile.firstName,
+        lastName: profile.lastName,
+      },
     });
     await this.prisma.conversation.updateMany({
       where: { telegramChatId: parsed.chatId },
@@ -1413,8 +1706,18 @@ export class TelegramClientBotService {
         .catch(() => {});
     }
 
-    await this.sessions.resetIdle(parsed.userId);
-    await this.replyMenu(parsed.chatId, conversationId, TELEGRAM_ONBOARDING_DONE);
+    const draft = {
+      ...pickCheckoutDraft(profile.checkoutDraft ?? {}),
+      region: profile.checkoutDraft?.region ?? profile.region,
+    };
+    const hasCheckoutDraft = Boolean(draft.deliveryMethod || draft.paymentType || draft.cod);
+    await this.sessions.set(parsed.userId, "idle", hasCheckoutDraft ? draft : {});
+
+    let doneText = ownerId ? TELEGRAM_ONBOARDING_DONE : TELEGRAM_ONBOARDING_DONE_NO_MANAGER;
+    if (hasCheckoutDraft) {
+      doneText += "\n\nЧернетку оформлення збережено — відкрийте кошик і натисніть «Оформити».";
+    }
+    await this.replyMenu(parsed.chatId, conversationId, doneText);
   }
 
   /** Linked contact/lead, or a phone already stored on the Telegram account. */
@@ -1440,12 +1743,22 @@ export class TelegramClientBotService {
     leadId: string | null,
     unknownText: string,
   ): Promise<void> {
-    const known = await this.identityKnown(parsed.userId, contactId, leadId);
-    await this.replyMenu(
-      parsed.chatId,
-      conversationId,
-      known ? "У CRM поки немає ваших замовлень." : unknownText,
-    );
+    const resolved = await this.resolveContactId(contactId, leadId);
+    if (resolved) {
+      await this.replyMenu(
+        parsed.chatId,
+        conversationId,
+        "У CRM поки немає ваших замовлень.",
+      );
+      return;
+    }
+    const phone = await this.resolveKnownPhone(parsed.userId, contactId, leadId);
+    if (phone) {
+      await this.replyMenu(parsed.chatId, conversationId, TELEGRAM_PROFILE_REQUIRED);
+      await this.startOnboarding(parsed, conversationId);
+      return;
+    }
+    await this.replyMenu(parsed.chatId, conversationId, unknownText);
   }
 
   /**
@@ -2048,11 +2361,17 @@ export class TelegramClientBotService {
       return;
     }
 
-    const firstName =
-      account?.firstName ||
-      parsed.firstName ||
-      "Клієнт";
-    const lastName = account?.lastName || parsed.lastName || "Telegram";
+    const crmContactId = contactId || account?.contactId || null;
+    let firstName = account?.firstName || parsed.firstName || "Клієнт";
+    let lastName = account?.lastName || parsed.lastName || "Telegram";
+    if (crmContactId) {
+      const contact = await this.prisma.contact.findUnique({
+        where: { id: crmContactId },
+        select: { firstName: true, lastName: true },
+      });
+      if (contact?.firstName?.trim()) firstName = contact.firstName.trim();
+      if (contact?.lastName?.trim()) lastName = contact.lastName.trim();
+    }
 
     const dto: StoreCheckoutDto = {
       phone,

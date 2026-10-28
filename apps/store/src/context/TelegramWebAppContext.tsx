@@ -6,6 +6,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { getTelegramWebApp } from "@/lib/telegram-webapp";
@@ -27,6 +28,8 @@ type TelegramWebAppContextValue = {
   cartSessionId: string;
   profile: TelegramStoreProfile | null;
   loggedIn: boolean;
+  /** Re-exchange initData (e.g. after bot onboarding). */
+  refreshSession: () => Promise<boolean>;
   close: () => void;
 };
 
@@ -39,6 +42,7 @@ const TelegramWebAppContext = createContext<TelegramWebAppContextValue>({
   cartSessionId: "",
   profile: null,
   loggedIn: false,
+  refreshSession: async () => false,
   close: () => {},
 });
 
@@ -78,6 +82,39 @@ export function TelegramWebAppProvider({ children }: { children: React.ReactNode
   const [cartSessionId, setCartSessionId] = useState("");
   const [profile, setProfile] = useState<TelegramStoreProfile | null>(null);
   const [loggedIn, setLoggedIn] = useState(false);
+  const loggedInRef = useRef(false);
+
+  const applySession = useCallback(
+    (session: Awaited<ReturnType<typeof exchangeInitData>>) => {
+      setTelegramStoreSession(session);
+      setToken(session.token);
+      setCartSessionId(session.cartSessionId);
+      setProfile({
+        phone: session.phone,
+        firstName: session.firstName,
+        lastName: session.lastName,
+        contactId: session.contactId,
+      });
+      const nextLoggedIn = Boolean(session.loggedIn);
+      loggedInRef.current = nextLoggedIn;
+      setLoggedIn(nextLoggedIn);
+      setError(null);
+    },
+    [],
+  );
+
+  const refreshSession = useCallback(async () => {
+    const app = getTelegramWebApp();
+    const initData = app?.initData?.trim();
+    if (!initData) return false;
+    try {
+      const session = await exchangeInitData(initData);
+      applySession(session);
+      return Boolean(session.loggedIn);
+    } catch {
+      return false;
+    }
+  }, [applySession]);
 
   const close = useCallback(() => {
     getTelegramWebApp()?.close();
@@ -110,30 +147,46 @@ export function TelegramWebAppProvider({ children }: { children: React.ReactNode
 
     void exchangeInitData(app.initData)
       .then((session) => {
-        setTelegramStoreSession(session);
-        setToken(session.token);
-        setCartSessionId(session.cartSessionId);
-        setProfile({
-          phone: session.phone,
-          firstName: session.firstName,
-          lastName: session.lastName,
-          contactId: session.contactId,
-        });
-        setLoggedIn(Boolean(session.loggedIn));
-        setError(null);
+        applySession(session);
       })
       .catch((err) => {
         setError(err instanceof Error ? err.message : "Не вдалося увійти через Telegram");
         setToken(getTelegramStoreToken());
         setCartSessionId(getTelegramCartSessionId());
         setProfile(getTelegramStoreProfile());
+        loggedInRef.current = false;
         setLoggedIn(false);
       })
       .finally(() => {
         setLoading(false);
         setReady(true);
       });
-  }, []);
+  }, [applySession]);
+
+  // After bot onboarding, Telegram may reopen/focus the Mini App — refresh CRM login.
+  useEffect(() => {
+    if (!isTelegram || !ready) return;
+
+    const refreshIfNeeded = () => {
+      if (loggedInRef.current) return;
+      if (document.visibilityState && document.visibilityState !== "visible") return;
+      void refreshSession();
+    };
+
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") refreshIfNeeded();
+    };
+
+    window.addEventListener("focus", refreshIfNeeded);
+    document.addEventListener("visibilitychange", onVisibility);
+    const interval = window.setInterval(refreshIfNeeded, 15_000);
+
+    return () => {
+      window.removeEventListener("focus", refreshIfNeeded);
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.clearInterval(interval);
+    };
+  }, [isTelegram, ready, refreshSession]);
 
   const value = useMemo(
     () => ({
@@ -145,9 +198,21 @@ export function TelegramWebAppProvider({ children }: { children: React.ReactNode
       cartSessionId,
       profile,
       loggedIn,
+      refreshSession,
       close,
     }),
-    [ready, isTelegram, loading, error, token, cartSessionId, profile, loggedIn, close],
+    [
+      ready,
+      isTelegram,
+      loading,
+      error,
+      token,
+      cartSessionId,
+      profile,
+      loggedIn,
+      refreshSession,
+      close,
+    ],
   );
 
   return (

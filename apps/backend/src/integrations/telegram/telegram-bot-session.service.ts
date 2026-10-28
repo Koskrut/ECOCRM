@@ -25,6 +25,8 @@ export type BotSessionPayload = {
   onboardingLastName?: string;
   /** CRM Contact.clientType: "Врач" | "Техник". */
   onboardingClientType?: string;
+  /** Gap-fill for an existing CRM contact missing role/region. */
+  onboardingContactId?: string;
   /** Checkout draft */
   region?: string;
   deliveryMethod?: "PICKUP" | "NOVA_POSHTA";

@@ -267,6 +267,10 @@ export default function CheckoutPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    if (isTelegramCheckout && !telegramLoggedIn) {
+      setError("Завершіть профіль у боті, потім натисніть «Оновити»");
+      return;
+    }
     setSubmitting(true);
     try {
       const phoneDigits = phone.replace(/\D/g, "");
@@ -384,10 +388,6 @@ export default function CheckoutPage() {
         deliveryData: deliveryData ?? null,
         sessionId,
       });
-      if (isTelegramCheckout) {
-        telegram.close();
-        return;
-      }
       const q = new URLSearchParams();
       q.set("orderNumber", result.orderNumber);
       if (result.setPasswordToken) q.set("setPasswordToken", result.setPasswordToken);
@@ -411,7 +411,29 @@ export default function CheckoutPage() {
         <h1 className="font-heading text-xl font-semibold text-zinc-900 sm:text-2xl">
           Оформлення замовлення
         </h1>
-        <form onSubmit={handleSubmit} className="mt-6 space-y-4">
+        {isTelegramCheckout && telegram.ready && !telegram.loading && !telegramLoggedIn ? (
+          <div className="mt-6 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
+            <p className="font-medium">Спочатку завершіть профіль у боті</p>
+            <p className="mt-1 text-amber-900/90">
+              Після телефону, імені, ролі та області поверніться сюди — кабінет підтягнеться
+              автоматично.
+            </p>
+            <button
+              type="button"
+              className="mt-3 font-medium underline underline-offset-2"
+              onClick={() => void telegram.refreshSession()}
+            >
+              Уже готово — оновити
+            </button>
+          </div>
+        ) : null}
+        <form
+          onSubmit={handleSubmit}
+          className={`mt-6 space-y-4 ${
+            isTelegramCheckout && !telegramLoggedIn ? "pointer-events-none opacity-50" : ""
+          }`}
+          aria-disabled={isTelegramCheckout && !telegramLoggedIn}
+        >
           {error && (
             <p className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p>
           )}
