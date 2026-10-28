@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { getMe } from "@/lib/api";
 import { useCart } from "@/context/CartContext";
+import { useTelegramWebApp } from "@/context/TelegramWebAppContext";
 
 const navLinks = [
   { href: "/", label: "Головна" },
@@ -39,15 +40,17 @@ function ChevronDownIcon({ className }: { className?: string }) {
 
 export function NavBar() {
   const { count: cartCount, sumUah: cartSumUah } = useCart();
+  const telegram = useTelegramWebApp();
   const [accountDropdownOpen, setAccountDropdownOpen] = useState(false);
   const [loggedIn, setLoggedIn] = useState<boolean | null>(null);
   const accountDropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    if (!telegram.ready) return;
     getMe()
       .then(() => setLoggedIn(true))
       .catch(() => setLoggedIn(false));
-  }, []);
+  }, [telegram.ready, telegram.loggedIn]);
 
   useEffect(() => {
     if (!accountDropdownOpen) return;

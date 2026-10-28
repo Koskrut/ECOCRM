@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { getMe } from "@/lib/api";
 import { useCart } from "@/context/CartContext";
 import { useStoreConfig } from "@/context/StoreConfigContext";
+import { useTelegramWebApp } from "@/context/TelegramWebAppContext";
 
 const DEFAULT_COMPANY = "SUPREX";
 
@@ -63,16 +64,18 @@ export function Header() {
   const searchRef = useRef<HTMLInputElement>(null);
   const mobileSearchRef = useRef<HTMLInputElement>(null);
   const { config } = useStoreConfig();
+  const telegram = useTelegramWebApp();
   const companyName = config.contact?.companyName || DEFAULT_COMPANY;
   const { count: cartCount, sumUah: cartSumUah } = useCart();
   const [menuOpen, setMenuOpen] = useState(false);
   const [loggedIn, setLoggedIn] = useState<boolean | null>(null);
 
   useEffect(() => {
+    if (!telegram.ready) return;
     getMe()
       .then(() => setLoggedIn(true))
       .catch(() => setLoggedIn(false));
-  }, []);
+  }, [telegram.ready, telegram.loggedIn]);
 
   useEffect(() => {
     if (menuOpen) {

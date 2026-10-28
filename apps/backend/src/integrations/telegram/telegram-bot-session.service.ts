@@ -20,6 +20,11 @@ export type BotSessionPayload = {
   catalogSubHits?: string[];
   productId?: string;
   ordersPage?: number;
+  /** New-client onboarding (no CRM contact yet). */
+  onboardingFirstName?: string;
+  onboardingLastName?: string;
+  /** CRM Contact.clientType: "Врач" | "Техник". */
+  onboardingClientType?: string;
   /** Checkout draft */
   region?: string;
   deliveryMethod?: "PICKUP" | "NOVA_POSHTA";

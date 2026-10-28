@@ -1,4 +1,11 @@
-import { BadRequestException, Inject, Injectable, Logger, forwardRef } from "@nestjs/common";
+import {
+  BadRequestException,
+  ConflictException,
+  Inject,
+  Injectable,
+  Logger,
+  forwardRef,
+} from "@nestjs/common";
 import {
   DeliveryMethod,
   MessageDirection,
@@ -6,12 +13,14 @@ import {
   PaymentType,
 } from "@prisma/client";
 import { signJwt } from "../../auth/jwt";
+import { getPhoneNormalizedDigits } from "../../common/phone.utils";
 import { ContactsService } from "../../contacts/contacts.service";
 import { IntegrationPortsService } from "../../integration-ports/integration-ports.service";
 import { PrismaService } from "../../prisma/prisma.service";
 import { ProductStore, type CatalogBranch } from "../../products/product.store";
 import { SettingsService } from "../../settings/settings.service";
 import { UKRAINE_REGIONS } from "../../store/checkout/uk-regions";
+import { resolveAssignedManagerForRegion } from "../../settings/org-chart-region-resolver";
 import { StoreCartService } from "../../store/cart/store-cart.service";
 import { StoreCheckoutPaymentLinkService } from "../../store/checkout/store-checkout-payment-link.service";
 import { StoreCheckoutService } from "../../store/checkout/store-checkout.service";
@@ -29,15 +38,21 @@ import {
   MENU_ORDERS,
   ORDERS_PAGE_SIZE,
   TELEGRAM_CANCELLED,
+  TELEGRAM_CLIENT_TYPE_DOCTOR,
+  TELEGRAM_CLIENT_TYPE_TECH,
   TELEGRAM_EXISTING_CLIENT,
   TELEGRAM_HELP,
   TELEGRAM_MANAGER_PROMPT,
-  TELEGRAM_PHONE_SAVED_NEW,
-  TELEGRAM_PHONE_SAVED_NO_CRM,
+  TELEGRAM_ONBOARDING_ASK_NAME,
+  TELEGRAM_ONBOARDING_ASK_REGION,
+  TELEGRAM_ONBOARDING_ASK_ROLE,
+  TELEGRAM_ONBOARDING_DONE,
+  TELEGRAM_ONBOARDING_INTRO,
   TELEGRAM_WELCOME,
   WAREHOUSE_RESULTS_LIMIT,
   cartSessionId,
   humanOrderStage,
+  type BotSessionState,
   type InlineBtn,
 } from "./telegram-client.constants";
 import {
@@ -106,6 +121,19 @@ function usablePhone(phone: string | null | undefined): string | null {
   const digits = trimmed.replace(/\D/g, "");
   if (digits.length < 10 || digits.startsWith("0000")) return null;
   return trimmed;
+}
+
+function parsePersonName(text: string): { firstName: string; lastName: string } | null {
+  const parts = text.trim().split(/\s+/).filter(Boolean);
+  if (parts.length < 2) return null;
+  return { firstName: parts[0]!, lastName: parts.slice(1).join(" ") };
+}
+
+function isOnboardingState(state: string): state is Extract<
+  BotSessionState,
+  "onboarding_name" | "onboarding_role" | "onboarding_region"
+> {
+  return state === "onboarding_name" || state === "onboarding_role" || state === "onboarding_region";
 }
 
 function clientSafeCheckoutError(err: unknown): string {
@@ -208,11 +236,36 @@ export class TelegramClientBotService {
         }
         return { handled: true, notifyManager: false };
       }
-      await this.sessions.resetIdle(parsed.userId);
-      let msg = TELEGRAM_PHONE_SAVED_NO_CRM;
-      if (contactId) msg = TELEGRAM_EXISTING_CLIENT;
-      else if (leadId) msg = TELEGRAM_PHONE_SAVED_NEW;
-      await this.replyMenu(parsed.chatId, conversationId, msg);
+      if (contactId) {
+        await this.sessions.resetIdle(parsed.userId);
+        await this.replyMenu(parsed.chatId, conversationId, TELEGRAM_EXISTING_CLIENT);
+        return { handled: true, notifyManager: false };
+      }
+      // Phone is new to CRM contacts — collect name, role and region.
+      await this.startOnboarding(parsed, conversationId);
+      return { handled: true, notifyManager: false };
+    }
+
+    // Incomplete CRM profile: keep the user in the onboarding wizard.
+    const onboardingSession = await this.sessions.get(parsed.userId);
+    if (isOnboardingState(onboardingSession.state)) {
+      if (parsed.isCallback && text.startsWith("onb:")) {
+        await this.handleCallback(parsed, conversationId, contactId, leadId, text);
+        return { handled: true, notifyManager: false };
+      }
+      if (text && !parsed.isCallback) {
+        await this.handleWizardText(
+          parsed,
+          conversationId,
+          contactId,
+          leadId,
+          onboardingSession.state,
+          onboardingSession.payload,
+          text,
+        );
+        return { handled: true, notifyManager: false };
+      }
+      await this.repromptOnboarding(parsed, conversationId, onboardingSession.state, onboardingSession.payload);
       return { handled: true, notifyManager: false };
     }
 
@@ -389,6 +442,11 @@ export class TelegramClientBotService {
       }
     }
 
+    if (ns === "onb") {
+      await this.handleOnboardingCallback(parsed, conversationId, action, rest);
+      return;
+    }
+
     if (ns === "chk") {
       await this.handleCheckoutCallback(parsed, conversationId, contactId, action, rest);
     }
@@ -403,6 +461,27 @@ export class TelegramClientBotService {
     payload: BotSessionPayload,
     text: string,
   ): Promise<void> {
+    if (state === "onboarding_name") {
+      const name = parsePersonName(text);
+      if (!name) {
+        await this.replyMenu(
+          parsed.chatId,
+          conversationId,
+          `Потрібні ім'я та прізвище.\n\n${TELEGRAM_ONBOARDING_ASK_NAME}`,
+        );
+        return;
+      }
+      await this.sessions.set(parsed.userId, "onboarding_role", {
+        onboardingFirstName: name.firstName,
+        onboardingLastName: name.lastName,
+      });
+      await this.askOnboardingRole(parsed, conversationId);
+      return;
+    }
+    if (state === "onboarding_role" || state === "onboarding_region") {
+      await this.repromptOnboarding(parsed, conversationId, state, payload);
+      return;
+    }
     if (state === "catalog_search") {
       await this.sessions.set(parsed.userId, "idle", { catalogSearch: text });
       await this.showCatalog(parsed, conversationId, 1, text);
@@ -1082,13 +1161,260 @@ export class TelegramClientBotService {
     leadId: string | null,
   ): Promise<void> {
     await this.sessions.resetIdle(parsed.userId);
-    if (await this.identityKnown(parsed.userId, contactId, leadId)) {
+    if (contactId) {
       await this.replyMenu(parsed.chatId, conversationId, TELEGRAM_EXISTING_CLIENT);
+      return;
+    }
+    const phone = await this.resolveKnownPhone(parsed.userId, contactId, leadId);
+    if (phone) {
+      // Phone known but no CRM contact yet — finish profile (name / role / region).
+      await this.startOnboarding(parsed, conversationId);
       return;
     }
     await this.telegram.sendMessageToChat(parsed.chatId, TELEGRAM_WELCOME, {
       requestContactButton: true,
     });
+  }
+
+  // ─── New-client onboarding ───────────────────────────────────────────────
+
+  private async startOnboarding(parsed: ParsedInbound, conversationId: string): Promise<void> {
+    await this.sessions.set(parsed.userId, "onboarding_name", {});
+    await this.replyMenu(
+      parsed.chatId,
+      conversationId,
+      `${TELEGRAM_ONBOARDING_INTRO}\n\n${TELEGRAM_ONBOARDING_ASK_NAME}`,
+    );
+  }
+
+  private async askOnboardingRole(parsed: ParsedInbound, conversationId: string): Promise<void> {
+    await this.replyInline(parsed.chatId, conversationId, TELEGRAM_ONBOARDING_ASK_ROLE, [
+      [
+        { text: "Лікар", callback_data: "onb:role:doctor" },
+        { text: "Технік", callback_data: "onb:role:tech" },
+      ],
+    ]);
+  }
+
+  private async askOnboardingRegion(parsed: ParsedInbound, conversationId: string): Promise<void> {
+    const regionRows: InlineBtn[][] = [];
+    for (let i = 0; i < UKRAINE_REGIONS.length; i += 2) {
+      const row: InlineBtn[] = [
+        { text: UKRAINE_REGIONS[i]!, callback_data: `onb:reg:${i}` },
+      ];
+      if (UKRAINE_REGIONS[i + 1]) {
+        row.push({ text: UKRAINE_REGIONS[i + 1]!, callback_data: `onb:reg:${i + 1}` });
+      }
+      regionRows.push(row);
+    }
+    await this.replyInline(parsed.chatId, conversationId, TELEGRAM_ONBOARDING_ASK_REGION, regionRows);
+  }
+
+  private async repromptOnboarding(
+    parsed: ParsedInbound,
+    conversationId: string,
+    state: string,
+    payload: BotSessionPayload,
+  ): Promise<void> {
+    if (state === "onboarding_name") {
+      await this.replyMenu(parsed.chatId, conversationId, TELEGRAM_ONBOARDING_ASK_NAME);
+      return;
+    }
+    if (state === "onboarding_role") {
+      await this.askOnboardingRole(parsed, conversationId);
+      return;
+    }
+    if (state === "onboarding_region") {
+      void payload;
+      await this.askOnboardingRegion(parsed, conversationId);
+    }
+  }
+
+  private async handleOnboardingCallback(
+    parsed: ParsedInbound,
+    conversationId: string,
+    action: string,
+    rest: string[],
+  ): Promise<void> {
+    const session = await this.sessions.get(parsed.userId);
+    if (!isOnboardingState(session.state) && action !== "role" && action !== "reg") {
+      return;
+    }
+
+    if (action === "role" && rest[0]) {
+      const clientType =
+        rest[0] === "doctor"
+          ? TELEGRAM_CLIENT_TYPE_DOCTOR
+          : rest[0] === "tech"
+            ? TELEGRAM_CLIENT_TYPE_TECH
+            : null;
+      if (!clientType) {
+        await this.askOnboardingRole(parsed, conversationId);
+        return;
+      }
+      const firstName = session.payload.onboardingFirstName;
+      const lastName = session.payload.onboardingLastName;
+      if (!firstName || !lastName) {
+        await this.sessions.set(parsed.userId, "onboarding_name", {});
+        await this.replyMenu(parsed.chatId, conversationId, TELEGRAM_ONBOARDING_ASK_NAME);
+        return;
+      }
+      await this.sessions.set(parsed.userId, "onboarding_region", {
+        onboardingFirstName: firstName,
+        onboardingLastName: lastName,
+        onboardingClientType: clientType,
+      });
+      await this.askOnboardingRegion(parsed, conversationId);
+      return;
+    }
+
+    if (action === "reg" && rest[0] != null) {
+      const idx = Number(rest[0]);
+      const region = UKRAINE_REGIONS[idx];
+      if (!region) {
+        await this.askOnboardingRegion(parsed, conversationId);
+        return;
+      }
+      const firstName = session.payload.onboardingFirstName;
+      const lastName = session.payload.onboardingLastName;
+      const clientType = session.payload.onboardingClientType;
+      if (!firstName || !lastName || !clientType) {
+        await this.startOnboarding(parsed, conversationId);
+        return;
+      }
+      await this.finishOnboarding(parsed, conversationId, {
+        firstName,
+        lastName,
+        clientType,
+        region,
+      });
+    }
+  }
+
+  private async finishOnboarding(
+    parsed: ParsedInbound,
+    conversationId: string,
+    profile: {
+      firstName: string;
+      lastName: string;
+      clientType: string;
+      region: string;
+    },
+  ): Promise<void> {
+    const phone = await this.resolveKnownPhone(parsed.userId, null, null);
+    if (!phone) {
+      await this.sessions.resetIdle(parsed.userId);
+      await this.telegram.sendMessageToChat(
+        parsed.chatId,
+        "Спочатку поділіться номером телефону кнопкою нижче.",
+        { requestContactButton: true },
+      );
+      return;
+    }
+
+    let ownerId: string | null = null;
+    try {
+      const org = await this.settings.getOrgChartStructure();
+      ownerId = resolveAssignedManagerForRegion(org, profile.region)?.managerId ?? null;
+    } catch (err) {
+      this.logger.warn(
+        `onboarding org-chart: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+
+    const account = await this.prisma.telegramAccount.findUnique({
+      where: { telegramUserId: parsed.userId },
+      select: { leadId: true, contactId: true },
+    });
+    if (account?.contactId) {
+      await this.sessions.resetIdle(parsed.userId);
+      await this.replyMenu(parsed.chatId, conversationId, TELEGRAM_EXISTING_CLIENT);
+      return;
+    }
+
+    let companyId: string | null = null;
+    if (account?.leadId) {
+      const lead = await this.prisma.lead.findUnique({
+        where: { id: account.leadId },
+        select: { companyId: true },
+      });
+      companyId = lead?.companyId ?? null;
+    }
+
+    let contactId: string | null = null;
+    try {
+      const created = await this.contacts.create({
+        companyId,
+        firstName: profile.firstName,
+        lastName: profile.lastName,
+        phone,
+        region: profile.region,
+        clientType: profile.clientType,
+        ownerId,
+      });
+      contactId = created.id;
+    } catch (err) {
+      if (err instanceof ConflictException) {
+        const digits = getPhoneNormalizedDigits(phone);
+        const existing = digits ? await this.contacts.findContactByPhone(digits) : null;
+        if (existing?.id) {
+          contactId = existing.id;
+          try {
+            await this.contacts.update(existing.id, {
+              firstName: profile.firstName,
+              lastName: profile.lastName,
+              region: profile.region,
+              clientType: profile.clientType,
+              ...(ownerId ? { ownerId } : {}),
+            });
+          } catch (updateErr) {
+            this.logger.warn(
+              `onboarding contact update: ${updateErr instanceof Error ? updateErr.message : String(updateErr)}`,
+            );
+          }
+        }
+      }
+      if (!contactId) {
+        this.logger.warn(
+          `finishOnboarding create failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        await this.replyMenu(
+          parsed.chatId,
+          conversationId,
+          "Не вдалося зберегти профіль. Спробуйте ще раз або напишіть менеджеру.",
+        );
+        return;
+      }
+    }
+
+    await this.prisma.telegramAccount.updateMany({
+      where: { telegramUserId: parsed.userId },
+      data: { contactId, leadId: null, phone },
+    });
+    await this.prisma.conversation.updateMany({
+      where: { telegramChatId: parsed.chatId },
+      data: { contactId, leadId: null },
+    });
+
+    if (account?.leadId) {
+      await this.prisma.lead
+        .update({
+          where: { id: account.leadId },
+          data: {
+            contactId,
+            region: profile.region,
+            firstName: profile.firstName,
+            lastName: profile.lastName,
+            fullName: `${profile.lastName} ${profile.firstName}`.trim(),
+            name: `${profile.lastName} ${profile.firstName}`.trim(),
+            ...(ownerId ? { ownerId } : {}),
+          },
+        })
+        .catch(() => {});
+    }
+
+    await this.sessions.resetIdle(parsed.userId);
+    await this.replyMenu(parsed.chatId, conversationId, TELEGRAM_ONBOARDING_DONE);
   }
 
   /** Linked contact/lead, or a phone already stored on the Telegram account. */

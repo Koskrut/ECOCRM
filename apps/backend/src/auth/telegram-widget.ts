@@ -30,22 +30,28 @@ export function verifyTelegramLoginHash(
 
 /**
  * Verify Telegram Mini App initData per https://core.telegram.org/bots/webapps#validating-data-received-via-the-mini-app
- * secret_key = HMAC_SHA256(bot_token, "WebAppData")
- * hash = hex(HMAC_SHA256(secret_key, data_check_string))
+ * secret_key = HMAC_SHA256(key="WebAppData", message=bot_token)
+ * hash = hex(HMAC_SHA256(key=secret_key, message=data_check_string))
+ *
+ * Exclude both `hash` and the third-party Ed25519 `signature` from the check string.
  */
 export function verifyTelegramWebAppInitData(initData: string, botToken: string): boolean {
+  const token = botToken.trim();
+  if (!token) return false;
+
   const params = new URLSearchParams(initData);
   const receivedHash = params.get("hash");
   if (!receivedHash) return false;
 
   const pairs: string[] = [];
   for (const [key, value] of params.entries()) {
-    if (key === "hash") continue;
+    if (key === "hash" || key === "signature") continue;
     pairs.push(`${key}=${value}`);
   }
   pairs.sort();
   const dataCheckString = pairs.join("\n");
-  const secretKey = createHmac("sha256", botToken).update("WebAppData").digest();
+  // Key is the constant "WebAppData"; the bot token is the message (not the reverse).
+  const secretKey = createHmac("sha256", "WebAppData").update(token).digest();
   const computedHash = createHmac("sha256", secretKey).update(dataCheckString).digest("hex");
 
   const left = Buffer.from(computedHash);

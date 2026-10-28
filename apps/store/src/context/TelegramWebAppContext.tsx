@@ -26,6 +26,7 @@ type TelegramWebAppContextValue = {
   token: string;
   cartSessionId: string;
   profile: TelegramStoreProfile | null;
+  loggedIn: boolean;
   close: () => void;
 };
 
@@ -37,6 +38,7 @@ const TelegramWebAppContext = createContext<TelegramWebAppContextValue>({
   token: "",
   cartSessionId: "",
   profile: null,
+  loggedIn: false,
   close: () => {},
 });
 
@@ -45,8 +47,9 @@ export function useTelegramWebApp() {
 }
 
 async function exchangeInitData(initData: string) {
-  const res = await fetch("/api/store/telegram/webapp-session", {
+  const res = await fetch("/api/auth/store-telegram-session", {
     method: "POST",
+    credentials: "include",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ initData }),
   });
@@ -61,6 +64,8 @@ async function exchangeInitData(initData: string) {
     firstName: string | null;
     lastName: string | null;
     contactId: string | null;
+    customerId: string | null;
+    loggedIn: boolean;
   }>;
 }
 
@@ -72,6 +77,7 @@ export function TelegramWebAppProvider({ children }: { children: React.ReactNode
   const [token, setToken] = useState("");
   const [cartSessionId, setCartSessionId] = useState("");
   const [profile, setProfile] = useState<TelegramStoreProfile | null>(null);
+  const [loggedIn, setLoggedIn] = useState(false);
 
   const close = useCallback(() => {
     getTelegramWebApp()?.close();
@@ -113,14 +119,15 @@ export function TelegramWebAppProvider({ children }: { children: React.ReactNode
           lastName: session.lastName,
           contactId: session.contactId,
         });
+        setLoggedIn(Boolean(session.loggedIn));
         setError(null);
       })
       .catch((err) => {
         setError(err instanceof Error ? err.message : "Не вдалося увійти через Telegram");
-        // Keep any prior valid session from this tab if re-open failed mid-browse.
         setToken(getTelegramStoreToken());
         setCartSessionId(getTelegramCartSessionId());
         setProfile(getTelegramStoreProfile());
+        setLoggedIn(false);
       })
       .finally(() => {
         setLoading(false);
@@ -137,9 +144,10 @@ export function TelegramWebAppProvider({ children }: { children: React.ReactNode
       token,
       cartSessionId,
       profile,
+      loggedIn,
       close,
     }),
-    [ready, isTelegram, loading, error, token, cartSessionId, profile, close],
+    [ready, isTelegram, loading, error, token, cartSessionId, profile, loggedIn, close],
   );
 
   return (

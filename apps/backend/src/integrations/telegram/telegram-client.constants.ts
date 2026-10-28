@@ -61,6 +61,16 @@ export const TELEGRAM_PHONE_SAVED_NEW =
   "Дякуємо! Номер збережено. Оберіть дію в меню нижче.\n\nОбласть доставки запитаємо під час оформлення замовлення.";
 export const TELEGRAM_PHONE_SAVED_NO_CRM =
   "Дякуємо! Номер збережено. Можете обрати каталог у меню або написати менеджеру.\n\nОбласть доставки запитаємо під час оформлення.";
+export const TELEGRAM_ONBOARDING_INTRO =
+  "Дякуємо! Номер збережено.\n\nЩоб закріпити менеджера й відкрити кабінет — коротко познайомимось.";
+export const TELEGRAM_ONBOARDING_ASK_NAME = "Напишіть ваше ім'я та прізвище одним повідомленням:";
+export const TELEGRAM_ONBOARDING_ASK_ROLE = "Ви лікар чи технік?";
+export const TELEGRAM_ONBOARDING_ASK_REGION =
+  "Оберіть область — за нею закріпимо менеджера:";
+export const TELEGRAM_ONBOARDING_DONE =
+  "Готово! Профіль збережено в CRM. Можна відкривати каталог або писати менеджеру.";
+export const TELEGRAM_CLIENT_TYPE_DOCTOR = "Врач";
+export const TELEGRAM_CLIENT_TYPE_TECH = "Техник";
 export const TELEGRAM_MANAGER_PROMPT =
   "Напишіть ваше запитання одним повідомленням. Менеджер отримає його в CRM і відповість якнайшвидше.";
 export const TELEGRAM_CANCELLED = "Скасовано. Повертаємось у головне меню.";
@@ -124,6 +134,9 @@ export const CLIENT_PUSH_STAGES: ReadonlySet<OrderStage> = new Set([
 export type BotSessionState =
   | "idle"
   | "catalog_search"
+  | "onboarding_name"
+  | "onboarding_role"
+  | "onboarding_region"
   | "checkout_city"
   | "checkout_warehouse_q"
   | "checkout_street"

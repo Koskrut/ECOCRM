@@ -28,6 +28,7 @@ export default function CheckoutPage() {
   const router = useRouter();
   const telegram = useTelegramWebApp();
   const isTelegramCheckout = telegram.isTelegram && Boolean(telegram.token);
+  const telegramLoggedIn = isTelegramCheckout && telegram.loggedIn;
   const [phone, setPhone] = useState("");
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
@@ -81,6 +82,7 @@ export default function CheckoutPage() {
   const profileDropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    if (!telegram.ready) return;
     getMe()
       .then((me) => {
         setLoggedIn(true);
@@ -91,15 +93,15 @@ export default function CheckoutPage() {
         const savedRegion = me.region?.trim();
         if (savedRegion) setRegion(savedRegion);
       })
-      .catch(() => setLoggedIn(false));
-  }, []);
-
-  useEffect(() => {
-    if (!isTelegramCheckout || !telegram.profile) return;
-    if (telegram.profile.phone) setPhone(formatUaPhoneInput(telegram.profile.phone));
-    if (telegram.profile.firstName) setFirstName(telegram.profile.firstName);
-    if (telegram.profile.lastName) setLastName(telegram.profile.lastName);
-  }, [isTelegramCheckout, telegram.profile]);
+      .catch(() => {
+        setLoggedIn(false);
+        if (isTelegramCheckout && telegram.profile) {
+          if (telegram.profile.phone) setPhone(formatUaPhoneInput(telegram.profile.phone));
+          if (telegram.profile.firstName) setFirstName(telegram.profile.firstName);
+          if (telegram.profile.lastName) setLastName(telegram.profile.lastName);
+        }
+      });
+  }, [telegram.ready, isTelegramCheckout, telegram.profile]);
 
   useEffect(() => {
     getCheckoutRegions()
@@ -489,7 +491,9 @@ export default function CheckoutPage() {
           )}
           {isTelegramCheckout ? (
             <p className="rounded-lg bg-[var(--surface)] p-3 text-sm text-zinc-600">
-              Після оформлення підтвердження прийде в чат з ботом.
+              {telegramLoggedIn || loggedIn
+                ? "Ви увійшли через Telegram. Після оформлення підтвердження прийде в чат з ботом."
+                : "Після оформлення підтвердження прийде в чат з ботом. Кабінет з’явиться, коли номер буде в CRM."}
             </p>
           ) : null}
           <div>

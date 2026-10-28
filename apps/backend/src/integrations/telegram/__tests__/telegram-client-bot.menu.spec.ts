@@ -29,6 +29,7 @@ function parsed(overrides: Partial<ParsedInbound> = {}): ParsedInbound {
 
 function makeBot(opts: {
   sessionState?: string;
+  sessionPayload?: AnyRec;
   products?: Array<AnyRec>;
   orders?: Array<AnyRec>;
   account?: AnyRec | null;
@@ -37,14 +38,21 @@ function makeBot(opts: {
   cartItems?: Array<AnyRec>;
   tree?: Array<AnyRec>;
   storeUrl?: string | null;
+  /** Org-chart slot → regions; assignments map slot → manager user id. */
+  orgChart?: {
+    assignments?: Record<string, string | null>;
+    regions?: Record<string, string[]>;
+  };
 }) {
   const sent: Array<{ text: string; inline?: boolean; keyboard?: unknown; contact?: boolean; buttons?: string[] }> = [];
   const listCalls: unknown[][] = [];
   const pathCalls: unknown[][] = [];
   const checkoutCalls: AnyRec[] = [];
+  const contactCreates: AnyRec[] = [];
+  const accountUpdates: AnyRec[] = [];
   const sessions = {
     state: opts.sessionState ?? "idle",
-    payload: {} as AnyRec,
+    payload: { ...(opts.sessionPayload ?? {}) } as AnyRec,
     get: async () => ({ state: sessions.state, payload: sessions.payload }),
     set: async (_id: string, state: string, payload: AnyRec = {}) => {
       sessions.state = state;
@@ -141,12 +149,30 @@ function makeBot(opts: {
     getStoreConfig: async () => ({
       ...(opts.storeUrl ? { publicStoreUrl: opts.storeUrl } : {}),
     }),
+    getOrgChartStructure: async () => ({
+      assignments: opts.orgChart?.assignments ?? { "m1-1": "mgr-kyiv" },
+      extraSlots: [],
+      regions: opts.orgChart?.regions ?? { "m1-1": ["Київська"] },
+    }),
   };
   const cart = {
     getCart: async () => ({ items: opts.cartItems ?? [], subtotal: 0, uahPerUsd: 41 }),
     addItem: async () => ({ items: [{ id: "1" }], subtotal: 10, uahPerUsd: 41 }),
     clearCart: async () => undefined,
   };
+  const contacts = {
+    create: async (data: AnyRec) => {
+      contactCreates.push(data);
+      return { id: "contact-new", ...data };
+    },
+    findContactByPhone: async () => null,
+    update: async () => ({ id: "contact-new" }),
+  };
+  (prisma.telegramAccount as AnyRec).updateMany = async (args: AnyRec) => {
+    accountUpdates.push(args);
+    return { count: 1 };
+  };
+  (prisma.lead as AnyRec).update = async () => ({});
 
   const service = new TelegramClientBotService(
     prisma as never,
@@ -160,11 +186,21 @@ function makeBot(opts: {
     products as never,
     settings as never,
     { searchNpCities: async () => ({ items: [] }) } as never,
-    { listShippingProfiles: async () => ({ items: [] }) } as never,
+    contacts as never,
     telegram as never,
   );
 
-  return { service, sent, sessions, telegram, listCalls, pathCalls, checkoutCalls };
+  return {
+    service,
+    sent,
+    sessions,
+    telegram,
+    listCalls,
+    pathCalls,
+    checkoutCalls,
+    contactCreates,
+    accountUpdates,
+  };
 }
 
 describe("TelegramClientBotService menu / idle", () => {
@@ -468,8 +504,8 @@ describe("TelegramClientBotService menu / idle", () => {
     assert.ok(sent.some((s) => /Каталог/i.test(s.text)));
   });
 
-  it("phone share for new lead: menu, no manager notify, mentions region at checkout", async () => {
-    const { service, sent } = makeBot({});
+  it("phone share without CRM contact starts onboarding (name)", async () => {
+    const { service, sent, sessions } = makeBot({});
     const result = await service.handleClientTurn({
       parsed: parsed({ phone: "+380501234567", text: null }),
       conversationId: "conv1",
@@ -478,8 +514,9 @@ describe("TelegramClientBotService menu / idle", () => {
     });
     assert.equal(result.handled, true);
     assert.equal(result.notifyManager, false);
+    assert.equal(sessions.state, "onboarding_name");
     assert.ok(sent.some((s) => /Номер збережено/i.test(s.text)));
-    assert.ok(sent.some((s) => /область/i.test(s.text)));
+    assert.ok(sent.some((s) => /ім'я та прізвище/i.test(s.text)));
   });
 
   it("phone share for known contact: existing-client copy", async () => {
@@ -519,13 +556,13 @@ describe("TelegramClientBotService menu / idle", () => {
       leadId: null,
     });
     assert.equal(
-      sent.some((s) => s.contact && /поділіться номером/i.test(s.text)),
+      sent.some((s) => s.contact && /Вітаємо/i.test(s.text)),
       true,
     );
   });
 
-  it("does not ask again when the telegram account already has a phone", async () => {
-    const { service, sent } = makeBot({
+  it("starts onboarding on /start when phone exists but CRM contact does not", async () => {
+    const { service, sent, sessions } = makeBot({
       account: { phone: "+380501112233", contactId: null, leadId: null },
     });
     await service.handleClientTurn({
@@ -534,9 +571,70 @@ describe("TelegramClientBotService menu / idle", () => {
       contactId: null,
       leadId: null,
     });
+    assert.equal(sessions.state, "onboarding_name");
     const body = sent.map((s) => s.text).join("\n");
-    assert.match(body, /Раді бачити/);
+    assert.match(body, /ім'я та прізвище/i);
     assert.equal(/поділіться номером/i.test(body), false);
+  });
+
+  it("onboarding collects name → role → region and creates CRM contact", async () => {
+    const { service, sent, sessions, contactCreates, accountUpdates } = makeBot({
+      account: { phone: "+380501112233", contactId: null, leadId: "lead-1" },
+      lead: { companyId: "company-1" },
+      orgChart: {
+        assignments: { "m1-1": "mgr-kyiv" },
+        regions: { "m1-1": ["Київська"] },
+      },
+    });
+
+    await service.handleClientTurn({
+      parsed: parsed({ phone: "+380501112233", text: null }),
+      conversationId: "conv1",
+      contactId: null,
+      leadId: "lead-1",
+    });
+    assert.equal(sessions.state, "onboarding_name");
+
+    await service.handleClientTurn({
+      parsed: parsed({ text: "Олена Коваленко" }),
+      conversationId: "conv1",
+      contactId: null,
+      leadId: "lead-1",
+    });
+    assert.equal(sessions.state, "onboarding_role");
+    assert.equal(sessions.payload.onboardingFirstName, "Олена");
+    assert.equal(sessions.payload.onboardingLastName, "Коваленко");
+    assert.ok(sent.some((s) => /лікар чи технік/i.test(s.text)));
+
+    await service.handleClientTurn({
+      parsed: parsed({ text: "onb:role:doctor", isCallback: true }),
+      conversationId: "conv1",
+      contactId: null,
+      leadId: "lead-1",
+      callbackQueryId: "cb-role",
+    });
+    assert.equal(sessions.state, "onboarding_region");
+    assert.equal(sessions.payload.onboardingClientType, "Врач");
+    assert.ok(sent.some((s) => /Оберіть область/i.test(s.text)));
+
+    // Київська is index 9 in UKRAINE_REGIONS
+    await service.handleClientTurn({
+      parsed: parsed({ text: "onb:reg:9", isCallback: true }),
+      conversationId: "conv1",
+      contactId: null,
+      leadId: "lead-1",
+      callbackQueryId: "cb-reg",
+    });
+    assert.equal(sessions.state, "idle");
+    assert.equal(contactCreates.length, 1);
+    assert.equal(contactCreates[0]?.firstName, "Олена");
+    assert.equal(contactCreates[0]?.lastName, "Коваленко");
+    assert.equal(contactCreates[0]?.clientType, "Врач");
+    assert.equal(contactCreates[0]?.region, "Київська");
+    assert.equal(contactCreates[0]?.ownerId, "mgr-kyiv");
+    assert.equal(contactCreates[0]?.companyId, "company-1");
+    assert.ok(accountUpdates.some((u) => u?.data?.contactId === "contact-new"));
+    assert.ok(sent.some((s) => /Готово/i.test(s.text)));
   });
 
   it("uses the CRM contact phone and does not ask a linked client to share", async () => {
