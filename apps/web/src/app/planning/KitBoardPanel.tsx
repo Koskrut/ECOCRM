@@ -475,6 +475,14 @@ export function KitBoardPanel() {
             {t.salesHint(board.lookbackMonths)}
           </span>
         ) : null}
+        {board && (board.productionLeadDays ?? 0) > 0 ? (
+          <span className="rounded-full bg-amber-50 px-3 py-1 text-xs text-amber-950">
+            {t.produceLeadHint(
+              board.coverMonths,
+              Math.round(((board.productionLeadDays ?? 0) / 30) * 10) / 10,
+            )}
+          </span>
+        ) : null}
         {mainTab === "board" ? (
           <>
             <button
@@ -841,6 +849,11 @@ function BoardRow({
               {t.inRequest(alreadyInRequest)}
             </span>
           ) : null}
+          {(row.inProduction ?? 0) > 0 ? (
+            <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-900">
+              {t.inProduction(row.inProduction ?? 0)}
+            </span>
+          ) : null}
         </div>
         <span className="mt-0.5 block text-xs text-zinc-500">{row.name}</span>
         {row.system ? (
@@ -875,6 +888,11 @@ function BoardRow({
                 <span className="mt-0.5 block text-[11px] text-zinc-500">
                   {partStockLine(part, warehouseName, packWarehouseIds)}
                 </span>
+                {(part.inProduction ?? 0) > 0 ? (
+                  <span className="mt-0.5 block text-[11px] font-medium text-amber-800">
+                    {t.inProduction(part.inProduction ?? 0)}
+                  </span>
+                ) : null}
               </li>
             ))}
           </ul>
@@ -943,6 +961,11 @@ function BoardRow({
         )}
       </td>
       <td className="px-3 py-2">
+        {(row.inProduction ?? 0) > 0 ? (
+          <span className="mb-1 block text-[11px] font-medium text-amber-800">
+            {t.inProduction(row.inProduction ?? 0)}
+          </span>
+        ) : null}
         <QtyAction
           id={produceId}
           active={activeQty === produceId}
@@ -1052,6 +1075,11 @@ function ConfirmDialog({
         {isPack && (pending.row.alreadyInRequest ?? 0) > 0 ? (
           <p className="mt-1 text-xs font-medium text-cyan-800">
             {t.confirmAlreadyInRequest(pending.row.alreadyInRequest ?? 0)}
+          </p>
+        ) : null}
+        {!isPack && (pending.row.inProduction ?? 0) > 0 ? (
+          <p className="mt-1 text-xs font-medium text-amber-800">
+            {t.confirmAlreadyInProduction(pending.row.inProduction ?? 0)}
           </p>
         ) : null}
         {partsHint ? <p className="mt-1 text-xs text-zinc-500">{partsHint}</p> : null}

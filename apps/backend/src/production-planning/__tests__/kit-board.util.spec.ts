@@ -257,6 +257,101 @@ test("toProduce is the gap after packing what parts can cover", () => {
   assert.equal(rows[0]?.qtyStockTotal, 4);
   assert.equal(rows[0]?.toPack, 8);
   assert.equal(rows[0]?.toProduce, 18);
+  assert.equal(rows[0]?.inProduction, 0);
+});
+
+test("open factory order shows on the board and reduces production", () => {
+  const bolt = {
+    productId: "bolt",
+    sku: "BOLT",
+    name: "Bolt",
+    qtyPerKit: 2,
+    scrapPct: 0,
+    constrains: true,
+    qtyByWarehouse: { pf: 8, gp: 0 },
+  };
+  const plate = {
+    productId: "plate",
+    sku: "PLATE",
+    name: "Plate",
+    qtyPerKit: 1,
+    scrapPct: 0,
+    constrains: true,
+    qtyByWarehouse: { pf: 8, gp: 0 },
+  };
+  const rows = buildKitBoard({
+    coverMonths: 3,
+    monthKeys,
+    warehouses,
+    alreadyInFactoryByPart: { bolt: 20, plate: 10 },
+    kits: [
+      {
+        productId: "kit",
+        sku: "K1",
+        name: "Kit",
+        qtyByWarehouse: { s44: 4 },
+        avgMonthlySold: 10,
+        revenue: 1000,
+        monthlySold: flatMonthly(10),
+        system: "Straumann RC",
+        category: "Абатмент",
+        parts: [bolt, plate],
+      },
+    ],
+  });
+  // need 26, shelf builds min(8/2, 8/1) = 4, factory covers min(20/2, 10/1) = 10 → produce 12
+  assert.equal(rows[0]?.canAssemble, 4);
+  assert.equal(rows[0]?.inProduction, 10);
+  assert.equal(rows[0]?.toProduce, 12);
+  const bySku = new Map(rows[0]?.parts.map((part) => [part.sku, part]));
+  assert.equal(bySku.get("BOLT")?.inProduction, 20);
+  assert.equal(bySku.get("PLATE")?.inProduction, 10);
+});
+
+test("a factory order for one shared part does not mark the whole kit in production", () => {
+  const bolt = {
+    productId: "bolt",
+    sku: "BOLT",
+    name: "Bolt",
+    qtyPerKit: 1,
+    scrapPct: 0,
+    constrains: true,
+    qtyByWarehouse: { pf: 0, gp: 0 },
+  };
+  const plate = {
+    productId: "plate",
+    sku: "PLATE",
+    name: "Plate",
+    qtyPerKit: 1,
+    scrapPct: 0,
+    constrains: true,
+    qtyByWarehouse: { pf: 0, gp: 0 },
+  };
+  const rows = buildKitBoard({
+    coverMonths: 1,
+    monthKeys,
+    warehouses,
+    alreadyInFactoryByPart: { bolt: 40 },
+    kits: [
+      {
+        productId: "kit",
+        sku: "K1",
+        name: "Kit",
+        qtyByWarehouse: { s44: 0 },
+        avgMonthlySold: 10,
+        revenue: 1000,
+        monthlySold: flatMonthly(10),
+        system: "Straumann RC",
+        category: "Абатмент",
+        parts: [bolt, plate],
+      },
+    ],
+  });
+  assert.equal(rows[0]?.need, 10);
+  assert.equal(rows[0]?.inProduction, 0);
+  assert.equal(rows[0]?.toProduce, 10);
+  const boltRow = rows[0]?.parts.find((part) => part.sku === "BOLT");
+  assert.equal(boltRow?.inProduction, 40);
 });
 
 test("stock covering 3 months leaves pack and produce at zero", () => {
@@ -697,6 +792,61 @@ test("shelf stock reduces production even when an open request reserved the pool
   assert.equal(row?.canAssembleRemaining, 0);
   assert.equal(row?.toPack, 0);
   assert.equal(row?.toProduce, 28);
+});
+
+test("production adds sales during the factory lead on top of the 3-month shelf", () => {
+  const screw = {
+    productId: "screw",
+    sku: "ST-BLX-SF",
+    name: "Screw",
+    qtyPerKit: 1,
+    scrapPct: 0,
+    constrains: true,
+    qtyByWarehouse: { pf: 61, gp: 55 },
+  };
+  const kit = {
+    productId: "kit-07040",
+    sku: "07.040",
+    name: "Platform",
+    qtyByWarehouse: { s44: 30 },
+    avgMonthlySold: 58,
+    revenue: 500,
+    monthlySold: flatMonthly(58),
+    system: "Straumann BLX",
+    category: "Платформа",
+    parts: [screw],
+  };
+  const board = (productionLeadDays: number) =>
+    buildKitBoard({
+      coverMonths: 3,
+      monthKeys,
+      warehouses,
+      productionLeadDays,
+      kits: [kit],
+    })[0];
+
+  // Shelf 30+116=146. 3-month target 174. Lead 60d = 2 mo of sales (116) → 144.
+  assert.equal(board(60)?.toProduce, 144);
+  // Lead 90d = 3 mo of sales (174) → 202. Pack column stays the shelf gap.
+  assert.equal(board(90)?.toProduce, 202);
+  assert.equal(board(90)?.need, 144);
+  assert.equal(board(90)?.toPack, 116);
+
+  const covered = buildKitBoard({
+    coverMonths: 3,
+    monthKeys,
+    warehouses,
+    productionLeadDays: 90,
+    kits: [
+      {
+        ...kit,
+        productId: "kit-full",
+        sku: "FULL",
+        qtyByWarehouse: { s44: 1000 },
+      },
+    ],
+  });
+  assert.equal(covered[0]?.toProduce, 0);
 });
 
 test("a higher-need kit does not reduce another kit's pack qty", () => {

@@ -756,6 +756,8 @@ export const en = {
       snapshot: "1C stock",
       noSnapshot: "No published 1C stock",
       salesHint: (months: number) => `CRM sales, avg over ${months} mo · cover ${months} mo`,
+      produceLeadHint: (shelfMonths: number, leadMonths: number) =>
+        `Production: ${shelfMonths} mo on the shelf + sales over the ${leadMonths} mo factory lead.`,
       cover: "Keep stock for",
       monthShort: (n: number) => (n === 1 ? "1 month" : `${n} months`),
       search: "Search kit or part…",
@@ -800,6 +802,7 @@ export const en = {
       fromParts: (n: number) => `+${n} from parts`,
       waiting: (n: number) => `${n} orders waiting`,
       inRequest: (n: number) => `Already in this week's list: ${n}`,
+      inProduction: (n: number) => `in production ${n}`,
       pack: (n: number) => `Pack ${n}`,
       packCount: (n: number) => (n === 1 ? "1 kit to pack" : `${n} kits to pack`),
       attentionCount: (n: number) =>
@@ -858,6 +861,7 @@ export const en = {
       requestsTitle: "Requests",
       confirmPackTitle: "Add to packing request",
       confirmAlreadyInRequest: (n: number) => `Already on the packing request: ${n}`,
+      confirmAlreadyInProduction: (n: number) => `Already in production: ${n}`,
       confirmProduceTitle: "Add to factory request (parts)",
       confirmProduceParts: (skus: string) => `Factory lines will use parts: ${skus}`,
       confirmQtyLabel: "Kit quantity",

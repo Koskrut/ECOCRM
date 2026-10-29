@@ -1,5 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import {
+  FactoryOrderStatus,
   InventorySnapshotStatus,
   OrderStage,
   PackingListStatus,
@@ -65,6 +66,8 @@ export type KitBoardView = {
   coverMonths: number;
   lookbackMonths: number;
   classLookbackMonths: number;
+  /** Factory lead used for the production column, in days. */
+  productionLeadDays: number;
   snapshotPostedAt: string | null;
   warehouses: KitBoardWarehouse[];
   /** 44 + Suprex — kit leftover / Увага. */
@@ -91,7 +94,7 @@ export class KitBoardService {
     const monthKeys = recentYearMonthKeys(new Date(), classLookbackMonths);
 
     const cycleStart = packCycleStartUtc();
-    const [posted, kits, rates, packingLists, planningCfg] = await Promise.all([
+    const [posted, kits, rates, packingLists, planningCfg, factoryLines] = await Promise.all([
       this.prisma.inventorySnapshot.findFirst({
         where: { status: InventorySnapshotStatus.POSTED },
         orderBy: { postedAt: "desc" },
@@ -111,6 +114,16 @@ export class KitBoardService {
         },
       }),
       this.planningSettings.getSettings(),
+      this.prisma.factoryOrderLine.findMany({
+        where: {
+          factoryOrder: {
+            status: {
+              in: [FactoryOrderStatus.DRAFT, FactoryOrderStatus.OPEN, FactoryOrderStatus.PARTIAL],
+            },
+          },
+        },
+        select: { partProductId: true, qtyOrdered: true, qtyReceived: true },
+      }),
     ]);
 
     const kitIds = kits.map((kit) => kit.id);
@@ -276,12 +289,24 @@ export class KitBoardService {
         ? "APPROVED"
         : null;
 
+    const inFactoryByPart = new Map<string, number>();
+    for (const line of factoryLines) {
+      const outstanding = Math.max(0, line.qtyOrdered - line.qtyReceived);
+      if (outstanding <= 0) continue;
+      inFactoryByPart.set(
+        line.partProductId,
+        (inFactoryByPart.get(line.partProductId) ?? 0) + outstanding,
+      );
+    }
+
     const baseRows = buildKitBoard({
       warehouses,
       kits: boardKits,
       coverMonths,
       monthKeys,
       alreadyInRequestByKit: alreadyByKit,
+      alreadyInFactoryByPart: inFactoryByPart,
+      productionLeadDays: planningCfg.factoryLeadTimeDays,
     });
 
     const rows: KitBoardViewRow[] = baseRows.map((row) => ({
@@ -293,6 +318,7 @@ export class KitBoardService {
       coverMonths,
       lookbackMonths,
       classLookbackMonths,
+      productionLeadDays: planningCfg.factoryLeadTimeDays,
       snapshotPostedAt: posted?.postedAt?.toISOString() ?? null,
       warehouses,
       stockWarehouses: filterKitStockWarehouses(warehouses),

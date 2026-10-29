@@ -769,6 +769,8 @@ export type KitBoardPartRow = {
   qtyTotal: number;
   paretoClass: KitBoardParetoClass;
   xyzClass: KitBoardXyzClass | null;
+  /** Outstanding factory qty for this part. */
+  inProduction?: number;
 };
 
 export type KitBoardRow = {
@@ -788,6 +790,8 @@ export type KitBoardRow = {
   toPack: number;
   toPackWarehouseId: string | null;
   toProduce: number;
+  /** Kits already covered by an open factory order. */
+  inProduction?: number;
   tone: KitBoardTone;
   paretoClass: KitBoardParetoClass;
   xyzClass: KitBoardXyzClass | null;
@@ -810,6 +814,7 @@ export type KitBoardView = {
   coverMonths: number;
   lookbackMonths: number;
   classLookbackMonths?: number;
+  productionLeadDays?: number;
   snapshotPostedAt: string | null;
   warehouses: Array<{ id: string; name: string }>;
   stockWarehouses?: Array<{ id: string; name: string }>;

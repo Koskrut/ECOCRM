@@ -241,6 +241,8 @@ export type KitBoardPartRow = {
   qtyTotal: number;
   paretoClass: ParetoClass;
   xyzClass: XyzClass | null;
+  /** Outstanding factory-order qty for this part (draft + sent, not yet received). */
+  inProduction: number;
 };
 
 export type KitBoardRow = {
@@ -269,9 +271,17 @@ export type KitBoardRow = {
   toPack: number;
   /** {@link KIT_BOARD_PACK_POOL_ID} when toPack > 0. */
   toPackWarehouseId: string | null;
-  /** Gap that cannot be closed by packing parts already on hand. */
+  /**
+   * Kits to send to the factory: 3-month shelf target plus sales during the
+   * factory lead, minus finished stock, parts on 39/40, and open factory qty.
+   */
   toProduce: number;
-  /** Qty already on the open packing list; need/toPack/toProduce are net of this. */
+  /**
+   * Kits already covered by an open factory order: every constraining part has
+   * outstanding qty, and this is the smallest number of kits those qty cover.
+   */
+  inProduction: number;
+  /** Qty already on the open packing list; need/toPack are net of this. */
   alreadyInRequest: number;
   tone: KitBoardTone;
   paretoClass: ParetoClass;
@@ -291,6 +301,37 @@ function sumQty(qtyByWarehouse: Record<string, number>): number {
 
 function effectivePerKit(qtyPerKit: number, scrapPct: number): number {
   return Math.max(0, qtyPerKit) * (1 + Math.max(0, scrapPct) / 100);
+}
+
+function openFactoryQty(
+  map: Map<string, number> | Record<string, number> | undefined,
+  productId: string,
+): number {
+  if (!map) return 0;
+  const raw = map instanceof Map ? map.get(productId) : map[productId];
+  return Math.max(0, Math.floor(raw ?? 0));
+}
+
+/**
+ * How many kits an open factory order already covers.
+ * Every constraining part must have outstanding qty; shared parts do not
+ * count as a kit order until the rest of the BOM is on an order too.
+ */
+export function kitsInProduction(
+  parts: Array<{ productId: string; qtyPerKit: number; scrapPct: number; constrains: boolean }>,
+  openByPart: Map<string, number> | Record<string, number> | undefined,
+): number {
+  const constraining = parts.filter((part) => part.constrains);
+  if (constraining.length === 0) return 0;
+  let min = Number.POSITIVE_INFINITY;
+  for (const part of constraining) {
+    const per = effectivePerKit(part.qtyPerKit, part.scrapPct);
+    if (!(per > 0)) return 0;
+    const open = openFactoryQty(openByPart, part.productId);
+    if (open <= 0) return 0;
+    min = Math.min(min, Math.floor(open / per));
+  }
+  return Number.isFinite(min) ? Math.max(0, min) : 0;
 }
 
 function partQty(
@@ -526,8 +567,16 @@ export function buildKitBoard(input: {
   monthKeys?: string[];
   /** Open packing-list qty by kit — reserved from the pack pool before allocating toPack. */
   alreadyInRequestByKit?: Map<string, number> | Record<string, number>;
+  /**
+   * Outstanding factory qty by part (DRAFT + OPEN + PARTIAL, ordered − received).
+   * CLOSED and CANCELLED orders are omitted.
+   */
+  alreadyInFactoryByPart?: Map<string, number> | Record<string, number>;
+  /** Factory lead time. 0 keeps production equal to the shelf gap only. */
+  productionLeadDays?: number;
 }): KitBoardRow[] {
   const coverMonths = Math.max(0, input.coverMonths ?? KIT_BOARD_COVER_MONTHS);
+  const leadMonths = Math.max(0, input.productionLeadDays ?? 0) / 30;
   const monthKeys = input.monthKeys ?? recentYearMonthKeys(new Date(), KIT_BOARD_CLASS_LOOKBACK_MONTHS);
   const kitClass = classifyKits(input.kits, monthKeys);
   const partClass = classifyParts(input.kits, monthKeys);
@@ -544,14 +593,12 @@ export function buildKitBoard(input: {
 
   const ranked = input.kits.map((kit) => {
     // Cover / Увага: kits on 44 + Suprex. Pack capacity uses 39/40 ABM separately.
-    const rawNeed = kitNeed(
-      kit.avgMonthlySold,
-      sumQtyOnWarehouses(kit.qtyByWarehouse, stockWarehouseIds),
-      coverMonths,
-    );
+    const kitStock = sumQtyOnWarehouses(kit.qtyByWarehouse, stockWarehouseIds);
+    const rawNeed = kitNeed(kit.avgMonthlySold, kitStock, coverMonths);
     const alreadyInRequest = alreadyOf(kit.productId);
     return {
       kit,
+      kitStock,
       rawNeed,
       alreadyInRequest,
       // Remaining gap after qty still open on the current draft and any approved list.
@@ -576,7 +623,7 @@ export function buildKitBoard(input: {
 
   const rows: KitBoardRow[] = [];
 
-  for (const { kit, need, alreadyInRequest } of ranked) {
+  for (const { kit, kitStock, need, alreadyInRequest } of ranked) {
     const physical = packPoolCapacity(kit.parts, packWarehouses, null);
     const remainingBuild = packPoolCapacity(kit.parts, packWarehouses, remaining);
     // Sales gap is the usual recommendation. No CRM sales still packs from
@@ -586,10 +633,17 @@ export function buildKitBoard(input: {
         ? Math.min(need, remainingBuild.qty)
         : remainingBuild.qty;
     const toPackWarehouseId = toPack > 0 ? KIT_BOARD_PACK_POOL_ID : null;
-    // Shelf stock on 39/40 covers the gap. An open request may reserve those
-    // parts for packing (toPack), but that must not turn the same parts into
-    // a production order.
-    const toProduce = Math.max(0, need - physical.qty);
+    // Packing stays on the 3-month shelf gap. Production also covers sales
+    // during the factory lead: parts ordered today arrive only after that wait.
+    // Finished kits + parts on 39/40 already count; a surplus above the target
+    // reduces the order. Open factory qty is not ordered again.
+    const inProduction = kitsInProduction(kit.parts, input.alreadyInFactoryByPart);
+    const produceTarget =
+      kit.avgMonthlySold > 0
+        ? Math.ceil(kit.avgMonthlySold * (coverMonths + leadMonths))
+        : 0;
+    const supply = kitStock + physical.qty + inProduction;
+    const toProduce = Math.max(0, produceTarget - supply);
     const cls = kitClass.get(kit.productId) ?? { paretoClass: "C" as const, xyzClass: null };
 
     const parts = sortParts(
@@ -608,6 +662,7 @@ export function buildKitBoard(input: {
           qtyTotal: sumQty(part.qtyByWarehouse),
           paretoClass: pCls.paretoClass,
           xyzClass: pCls.xyzClass,
+          inProduction: openFactoryQty(input.alreadyInFactoryByPart, part.productId),
         };
       }),
     );
@@ -628,6 +683,7 @@ export function buildKitBoard(input: {
       toPack,
       toPackWarehouseId,
       toProduce,
+      inProduction,
       alreadyInRequest,
       tone: toneFor({
         avgMonthlySold: kit.avgMonthlySold,

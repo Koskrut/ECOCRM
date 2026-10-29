@@ -758,6 +758,8 @@ export const uk = {
       snapshot: "Залишки 1С",
       noSnapshot: "Немає опублікованих залишків 1С",
       salesHint: (months: number) => `Продажі CRM, середнє за ${months} міс. · запас на ${months} міс.`,
+      produceLeadHint: (shelfMonths: number, leadMonths: number) =>
+        `У виробництво: полиця ${shelfMonths} міс. + продажі за строк заводу ${leadMonths} міс.`,
       cover: "Тримати запас",
       monthShort: (n: number) => (n === 1 ? "1 місяць" : `${n} міс.`),
       search: "Пошук комплекту або деталі…",
@@ -802,6 +804,7 @@ export const uk = {
       fromParts: (n: number) => `+${n} з деталей`,
       waiting: (n: number) => `чекає ${n} замовлень`,
       inRequest: (n: number) => `в заявці ${n}`,
+      inProduction: (n: number) => `у виробництві ${n}`,
       pack: (n: number) => `Напакувати ${n}`,
       packCount: (n: number) =>
         n === 1 ? "1 комплект у роботу" : `${n} комплектів у роботу`,
@@ -861,6 +864,7 @@ export const uk = {
       requestsTitle: "Список заявок",
       confirmPackTitle: "Додати в заявку на упаковку",
       confirmAlreadyInRequest: (n: number) => `Уже в заявці на упаковку: ${n}`,
+      confirmAlreadyInProduction: (n: number) => `Уже у виробництві: ${n}`,
       confirmProduceTitle: "Додати в заявку на виробництво (деталі)",
       confirmProduceParts: (skus: string) => `У завод підуть деталі: ${skus}`,
       confirmQtyLabel: "Кількість комплектів",
