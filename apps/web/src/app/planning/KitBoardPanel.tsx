@@ -100,6 +100,11 @@ async function ensurePackingDraft() {
   return planningApi.getPackingList(list.id);
 }
 
+function roundUpToTen(qty: number): number {
+  if (!(qty > 0)) return 0;
+  return Math.ceil(qty / 10) * 10;
+}
+
 async function addKitToPackingRequest(kitProductId: string, qty: number) {
   const list = await ensurePackingDraft();
   const already =
@@ -315,11 +320,12 @@ export function KitBoardPanel() {
 
   const submitRequest = async () => {
     if (!pending) return;
-    const qty = Math.floor(Number(confirmQty));
-    if (!Number.isFinite(qty) || qty <= 0) {
+    const entered = Math.floor(Number(confirmQty));
+    if (!Number.isFinite(entered) || entered <= 0) {
       setError(t.qtyInvalid);
       return;
     }
+    const qty = pending.kind === "produce" ? roundUpToTen(entered) : entered;
     // Over board-plan qty is allowed after the dialog warning (sales-cover horizon).
     setSubmitting(true);
     setError(null);
@@ -966,22 +972,41 @@ function BoardRow({
             {t.inProduction(row.inProduction ?? 0)}
           </span>
         ) : null}
-        <QtyAction
-          id={produceId}
-          active={activeQty === produceId}
-          qty={row.toProduce}
-          label=""
-          accentClass="text-amber-900"
-          onSelect={() => onSelectQty(activeQty === produceId ? null : produceId)}
-          onAdd={() =>
-            onAdd({
-              kind: "produce",
-              row,
-              defaultQty: row.toProduce,
-              source: "produce",
-            })
-          }
-        />
+        {row.toProduce > 0 ? (
+          <QtyAction
+            id={produceId}
+            active={activeQty === produceId}
+            qty={row.toProduce}
+            label=""
+            accentClass="text-amber-900"
+            onSelect={() => onSelectQty(activeQty === produceId ? null : produceId)}
+            onAdd={() =>
+              onAdd({
+                kind: "produce",
+                row,
+                defaultQty: row.toProduce,
+                source: "produce",
+              })
+            }
+          />
+        ) : noSales && row.parts.some((part) => part.constrains && part.qtyPerKit > 0) ? (
+          <button
+            type="button"
+            className="text-xs font-medium text-amber-900 underline decoration-amber-900/40 underline-offset-2 hover:decoration-amber-900"
+            onClick={() =>
+              onAdd({
+                kind: "produce",
+                row,
+                defaultQty: 10,
+                source: "produce",
+              })
+            }
+          >
+            {t.addProduceWithoutSales}
+          </button>
+        ) : (
+          <span className="text-zinc-400">—</span>
+        )}
       </td>
     </tr>
   );

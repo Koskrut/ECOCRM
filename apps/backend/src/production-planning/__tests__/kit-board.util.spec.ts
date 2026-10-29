@@ -252,11 +252,11 @@ test("toProduce is the gap after packing what parts can cover", () => {
       },
     ],
   });
-  // need = ceil(10*3 - 4) = 26; can assemble 8 → pack 8, produce 18
+  // need = ceil(10*3 - 4) = 26; can assemble 8 → pack 8, produce 18, rounded to 20
   assert.equal(rows[0]?.need, 26);
   assert.equal(rows[0]?.qtyStockTotal, 4);
   assert.equal(rows[0]?.toPack, 8);
-  assert.equal(rows[0]?.toProduce, 18);
+  assert.equal(rows[0]?.toProduce, 20);
   assert.equal(rows[0]?.inProduction, 0);
 });
 
@@ -299,10 +299,10 @@ test("open factory order shows on the board and reduces production", () => {
       },
     ],
   });
-  // need 26, shelf builds min(8/2, 8/1) = 4, factory covers min(20/2, 10/1) = 10 → produce 12
+  // need 26, shelf builds min(8/2, 8/1) = 4, factory covers 10 → produce 12, rounded to 20
   assert.equal(rows[0]?.canAssemble, 4);
   assert.equal(rows[0]?.inProduction, 10);
-  assert.equal(rows[0]?.toProduce, 12);
+  assert.equal(rows[0]?.toProduce, 20);
   const bySku = new Map(rows[0]?.parts.map((part) => [part.sku, part]));
   assert.equal(bySku.get("BOLT")?.inProduction, 20);
   assert.equal(bySku.get("PLATE")?.inProduction, 10);
@@ -791,7 +791,7 @@ test("shelf stock reduces production even when an open request reserved the pool
   assert.equal(row?.canAssemble, 116);
   assert.equal(row?.canAssembleRemaining, 0);
   assert.equal(row?.toPack, 0);
-  assert.equal(row?.toProduce, 28);
+  assert.equal(row?.toProduce, 30);
 });
 
 test("production adds sales during the factory lead on top of the 3-month shelf", () => {
@@ -825,10 +825,10 @@ test("production adds sales during the factory lead on top of the 3-month shelf"
       kits: [kit],
     })[0];
 
-  // Shelf 30+116=146. 3-month target 174. Lead 60d = 2 mo of sales (116) → 144.
-  assert.equal(board(60)?.toProduce, 144);
-  // Lead 90d = 3 mo of sales (174) → 202. Pack column stays the shelf gap.
-  assert.equal(board(90)?.toProduce, 202);
+  // Shelf 30+116=146. 3-month target 174. Lead 60d = 2 mo of sales (116) → 144, rounded to 150.
+  assert.equal(board(60)?.toProduce, 150);
+  // Lead 90d = 3 mo of sales (174) → 202, rounded up to 210. Pack column stays the shelf gap.
+  assert.equal(board(90)?.toProduce, 210);
   assert.equal(board(90)?.need, 144);
   assert.equal(board(90)?.toPack, 116);
 

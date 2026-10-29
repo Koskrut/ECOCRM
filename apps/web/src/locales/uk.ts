@@ -831,6 +831,7 @@ export const uk = {
       colCan: "Можна зібрати",
       colPack: "Упакувати",
       colProduce: "У виробництво",
+      addProduceWithoutSales: "Додати",
       packBetter: "краще",
       packCan: "можна",
       packCanPhysical: (n: number) => `фізично на одному складі: ${n}`,

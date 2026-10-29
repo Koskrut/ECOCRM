@@ -299,6 +299,14 @@ function sumQty(qtyByWarehouse: Record<string, number>): number {
   return total;
 }
 
+/** Round a positive qty up to a step. Zero stays zero. */
+export function roundUpToStep(qty: number, step: number): number {
+  const value = Math.max(0, Math.floor(qty));
+  const size = Math.max(1, Math.floor(step));
+  if (value === 0) return 0;
+  return Math.ceil(value / size) * size;
+}
+
 function effectivePerKit(qtyPerKit: number, scrapPct: number): number {
   return Math.max(0, qtyPerKit) * (1 + Math.max(0, scrapPct) / 100);
 }
@@ -643,7 +651,7 @@ export function buildKitBoard(input: {
         ? Math.ceil(kit.avgMonthlySold * (coverMonths + leadMonths))
         : 0;
     const supply = kitStock + physical.qty + inProduction;
-    const toProduce = Math.max(0, produceTarget - supply);
+    const toProduce = roundUpToStep(Math.max(0, produceTarget - supply), 10);
     const cls = kitClass.get(kit.productId) ?? { paretoClass: "C" as const, xyzClass: null };
 
     const parts = sortParts(

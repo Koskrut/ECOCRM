@@ -828,6 +828,7 @@ export const en = {
       colCan: "Can assemble",
       colPack: "Pack",
       colProduce: "Produce",
+      addProduceWithoutSales: "Add",
       packBetter: "better",
       packCan: "can pack",
       packCanPhysical: (n: number) => `physical on one warehouse: ${n}`,
