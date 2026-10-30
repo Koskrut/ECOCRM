@@ -131,7 +131,10 @@ const MONTHS_UK = [
   "грудня",
 ] as const;
 
-/** Numbers/dates for PDF header — from Google Sheet / 1C push fields on Order. */
+/**
+ * Numbers/dates for PDF header — only from Google Sheet / 1C push fields on Order.
+ * Do NOT fall back to CRM orderNumber: 1C writes invoice/waybill numbers asynchronously.
+ */
 export function documentHeaderFromOrder(order: {
   orderNumber: string;
   createdAt: Date | string | null;
@@ -147,13 +150,20 @@ export function documentHeaderFromOrder(order: {
   waybillNumber: string;
   waybillDate: string;
 } {
+  const invoiceNumber = order.invoiceNumber?.trim() || "";
+  const waybillNumber = order.waybillNumber?.trim() || "";
   return {
     orderNumber: order.orderNumber,
     orderDate: formatUaDateLong(order.createdAt) || "—",
-    invoiceNumber: order.invoiceNumber?.trim() || order.orderNumber,
-    invoiceDate: formatUaDateLong(order.invoiceDate ?? order.createdAt) || "—",
-    waybillNumber: order.waybillNumber?.trim() || order.orderNumber,
-    waybillDate: formatUaDateLong(order.waybillDate ?? order.createdAt) || "—",
+    invoiceNumber: invoiceNumber || "—",
+    // Date only from 1C when the matching document number exists.
+    invoiceDate: invoiceNumber
+      ? formatUaDateLong(order.invoiceDate) || "—"
+      : "—",
+    waybillNumber: waybillNumber || "—",
+    waybillDate: waybillNumber
+      ? formatUaDateLong(order.waybillDate) || "—"
+      : "—",
   };
 }
 

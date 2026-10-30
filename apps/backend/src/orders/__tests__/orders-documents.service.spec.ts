@@ -85,7 +85,7 @@ test("documentHeaderFromOrder uses Google Sheet / 1C fields on the order", () =>
   assert.match(header.waybillDate, /березня 2026/);
 });
 
-test("documentHeaderFromOrder falls back to orderNumber/createdAt when sheet push missing", () => {
+test("documentHeaderFromOrder does not use orderNumber when 1C sheet push missing", () => {
   const header = documentHeaderFromOrder({
     orderNumber: "ORD-1",
     createdAt: new Date(2026, 0, 1),
@@ -94,10 +94,11 @@ test("documentHeaderFromOrder falls back to orderNumber/createdAt when sheet pus
     waybillNumber: null,
     waybillDate: null,
   });
-  assert.equal(header.invoiceNumber, "ORD-1");
-  assert.equal(header.waybillNumber, "ORD-1");
-  assert.equal(header.invoiceDate, "1 січня 2026");
-  assert.equal(header.waybillDate, "1 січня 2026");
+  assert.equal(header.invoiceNumber, "—");
+  assert.equal(header.waybillNumber, "—");
+  assert.equal(header.invoiceDate, "—");
+  assert.equal(header.waybillDate, "—");
+  assert.equal(header.orderNumber, "ORD-1");
 });
 
 function sampleOrder(overrides: Record<string, unknown> = {}) {
