@@ -8,10 +8,15 @@ import {
   Optional,
   ServiceUnavailableException,
 } from "@nestjs/common";
-import { ConversationChannel, ConversationStatus, MessageDirection } from "@prisma/client";
-import { LeadSource } from "@prisma/client";
-import { LeadStatus } from "@prisma/client";
-import { Prisma } from "@prisma/client";
+import {
+  ConversationChannel,
+  ConversationStatus,
+  LeadSource,
+  LeadStatus,
+  MessageDirection,
+  Prisma,
+  UserRole,
+} from "@prisma/client";
 import { AuthService } from "../../auth/auth.service";
 import { getPhoneCandidatesForLookup, getPhoneNormalizedDigits } from "../../common/phone.utils";
 import { PhoneEntityLookupService } from "../../common/phone-entity-lookup.service";
@@ -263,6 +268,17 @@ export class TelegramService {
             parsed.userId,
             parsed.chatId,
           );
+          // Keep Telegram profile for naming; do not treat staff as a shop client.
+          await this.upsertTelegramAccount({
+            telegramUserId: parsed.userId,
+            telegramChatId: parsed.chatId,
+            username: parsed.username,
+            firstName: parsed.firstName,
+            lastName: parsed.lastName,
+            middleName: null,
+            phone: parsed.phone,
+            lastMessageAt: new Date(),
+          });
           await this.sendMessageToChat(
             parsed.chatId,
             `Telegram прив'язано до акаунта CRM (${email}).\n\nСюди приходитимуть сповіщення (налаштування — у CRM → Сповіщення).\nДокументи PDF:\n• /client — клієнт → замовлення → собі або клієнту\n• /docs <номер замовлення>\nТакож можна входити через Telegram і отримувати коди скидання пароля.`,
@@ -271,6 +287,38 @@ export class TelegramService {
           await this.sendMessageToChat(
             parsed.chatId,
             "Недійсне або прострочене посилання. Запитайте нове в налаштуваннях CRM (Налаштування → підключити Telegram).",
+          );
+        }
+        succeeded = true;
+        return;
+      }
+
+      // Linked staff: keep profile fresh, never enter the client shop / inbox pipeline.
+      const linkedStaff = await this.prisma.user.findFirst({
+        where: {
+          isActive: true,
+          role: { in: [UserRole.ADMIN, UserRole.LEAD, UserRole.MANAGER] },
+          OR: [{ telegramUserId: parsed.userId }, { telegramChatId: parsed.chatId }],
+        },
+        select: { id: true, fullName: true, email: true },
+      });
+      if (linkedStaff) {
+        await this.upsertTelegramAccount({
+          telegramUserId: parsed.userId,
+          telegramChatId: parsed.chatId,
+          username: parsed.username,
+          firstName: parsed.firstName,
+          lastName: parsed.lastName,
+          middleName: null,
+          phone: parsed.phone,
+          lastMessageAt: new Date(),
+        });
+        const text = parsed.text?.trim() ?? "";
+        if (text && !parsed.isCallback && !text.startsWith("/")) {
+          await this.sendMessageToChat(
+            parsed.chatId,
+            `Ви в акаунті співробітника CRM (${linkedStaff.fullName || linkedStaff.email}).\n` +
+              `Команди: /client — документи клієнта, /docs <номер> — PDF замовлення.`,
           );
         }
         succeeded = true;

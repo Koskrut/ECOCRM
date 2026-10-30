@@ -13,6 +13,7 @@ import {
   formatUaQty,
   invoiceAmountUah,
   OrdersDocumentsService,
+  sanitizeDocumentNumber,
 } from "../orders-documents.service";
 
 test("resolveDocumentFontPaths finds bundled DejaVu fonts", () => {
@@ -69,6 +70,16 @@ test("buildPublicPayUrl and formatPayUrlForDisplay shorten links", () => {
   );
 });
 
+test("sanitizeDocumentNumber strips СУ and leading zeros", () => {
+  assert.equal(sanitizeDocumentNumber("СУ00000121"), "121");
+  assert.equal(sanitizeDocumentNumber("СУ-00009121"), "9121");
+  assert.equal(sanitizeDocumentNumber("00000121"), "121");
+  assert.equal(sanitizeDocumentNumber("00000"), "");
+  assert.equal(sanitizeDocumentNumber("СУ"), "");
+  assert.equal(sanitizeDocumentNumber("СУ00000"), "");
+  assert.equal(sanitizeDocumentNumber("121"), "121");
+});
+
 test("documentHeaderFromOrder uses Google Sheet / 1C fields on the order", () => {
   const header = documentHeaderFromOrder({
     orderNumber: "ORD-100",
@@ -85,13 +96,24 @@ test("documentHeaderFromOrder uses Google Sheet / 1C fields on the order", () =>
   assert.match(header.waybillDate, /березня 2026/);
 });
 
-test("documentHeaderFromOrder does not use orderNumber when 1C sheet push missing", () => {
+test("documentHeaderFromOrder cleans СУ/zeros and does not use orderNumber when missing", () => {
+  const cleaned = documentHeaderFromOrder({
+    orderNumber: "ORD-1",
+    createdAt: new Date(2026, 0, 1),
+    invoiceNumber: "СУ00000121",
+    invoiceDate: new Date(2026, 9, 12),
+    waybillNumber: "СУ00009121",
+    waybillDate: new Date(2026, 9, 12),
+  });
+  assert.equal(cleaned.invoiceNumber, "121");
+  assert.equal(cleaned.waybillNumber, "9121");
+
   const header = documentHeaderFromOrder({
     orderNumber: "ORD-1",
     createdAt: new Date(2026, 0, 1),
     invoiceNumber: null,
     invoiceDate: null,
-    waybillNumber: null,
+    waybillNumber: "00000",
     waybillDate: null,
   });
   assert.equal(header.invoiceNumber, "—");

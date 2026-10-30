@@ -15,6 +15,9 @@ describe("isNoiseCommandText", () => {
     assert.equal(isNoiseCommandText("/menu"), true);
     assert.equal(isNoiseCommandText("/catalog"), true);
     assert.equal(isNoiseCommandText("/link TOKEN"), true);
+    assert.equal(isNoiseCommandText("/client"), true);
+    assert.equal(isNoiseCommandText("/docs 121"), true);
+    assert.equal(isNoiseCommandText("/find"), true);
     assert.equal(isNoiseCommandText(""), true);
     assert.equal(isNoiseCommandText("   "), true);
   });

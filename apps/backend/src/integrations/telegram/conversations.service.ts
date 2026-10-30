@@ -25,6 +25,7 @@ import {
   countUnreadInbound,
   hideNoiseWhere,
 } from "../shared/conversation-inbox.util";
+import { formatTelegramConversationLabel } from "./telegram-conversation-label.util";
 import type { ListConversationsQueryDto } from "./dto/list-conversations-query.dto";
 import type { ListMessagesQueryDto } from "./dto/list-messages-query.dto";
 
@@ -67,6 +68,7 @@ export class ConversationsService {
       { page: 1, pageSize: 20 },
     );
 
+    const staffChatIds = await this.listStaffTelegramChatIds();
     const where: Prisma.ConversationWhereInput = {
       ...this.buildVisibilityWhere(safeActor),
     };
@@ -74,9 +76,17 @@ export class ConversationsService {
     if (q.status) where.status = q.status;
     if (q.assignedTo === "me" && safeActor.id) where.assignedToUserId = safeActor.id;
     else if (q.assignedTo && q.assignedTo !== "me") where.assignedToUserId = q.assignedTo;
-    if (q.hideNoise) {
-      where.AND = [...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []), hideNoiseWhere()];
+    const andParts: Prisma.ConversationWhereInput[] = [
+      ...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []),
+    ];
+    // Linked CRM staff chats are not client inbox threads.
+    if (staffChatIds.length > 0) {
+      andParts.push({
+        OR: [{ telegramChatId: null }, { telegramChatId: { notIn: staffChatIds } }],
+      });
     }
+    if (q.hideNoise) andParts.push(hideNoiseWhere());
+    if (andParts.length > 0) where.AND = andParts;
 
     const [items, total] = await Promise.all([
       this.prisma.conversation.findMany({
@@ -92,6 +102,7 @@ export class ConversationsService {
               lastName: true,
               middleName: true,
               phone: true,
+              documentDisplayName: true,
             },
           },
           lead: {
@@ -120,24 +131,24 @@ export class ConversationsService {
     const unreadById = await this.loadUnreadCounts(
       items.map((c) => ({ id: c.id, lastReadAt: c.lastReadAt })),
     );
+    const peerByChatId = await this.loadTelegramPeers(
+      items.map((c) => c.telegramChatId).filter(Boolean) as string[],
+    );
 
     return {
-      items: items.map((c) => ({
-        id: c.id,
-        channel: c.channel,
-        telegramChatId: c.telegramChatId,
-        contactId: c.contactId,
-        leadId: c.leadId,
-        contact: c.contact
+      items: items.map((c) => {
+        const peer = c.telegramChatId ? peerByChatId.get(c.telegramChatId) ?? null : null;
+        const contact = c.contact
           ? {
               id: c.contact.id,
               firstName: c.contact.firstName,
               lastName: c.contact.lastName,
               middleName: c.contact.middleName,
               phone: c.contact.phone,
+              documentDisplayName: c.contact.documentDisplayName,
             }
-          : null,
-        lead: c.lead
+          : null;
+        const lead = c.lead
           ? {
               id: c.lead.id,
               firstName: c.lead.firstName,
@@ -146,28 +157,87 @@ export class ConversationsService {
               fullName: c.lead.fullName,
               phone: c.lead.phone,
             }
-          : null,
-        assignedTo: c.assignedTo,
-        status: c.status,
-        pinnedAt: c.pinnedAt,
-        lastReadAt: c.lastReadAt,
-        unreadCount: unreadById.get(c.id) ?? 0,
-        lastMessageAt: c.lastMessageAt,
-        lastMessage: c.messages[0]
-          ? {
-              id: c.messages[0].id,
-              text: c.messages[0].text,
-              sentAt: c.messages[0].sentAt,
-              direction: c.messages[0].direction,
-            }
-          : null,
-        createdAt: c.createdAt,
-        updatedAt: c.updatedAt,
-      })),
+          : null;
+        return {
+          id: c.id,
+          channel: c.channel,
+          telegramChatId: c.telegramChatId,
+          contactId: c.contactId,
+          leadId: c.leadId,
+          contact,
+          lead,
+          telegramPeer: peer,
+          displayName: formatTelegramConversationLabel({
+            contact,
+            lead,
+            peer,
+            telegramChatId: c.telegramChatId,
+          }),
+          assignedTo: c.assignedTo,
+          status: c.status,
+          pinnedAt: c.pinnedAt,
+          lastReadAt: c.lastReadAt,
+          unreadCount: unreadById.get(c.id) ?? 0,
+          lastMessageAt: c.lastMessageAt,
+          lastMessage: c.messages[0]
+            ? {
+                id: c.messages[0].id,
+                text: c.messages[0].text,
+                sentAt: c.messages[0].sentAt,
+                direction: c.messages[0].direction,
+              }
+            : null,
+          createdAt: c.createdAt,
+          updatedAt: c.updatedAt,
+        };
+      }),
       total,
       page,
       pageSize,
     };
+  }
+
+  private async listStaffTelegramChatIds(): Promise<string[]> {
+    const rows = await this.prisma.user.findMany({
+      where: {
+        isActive: true,
+        telegramChatId: { not: null },
+        role: { in: [UserRole.ADMIN, UserRole.LEAD, UserRole.MANAGER] },
+      },
+      select: { telegramChatId: true },
+    });
+    return rows
+      .map((r) => r.telegramChatId)
+      .filter((id): id is string => Boolean(id));
+  }
+
+  private async loadTelegramPeers(
+    chatIds: string[],
+  ): Promise<
+    Map<string, { firstName: string | null; lastName: string | null; username: string | null }>
+  > {
+    const map = new Map<
+      string,
+      { firstName: string | null; lastName: string | null; username: string | null }
+    >();
+    if (chatIds.length === 0) return map;
+    const rows = await this.prisma.telegramAccount.findMany({
+      where: { telegramChatId: { in: [...new Set(chatIds)] } },
+      select: {
+        telegramChatId: true,
+        firstName: true,
+        lastName: true,
+        username: true,
+      },
+    });
+    for (const row of rows) {
+      map.set(row.telegramChatId, {
+        firstName: row.firstName,
+        lastName: row.lastName,
+        username: row.username,
+      });
+    }
+    return map;
   }
 
   private async loadUnreadCounts(

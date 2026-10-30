@@ -10,7 +10,11 @@ function makePrisma(overrides: Partial<Record<string, unknown>> = {}): PrismaSer
       findUnique: async () => null,
     },
     user: {
+      findFirst: async () => null,
       findMany: async () => [],
+    },
+    telegramAccount: {
+      findFirst: async () => null,
     },
     userNotification: {
       findFirst: async () => null,
@@ -109,6 +113,7 @@ describe("TelegramInboxNotifierService", () => {
         }),
       },
       user: {
+        findFirst: async () => null,
         findMany: async (args: { where: { role: { in: string[] } } }) => {
           roleFilter = args.where.role.in;
           return [{ id: "admin1" }, { id: "lead1" }];
@@ -128,7 +133,62 @@ describe("TelegramInboxNotifierService", () => {
       creates.map((c) => c.userId).sort(),
       ["admin1", "lead1"],
     );
-    assert.match(String(creates[0]?.title), /Telegram:/);
+    assert.equal(creates[0]?.title, "Telegram: К. Олена");
+  });
+
+  it("uses telegram peer name when contact is missing", async () => {
+    const creates: Array<Record<string, unknown>> = [];
+    const prisma = makePrisma({
+      conversation: {
+        findUnique: async () => ({
+          id: "conv1",
+          assignedToUserId: "mgr1",
+          leadId: null,
+          contact: null,
+          lead: null,
+        }),
+      },
+      telegramAccount: {
+        findFirst: async () => ({
+          firstName: "Max",
+          lastName: null,
+          username: "max_tg",
+        }),
+      },
+    });
+    const service = new TelegramInboxNotifierService(prisma, makeNotifications(creates));
+    await service.notifyInboundMessage({
+      conversationId: "conv1",
+      telegramChatId: "555",
+      messageText: "Hi",
+    });
+    assert.equal(creates[0]?.title, "Telegram: Max · @max_tg");
+  });
+
+  it("skips notifications for linked staff chats", async () => {
+    const creates: Array<Record<string, unknown>> = [];
+    const prisma = makePrisma({
+      conversation: {
+        findUnique: async () => ({
+          id: "conv1",
+          assignedToUserId: null,
+          leadId: null,
+          contact: null,
+          lead: null,
+        }),
+      },
+      user: {
+        findFirst: async () => ({ fullName: "Оля", email: "o@ex.com", role: "MANAGER" }),
+        findMany: async () => [],
+      },
+    });
+    const service = new TelegramInboxNotifierService(prisma, makeNotifications(creates));
+    await service.notifyInboundMessage({
+      conversationId: "conv1",
+      telegramChatId: "staff-chat",
+      messageText: "ping",
+    });
+    assert.equal(creates.length, 0);
   });
 });
 

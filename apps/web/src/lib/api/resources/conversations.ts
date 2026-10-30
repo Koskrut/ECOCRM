@@ -5,6 +5,7 @@ export type ConversationContactBrief = {
   firstName: string;
   lastName: string;
   phone: string;
+  documentDisplayName?: string | null;
 };
 
 export type ConversationLeadBrief = {
@@ -13,6 +14,12 @@ export type ConversationLeadBrief = {
   lastName: string | null;
   fullName: string | null;
   phone: string | null;
+};
+
+export type ConversationTelegramPeer = {
+  firstName: string | null;
+  lastName: string | null;
+  username: string | null;
 };
 
 export type ConversationLastMessage = {
@@ -30,6 +37,10 @@ export type ConversationItem = {
   leadId: string | null;
   contact: ConversationContactBrief | null;
   lead: ConversationLeadBrief | null;
+  /** Telegram profile when known (even without CRM contact). */
+  telegramPeer?: ConversationTelegramPeer | null;
+  /** Server-built label: who this chat is. */
+  displayName?: string | null;
   assignedTo: { id: string; fullName: string; email: string } | null;
   status: "OPEN" | "PENDING" | "CLOSED";
   pinnedAt: string | null;

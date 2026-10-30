@@ -10,6 +10,9 @@ export const NOISE_COMMAND_PREFIXES = [
   "/cart",
   "/orders",
   "/cancel",
+  "/docs",
+  "/client",
+  "/find",
 ] as const;
 
 export function isNoiseCommandText(text: string | null | undefined): boolean {

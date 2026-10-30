@@ -3,6 +3,7 @@ import type { Prisma } from "@prisma/client";
 import { UserRole } from "@prisma/client";
 import { PrismaService } from "../../prisma/prisma.service";
 import { NotificationsService } from "../../notifications/notifications.service";
+import { formatTelegramConversationLabel } from "./telegram-conversation-label.util";
 
 const DEBOUNCE_MS = 2 * 60 * 1000;
 const PREVIEW_MAX_LEN = 200;
@@ -88,7 +89,12 @@ export class TelegramInboxNotifierService {
         assignedToUserId: true,
         leadId: true,
         contact: {
-          select: { firstName: true, lastName: true, phone: true },
+          select: {
+            firstName: true,
+            lastName: true,
+            phone: true,
+            documentDisplayName: true,
+          },
         },
         lead: {
           select: {
@@ -103,10 +109,31 @@ export class TelegramInboxNotifierService {
     });
     if (!conversation) return;
 
+    const staffUser = await this.prisma.user.findFirst({
+      where: {
+        isActive: true,
+        telegramChatId: params.telegramChatId,
+        role: { in: [UserRole.ADMIN, UserRole.LEAD, UserRole.MANAGER] },
+      },
+      select: { fullName: true, email: true, role: true },
+    });
+    // Staff private chats are for CRM alerts /tools — not client inbox alerts.
+    if (staffUser) return;
+
+    const peer = await this.prisma.telegramAccount.findFirst({
+      where: { telegramChatId: params.telegramChatId },
+      select: { firstName: true, lastName: true, username: true },
+    });
+
     const recipientIds = await this.resolveRecipientUserIds(conversation);
     if (recipientIds.length === 0) return;
 
-    const title = this.buildTitle(params.telegramChatId, conversation);
+    const title = `Telegram: ${formatTelegramConversationLabel({
+      contact: conversation.contact,
+      lead: conversation.lead,
+      peer,
+      telegramChatId: params.telegramChatId,
+    })}`;
     const body = this.buildBodyPreview(params.messageText);
     const meta = {
       conversationId: params.conversationId,
@@ -154,52 +181,6 @@ export class TelegramInboxNotifierService {
       select: { id: true },
     });
     return users.map((u) => u.id);
-  }
-
-  private buildTitle(
-    telegramChatId: string,
-    conversation: {
-      contact: { firstName: string | null; lastName: string | null; phone: string | null } | null;
-      lead: {
-        fullName: string | null;
-        firstName: string | null;
-        lastName: string | null;
-        phone: string | null;
-      } | null;
-    },
-  ): string {
-    const name = this.clientDisplayName(telegramChatId, conversation);
-    return `Telegram: ${name}`;
-  }
-
-  private clientDisplayName(
-    telegramChatId: string,
-    conversation: {
-      contact: { firstName: string | null; lastName: string | null; phone: string | null } | null;
-      lead: {
-        fullName: string | null;
-        firstName: string | null;
-        lastName: string | null;
-        phone: string | null;
-      } | null;
-    },
-  ): string {
-    if (conversation.contact) {
-      const full = [conversation.contact.lastName, conversation.contact.firstName]
-        .filter(Boolean)
-        .join(" ");
-      if (full) return full;
-      if (conversation.contact.phone) return conversation.contact.phone;
-    }
-    if (conversation.lead) {
-      if (conversation.lead.fullName?.trim()) return conversation.lead.fullName.trim();
-      const full = [conversation.lead.lastName, conversation.lead.firstName]
-        .filter(Boolean)
-        .join(" ");
-      if (full) return full;
-      if (conversation.lead.phone) return conversation.lead.phone;
-    }
-    return `Чат ${telegramChatId}`;
   }
 
   private buildBodyPreview(text: string | null | undefined): string {

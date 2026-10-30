@@ -55,6 +55,9 @@ function makePrisma(overrides: AnyRec = {}) {
     company: {
       findFirst: async () => null,
     },
+    user: {
+      findFirst: async () => null,
+    },
     telegramAccount: {
       update: async () => ({}),
       updateMany: async () => ({ count: 0 }),
@@ -365,6 +368,7 @@ describe("TelegramService.handleInboundUpdate", () => {
 
     assert.equal(harness.confirmLinkCalls.length, 1);
     assert.deepEqual(harness.confirmLinkCalls[0].args, ["tok-123", "777", "12345"]);
+    assert.equal(harness.upsertCalls.length, 1);
     assert.equal(harness.sent.length, 1);
     assert.match(harness.sent[0].text, /user@example.com/);
   });

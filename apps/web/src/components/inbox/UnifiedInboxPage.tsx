@@ -97,8 +97,11 @@ function formatTime(iso: string): string {
 }
 
 function conversationTitle(c: UnifiedConversation): string {
+  if (c.displayName?.trim()) return c.displayName.trim();
   if (c.contact) {
-    return [c.contact.lastName, c.contact.firstName].filter(Boolean).join(" ") || c.contact.phone;
+    const name = [c.contact.lastName, c.contact.firstName].filter(Boolean).join(" ");
+    if (name) return c.contact.phone ? `${name} · ${c.contact.phone}` : name;
+    if (c.contact.phone) return c.contact.phone;
   }
   if (c.lead) {
     return (
@@ -108,8 +111,7 @@ function conversationTitle(c: UnifiedConversation): string {
       "Лід"
     );
   }
-  if (c.displayName?.trim()) return c.displayName.trim();
-  if (c.source === "TELEGRAM" && c.telegramChatId) return `Чат ${c.telegramChatId}`;
+  if (c.source === "TELEGRAM" && c.telegramChatId) return `Telegram · ${c.telegramChatId}`;
   return `Чат ${c.participantId ?? c.id}`;
 }
 
@@ -154,6 +156,7 @@ function fromTelegram(c: ConversationItem): UnifiedConversation {
     lastMessage: c.lastMessage
       ? { text: c.lastMessage.text, direction: c.lastMessage.direction }
       : null,
+    displayName: c.displayName ?? null,
     telegramChatId: c.telegramChatId,
   };
 }

@@ -132,6 +132,22 @@ const MONTHS_UK = [
 ] as const;
 
 /**
+ * Strip 1C noise from document numbers for PDF: «СУ» prefix and leading zeros.
+ * «СУ00000121» → «121», «00000» / «СУ» alone → empty (shown as «—»).
+ */
+export function sanitizeDocumentNumber(raw: string | null | undefined): string {
+  let s = String(raw ?? "").trim();
+  if (!s) return "";
+  // Drop Cyrillic «СУ» / Latin «CY» / «SU» prefix (1C series marker), optionally with separators.
+  s = s.replace(/^(?:СУ|CY|SU)[\s\-/_]*/iu, "");
+  // Leading zeros only (keep at least one significant digit if any remain).
+  s = s.replace(/^0+(?=\d)/, "");
+  // Pure zeros / empty after cleanup → treat as missing.
+  if (!s || /^0+$/.test(s)) return "";
+  return s.trim();
+}
+
+/**
  * Numbers/dates for PDF header — only from Google Sheet / 1C push fields on Order.
  * Do NOT fall back to CRM orderNumber: 1C writes invoice/waybill numbers asynchronously.
  */
@@ -150,8 +166,8 @@ export function documentHeaderFromOrder(order: {
   waybillNumber: string;
   waybillDate: string;
 } {
-  const invoiceNumber = order.invoiceNumber?.trim() || "";
-  const waybillNumber = order.waybillNumber?.trim() || "";
+  const invoiceNumber = sanitizeDocumentNumber(order.invoiceNumber);
+  const waybillNumber = sanitizeDocumentNumber(order.waybillNumber);
   return {
     orderNumber: order.orderNumber,
     orderDate: formatUaDateLong(order.createdAt) || "—",
