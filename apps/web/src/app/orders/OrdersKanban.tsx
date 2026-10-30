@@ -60,6 +60,10 @@ type BoardOrder = {
   warehouse?: { id: string; name: string } | null;
   documentsRequested?: boolean | null;
   hasPromo?: boolean | null;
+  invoiceNumber?: string | null;
+  invoiceDate?: string | null;
+  waybillNumber?: string | null;
+  waybillDate?: string | null;
 };
 
 type OrdersListResponse = {

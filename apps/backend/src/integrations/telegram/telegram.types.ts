@@ -120,7 +120,8 @@ export type ParsedInbound = {
 
 export type TelegramInlineButton =
   | { text: string; callback_data: string }
-  | { text: string; web_app: { url: string } };
+  | { text: string; web_app: { url: string } }
+  | { text: string; url: string };
 
 export type TelegramMenuButton =
   | string

@@ -46,6 +46,10 @@ type FinancialOrder = {
   company?: { id: string; name: string } | null;
   client?: { id: string; firstName: string; lastName: string } | null;
   documentsRequested?: boolean | null;
+  invoiceNumber?: string | null;
+  invoiceDate?: string | null;
+  waybillNumber?: string | null;
+  waybillDate?: string | null;
 };
 
 type FinancialListResponse = {

@@ -10,6 +10,8 @@ const PREVIEW_MAX_LEN = 200;
 @Injectable()
 export class TelegramInboxNotifierService {
   private readonly logger = new Logger(TelegramInboxNotifierService.name);
+  /** In-memory mute: userId:conversationId → expiresAt ms. Cleared on process restart. */
+  private readonly mutes = new Map<string, number>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -18,6 +20,22 @@ export class TelegramInboxNotifierService {
     @Inject(forwardRef(() => NotificationsService))
     private readonly notifications?: NotificationsService,
   ) {}
+
+  muteConversation(userId: string, conversationId: string, durationMs: number): void {
+    const key = `${userId}:${conversationId}`;
+    this.mutes.set(key, Date.now() + Math.max(60_000, durationMs));
+  }
+
+  isMuted(userId: string, conversationId: string): boolean {
+    const key = `${userId}:${conversationId}`;
+    const until = this.mutes.get(key);
+    if (until == null) return false;
+    if (until <= Date.now()) {
+      this.mutes.delete(key);
+      return false;
+    }
+    return true;
+  }
 
   shouldSkipNotification(text: string | null | undefined): boolean {
     const trimmed = text?.trim() ?? "";
@@ -30,7 +48,13 @@ export class TelegramInboxNotifierService {
       lower === "/catalog" ||
       lower === "/cart" ||
       lower === "/orders" ||
-      lower === "/cancel"
+      lower === "/cancel" ||
+      lower === "/docs" ||
+      lower.startsWith("/docs ") ||
+      lower === "/client" ||
+      lower.startsWith("/client ") ||
+      lower === "/find" ||
+      lower.startsWith("/find ")
     ) {
       return true;
     }
@@ -91,6 +115,7 @@ export class TelegramInboxNotifierService {
     };
 
     for (const userId of recipientIds) {
+      if (this.isMuted(userId, params.conversationId)) continue;
       try {
         await this.notifyUserDebounced({
           userId,

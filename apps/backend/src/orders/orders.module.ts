@@ -1,6 +1,7 @@
 import { forwardRef, Module } from "@nestjs/common";
 import { AuditModule } from "../audit/audit.module";
 import { IntegrationPortsModule } from "../integration-ports/integration-ports.module";
+import { TelegramModule } from "../integrations/telegram/telegram.module";
 import { NotificationsModule } from "../notifications/notifications.module";
 import { OrderReturnsModule } from "../order-returns/order-returns.module";
 import { CustomFieldsModule } from "../custom-fields/custom-fields.module";
@@ -13,6 +14,7 @@ import { RiskModule } from "../risk/risk.module";
 import { SystemModule } from "../system/system.module";
 import { OrdersController } from "./orders.controller";
 import { OrdersDocumentsService } from "./orders-documents.service";
+import { OrdersTelegramDocumentsService } from "./orders-telegram-documents.service";
 import { OrdersPickupAutoShipCron } from "./orders-pickup-auto-ship.cron";
 import { OrdersPipelineConfigService } from "./pipeline/orders-pipeline-config.service";
 import { OrderMaterialReservationModule } from "./order-material-reservation.module";
@@ -32,6 +34,7 @@ import { OrderStatusService } from "./order-status.service";
     WorkflowsModule,
     // Notifications → Telegram → Store → Orders. Eager import is undefined while that cycle loads.
     forwardRef(() => NotificationsModule),
+    forwardRef(() => TelegramModule),
     RiskModule,
     SystemModule,
     OrderMaterialReservationModule,
@@ -43,9 +46,15 @@ import { OrderStatusService } from "./order-status.service";
     FxVarianceService,
     OrderStatusService,
     OrdersDocumentsService,
+    OrdersTelegramDocumentsService,
     OrdersPipelineConfigService,
     OrdersPickupAutoShipCron,
   ],
-  exports: [OrdersService, OrderMaterialReservationModule],
+  exports: [
+    OrdersService,
+    OrdersDocumentsService,
+    OrdersTelegramDocumentsService,
+    OrderMaterialReservationModule,
+  ],
 })
 export class OrdersModule {}

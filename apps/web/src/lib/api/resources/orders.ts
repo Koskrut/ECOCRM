@@ -11,6 +11,10 @@ export type FulfillmentQueueOrder = {
   paidAmount?: number;
   comment?: string | null;
   documentsRequested?: boolean | null;
+  invoiceNumber?: string | null;
+  invoiceDate?: string | null;
+  waybillNumber?: string | null;
+  waybillDate?: string | null;
   warehouseId?: string | null;
   warehouse?: { id: string; name: string } | null;
   deliveryMethod?: string | null;

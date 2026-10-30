@@ -145,7 +145,9 @@ export type BotSessionState =
   | "checkout_building"
   | "checkout_flat"
   | "checkout_comment"
-  | "checkout_phone";
+  | "checkout_phone"
+  /** Manager: waiting for client phone/name query. */
+  | "mgr_search";
 
 export type InlineBtn =
   | { text: string; callback_data: string }

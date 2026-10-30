@@ -872,6 +872,10 @@ export class OrdersService {
           paymentMethod: o.paymentMethod ?? null,
           documentsRequested: o.documentsRequested ?? null,
           comment: o.comment ?? null,
+          invoiceNumber: o.invoiceNumber ?? null,
+          invoiceDate: o.invoiceDate ?? null,
+          waybillNumber: o.waybillNumber ?? null,
+          waybillDate: o.waybillDate ?? null,
           warehouseId: o.warehouseId ?? null,
           warehouse:
             "warehouse" in o && o.warehouse

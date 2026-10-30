@@ -50,6 +50,13 @@ export type BotSessionPayload = {
   warehouseHits?: Array<{ ref: string; name: string }>;
   streetHits?: Array<{ ref: string; name: string }>;
   catalogHits?: Array<{ id: string; name: string }>;
+  /** Manager document wizard hits (callback indices). */
+  mgrContactHits?: Array<{ id: string; label: string; hasTelegram: boolean }>;
+  mgrOrderHits?: Array<{ id: string; label: string }>;
+  mgrContactId?: string;
+  mgrOrderId?: string;
+  /** Client Telegram chat for «надіслати клієнту». */
+  mgrClientChatId?: string | null;
 };
 
 @Injectable()

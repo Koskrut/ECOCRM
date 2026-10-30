@@ -35,6 +35,7 @@ import {
 } from "./telegram-client.constants";
 import { TelegramClientBotService } from "./telegram-client-bot.service";
 import { TelegramInboxNotifierService } from "./telegram-inbox-notifier.service";
+import { TelegramManagerBotService } from "./telegram-manager-bot.service";
 
 function normalizePhoneDigits(phone: string): string {
   return String(phone ?? "").replace(/\D/g, "");
@@ -71,6 +72,9 @@ export class TelegramService {
     @Optional()
     @Inject(forwardRef(() => TelegramClientBotService))
     private readonly clientBot?: TelegramClientBotService,
+    @Optional()
+    @Inject(forwardRef(() => TelegramManagerBotService))
+    private readonly managerBot?: TelegramManagerBotService,
   ) {}
 
   /**
@@ -234,6 +238,22 @@ export class TelegramService {
         return;
       }
 
+      // Staff quick-actions (mgr:claim / mgr:mute / mgr:inv / …) — before client conversation wiring.
+      if (
+        parsed.isCallback &&
+        this.managerBot?.isManagerCallback(parsed.text) &&
+        (await this.managerBot.handleCallback(parsed))
+      ) {
+        succeeded = true;
+        return;
+      }
+
+      // Staff: /client, /docs, mgr_search text
+      if (this.managerBot && (await this.managerBot.tryHandleStaffText(parsed))) {
+        succeeded = true;
+        return;
+      }
+
       // CRM user link: /link TOKEN. Groups never reach this branch.
       const linkMatch = parsed.text?.match(/^\/link\s+(\S+)/);
       if (linkMatch) {
@@ -245,7 +265,7 @@ export class TelegramService {
           );
           await this.sendMessageToChat(
             parsed.chatId,
-            `Telegram прив'язано до акаунта CRM (${email}). Тепер ви можете входити через Telegram або отримувати коди для скидання пароля сюди.`,
+            `Telegram прив'язано до акаунта CRM (${email}).\n\nСюди приходитимуть сповіщення (налаштування — у CRM → Сповіщення).\nДокументи PDF:\n• /client — клієнт → замовлення → собі або клієнту\n• /docs <номер замовлення>\nТакож можна входити через Telegram і отримувати коди скидання пароля.`,
           );
         } catch {
           await this.sendMessageToChat(
@@ -754,6 +774,55 @@ export class TelegramService {
       throw new Error("Telegram API: missing message_id in sendPhoto response");
     }
     return { messageId: result.message_id };
+  }
+
+  /**
+   * Upload a PDF (or other file) to a chat via multipart sendDocument.
+   * JSON callBotApi cannot attach binary payloads.
+   */
+  async sendDocumentToChat(
+    telegramChatId: string,
+    file: Buffer,
+    filename: string,
+    options?: { caption?: string },
+  ): Promise<{ messageId: number }> {
+    const token = await this.resolveBotToken();
+    const form = new FormData();
+    form.append("chat_id", telegramChatId);
+    const safeName = (filename || "document.pdf").replace(/[^\w.\-а-яА-ЯіїєґІЇЄҐ]+/g, "_");
+    form.append(
+      "document",
+      new Blob([Uint8Array.from(file)], { type: "application/pdf" }),
+      safeName.endsWith(".pdf") ? safeName : `${safeName}.pdf`,
+    );
+    if (options?.caption?.trim()) {
+      form.append("caption", options.caption.trim().slice(0, 1024));
+    }
+
+    let res: Response;
+    try {
+      res = await fetch(`https://api.telegram.org/bot${token}/sendDocument`, {
+        method: "POST",
+        body: form,
+        signal: AbortSignal.timeout(60_000),
+      });
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      throw new Error(`Telegram sendDocument failed: ${msg}`);
+    }
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`Telegram sendDocument error ${res.status}: ${errText}`);
+    }
+    const data = (await res.json()) as {
+      ok: boolean;
+      result?: { message_id?: number };
+      description?: string;
+    };
+    if (!data.ok || data.result?.message_id == null) {
+      throw new Error(`Telegram sendDocument rejected: ${data.description ?? "unknown error"}`);
+    }
+    return { messageId: data.result.message_id };
   }
 
   async answerCallbackQuery(callbackQueryId: string, text?: string): Promise<void> {

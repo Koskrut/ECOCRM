@@ -22,6 +22,7 @@ import { Roles } from "../auth/roles.decorator";
 import { UserRole } from "@prisma/client";
 import { OrderReturnsService } from "../order-returns/order-returns.service";
 import { OrdersDocumentsService } from "./orders-documents.service";
+import { OrdersTelegramDocumentsService } from "./orders-telegram-documents.service";
 import { OrdersPipelineConfigService } from "./pipeline/orders-pipeline-config.service";
 import { PutOrderPipelineDto } from "./dto/put-order-pipeline.dto";
 import { OrdersService } from "./orders.service";
@@ -35,6 +36,7 @@ import { ListOrdersQueryDto } from "./dto/list-orders-query.dto";
 import { UpdateOrderDto } from "./dto/update-order.dto";
 import type { UpdateOrderStageDto } from "./dto/update-order-stage.dto";
 import type { UpdateOrderStatusDto } from "./dto/update-order-status.dto";
+import { SendOrderDocumentTelegramDto } from "./dto/send-order-document-telegram.dto";
 import { SplitByStockDto } from "./dto/split-by-stock.dto";
 
 @Controller("orders")
@@ -45,6 +47,7 @@ export class OrdersController {
     private readonly integrations: IntegrationPortsService,
     private readonly paymentRequests: PaymentRequestsService,
     private readonly ordersDocuments: OrdersDocumentsService,
+    private readonly ordersTelegramDocuments: OrdersTelegramDocumentsService,
     private readonly orderReturns: OrderReturnsService,
     private readonly ordersPipelineConfig: OrdersPipelineConfigService,
   ) {}
@@ -183,6 +186,24 @@ export class OrdersController {
       type: "application/pdf",
       disposition: `attachment; filename="waybill-${id}.pdf"`,
     });
+  }
+
+  @Get(":id/documents/telegram-status")
+  getTelegramDocumentsStatus(
+    @Param("id") id: string,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.ordersTelegramDocuments.getStatus(id, req.user);
+  }
+
+  @Post(":id/documents/send-telegram")
+  sendDocumentTelegram(
+    @Param("id") id: string,
+    @Body() dto: SendOrderDocumentTelegramDto,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    if (!req.user) throw new BadRequestException("Unauthorized");
+    return this.ordersTelegramDocuments.sendDocument(id, dto.kind, dto.dest, req.user);
   }
 
   @Get(":id")

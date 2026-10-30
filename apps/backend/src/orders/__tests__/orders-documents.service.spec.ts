@@ -2,7 +2,16 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { resolveDocumentFontPaths } from "../orders-documents-fonts";
 import {
+  amountToUah,
+  buildInvoicePaymentPurpose,
+  buildInvoiceWarning,
+  buildPublicPayUrl,
   documentHeaderFromOrder,
+  formatPayUrlForDisplay,
+  formatUaDateLong,
+  formatUaMoney,
+  formatUaQty,
+  invoiceAmountUah,
   OrdersDocumentsService,
 } from "../orders-documents.service";
 
@@ -10,6 +19,54 @@ test("resolveDocumentFontPaths finds bundled DejaVu fonts", () => {
   const fonts = resolveDocumentFontPaths();
   assert.match(fonts.regular, /DejaVuSans\.ttf$/);
   assert.match(fonts.bold, /DejaVuSans-Bold\.ttf$/);
+});
+
+test("formatUaMoney uses space thousands and comma decimals", () => {
+  assert.equal(formatUaMoney(12512.5), "12 512,50");
+  assert.equal(formatUaMoney(128038.4), "128 038,40");
+  assert.equal(formatUaMoney(45.5), "45,50");
+});
+
+test("formatUaQty uses space thousands without decimals", () => {
+  assert.equal(formatUaQty(1419), "1 419");
+  assert.equal(formatUaQty(50), "50");
+});
+
+test("formatUaDateLong uses Ukrainian month names", () => {
+  assert.equal(formatUaDateLong(new Date(2026, 9, 12)), "12 жовтня 2026");
+});
+
+test("amountToUah converts USD via exchangeRate", () => {
+  assert.equal(amountToUah(100, { currency: "USD", exchangeRate: 41.2 }), 4120);
+  assert.equal(amountToUah(100, { currency: "UAH", exchangeRate: 41.2 }), 100);
+});
+
+test("invoiceAmountUah requires FX rate for USD", () => {
+  assert.equal(invoiceAmountUah({ totalAmount: 100, currency: "UAH" }), 100);
+  assert.equal(invoiceAmountUah({ totalAmount: 100, currency: "USD", exchangeRate: 40 }), 4000);
+  assert.equal(invoiceAmountUah({ totalAmount: 100, currency: "USD", exchangeRate: null }), null);
+  assert.equal(invoiceAmountUah({ totalAmount: 0, currency: "UAH" }), null);
+});
+
+test("buildInvoicePaymentPurpose embeds order number", () => {
+  assert.equal(buildInvoicePaymentPurpose("ORD-100"), "Оплата замовлення ORD-100");
+  assert.match(buildInvoiceWarning("ORD-100"), /Оплата замовлення ORD-100/);
+  assert.match(buildInvoiceWarning("ORD-100"), /призначенні платежу/i);
+});
+
+test("buildPublicPayUrl and formatPayUrlForDisplay shorten links", () => {
+  assert.equal(
+    buildPublicPayUrl("https://crm.example.com/", "tok_abc"),
+    "https://crm.example.com/pay/tok_abc",
+  );
+  assert.equal(
+    formatPayUrlForDisplay("https://crm.example.com/pay/tok_abc"),
+    "https://crm.example.com/pay/tok_abc",
+  );
+  assert.equal(
+    formatPayUrlForDisplay("https://bank.gov.ua/qr/QkNECjAwMgoxClVDVAoK0KTQntCfINCa0L7Q"),
+    "bank.gov.ua/qr/…",
+  );
 });
 
 test("documentHeaderFromOrder uses Google Sheet / 1C fields on the order", () => {
@@ -24,23 +81,23 @@ test("documentHeaderFromOrder uses Google Sheet / 1C fields on the order", () =>
   assert.equal(header.orderNumber, "ORD-100");
   assert.equal(header.invoiceNumber, "INV-1C-555");
   assert.equal(header.waybillNumber, "RN-1C-777");
-  assert.notEqual(header.invoiceDate, "—");
-  assert.notEqual(header.waybillDate, "—");
+  assert.match(header.invoiceDate, /березня 2026/);
+  assert.match(header.waybillDate, /березня 2026/);
 });
 
-test("documentHeaderFromOrder placeholders when sheet push has not arrived", () => {
+test("documentHeaderFromOrder falls back to orderNumber/createdAt when sheet push missing", () => {
   const header = documentHeaderFromOrder({
     orderNumber: "ORD-1",
-    createdAt: new Date("2026-01-01"),
+    createdAt: new Date(2026, 0, 1),
     invoiceNumber: null,
     invoiceDate: null,
     waybillNumber: null,
     waybillDate: null,
   });
-  assert.equal(header.invoiceNumber, "—");
-  assert.equal(header.invoiceDate, "—");
-  assert.equal(header.waybillNumber, "—");
-  assert.equal(header.waybillDate, "—");
+  assert.equal(header.invoiceNumber, "ORD-1");
+  assert.equal(header.waybillNumber, "ORD-1");
+  assert.equal(header.invoiceDate, "1 січня 2026");
+  assert.equal(header.waybillDate, "1 січня 2026");
 });
 
 function sampleOrder(overrides: Record<string, unknown> = {}) {
@@ -49,31 +106,39 @@ function sampleOrder(overrides: Record<string, unknown> = {}) {
     ownerId: "u1",
     orderNumber: "ORD-100",
     createdAt: new Date("2026-03-15T10:00:00.000Z"),
-    invoiceNumber: "INV-1C-555",
-    invoiceDate: new Date("2026-03-16T00:00:00.000Z"),
-    waybillNumber: "RN-1C-777",
-    waybillDate: new Date("2026-03-17T00:00:00.000Z"),
+    invoiceNumber: "121",
+    invoiceDate: new Date(2026, 9, 12),
+    waybillNumber: "9121",
+    waybillDate: new Date(2026, 9, 12),
     totalAmount: 1500.5,
     currency: "UAH",
     exchangeRate: null,
     contact: {
       id: "c1",
-      firstName: "Іван",
-      lastName: "Петренко",
-      middleName: null,
-      documentDisplayName: "ТОВ Тест",
+      firstName: "Анастасія",
+      lastName: "Паливода",
+      middleName: "Володимирівна",
+      documentDisplayName: "ФОП ПАЛИВОДА АНАСТАСІЯ ВОЛОДИМИРІВНА",
+    },
+    company: {
+      id: "co1",
+      name: "ФОП ПАЛИВОДА",
+      edrpou: null,
+      taxId: "3787213089",
     },
     bankAccount: {
       id: "ba1",
       name: "ФОП",
-      iban: "UA643052990000026009016240911",
+      iban: "UA623052990000026000050606316",
       documentRequisites: {
-        legalName: "ФОП Тестовий",
-        iban: "UA643052990000026009016240911",
+        legalName: "ФОП Ковальова Юлія Вікторівна",
+        iban: "UA623052990000026000050606316",
         mfo: "305299",
-        address: "м. Дніпро, вул. Тестова 1",
-        edrpou: "1234567890",
-        taxId: "1234567890",
+        bankName: "Приват",
+        address: "49005, Дніпропетровська, м. Дніпро, вул. Лук'яненка Левка, Будинок № 24, Квартира73",
+        edrpou: "3195800969",
+        taxId: "3195800969",
+        taxPayerStatus: "Платник єдиного податку",
       },
     },
     items: [
@@ -82,12 +147,45 @@ function sampleOrder(overrides: Record<string, unknown> = {}) {
         price: 750.25,
         lineTotal: 1500.5,
         productNameSnapshot: "Товар українською",
-        product: { id: "p1", sku: "SKU1", name: "Товар українською" },
+        product: { id: "p1", sku: "MG-AR-PMA", name: "Товар українською", unit: "шт" },
       },
     ],
     ...overrides,
   };
 }
+
+test("buildInvoicePaymentBlock returns NBU QR for sample order", async () => {
+  const service = new OrdersDocumentsService({} as any);
+  const block = await service.buildInvoicePaymentBlock(sampleOrder() as any);
+  assert.ok(block);
+  assert.equal(block!.purpose, "Оплата замовлення ORD-100");
+  assert.match(block!.nbuDeeplink, /^https:\/\/bank\.gov\.ua\/qr\//);
+  assert.ok(block!.qrPng.length > 100);
+  assert.equal(block!.amountUah, 1500.5);
+});
+
+test("buildInvoicePaymentBlock prefers short CRM /pay/ URL when configured", async () => {
+  const prisma = {
+    paymentRequest: {
+      findMany: async () => [
+        {
+          status: "PENDING",
+          expiresAt: new Date(Date.now() + 86400000),
+          publicToken: "shorttok",
+        },
+      ],
+    },
+  };
+  const paymentRequests = {} as any;
+  const settings = {
+    getStoreConfig: async () => ({ crmPayPageUrl: "https://crm.example.com" }),
+  };
+  const service = new OrdersDocumentsService(prisma as any, paymentRequests, settings as any);
+  const block = await service.buildInvoicePaymentBlock(sampleOrder() as any);
+  assert.ok(block);
+  assert.equal(block!.payUrl, "https://crm.example.com/pay/shorttok");
+  assert.equal(formatPayUrlForDisplay(block!.payUrl), "https://crm.example.com/pay/shorttok");
+});
 
 test("buildInvoicePdf produces valid PDF with Cyrillic font embedded", async () => {
   const service = new OrdersDocumentsService({} as any);

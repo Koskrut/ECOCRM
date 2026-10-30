@@ -26,6 +26,13 @@ const DEFAULT_MOBILE_TYPES = new Set<NotificationType>([
   "CLIENT_ORDER_ACCEPTED",
 ]);
 
+/** Manager pocket alerts on the shared shop bot (opt-out via Settings → Notifications). */
+const DEFAULT_TELEGRAM_TYPES = new Set<NotificationType>([
+  "TELEGRAM_MESSAGE",
+  "NEW_LEAD",
+  "CLIENT_ORDER_ACCEPTED",
+]);
+
 export function defaultChannelsForType(type: NotificationType): {
   inApp: boolean;
   browser: boolean;
@@ -35,7 +42,7 @@ export function defaultChannelsForType(type: NotificationType): {
   return {
     inApp: true,
     browser: false,
-    telegram: false,
+    telegram: DEFAULT_TELEGRAM_TYPES.has(type),
     mobile: DEFAULT_MOBILE_TYPES.has(type),
   };
 }

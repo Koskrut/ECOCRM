@@ -33,6 +33,7 @@ describe("TelegramInboxNotifierService", () => {
   it("skips /link, /help, plain /start, menu labels and callbacks", () => {
     const service = new TelegramInboxNotifierService(makePrisma(), makeNotifications());
     assert.equal(service.shouldSkipNotification("/link abc123"), true);
+    assert.equal(service.shouldSkipNotification("/docs 121"), true);
     assert.equal(service.shouldSkipNotification("/help"), true);
     assert.equal(service.shouldSkipNotification("/menu"), true);
     assert.equal(service.shouldSkipNotification("/start"), true);

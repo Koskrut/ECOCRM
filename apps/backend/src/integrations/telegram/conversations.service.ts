@@ -1,6 +1,8 @@
 import {
   BadRequestException,
   ForbiddenException,
+  forwardRef,
+  Inject,
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
@@ -30,6 +32,7 @@ import type { ListMessagesQueryDto } from "./dto/list-messages-query.dto";
 export class ConversationsService {
   constructor(
     private readonly prisma: PrismaService,
+    @Inject(forwardRef(() => TelegramService))
     private readonly telegramService: TelegramService,
     private readonly telegramAiService: TelegramAiService,
     private readonly contactsService: ContactsService,

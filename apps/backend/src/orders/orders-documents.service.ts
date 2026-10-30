@@ -1,8 +1,12 @@
-import { ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
+import { ForbiddenException, Injectable, NotFoundException, Optional } from "@nestjs/common";
 import type { Prisma } from "@prisma/client";
 import { UserRole } from "@prisma/client";
 import type { AuthUser } from "../auth/auth.types";
+import { effectivePaymentRequestStatus } from "../payment-requests/payment-request-public.mapper";
+import { PaymentRequestsService } from "../payment-requests/payment-requests.service";
+import { buildNbuPaymentDeeplink } from "../payment-requests/nbu-qr";
 import { PrismaService } from "../prisma/prisma.service";
+import { SettingsService } from "../settings/settings.service";
 import { resolveDocumentFontPaths } from "./orders-documents-fonts";
 
 const ORDER_DOCUMENTS_INCLUDE = {
@@ -15,6 +19,14 @@ const ORDER_DOCUMENTS_INCLUDE = {
       documentDisplayName: true,
     },
   },
+  company: {
+    select: {
+      id: true,
+      name: true,
+      edrpou: true,
+      taxId: true,
+    },
+  },
   bankAccount: {
     select: {
       id: true,
@@ -25,10 +37,12 @@ const ORDER_DOCUMENTS_INCLUDE = {
   },
   items: {
     include: {
-      product: { select: { id: true, sku: true, name: true } },
+      product: { select: { id: true, sku: true, name: true, unit: true } },
     },
   },
 } as const;
+
+export type OrderForDocument = Prisma.OrderGetPayload<{ include: typeof ORDER_DOCUMENTS_INCLUDE }>;
 
 export type DocumentRequisites = {
   legalName?: string;
@@ -43,7 +57,79 @@ export type DocumentRequisites = {
   edrpou?: string;
   /** Напр. "Платник єдиного податку" */
   taxPayerStatus?: string;
+  /** Коротке ім'я банку в зразку платіжки (напр. "Приват") */
+  bankName?: string;
 };
+
+/** Layout aligned to 1C A4 templates (invoice №121 / waybill №9121). */
+const PAGE = { width: 595.28, height: 841.89 };
+const L = 28;
+const R = 533;
+const W = R - L;
+const TOP = 26;
+const BOTTOM = 36;
+
+/** Goods table verticals: № | Артикул | Товари | Кіл-сть | Од. | Ціна | Сума */
+const TX = [L, 53, 126, 345, 380, 413, 469, R] as const;
+
+export function buildInvoicePaymentPurpose(orderNumber: string): string {
+  const n = orderNumber.trim() || "—";
+  return `Оплата замовлення ${n}`;
+}
+
+export function buildInvoiceWarning(orderNumber: string): string {
+  const purpose = buildInvoicePaymentPurpose(orderNumber);
+  return (
+    "Увага! Оплата цього рахунку означає згоду Покупця з умовами постачання товару. " +
+    'При переказі коштів обов\'язково вказувати "за мед.вироби" (або назву товару), ' +
+    `номер і дату Рахунку на оплату та номер замовлення. ` +
+    `У призначенні платежу вкажіть: «${purpose}». ` +
+    "Повідомлення про оплату обов'язкове, інакше не гарантується наявність товара на складі. " +
+    "Товар відвантажується по факту зарахування грошей на рахунок Постачальника, " +
+    "самовивозом, при наявності довіреності та паспорта."
+  );
+}
+
+export type InvoicePaymentBlock = {
+  purpose: string;
+  /** Short CRM pay page URL (or compact fallback label target). */
+  payUrl: string;
+  /** NBU deeplink encoded in the QR (for banking apps). */
+  nbuDeeplink: string;
+  amountUah: number;
+  qrPng: Buffer;
+};
+
+/** Absolute public pay URL: `{crmPayPageUrl}/pay/{token}`. */
+export function buildPublicPayUrl(crmPayPageUrl: string, publicToken: string): string {
+  const base = crmPayPageUrl.trim().replace(/\/+$/, "");
+  const token = publicToken.trim();
+  return `${base}/pay/${token}`;
+}
+
+/** Visible label for the pay link — never dump the long NBU base64 URL. */
+export function formatPayUrlForDisplay(payUrl: string): string {
+  const u = payUrl.trim();
+  if (!u) return "";
+  if (/\/pay\/[^/?#]+/i.test(u) && !/bank\.gov\.ua/i.test(u)) return u;
+  if (/bank\.gov\.ua\/qr\//i.test(u)) return "bank.gov.ua/qr/…";
+  return u.length > 60 ? `${u.slice(0, 48)}…` : u;
+}
+
+const MONTHS_UK = [
+  "січня",
+  "лютого",
+  "березня",
+  "квітня",
+  "травня",
+  "червня",
+  "липня",
+  "серпня",
+  "вересня",
+  "жовтня",
+  "листопада",
+  "грудня",
+] as const;
 
 /** Numbers/dates for PDF header — from Google Sheet / 1C push fields on Order. */
 export function documentHeaderFromOrder(order: {
@@ -61,24 +147,82 @@ export function documentHeaderFromOrder(order: {
   waybillNumber: string;
   waybillDate: string;
 } {
-  const fmt = (d: Date | string | null | undefined) =>
-    d ? new Date(d).toLocaleDateString("uk-UA") : "—";
   return {
     orderNumber: order.orderNumber,
-    orderDate: fmt(order.createdAt),
-    invoiceNumber: order.invoiceNumber ?? "—",
-    invoiceDate: fmt(order.invoiceDate),
-    waybillNumber: order.waybillNumber ?? "—",
-    waybillDate: fmt(order.waybillDate),
+    orderDate: formatUaDateLong(order.createdAt) || "—",
+    invoiceNumber: order.invoiceNumber?.trim() || order.orderNumber,
+    invoiceDate: formatUaDateLong(order.invoiceDate ?? order.createdAt) || "—",
+    waybillNumber: order.waybillNumber?.trim() || order.orderNumber,
+    waybillDate: formatUaDateLong(order.waybillDate ?? order.createdAt) || "—",
   };
+}
+
+/** «12 жовтня 2026» */
+export function formatUaDateLong(d: Date | string | null | undefined): string {
+  if (!d) return "";
+  const date = d instanceof Date ? d : new Date(d);
+  if (Number.isNaN(date.getTime())) return "";
+  return `${date.getDate()} ${MONTHS_UK[date.getMonth()]} ${date.getFullYear()}`;
+}
+
+/** «12 512,50» */
+export function formatUaMoney(value: number): string {
+  const fixed = (Math.round(Number(value) * 100) / 100).toFixed(2);
+  const [intPart, frac] = fixed.split(".");
+  const withSpaces = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+  return `${withSpaces},${frac}`;
+}
+
+/** Integer qty with thousand spaces: «1 419» */
+export function formatUaQty(value: number): string {
+  const n = Math.round(Number(value) || 0);
+  return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+}
+
+export function amountToUah(
+  amount: number,
+  order: { currency: string; exchangeRate?: number | null },
+): number {
+  const cur = String(order.currency ?? "").toUpperCase();
+  const rate = order.exchangeRate != null ? Number(order.exchangeRate) : NaN;
+  if ((cur === "USD" || cur === "EUR") && Number.isFinite(rate) && rate > 0) {
+    return amount * rate;
+  }
+  return amount;
+}
+
+/** Invoice QR amount in UAH, or null when FX rate is missing for USD/EUR / amount ≤ 0. */
+export function invoiceAmountUah(order: {
+  totalAmount: number;
+  currency: string;
+  exchangeRate?: number | null;
+}): number | null {
+  const total = Number(order.totalAmount) || 0;
+  if (total <= 0) return null;
+  const cur = String(order.currency ?? "").toUpperCase();
+  if (cur === "UAH" || cur === "₴") {
+    return Math.round(total * 100) / 100;
+  }
+  if (cur === "USD" || cur === "EUR") {
+    const rate = order.exchangeRate != null ? Number(order.exchangeRate) : NaN;
+    if (!Number.isFinite(rate) || rate <= 0) return null;
+    return Math.round(total * rate * 100) / 100;
+  }
+  // Other currencies: pass through as-is only if already treated as UAH-like.
+  return null;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type PdfDoc = any;
+type Fonts = { regular: string; bold: string };
 
 @Injectable()
 export class OrdersDocumentsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly paymentRequests?: PaymentRequestsService,
+    @Optional() private readonly settings?: SettingsService,
+  ) {}
 
   private assertOrderAccess(order: { ownerId: string }, actor: AuthUser | undefined): void {
     if (!actor) return;
@@ -99,13 +243,19 @@ export class OrdersDocumentsService {
     return parts.join(" ") || "—";
   }
 
-  /**
-   * Формат для рахунку та РН (приклад):
-   * П/р UA643052990000026009016240911, Банк Приват, МФО 305299
-   * Юр. адреса: 49069, Дніпропетровська обл., ...
-   * код за ЄДРПОУ 3531102191 , ІПН 3531102191
-   * Платник єдиного податку
-   */
+  private buyerLine(
+    contact: OrderForDocument["contact"],
+    company: OrderForDocument["company"],
+  ): string {
+    const name = this.buyerName(contact);
+    if (name === "—" && company?.name?.trim()) {
+      const tax = company.taxId?.trim() || company.edrpou?.trim();
+      return tax ? `${company.name.trim()}, РНОКПП ${tax}` : company.name.trim();
+    }
+    const tax = company?.taxId?.trim() || company?.edrpou?.trim();
+    return tax ? `${name}, РНОКПП ${tax}` : name;
+  }
+
   private sellerLines(
     requisites: DocumentRequisites | null,
     bankAccountIban?: string | null,
@@ -113,28 +263,24 @@ export class OrdersDocumentsService {
     if (!requisites) return ["—"];
     const iban = requisites.iban?.replace(/\s/g, "") || bankAccountIban?.replace(/\s/g, "") || "";
     const mfo = requisites.mfo?.trim() || "305299";
+    const bankName = requisites.bankName?.trim() || "Приват";
     const hasNewFormat = iban || requisites.address || requisites.edrpou != null;
     if (hasNewFormat) {
       const lines: string[] = [];
-      if (requisites.legalName?.trim()) {
-        lines.push(requisites.legalName.trim());
-      }
-      if (iban) {
-        lines.push(`П/р ${iban}, Банк Приват, МФО ${mfo}`);
-      }
-      if (requisites.address?.trim()) {
-        lines.push(`Юр. адреса: ${requisites.address.trim()}`);
-      }
+      if (requisites.legalName?.trim()) lines.push(requisites.legalName.trim());
+      if (iban) lines.push(`П/р ${iban}, Банк ${bankName}, МФО ${mfo}`);
+      if (requisites.address?.trim()) lines.push(`Юр. адреса: ${requisites.address.trim()}`);
       const edrpou = requisites.edrpou?.trim();
       const taxId = requisites.taxId?.trim();
       if (edrpou || taxId) {
         lines.push(
-          [edrpou ? `код за ЄДРПОУ ${edrpou}` : "", taxId ? `ІПН ${taxId}` : ""].filter(Boolean).join(" , "),
+          [edrpou ? `код за ЄДРПОУ ${edrpou}` : "", taxId ? `ІПН ${taxId}` : ""]
+            .filter(Boolean)
+            .join(", "),
         );
       }
-      const status = requisites.taxPayerStatus?.trim() || "Платник єдиного податку";
-      if (status) lines.push(status);
-      if (lines.length) return lines;
+      lines.push(requisites.taxPayerStatus?.trim() || "Платник єдиного податку");
+      return lines.length ? lines : ["—"];
     }
     const lines: string[] = [];
     if (requisites.legalName) lines.push(requisites.legalName);
@@ -142,6 +288,27 @@ export class OrdersDocumentsService {
     if (requisites.address) lines.push(requisites.address);
     if (requisites.bankDetails) lines.push(requisites.bankDetails);
     return lines.length ? lines : ["—"];
+  }
+
+  private sellerMeta(
+    requisites: DocumentRequisites | null,
+    bankAccountIban?: string | null,
+  ): {
+    legalName: string;
+    iban: string;
+    mfo: string;
+    bankName: string;
+    edrpou: string;
+  } {
+    const iban =
+      requisites?.iban?.replace(/\s/g, "") || bankAccountIban?.replace(/\s/g, "") || "";
+    return {
+      legalName: requisites?.legalName?.trim() || "—",
+      iban,
+      mfo: requisites?.mfo?.trim() || "305299",
+      bankName: requisites?.bankName?.trim() || "Приват",
+      edrpou: requisites?.edrpou?.trim() || requisites?.taxId?.trim() || "",
+    };
   }
 
   async getOrderForDocument(orderId: string, actor?: AuthUser) {
@@ -154,7 +321,7 @@ export class OrdersDocumentsService {
     return order;
   }
 
-  private registerFonts(doc: PdfDoc): { regular: string; bold: string } {
+  private registerFonts(doc: PdfDoc): Fonts {
     const fonts = resolveDocumentFontPaths();
     doc.registerFont("DocSans", fonts.regular);
     doc.registerFont("DocSans-Bold", fonts.bold);
@@ -162,11 +329,13 @@ export class OrdersDocumentsService {
     return { regular: "DocSans", bold: "DocSans-Bold" };
   }
 
-  private async renderPdf(
-    draw: (doc: PdfDoc) => void,
-  ): Promise<Buffer> {
+  private async renderPdf(draw: (doc: PdfDoc) => void): Promise<Buffer> {
     const PDFDocument = (await import("pdfkit")).default;
-    const doc = new PDFDocument({ size: "A4", margin: 50 });
+    const doc = new PDFDocument({
+      size: "A4",
+      margins: { top: TOP, bottom: BOTTOM, left: L, right: PAGE.width - R },
+    });
+    doc.lineWidth(0.6);
     const chunks: Buffer[] = [];
     doc.on("data", (chunk: Buffer) => chunks.push(chunk));
     await new Promise<void>((resolve, reject) => {
@@ -180,7 +349,8 @@ export class OrdersDocumentsService {
 
   async buildInvoicePdf(orderId: string, actor?: AuthUser): Promise<Buffer> {
     const order = await this.getOrderForDocument(orderId, actor);
-    return this.renderPdf((doc) => this.drawInvoice(doc, order));
+    const payment = await this.buildInvoicePaymentBlock(order);
+    return this.renderPdf((doc) => this.drawInvoice(doc, order, payment));
   }
 
   async buildWaybillPdf(orderId: string, actor?: AuthUser): Promise<Buffer> {
@@ -188,157 +358,519 @@ export class OrdersDocumentsService {
     return this.renderPdf((doc) => this.drawWaybill(doc, order));
   }
 
-  /** Build PDFs from an already-loaded order (tests). */
-  async buildInvoicePdfFromOrder(
-    order: Prisma.OrderGetPayload<{ include: typeof ORDER_DOCUMENTS_INCLUDE }>,
-  ): Promise<Buffer> {
-    return this.renderPdf((doc) => this.drawInvoice(doc, order));
+  async buildInvoicePdfFromOrder(order: OrderForDocument): Promise<Buffer> {
+    const payment = await this.buildInvoicePaymentBlock(order);
+    return this.renderPdf((doc) => this.drawInvoice(doc, order, payment));
   }
 
-  async buildWaybillPdfFromOrder(
-    order: Prisma.OrderGetPayload<{ include: typeof ORDER_DOCUMENTS_INCLUDE }>,
-  ): Promise<Buffer> {
+  async buildWaybillPdfFromOrder(order: OrderForDocument): Promise<Buffer> {
     return this.renderPdf((doc) => this.drawWaybill(doc, order));
+  }
+
+  /**
+   * NBU QR + short CRM pay link for the invoice.
+   * Returns null when requisites/amount are incomplete (PDF still builds without the block).
+   */
+  async buildInvoicePaymentBlock(order: OrderForDocument): Promise<InvoicePaymentBlock | null> {
+    const requisites = (order.bankAccount?.documentRequisites as DocumentRequisites | null) ?? null;
+    const meta = this.sellerMeta(requisites, order.bankAccount?.iban ?? null);
+    const amountUah = invoiceAmountUah(order);
+    if (!amountUah || !meta.iban || !meta.legalName || meta.legalName === "—" || !meta.edrpou) {
+      return null;
+    }
+    const codeDigits = meta.edrpou.replace(/\D/g, "");
+    if (codeDigits.length !== 8 && codeDigits.length !== 10) return null;
+
+    const purpose = buildInvoicePaymentPurpose(order.orderNumber);
+    try {
+      const nbuDeeplink = buildNbuPaymentDeeplink({
+        recipientName: meta.legalName.slice(0, 70),
+        iban: meta.iban,
+        receiverCode: codeDigits,
+        currency: "UAH",
+        amount: amountUah,
+        purpose,
+        displayText: `Замовлення ${order.orderNumber}`.slice(0, 70),
+      });
+      const payUrl =
+        (await this.resolveShortPayUrl(order, amountUah, purpose)) ?? nbuDeeplink;
+      const QR = await import("qrcode");
+      const qrPng = await QR.toBuffer(nbuDeeplink, {
+        type: "png",
+        errorCorrectionLevel: "M",
+        margin: 1,
+        width: 180,
+      });
+      return { purpose, payUrl, nbuDeeplink, amountUah, qrPng: Buffer.from(qrPng) };
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Prefer existing PENDING payment request; otherwise create one (30 days).
+   * Needs Settings.crmPayPageUrl + PaymentRequestsService.
+   */
+  private async resolveShortPayUrl(
+    order: OrderForDocument,
+    amountUah: number,
+    purpose: string,
+  ): Promise<string | null> {
+    if (!this.paymentRequests || !this.settings || !order.id) return null;
+
+    let base = "";
+    try {
+      const store = await this.settings.getStoreConfig();
+      base = (store.crmPayPageUrl ?? "").trim().replace(/\/+$/, "");
+    } catch {
+      return null;
+    }
+    if (!base) return null;
+
+    try {
+      const now = new Date();
+      const existing = await this.prisma.paymentRequest.findMany({
+        where: { orderId: order.id },
+        orderBy: { createdAt: "desc" },
+        take: 10,
+      });
+      for (const row of existing) {
+        if (effectivePaymentRequestStatus(row, now) === "PENDING") {
+          return buildPublicPayUrl(base, row.publicToken);
+        }
+      }
+
+      const expiresAt = new Date();
+      expiresAt.setDate(expiresAt.getDate() + 30);
+      expiresAt.setHours(23, 59, 59, 999);
+
+      const created = await this.paymentRequests.create(order.id, {
+        amount: amountUah,
+        purpose,
+        expiresAt: expiresAt.toISOString(),
+        displayText: `Замовлення ${order.orderNumber}`.slice(0, 70),
+      });
+      return buildPublicPayUrl(base, created.publicToken);
+    } catch {
+      return null;
+    }
   }
 
   private drawInvoice(
     doc: PdfDoc,
-    order: Prisma.OrderGetPayload<{ include: typeof ORDER_DOCUMENTS_INCLUDE }>,
+    order: OrderForDocument,
+    payment: InvoicePaymentBlock | null,
   ) {
     const fonts = this.registerFonts(doc);
     const requisites = (order.bankAccount?.documentRequisites as DocumentRequisites | null) ?? null;
     const seller = this.sellerLines(requisites, order.bankAccount?.iban ?? null);
-    const buyer = this.buyerName(order.contact);
+    const meta = this.sellerMeta(requisites, order.bankAccount?.iban ?? null);
+    const buyer = this.buyerLine(order.contact, order.company);
     const header = documentHeaderFromOrder(order);
 
-    doc.fontSize(14).text("Рахунок", { align: "center" }).moveDown(0.5);
-    doc.fontSize(10);
-    doc.text("Продавець:", 50, doc.y);
-    doc.y += 4;
-    seller.forEach((line) => {
-      doc.text(line, 55, doc.y);
-      doc.y += 14;
-    });
-    doc.moveDown(0.5);
-    doc.text("Покупець: " + buyer, 50, doc.y);
-    doc.y += 20;
-
-    doc.text(`Номер замовлення: ${header.orderNumber}`, 50, doc.y);
-    doc.y += 14;
-    doc.text(`Дата: ${header.orderDate}`, 50, doc.y);
-    doc.y += 14;
-    doc.text(`Номер рахунку: ${header.invoiceNumber}`, 50, doc.y);
-    doc.y += 14;
-    doc.text(`Дата рахунку: ${header.invoiceDate}`, 50, doc.y);
-    doc.y += 24;
-
-    const tableTop = doc.y;
-    doc.font(fonts.bold);
-    doc.text("№", 50, tableTop);
-    doc.text("Найменування", 70, tableTop);
-    doc.text("Кількість", 320, tableTop);
-    doc.text("Ціна", 380, tableTop);
-    doc.text("Сума", 440, tableTop);
-    doc.y += 18;
-    doc.moveTo(50, doc.y).lineTo(550, doc.y).stroke();
-    doc.y += 8;
-    doc.font(fonts.regular);
-
-    order.items.forEach((item, idx) => {
-      const name = item.product?.name ?? item.productNameSnapshot ?? "—";
-      const qty = String(item.qty);
-      const price = item.price.toFixed(2);
-      const sum = item.lineTotal.toFixed(2);
-      doc.text(String(idx + 1), 50, doc.y);
-      doc.text(name.substring(0, 45), 70, doc.y);
-      doc.text(qty, 320, doc.y);
-      doc.text(price, 380, doc.y);
-      doc.text(sum, 440, doc.y);
-      doc.y += 18;
+    doc.fillColor("#000").strokeColor("#000");
+    doc.font(fonts.regular).fontSize(7.5);
+    doc.text(buildInvoiceWarning(order.orderNumber), L, TOP, {
+      width: W,
+      align: "left",
+      lineGap: 0.8,
     });
 
-    doc.y += 8;
-    doc.moveTo(50, doc.y).lineTo(550, doc.y).stroke();
-    doc.y += 14;
-    doc.font(fonts.bold);
-    const totalStr = this.formatDocumentTotal(order);
-    doc.text(totalStr, 380, doc.y);
-  }
+    this.drawPaymentSlipSample(doc, fonts, meta, doc.y + 6);
 
-  private formatDocumentTotal(
-    order: { totalAmount: number; currency: string; exchangeRate?: number | null },
-  ): string {
-    const cur = order.currency.toUpperCase();
-    const sym = cur === "USD" ? "$" : cur === "EUR" ? "€" : order.currency;
-    const main = `Разом: ${order.totalAmount.toFixed(2)} ${sym}`;
-    if ((cur === "USD" || cur === "EUR") && order.exchangeRate != null && order.exchangeRate > 0) {
-      const uah = Math.round(order.totalAmount * order.exchangeRate);
-      return `${main} (${uah} ₴)`;
+    doc.y += 14;
+    doc.font(fonts.bold).fontSize(12);
+    doc.text(
+      `Рахунок на оплату № ${header.invoiceNumber} від ${header.invoiceDate}`,
+      L,
+      doc.y,
+      { width: W, align: "center" },
+    );
+
+    doc.y += 10;
+    this.drawParties(doc, fonts, seller, buyer);
+    this.drawGoodsTable(doc, fonts, order);
+    this.drawTotalsBlock(doc, fonts, order);
+
+    if (payment) {
+      this.drawInvoicePaymentBlock(doc, fonts, payment, order.orderNumber);
     }
-    return main;
+
+    doc.y += 18;
+    doc.font(fonts.regular).fontSize(10);
+    const sigY = doc.y;
+    doc.text("Виписав(ла):", L, sigY);
+    doc
+      .moveTo(L + 72, sigY + 10)
+      .lineTo(L + 260, sigY + 10)
+      .stroke();
   }
 
-  private drawWaybill(
+  private drawInvoicePaymentBlock(
     doc: PdfDoc,
-    order: Prisma.OrderGetPayload<{ include: typeof ORDER_DOCUMENTS_INCLUDE }>,
+    fonts: Fonts,
+    payment: InvoicePaymentBlock,
+    orderNumber: string,
   ) {
+    this.ensureSpace(doc, 120);
+    doc.y += 12;
+    const top = doc.y;
+    const qrSize = 88;
+    const gap = 10;
+    const textX = L + qrSize + gap;
+    const textW = R - textX;
+
+    doc.image(payment.qrPng, L, top, { width: qrSize, height: qrSize });
+
+    let y = top;
+    doc.font(fonts.bold).fontSize(9);
+    doc.text("Оплата за QR / посиланням", textX, y, { width: textW });
+    y = doc.y + 3;
+
+    doc.font(fonts.regular).fontSize(8);
+    doc.text(
+      `Сума: ${formatUaMoney(payment.amountUah)} грн. Відскануйте QR у застосунку банку або відкрийте посилання.`,
+      textX,
+      y,
+      { width: textW },
+    );
+    y = doc.y + 4;
+
+    doc.font(fonts.bold).fontSize(8);
+    doc.text("Призначення платежу:", textX, y, { width: textW, continued: true });
+    doc.font(fonts.regular).fontSize(8);
+    doc.text(` ${payment.purpose}`, { width: textW });
+    y = doc.y + 3;
+
+    doc.font(fonts.bold).fontSize(8);
+    doc.text(
+      `У призначенні платежу обов'язково вкажіть замовлення ${orderNumber}.`,
+      textX,
+      y,
+      { width: textW },
+    );
+    y = doc.y + 4;
+
+    doc.font(fonts.regular).fontSize(8);
+    doc.fillColor("#000");
+    doc.text("Посилання для оплати:", textX, y, { width: textW });
+    y = doc.y + 1;
+    const linkLabel = formatPayUrlForDisplay(payment.payUrl);
+    doc.fillColor("#003399").fontSize(8);
+    doc.text(linkLabel, textX, y, {
+      width: textW,
+      link: payment.payUrl,
+      underline: true,
+    });
+    doc.fillColor("#000");
+
+    doc.y = Math.max(top + qrSize, doc.y) + 4;
+  }
+
+  private drawWaybill(doc: PdfDoc, order: OrderForDocument) {
     const fonts = this.registerFonts(doc);
     const requisites = (order.bankAccount?.documentRequisites as DocumentRequisites | null) ?? null;
     const seller = this.sellerLines(requisites, order.bankAccount?.iban ?? null);
-    const buyer = this.buyerName(order.contact);
+    const buyer = this.buyerLine(order.contact, order.company);
     const header = documentHeaderFromOrder(order);
 
-    doc.fontSize(14).text("Видаткова накладна (РН)", { align: "center" }).moveDown(0.5);
-    doc.fontSize(10);
-    doc.text("Відправник:", 50, doc.y);
-    doc.y += 4;
-    seller.forEach((line) => {
-      doc.text(line, 55, doc.y);
-      doc.y += 14;
+    doc.fillColor("#000").strokeColor("#000");
+    doc.font(fonts.bold).fontSize(12);
+    doc.text(
+      `Видаткова накладна № ${header.waybillNumber} від ${header.waybillDate}`,
+      L,
+      TOP + 6,
+      { width: W, align: "center" },
+    );
+
+    doc.y += 12;
+    this.drawParties(doc, fonts, seller, buyer);
+    this.drawGoodsTable(doc, fonts, order);
+    this.drawTotalsBlock(doc, fonts, order);
+    this.drawWaybillSignatures(doc, fonts);
+  }
+
+  /**
+   * Classic 1C payment-order sample:
+   *  ┌──────────────┬────────────────────────────┬──────┬──────────────┐
+   *  │ Одержувач    │ Name                       │ Код  │ EDRPOU       │
+   *  ├──────────────┼────────────────────────────┴──────┴──────────────┤
+   *  │ Банк         │ КРЕДИТ рах. N                                    │
+   *  │ одержувача   │ IBAN                                             │
+   *  │              ├────────────────────────────┬──────┬──────────────┤
+   *  │ BankName     │                            │ Код  │ MFO          │
+   *  │              │                            │банку │              │
+   *  └──────────────┴────────────────────────────┴──────┴──────────────┘
+   */
+  private drawPaymentSlipSample(
+    doc: PdfDoc,
+    fonts: Fonts,
+    meta: { legalName: string; iban: string; mfo: string; bankName: string; edrpou: string },
+    top: number,
+  ) {
+    const x0 = L;
+    const x1 = 92; // label column
+    const x2 = 360; // before Код
+    const x3 = 400; // before code value
+    const x4 = R;
+    const titleH = 15;
+    const row1 = 18;
+    const rowCredit = 28;
+    const rowBank = 18;
+    const h = titleH + row1 + rowCredit + rowBank;
+    const y0 = top;
+    const y1 = y0 + titleH;
+    const y2 = y1 + row1;
+    const y3 = y2 + rowCredit;
+    const y4 = y3 + rowBank;
+
+    doc.rect(x0, y0, x4 - x0, h).stroke();
+    doc.moveTo(x0, y1).lineTo(x4, y1).stroke();
+    doc.font(fonts.bold).fontSize(9);
+    doc.text("Зразок заповнення платіжного доручення", x0, y0 + 3.5, {
+      width: x4 - x0,
+      align: "center",
     });
-    doc.moveDown(0.5);
-    doc.text("Отримувач: " + buyer, 50, doc.y);
-    doc.y += 20;
 
-    doc.text(`Номер замовлення: ${header.orderNumber}`, 50, doc.y);
-    doc.y += 14;
-    doc.text(`Дата замовлення: ${header.orderDate}`, 50, doc.y);
-    doc.y += 14;
-    doc.text(`Номер РН: ${header.waybillNumber}`, 50, doc.y);
-    doc.y += 14;
-    doc.text(`Дата РН: ${header.waybillDate}`, 50, doc.y);
-    doc.y += 24;
+    // Verticals
+    doc.moveTo(x1, y1).lineTo(x1, y4).stroke();
+    // Row 1 horizontals/verticals
+    doc.moveTo(x0, y2).lineTo(x4, y2).stroke();
+    doc.moveTo(x2, y1).lineTo(x2, y2).stroke();
+    doc.moveTo(x3, y1).lineTo(x3, y2).stroke();
+    // Credit / bank split
+    doc.moveTo(x0, y3).lineTo(x4, y3).stroke();
+    doc.moveTo(x2, y3).lineTo(x2, y4).stroke();
+    doc.moveTo(x3, y3).lineTo(x3, y4).stroke();
 
-    const tableTop = doc.y;
-    doc.font(fonts.bold);
-    doc.text("№", 50, tableTop);
-    doc.text("Найменування", 70, tableTop);
-    doc.text("Кількість", 320, tableTop);
-    doc.text("Ціна", 380, tableTop);
-    doc.text("Сума", 440, tableTop);
-    doc.y += 18;
-    doc.moveTo(50, doc.y).lineTo(550, doc.y).stroke();
+    doc.font(fonts.regular).fontSize(8);
+
+    this.cellText(doc, "Одержувач", x0 + 3, y1, x1 - x0 - 6, row1, {
+      align: "left",
+      valign: "center",
+    });
+    this.cellText(doc, meta.legalName, x1 + 4, y1, x2 - x1 - 8, row1, {
+      align: "left",
+      valign: "center",
+    });
+    this.cellText(doc, "Код", x2 + 3, y1, x3 - x2 - 6, row1, {
+      align: "center",
+      valign: "center",
+    });
+    this.cellText(doc, meta.edrpou || "—", x3 + 4, y1, x4 - x3 - 8, row1, {
+      align: "left",
+      valign: "center",
+    });
+
+    // Left bank label spanning credit+bank rows
+    this.cellText(doc, "Банк\nодержувача", x0 + 3, y2, x1 - x0 - 6, rowCredit + rowBank, {
+      align: "left",
+      valign: "center",
+    });
+    doc.font(fonts.regular).fontSize(7.5);
+    this.cellText(doc, "КРЕДИТ рах. N", x1 + 4, y2 + 2, x4 - x1 - 8, 10, { align: "left" });
+    doc.font(fonts.regular).fontSize(8.5);
+    this.cellText(doc, meta.iban || "—", x1 + 4, y2 + 12, x4 - x1 - 8, 14, { align: "left" });
+
+    doc.font(fonts.regular).fontSize(8);
+    this.cellText(doc, meta.bankName, x1 + 4, y3, x2 - x1 - 8, rowBank, {
+      align: "left",
+      valign: "center",
+    });
+    this.cellText(doc, "Код банку", x2 + 2, y3, x3 - x2 - 4, rowBank, {
+      align: "center",
+      valign: "center",
+    });
+    this.cellText(doc, meta.mfo, x3 + 4, y3, x4 - x3 - 8, rowBank, {
+      align: "left",
+      valign: "center",
+    });
+
+    doc.y = y4;
+  }
+
+  private drawParties(doc: PdfDoc, fonts: Fonts, seller: string[], buyer: string) {
+    doc.font(fonts.bold).fontSize(9);
+    doc.text("Постачальник:", L, doc.y);
+    doc.font(fonts.regular).fontSize(8.5);
+    for (const line of seller) {
+      doc.text(line, L, doc.y, { width: W, lineGap: 1 });
+    }
+    doc.y += 6;
+    doc.font(fonts.bold).fontSize(9);
+    doc.text("Покупець:", L, doc.y);
+    doc.font(fonts.regular).fontSize(8.5);
+    doc.text(buyer, L, doc.y, { width: W });
     doc.y += 8;
-    doc.font(fonts.regular);
+  }
+
+  private ensureSpace(doc: PdfDoc, needed: number): boolean {
+    if (doc.y + needed <= PAGE.height - BOTTOM) return false;
+    doc.addPage();
+    doc.lineWidth(0.6);
+    doc.y = TOP;
+    return true;
+  }
+
+  private drawGrid(doc: PdfDoc, top: number, h: number, xs: readonly number[]) {
+    doc.rect(xs[0], top, xs[xs.length - 1] - xs[0], h).stroke();
+    for (let i = 1; i < xs.length - 1; i++) {
+      doc.moveTo(xs[i], top).lineTo(xs[i], top + h).stroke();
+    }
+  }
+
+  private cellText(
+    doc: PdfDoc,
+    text: string,
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    opts: { align?: "left" | "center" | "right"; valign?: "top" | "center"; size?: number } = {},
+  ) {
+    const align = opts.align ?? "left";
+    const textH = doc.heightOfString(text, { width: w, align });
+    let ty = y + 2;
+    if (opts.valign === "center") {
+      ty = y + Math.max(1, (h - textH) / 2);
+    }
+    doc.text(text, x, ty, {
+      width: w,
+      align,
+      lineBreak: true,
+    });
+  }
+
+  private drawTableHeader(doc: PdfDoc, fonts: Fonts) {
+    const top = doc.y;
+    const h = 22;
+    this.drawGrid(doc, top, h, TX);
+    doc.font(fonts.bold).fontSize(7.5);
+    const labels: Array<{ i: number; text: string }> = [
+      { i: 0, text: "№" },
+      { i: 1, text: "Артикул" },
+      { i: 2, text: "Товари (роботи, послуги)" },
+      { i: 3, text: "Кіл-сть" },
+      { i: 4, text: "Од." },
+      { i: 5, text: "Ціна без\nПДВ" },
+      { i: 6, text: "Сума без\nПДВ" },
+    ];
+    for (const { i, text } of labels) {
+      this.cellText(doc, text, TX[i] + 1, top, TX[i + 1] - TX[i] - 2, h, {
+        align: "center",
+        valign: "center",
+      });
+    }
+    doc.y = top + h;
+  }
+
+  private drawGoodsTable(doc: PdfDoc, fonts: Fonts, order: OrderForDocument) {
+    this.ensureSpace(doc, 50);
+    this.drawTableHeader(doc, fonts);
 
     order.items.forEach((item, idx) => {
+      const sku = item.product?.sku ?? "—";
       const name = item.product?.name ?? item.productNameSnapshot ?? "—";
-      const qty = String(item.qty);
-      const price = item.price.toFixed(2);
-      const sum = item.lineTotal.toFixed(2);
-      doc.text(String(idx + 1), 50, doc.y);
-      doc.text(name.substring(0, 45), 70, doc.y);
-      doc.text(qty, 320, doc.y);
-      doc.text(price, 380, doc.y);
-      doc.text(sum, 440, doc.y);
-      doc.y += 18;
-    });
+      const unit = item.product?.unit?.trim() || "шт";
+      const qty = Number(item.qty) || 0;
+      const priceUah = amountToUah(Number(item.price) || 0, order);
+      const sumUah = amountToUah(Number(item.lineTotal) || 0, order);
 
-    doc.y += 8;
-    doc.moveTo(50, doc.y).lineTo(550, doc.y).stroke();
-    doc.y += 14;
-    doc.font(fonts.bold);
-    const totalStr = this.formatDocumentTotal(order);
-    doc.text(totalStr, 380, doc.y);
+      doc.font(fonts.regular).fontSize(7.5);
+      const nameH = doc.heightOfString(name, { width: TX[3] - TX[2] - 4 });
+      const skuH = doc.heightOfString(sku, { width: TX[2] - TX[1] - 4 });
+      const rowH = Math.max(14, nameH + 4, skuH + 4);
+
+      if (this.ensureSpace(doc, rowH + 2)) {
+        this.drawTableHeader(doc, fonts);
+      }
+
+      const top = doc.y;
+      this.drawGrid(doc, top, rowH, TX);
+
+      const cells: Array<{ i: number; text: string; align: "left" | "center" | "right" }> = [
+        { i: 0, text: String(idx + 1), align: "center" },
+        { i: 1, text: sku, align: "left" },
+        { i: 2, text: name, align: "left" },
+        { i: 3, text: formatUaQty(qty), align: "right" },
+        { i: 4, text: unit, align: "center" },
+        { i: 5, text: formatUaMoney(priceUah), align: "right" },
+        { i: 6, text: formatUaMoney(sumUah), align: "right" },
+      ];
+      for (const c of cells) {
+        this.cellText(doc, c.text, TX[c.i] + 2, top, TX[c.i + 1] - TX[c.i] - 4, rowH, {
+          align: c.align,
+          valign: "center",
+        });
+      }
+      doc.y = top + rowH;
+    });
+  }
+
+  private drawTotalsBlock(doc: PdfDoc, fonts: Fonts, order: OrderForDocument) {
+    const totalQty = order.items.reduce((acc, item) => acc + (Number(item.qty) || 0), 0);
+    const totalUah = amountToUah(Number(order.totalAmount) || 0, order);
+    const namesCount = order.items.length;
+
+    const top = doc.y;
+    const h = 16;
+    // Only rightmost cell bordered like 1C (Разом label + sum)
+    doc.rect(TX[5], top, R - TX[5], h).stroke();
+    doc.moveTo(TX[6], top).lineTo(TX[6], top + h).stroke();
+    doc.font(fonts.bold).fontSize(8.5);
+    this.cellText(doc, "Разом:", TX[5] + 2, top, TX[6] - TX[5] - 4, h, {
+      align: "right",
+      valign: "center",
+    });
+    this.cellText(doc, formatUaMoney(totalUah), TX[6] + 2, top, R - TX[6] - 4, h, {
+      align: "right",
+      valign: "center",
+    });
+    doc.y = top + h + 8;
+
+    doc.font(fonts.regular).fontSize(8.5);
+    doc.text(`Кількість: ${formatUaQty(totalQty)}`, L, doc.y);
+    doc.y += 11;
+    doc.text(
+      `Всього найменувань ${namesCount}, на суму ${formatUaMoney(totalUah)} грн`,
+      L,
+      doc.y,
+      { width: W },
+    );
+  }
+
+  private drawWaybillSignatures(doc: PdfDoc, fonts: Fonts) {
+    this.ensureSpace(doc, 80);
+    doc.y += 20;
+    const y = doc.y;
+    const mid = L + W / 2;
+    const leftW = W / 2 - 16;
+    const rightX = mid + 16;
+
+    doc.font(fonts.regular).fontSize(9);
+    doc.text("Від постачальника*", L, y, { width: leftW });
+    doc.text("Отримав(ла)", rightX, y, { width: leftW });
+
+    doc
+      .moveTo(L, y + 26)
+      .lineTo(L + leftW - 10, y + 26)
+      .stroke();
+    doc
+      .moveTo(rightX, y + 26)
+      .lineTo(R, y + 26)
+      .stroke();
+
+    doc.font(fonts.regular).fontSize(7);
+    doc.text(
+      "* Відповідальний за здійснення господарської операції і правильність її оформлення",
+      L,
+      y + 32,
+      { width: leftW },
+    );
+
+    doc.font(fonts.regular).fontSize(9);
+    doc.text("За довіреністю", rightX, y + 34, { width: leftW });
+    doc.text("№ __________ від __________", rightX, y + 48, { width: leftW });
+    doc.y = y + 68;
   }
 }

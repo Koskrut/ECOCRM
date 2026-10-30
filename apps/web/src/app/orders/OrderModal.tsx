@@ -900,6 +900,11 @@ export function OrderModal({
   >({});
   const [returnsDocsMenuOpen, setReturnsDocsMenuOpen] = useState(false);
   const returnsDocsMenuRef = useRef<HTMLDivElement>(null);
+  const [telegramDocsStatus, setTelegramDocsStatus] = useState<{
+    managerLinked: boolean;
+    clientLinked: boolean;
+  } | null>(null);
+  const [telegramDocsSending, setTelegramDocsSending] = useState<string | null>(null);
   const [returnStatusUpdatingId, setReturnStatusUpdatingId] = useState<string | null>(null);
   const [pendingReturnSettlement, setPendingReturnSettlement] = useState<{
     returnId: string;
@@ -1308,6 +1313,68 @@ export function OrderModal({
       document.removeEventListener("touchstart", onPointerDown);
     };
   }, [returnsDocsMenuOpen]);
+
+  useEffect(() => {
+    if (!returnsDocsMenuOpen || !orderId || isCreate) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const r = await fetch(`${apiBaseUrl}/orders/${orderId}/documents/telegram-status`, {
+          credentials: "include",
+          cache: "no-store",
+        });
+        if (!r.ok) throw new Error(`status ${r.status}`);
+        const data = (await r.json()) as { managerLinked?: boolean; clientLinked?: boolean };
+        if (!cancelled) {
+          setTelegramDocsStatus({
+            managerLinked: Boolean(data.managerLinked),
+            clientLinked: Boolean(data.clientLinked),
+          });
+        }
+      } catch {
+        if (!cancelled) setTelegramDocsStatus({ managerLinked: false, clientLinked: false });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [returnsDocsMenuOpen, orderId, isCreate, apiBaseUrl]);
+
+  const sendOrderDocTelegram = useCallback(
+    async (kind: "invoice" | "waybill", dest: "me" | "client") => {
+      if (!orderId) return;
+      const key = `${kind}:${dest}`;
+      setTelegramDocsSending(key);
+      try {
+        const r = await fetch(`${apiBaseUrl}/orders/${orderId}/documents/send-telegram`, {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ kind, dest }),
+        });
+        if (!r.ok) {
+          const body = (await r.json().catch(() => null)) as { message?: string | string[] } | null;
+          const msg = Array.isArray(body?.message)
+            ? body.message.join(", ")
+            : typeof body?.message === "string"
+              ? body.message
+              : `Не вдалося надіслати (${r.status})`;
+          throw new Error(msg);
+        }
+        const label = kind === "invoice" ? "Рахунок" : "РН";
+        pushToast(
+          dest === "me" ? `${label} надіслано вам у Telegram` : `${label} надіслано клієнту в Telegram`,
+          "success",
+        );
+        setReturnsDocsMenuOpen(false);
+      } catch (e) {
+        pushToast(e instanceof Error ? e.message : "Не вдалося надіслати в Telegram", "error");
+      } finally {
+        setTelegramDocsSending(null);
+      }
+    },
+    [apiBaseUrl, orderId, pushToast],
+  );
 
   /** Phase 3: PATCH /orders/:id/stage with toStage */
   const setOrderStage = useCallback(
@@ -2149,6 +2216,73 @@ export function OrderModal({
                       РН (PDF)
                     </a>
                   </div>
+                </div>
+                <div className="border-t border-zinc-100 pt-3">
+                  <div className="mb-1.5 text-xs font-medium text-zinc-600">Telegram</div>
+                  {telegramDocsStatus == null ? (
+                    <div className="text-xs text-zinc-500">Перевірка Telegram…</div>
+                  ) : (
+                    <div className="flex flex-col gap-1.5">
+                      {(
+                        [
+                          {
+                            kind: "invoice" as const,
+                            dest: "me" as const,
+                            label: "Рахунок → мені",
+                            enabled: telegramDocsStatus.managerLinked,
+                            hint: "Прив'яжіть Telegram у профілі",
+                          },
+                          {
+                            kind: "waybill" as const,
+                            dest: "me" as const,
+                            label: "РН → мені",
+                            enabled: telegramDocsStatus.managerLinked,
+                            hint: "Прив'яжіть Telegram у профілі",
+                          },
+                          {
+                            kind: "invoice" as const,
+                            dest: "client" as const,
+                            label: "Рахунок → клієнту",
+                            enabled: telegramDocsStatus.clientLinked,
+                            hint: "У клієнта немає Telegram",
+                          },
+                          {
+                            kind: "waybill" as const,
+                            dest: "client" as const,
+                            label: "РН → клієнту",
+                            enabled: telegramDocsStatus.clientLinked,
+                            hint: "У клієнта немає Telegram",
+                          },
+                        ] as const
+                      ).map((item) => {
+                        const key = `${item.kind}:${item.dest}`;
+                        const busy = telegramDocsSending === key;
+                        return (
+                          <button
+                            key={key}
+                            type="button"
+                            role="menuitem"
+                            disabled={!item.enabled || telegramDocsSending != null}
+                            title={item.enabled ? item.label : item.hint}
+                            onClick={() => void sendOrderDocTelegram(item.kind, item.dest)}
+                            className="rounded-md border border-zinc-200 bg-white px-3 py-2 text-left text-sm font-medium text-zinc-800 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            {busy ? "Надсилаю…" : item.label}
+                          </button>
+                        );
+                      })}
+                      {!telegramDocsStatus.managerLinked ? (
+                        <p className="text-[11px] leading-snug text-zinc-500">
+                          Щоб отримати собі: Налаштування → Telegram → /link
+                        </p>
+                      ) : null}
+                      {!telegramDocsStatus.clientLinked ? (
+                        <p className="text-[11px] leading-snug text-zinc-500">
+                          Клієнту можна надіслати після прив'язки Telegram до контакту
+                        </p>
+                      ) : null}
+                    </div>
+                  )}
                 </div>
                 <div className="border-t border-zinc-100 pt-3">
                   <div className="mb-1.5 text-xs font-medium text-zinc-600">Повернення</div>

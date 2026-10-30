@@ -1,7 +1,9 @@
 import { forwardRef, Inject, Injectable, Logger } from "@nestjs/common";
 import type { UserNotification } from "@prisma/client";
 import { TelegramService } from "../integrations/telegram/telegram.service";
+import type { TelegramInlineButton } from "../integrations/telegram/telegram.types";
 import { PrismaService } from "../prisma/prisma.service";
+import { SettingsService } from "../settings/settings.service";
 import { ExpoPushService } from "./expo-push.service";
 import { defaultChannelsForType } from "./notification-type-defaults";
 
@@ -14,6 +16,7 @@ export class NotificationsDeliveryService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly expoPush: ExpoPushService,
+    private readonly settings: SettingsService,
     @Inject(forwardRef(() => TelegramService)) private readonly telegram: TelegramService,
   ) {}
 
@@ -30,7 +33,10 @@ export class NotificationsDeliveryService {
         userId_type: { userId: notification.userId, type: notification.type },
       },
     });
-    if (!pref?.telegram) {
+    const telegramEnabled = pref
+      ? pref.telegram
+      : defaultChannelsForType(notification.type).telegram;
+    if (!telegramEnabled) {
       return;
     }
 
@@ -43,13 +49,86 @@ export class NotificationsDeliveryService {
     }
 
     const text = [notification.title, notification.body].filter(Boolean).join("\n");
+    const inlineKeyboard = await this.buildManagerKeyboard(notification);
     try {
-      await this.telegram.sendMessageToChat(user.telegramChatId, text.slice(0, 4000));
+      await this.telegram.sendMessageToChat(user.telegramChatId, text.slice(0, 4000), {
+        ...(inlineKeyboard?.length ? { inlineKeyboard } : {}),
+      });
     } catch (err) {
       this.logger.warn(
         `Telegram notification failed for user ${notification.userId}: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
+  }
+
+  private async buildManagerKeyboard(
+    notification: UserNotification,
+  ): Promise<TelegramInlineButton[][] | null> {
+    if (notification.type === "TELEGRAM_MESSAGE" && notification.entityId) {
+      const convId = notification.entityId;
+      if (Buffer.byteLength(`mgr:claim:${convId}`) > 64) return null;
+      const row: TelegramInlineButton[] = [
+        { text: "✅ Взяти чат", callback_data: `mgr:claim:${convId}` },
+        { text: "🔕 30 хв", callback_data: `mgr:mute:${convId}` },
+      ];
+      const url = await this.crmPathUrl(
+        `/inbox?channel=TELEGRAM&conversationId=${encodeURIComponent(convId)}`,
+      );
+      const rows: TelegramInlineButton[][] = [row];
+      if (url) {
+        rows.push([{ text: "🔗 Відкрити в CRM", url }]);
+      } else {
+        rows.push([{ text: "🔗 Посилання", callback_data: `mgr:open:${convId}` }]);
+      }
+      return rows;
+    }
+
+    if (notification.type === "NEW_LEAD" && notification.entityId) {
+      const url = await this.crmPathUrl(
+        `/leads?leadId=${encodeURIComponent(notification.entityId)}`,
+      );
+      if (!url) return null;
+      return [[{ text: "🔗 Відкрити лід", url }]];
+    }
+
+    if (notification.type === "CLIENT_ORDER_ACCEPTED" && notification.entityId) {
+      const orderId = notification.entityId;
+      if (Buffer.byteLength(`mgr:inv:${orderId}`) > 64) return null;
+      const rows: TelegramInlineButton[][] = [
+        [
+          { text: "📄 Рахунок", callback_data: `mgr:inv:${orderId}` },
+          { text: "📄 РН", callback_data: `mgr:way:${orderId}` },
+        ],
+      ];
+      const url = await this.crmPathUrl(
+        `/orders?orderId=${encodeURIComponent(orderId)}`,
+      );
+      if (url) rows.push([{ text: "🔗 Відкрити замовлення", url }]);
+      return rows;
+    }
+
+    return null;
+  }
+
+  private async crmPathUrl(path: string): Promise<string | null> {
+    const base = await this.resolveCrmWebBase();
+    if (!base) return null;
+    const normalized = path.startsWith("/") ? path : `/${path}`;
+    return `${base}${normalized}`;
+  }
+
+  private async resolveCrmWebBase(): Promise<string | null> {
+    try {
+      const store = await this.settings.getStoreConfig();
+      const fromStore = (store.crmPayPageUrl ?? "").trim().replace(/\/+$/, "");
+      if (/^https:\/\//i.test(fromStore)) return fromStore;
+    } catch {
+      /* ignore */
+    }
+    const fromEnv = (process.env.CRM_WEB_URL ?? process.env.WEB_ORIGIN ?? "")
+      .trim()
+      .replace(/\/+$/, "");
+    return /^https:\/\//i.test(fromEnv) ? fromEnv : null;
   }
 
   private async deliverMobilePush(notification: UserNotification): Promise<void> {

@@ -1,6 +1,7 @@
 import { forwardRef, Module } from "@nestjs/common";
 import { TelegramModule } from "../integrations/telegram/telegram.module";
 import { PrismaModule } from "../prisma/prisma.module";
+import { SettingsModule } from "../settings/settings.module";
 import { NotificationsDeliveryService } from "./notifications-delivery.service";
 import { ExpoPushService } from "./expo-push.service";
 import { NotificationsController } from "./notifications.controller";
@@ -9,7 +10,7 @@ import { OrderSaleAssignedNotifierService } from "./order-sale-assigned-notifier
 import { OrderWarehouseNotifierService } from "./order-warehouse-notifier.service";
 
 @Module({
-  imports: [PrismaModule, forwardRef(() => TelegramModule)],
+  imports: [PrismaModule, SettingsModule, forwardRef(() => TelegramModule)],
   controllers: [NotificationsController],
   providers: [
     NotificationsService,
