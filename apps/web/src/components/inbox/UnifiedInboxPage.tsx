@@ -7,6 +7,7 @@ import {
   conversationsApi,
   contactsApi,
   metaConversationsApi,
+  usersApi,
   type Contact,
   type ConversationItem,
   type MessageItem,
@@ -14,6 +15,7 @@ import {
   type MetaMessageItem,
 } from "@/lib/api";
 import { apiHttp } from "@/lib/api/client";
+import { ApiError } from "@/lib/api/errors";
 import { authApi } from "@/lib/api/resources/auth";
 import { MessageCircle, Settings, User } from "lucide-react";
 import { DateTime } from "luxon";
@@ -47,6 +49,7 @@ type UnifiedConversation = {
   contact: ConversationItem["contact"] | MetaConversationItem["contact"];
   lead: ConversationItem["lead"] | MetaConversationItem["lead"];
   assignedTo: ConversationItem["assignedTo"] | MetaConversationItem["assignedTo"];
+  collaborators?: Array<{ id: string; fullName: string; email?: string }>;
   status: "OPEN" | "PENDING" | "CLOSED";
   pinnedAt: string | null;
   lastReadAt: string | null;
@@ -148,6 +151,7 @@ function fromTelegram(c: ConversationItem): UnifiedConversation {
     contact: c.contact,
     lead: c.lead,
     assignedTo: c.assignedTo,
+    collaborators: c.collaborators ?? [],
     status: c.status,
     pinnedAt: c.pinnedAt,
     lastReadAt: c.lastReadAt,
@@ -257,6 +261,8 @@ function UnifiedInboxContent() {
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [suggestLoading, setSuggestLoading] = useState(false);
   const [meId, setMeId] = useState<string | null>(null);
+  const [meRole, setMeRole] = useState<string | null>(null);
+  const [staffOptions, setStaffOptions] = useState<Array<{ id: string; fullName: string }>>([]);
   const [assignLoading, setAssignLoading] = useState(false);
   const [taskModalOpen, setTaskModalOpen] = useState(false);
   const [taskPreset, setTaskPreset] = useState<{
@@ -312,8 +318,31 @@ function UnifiedInboxContent() {
   useEffect(() => {
     authApi
       .me()
-      .then((r) => setMeId(r.user?.id ?? null))
-      .catch(() => setMeId(null));
+      .then((r) => {
+        setMeId(r.user?.id ?? null);
+        setMeRole(r.user?.role ?? null);
+      })
+      .catch(() => {
+        setMeId(null);
+        setMeRole(null);
+      });
+  }, []);
+
+  useEffect(() => {
+    void usersApi
+      .list()
+      .then((users) =>
+        setStaffOptions(
+          users
+            .filter(
+              (u) =>
+                u.isActive !== false &&
+                (u.role === "MANAGER" || u.role === "LEAD" || u.role === "ADMIN"),
+            )
+            .map((u) => ({ id: u.id, fullName: u.fullName?.trim() || u.email })),
+        ),
+      )
+      .catch(() => setStaffOptions([]));
   }, []);
 
   useEffect(() => {
@@ -439,6 +468,15 @@ function UnifiedInboxContent() {
 
   const messagesRequestRef = useRef(0);
 
+  const clearLostAccess = useCallback(() => {
+    setSelectedId(null);
+    setSelectedSource(null);
+    setOpenedConversation(null);
+    setMessages([]);
+    setSuggestions([]);
+    setMobilePanel("list");
+  }, []);
+
   const loadMessages = useCallback(
     async (convId: string, source: InboxSource, opts?: { silent?: boolean }) => {
       const requestId = ++messagesRequestRef.current;
@@ -485,13 +523,19 @@ function UnifiedInboxContent() {
             })),
           );
         }
-      } catch {
-        if (requestId === messagesRequestRef.current && !opts?.silent) setMessages([]);
+      } catch (e) {
+        if (requestId !== messagesRequestRef.current) return;
+        // Transfer / collaborator removal: stop showing a thread the manager can no longer access.
+        if (e instanceof ApiError && (e.code === "FORBIDDEN" || e.status === 403)) {
+          clearLostAccess();
+          return;
+        }
+        if (!opts?.silent) setMessages([]);
       } finally {
         if (requestId === messagesRequestRef.current && !opts?.silent) setMessagesLoading(false);
       }
     },
-    [],
+    [clearLostAccess],
   );
 
   useEffect(() => {
@@ -622,28 +666,44 @@ function UnifiedInboxContent() {
         effectiveSource === "TELEGRAM"
           ? await conversationsApi.sendMessage(selectedId, text)
           : await metaConversationsApi.sendMessage(selectedId, text);
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === optimistic.id
-            ? {
-                id: created.id,
-                conversationId: created.conversationId,
-                direction: created.direction,
-                text: created.text,
-                author: created.author,
-                sentAt: created.sentAt,
-                status: "status" in created ? created.status : undefined,
-              }
-            : m,
-        ),
-      );
+      setMessages((prev) => {
+        const withoutOpt = prev.filter((m) => m.id !== optimistic.id);
+        if (withoutOpt.some((m) => m.id === created.id)) return withoutOpt;
+        return [
+          ...withoutOpt,
+          {
+            id: created.id,
+            conversationId: created.conversationId,
+            direction: created.direction,
+            text: created.text,
+            author: created.author,
+            sentAt: created.sentAt,
+            status: "status" in created ? created.status : undefined,
+          },
+        ];
+      });
       void loadConversations();
-    } catch {
+      // Refresh from server so the bubble survives the next poll (newest window).
+      if (effectiveSource) {
+        void loadMessages(selectedId, effectiveSource, { silent: true });
+      }
+    } catch (e) {
       setMessages((prev) => prev.filter((m) => m.id !== optimistic.id));
+      if (e instanceof ApiError && (e.code === "FORBIDDEN" || e.status === 403)) {
+        clearLostAccess();
+      }
     } finally {
       setSending(false);
     }
-  }, [selectedId, effectiveSource, sendText, sending, loadConversations]);
+  }, [
+    selectedId,
+    effectiveSource,
+    sendText,
+    sending,
+    loadConversations,
+    loadMessages,
+    clearLostAccess,
+  ]);
 
   const handleSendNote = useCallback(async () => {
     const text = sendText.trim();
@@ -716,13 +776,91 @@ function UnifiedInboxContent() {
       if (!selectedId || effectiveSource !== "TELEGRAM" || assignLoading) return;
       setAssignLoading(true);
       try {
-        await conversationsApi.assign(selectedId, userId);
+        const updated = await conversationsApi.assign(selectedId, userId);
+        const collaborators = updated.collaborators ?? [];
+        setConversations((prev) =>
+          sortConversations(
+            prev.map((c) =>
+              c.id === selectedId && c.source === "TELEGRAM"
+                ? {
+                    ...c,
+                    assignedTo: updated.assignedTo,
+                    collaborators,
+                  }
+                : c,
+            ),
+          ),
+        );
+        const stillHasAccess =
+          meRole !== "MANAGER" ||
+          !updated.assignedTo?.id ||
+          updated.assignedTo.id === meId ||
+          collaborators.some((c) => c.id === meId);
+        if (!stillHasAccess) {
+          clearLostAccess();
+        }
         void loadConversations();
+      } catch (e) {
+        if (e instanceof ApiError && (e.code === "FORBIDDEN" || e.status === 403)) {
+          clearLostAccess();
+        }
       } finally {
         setAssignLoading(false);
       }
     },
-    [selectedId, effectiveSource, assignLoading, loadConversations],
+    [selectedId, effectiveSource, assignLoading, loadConversations, meId, meRole, clearLostAccess],
+  );
+
+  const handleAddCollaborator = useCallback(
+    async (userId: string) => {
+      if (!selectedId || effectiveSource !== "TELEGRAM" || assignLoading) return;
+      setAssignLoading(true);
+      try {
+        const res = await conversationsApi.addCollaborator(selectedId, userId);
+        setConversations((prev) =>
+          prev.map((c) =>
+            c.id === selectedId && c.source === "TELEGRAM"
+              ? { ...c, collaborators: res.collaborators }
+              : c,
+          ),
+        );
+      } finally {
+        setAssignLoading(false);
+      }
+    },
+    [selectedId, effectiveSource, assignLoading],
+  );
+
+  const handleRemoveCollaborator = useCallback(
+    async (userId: string) => {
+      if (!selectedId || effectiveSource !== "TELEGRAM" || assignLoading) return;
+      setAssignLoading(true);
+      try {
+        const res = await conversationsApi.removeCollaborator(selectedId, userId);
+        setConversations((prev) =>
+          prev.map((c) =>
+            c.id === selectedId && c.source === "TELEGRAM"
+              ? { ...c, collaborators: res.collaborators }
+              : c,
+          ),
+        );
+        // Left the joint thread: drop sticky open state if no longer assignee.
+        if (
+          meRole === "MANAGER" &&
+          userId === meId &&
+          selected?.assignedTo?.id !== meId
+        ) {
+          clearLostAccess();
+        }
+      } catch (e) {
+        if (e instanceof ApiError && (e.code === "FORBIDDEN" || e.status === 403)) {
+          clearLostAccess();
+        }
+      } finally {
+        setAssignLoading(false);
+      }
+    },
+    [selectedId, effectiveSource, assignLoading, meId, meRole, selected?.assignedTo?.id, clearLostAccess],
   );
 
   const handleSuggestReplies = useCallback(async () => {
@@ -1160,9 +1298,13 @@ function UnifiedInboxContent() {
                 selected.source === "TELEGRAM"
                   ? {
                       assignedTo: selected.assignedTo,
+                      collaborators: selected.collaborators,
+                      staffOptions,
                       meId,
                       assignLoading,
                       onAssign: (uid) => void handleAssign(uid),
+                      onAddCollaborator: (uid) => void handleAddCollaborator(uid),
+                      onRemoveCollaborator: (uid) => void handleRemoveCollaborator(uid),
                     }
                   : null
               }

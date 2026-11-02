@@ -94,6 +94,22 @@ export class TelegramManagerBotService {
   }
 
   /**
+   * Explicit staff-only intents (never shared client labels like «Скасувати» or /start).
+   * Non-staff tapping these get a short link hint; everything else falls through to the shop.
+   */
+  private isExplicitStaffIntent(text: string): boolean {
+    return (
+      this.isDocsCommand(text) ||
+      this.isClientCommand(text) ||
+      text === MENU_STAFF_CLIENT ||
+      text === MENU_STAFF_DOCS ||
+      text === MENU_STAFF_SHOP ||
+      text === MENU_STAFF_HOME ||
+      /^\/shop(?:@\w+)?$/i.test(text)
+    );
+  }
+
+  /**
    * Staff text before the client shop pipeline: menu buttons, /client, /docs,
    * mgr_search / mgr_docs queries, cancel.
    */
@@ -102,34 +118,31 @@ export class TelegramManagerBotService {
     const text = parsed.text?.trim() ?? "";
     if (!text) return false;
 
-    const wantsStaffUi =
-      this.isDocsCommand(text) ||
-      this.isClientCommand(text) ||
-      this.isStaffMenuButton(text) ||
-      /^\/(?:menu|start|help|cancel|shop)(?:@\w+)?$/i.test(text);
     const user = await this.findStaffUser(parsed.userId);
 
-    if (wantsStaffUi && !user) {
-      await this.telegram.sendMessageToChat(
-        parsed.chatId,
-        "Меню менеджера для акаунтів CRM. Прив'яжіть Telegram: Налаштування → Telegram → отримати /link.",
-      );
-      return true;
+    // Clients must never see «прив'яжіть як менеджер» on /start, Старт, Скасувати, Каталог…
+    if (!user) {
+      if (this.isExplicitStaffIntent(text)) {
+        await this.telegram.sendMessageToChat(
+          parsed.chatId,
+          "Це меню менеджера CRM. Якщо ви співробітник — прив'яжіть Telegram у Налаштуваннях CRM (/link).",
+        );
+        return true;
+      }
+      return false;
     }
-
-    if (!user) return false;
 
     const session = await this.sessions.get(parsed.userId);
     const inShop = Boolean(session.payload.staffShopMode);
 
     // Leave client-shop mode → staff tools.
+    // «✖️ Скасувати» stays with the client FSM (checkout/onboarding); only «🏠 Меню»
+    // / /menu / /start / /help return to the manager keyboard.
     if (
       inShop &&
-      (text === MENU_STAFF_HOME ||
-        text === MENU_STAFF_CANCEL ||
-        /^\/(?:menu|start|help|cancel)(?:@\w+)?$/i.test(text))
+      (text === MENU_STAFF_HOME || /^\/(?:menu|start|help)(?:@\w+)?$/i.test(text))
     ) {
-      await this.sessions.set(parsed.userId, "idle", {});
+      await this.sessions.set(parsed.userId, "idle", { staffShopMode: false });
       await this.showStaffMenu(parsed.chatId, "Режим менеджера.", "full");
       return true;
     }

@@ -94,12 +94,15 @@ export class TelegramInboxNotifierService {
         id: true,
         assignedToUserId: true,
         leadId: true,
+        collaborators: { select: { userId: true } },
         contact: {
           select: {
             firstName: true,
             lastName: true,
             phone: true,
             documentDisplayName: true,
+            ownerId: true,
+            region: true,
           },
         },
         lead: {
@@ -168,16 +171,27 @@ export class TelegramInboxNotifierService {
   private async resolveRecipientUserIds(conversation: {
     assignedToUserId: string | null;
     leadId: string | null;
+    collaborators?: Array<{ userId: string }>;
+    contact: { ownerId: string | null } | null;
     lead: { ownerId: string | null } | null;
   }): Promise<string[]> {
+    const ids = new Set<string>();
     if (conversation.assignedToUserId) {
-      return [conversation.assignedToUserId];
+      ids.add(conversation.assignedToUserId);
+      for (const row of conversation.collaborators ?? []) {
+        if (row.userId) ids.add(row.userId);
+      }
+      return [...ids];
     }
 
-    const ownerId = conversation.lead?.ownerId;
-    if (ownerId) {
-      return [ownerId];
+    // Unassigned pool: CRM owner + leftover collaborators; if no owner, also ADMIN/LEAD
+    // so alerts are not stuck on collaborator-only leftovers after a bad unassign.
+    const ownerId = conversation.contact?.ownerId ?? conversation.lead?.ownerId;
+    if (ownerId) ids.add(ownerId);
+    for (const row of conversation.collaborators ?? []) {
+      if (row.userId) ids.add(row.userId);
     }
+    if (ownerId) return [...ids];
 
     const users = await this.prisma.user.findMany({
       where: {
@@ -186,7 +200,8 @@ export class TelegramInboxNotifierService {
       },
       select: { id: true },
     });
-    return users.map((u) => u.id);
+    for (const u of users) ids.add(u.id);
+    return [...ids];
   }
 
   private buildBodyPreview(text: string | null | undefined): string {

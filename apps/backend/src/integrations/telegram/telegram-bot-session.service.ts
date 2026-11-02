@@ -83,16 +83,29 @@ export class TelegramBotSessionService {
     state: BotSessionState,
     payload: BotSessionPayload = {},
   ): Promise<void> {
+    // Client FSM often replaces the whole payload (`set(..., {})`); keep staff shop
+    // mode unless the caller explicitly clears it (`staffShopMode: false`).
+    let nextPayload = payload;
+    if (!Object.prototype.hasOwnProperty.call(payload, "staffShopMode")) {
+      const current = await this.get(telegramUserId);
+      if (current.payload.staffShopMode) {
+        nextPayload = { ...payload, staffShopMode: true };
+      }
+    } else if (payload.staffShopMode === false) {
+      const { staffShopMode: _drop, ...rest } = payload;
+      nextPayload = rest;
+    }
+
     await this.prisma.telegramBotSession.upsert({
       where: { telegramUserId },
       create: {
         telegramUserId,
         state,
-        payload: payload as Prisma.InputJsonValue,
+        payload: nextPayload as Prisma.InputJsonValue,
       },
       update: {
         state,
-        payload: payload as Prisma.InputJsonValue,
+        payload: nextPayload as Prisma.InputJsonValue,
       },
     });
   }

@@ -1,10 +1,23 @@
-import { Body, Controller, Get, Inject, Param, Patch, Post, Query, Req, StreamableFile } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Inject,
+  Param,
+  Patch,
+  Post,
+  Query,
+  Req,
+  StreamableFile,
+} from "@nestjs/common";
 import type { Request } from "express";
 import { UserRole } from "@prisma/client";
 import type { AuthUser } from "../../auth/auth.types";
 import { Roles } from "../../auth/roles.decorator";
 import { ConversationsService } from "./conversations.service";
 import { AssignConversationDto } from "./dto/assign-conversation.dto";
+import { ConversationCollaboratorDto } from "./dto/conversation-collaborator.dto";
 import { LinkContactDto } from "./dto/link-contact.dto";
 import { ListConversationsQueryDto } from "./dto/list-conversations-query.dto";
 import { ListMessagesQueryDto } from "./dto/list-messages-query.dto";
@@ -18,6 +31,7 @@ import { RequireModule } from "../../modules/gating/require-module.decorator";
 import { ModuleIds } from "../../modules/module-ids";
 
 void AssignConversationDto;
+void ConversationCollaboratorDto;
 void LinkContactDto;
 void ListConversationsQueryDto;
 void ListMessagesQueryDto;
@@ -117,6 +131,24 @@ export class ConversationsController {
     @Req() req: Request & { user?: AuthUser },
   ) {
     return this.conversations.assign(id, dto.userId ?? null, req.user);
+  }
+
+  @Post(":id/collaborators")
+  addCollaborator(
+    @Param("id") id: string,
+    @Body() dto: ConversationCollaboratorDto,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.conversations.addCollaborator(id, dto.userId, req.user);
+  }
+
+  @Delete(":id/collaborators/:userId")
+  removeCollaborator(
+    @Param("id") id: string,
+    @Param("userId") userId: string,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.conversations.removeCollaborator(id, userId, req.user);
   }
 
   @Post(":id/link-contact")

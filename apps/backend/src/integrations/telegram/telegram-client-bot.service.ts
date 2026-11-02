@@ -11,9 +11,13 @@ import {
   MessageDirection,
   PaymentMethod,
   PaymentType,
+  UserRole,
 } from "@prisma/client";
 import { signJwt } from "../../auth/jwt";
-import { getPhoneNormalizedDigits } from "../../common/phone.utils";
+import {
+  getPhoneCandidatesForLookup,
+  getPhoneNormalizedDigits,
+} from "../../common/phone.utils";
 import { ContactsService } from "../../contacts/contacts.service";
 import { IntegrationPortsService } from "../../integration-ports/integration-ports.service";
 import { PrismaService } from "../../prisma/prisma.service";
@@ -323,18 +327,29 @@ export class TelegramClientBotService {
     // Contact share — acknowledge and show the menu. A checkout waiting for a phone resumes.
     if (parsed.phone) {
       const session = await this.sessions.get(parsed.userId);
-      const resolvedContactId = await this.resolveContactId(contactId, leadId);
+      // Prefer CRM contact matched by this phone over any prior lead/link id.
+      const resolvedContactId =
+        (await this.findCrmContactIdByPhone(parsed.phone)) ??
+        (await this.resolveContactId(contactId, leadId));
       if (session.state === "checkout_phone") {
-        if (session.payload.region && resolvedContactId) {
-          await this.replyMenu(parsed.chatId, conversationId, "Номер збережено. Оформлюємо замовлення.");
-          await this.finishCheckout(parsed, conversationId, resolvedContactId, session.payload);
-        } else if (resolvedContactId) {
-          await this.sessions.resetIdle(parsed.userId);
-          await this.replyMenu(
-            parsed.chatId,
-            conversationId,
-            "Номер збережено. Можна продовжити оформлення з кошика.",
-          );
+        const draft = pickCheckoutDraft(session.payload);
+        if (resolvedContactId) {
+          await this.linkTelegramToContact(parsed.userId, parsed.chatId, resolvedContactId);
+          if (this.canFinishCheckout(draft)) {
+            await this.replyCheckoutText(
+              parsed.chatId,
+              conversationId,
+              "Номер збережено. Оформлюємо замовлення.",
+            );
+            await this.finishCheckout(parsed, conversationId, resolvedContactId, draft);
+          } else {
+            await this.replyCheckoutText(
+              parsed.chatId,
+              conversationId,
+              "Номер збережено. Продовжуємо оформлення.",
+            );
+            await this.resumeCheckoutFromDraft(parsed, conversationId, resolvedContactId, draft);
+          }
         } else {
           // Keep checkout draft; collect CRM profile before finishing the order.
           await this.startOnboarding(parsed, conversationId, session.payload);
@@ -343,7 +358,7 @@ export class TelegramClientBotService {
       }
       if (resolvedContactId) {
         await this.linkTelegramToContact(parsed.userId, parsed.chatId, resolvedContactId);
-        // Same gap-fill as /start: role/region before the working menu.
+        // Role/region only when that CRM contact is missing them.
         if (await this.startContactGapFillIfNeeded(parsed, conversationId, resolvedContactId)) {
           return { handled: true, notifyManager: false };
         }
@@ -351,7 +366,7 @@ export class TelegramClientBotService {
         await this.replyMenu(parsed.chatId, conversationId, TELEGRAM_EXISTING_CLIENT);
         return { handled: true, notifyManager: false };
       }
-      // Phone is new to CRM contacts — collect name, role and region.
+      // No CRM contact for this phone — collect name, role and region for a new card.
       await this.startOnboarding(parsed, conversationId);
       return { handled: true, notifyManager: false };
     }
@@ -362,36 +377,47 @@ export class TelegramClientBotService {
         await this.handleCallback(parsed, conversationId, contactId, leadId, text);
         return { handled: true, notifyManager: false };
       }
-      const isMenuShortcut =
+      const wantsCommerce =
         text === MENU_CATALOG ||
         text === MENU_CART ||
         text === MENU_ORDERS ||
-        text === MENU_MANAGER ||
         text === CATALOG_SEARCH_BUTTON ||
-        lower === "/catalog" ||
-        lower === "/cart" ||
-        lower === "/orders";
-      // Reply-keyboard taps must not be stored as a person name.
-      // (🏠 Старт is handled above like /start and resumes onboarding.)
-      if (isMenuShortcut || parsed.isCallback || !text) {
-        await this.repromptOnboarding(
+        isSlashCommand(text, "catalog") ||
+        isSlashCommand(text, "cart") ||
+        isSlashCommand(text, "orders");
+      // Gap-fill for an existing CRM contact must not trap Каталог/Замовлення.
+      // New-client onboarding (no contact yet) still blocks commerce until name/role/region done.
+      const isGapFill = Boolean(earlySession.payload.onboardingContactId);
+      if (isGapFill && wantsCommerce) {
+        await this.sessions.resetIdle(parsed.userId);
+        // Fall through to commerce handlers below.
+      } else {
+        const isMenuShortcut =
+          wantsCommerce ||
+          text === MENU_MANAGER ||
+          text === CATALOG_SEARCH_BUTTON;
+        // Reply-keyboard taps must not be stored as a person name.
+        // (🏠 Старт is handled above like /start and resumes onboarding.)
+        if (isMenuShortcut || parsed.isCallback || !text) {
+          await this.repromptOnboarding(
+            parsed,
+            conversationId,
+            earlySession.state,
+            earlySession.payload,
+          );
+          return { handled: true, notifyManager: false };
+        }
+        await this.handleWizardText(
           parsed,
           conversationId,
+          contactId,
+          leadId,
           earlySession.state,
           earlySession.payload,
+          text,
         );
         return { handled: true, notifyManager: false };
       }
-      await this.handleWizardText(
-        parsed,
-        conversationId,
-        contactId,
-        leadId,
-        earlySession.state,
-        earlySession.payload,
-        text,
-      );
-      return { handled: true, notifyManager: false };
     }
 
     // Reply-keyboard menu — never wipe an active checkout with Catalog/Cart taps.
@@ -484,13 +510,10 @@ export class TelegramClientBotService {
       return { handled: true, notifyManager: false };
     }
 
-    // Phone known but CRM contact incomplete — resume profile instead of pinging managers.
+    // Phone known but no CRM contact — resume name/role onboarding (not role gap-fill).
     const resolvedContact = await this.resolveContactId(contactId, leadId);
     if (!resolvedContact) {
       await this.startOnboarding(parsed, conversationId, earlySession.payload);
-      return { handled: true, notifyManager: false };
-    }
-    if (await this.startContactGapFillIfNeeded(parsed, conversationId, resolvedContact)) {
       return { handled: true, notifyManager: false };
     }
 
@@ -499,7 +522,7 @@ export class TelegramClientBotService {
       return { handled: true, notifyManager: false };
     }
 
-    // Free text in idle → manager
+    // Free text in idle → manager (do not block on missing role/region).
     return { handled: false, notifyManager: true };
   }
 
@@ -707,12 +730,21 @@ export class TelegramClientBotService {
     if (state === "checkout_phone") {
       const phone = await this.resolveKnownPhone(parsed.userId, contactId, leadId);
       if (phone) {
-        if (payload.region) {
-          await this.replyMenu(parsed.chatId, conversationId, "Номер уже є в картці. Оформлюємо замовлення.");
-          await this.finishCheckout(parsed, conversationId, contactId, payload);
+        const draft = pickCheckoutDraft(payload);
+        if (this.canFinishCheckout(draft)) {
+          await this.replyCheckoutText(
+            parsed.chatId,
+            conversationId,
+            "Номер уже є в картці. Оформлюємо замовлення.",
+          );
+          await this.finishCheckout(parsed, conversationId, contactId, draft);
         } else {
-          await this.replyMenu(parsed.chatId, conversationId, "Номер уже є в картці клієнта. Продовжуємо оформлення.");
-          await this.startCheckout(parsed, conversationId, contactId);
+          await this.replyCheckoutText(
+            parsed.chatId,
+            conversationId,
+            "Номер уже є в картці. Продовжуємо оформлення.",
+          );
+          await this.resumeCheckoutFromDraft(parsed, conversationId, contactId, draft);
         }
         return;
       }
@@ -723,14 +755,21 @@ export class TelegramClientBotService {
       );
       return;
     }
+    if (state === "checkout_flow") {
+      await this.replyCheckoutNotice(parsed.chatId, conversationId);
+      return;
+    }
     if (state === "checkout_comment") {
       const comment = text === "-" ? undefined : text;
       const next = { ...payload, comment };
       await this.sessions.set(parsed.userId, "checkout_comment", next);
       const preview = comment ? `Коментар:\n${comment}` : "Без коментаря.";
-      await this.replyInline(parsed.chatId, conversationId, `${preview}\n\nНатисніть «Оформити», щоб створити замовлення.`, [
-        [{ text: "Оформити замовлення", callback_data: "chk:go" }],
-      ]);
+      await this.replyCheckoutInline(
+        parsed.chatId,
+        conversationId,
+        `${preview}\n\nНатисніть «Оформити», щоб створити замовлення.`,
+        [[{ text: "Оформити замовлення", callback_data: "chk:go" }]],
+      );
       return;
     }
     void leadId;
@@ -1132,6 +1171,17 @@ export class TelegramClientBotService {
     return lead?.contactId ?? null;
   }
 
+  /** CRM contact whose primary/extra phone matches the given number. */
+  private async findCrmContactIdByPhone(phone: string | null | undefined): Promise<string | null> {
+    const digits = getPhoneNormalizedDigits(phone ?? "");
+    if (!digits) return null;
+    for (const candidate of getPhoneCandidatesForLookup(digits)) {
+      const row = await this.contacts.findContactByPhone(candidate);
+      if (row?.id) return row.id;
+    }
+    return null;
+  }
+
   private async showOrders(
     parsed: ParsedInbound,
     conversationId: string,
@@ -1344,7 +1394,6 @@ export class TelegramClientBotService {
     leadId: string | null,
   ): Promise<void> {
     const session = await this.sessions.get(parsed.userId);
-    const resolvedContactId = await this.resolveContactId(contactId, leadId);
 
     // Resume mid-onboarding without wiping collected name/role.
     if (isOnboardingState(session.state)) {
@@ -1352,8 +1401,20 @@ export class TelegramClientBotService {
       return;
     }
 
+    // /start during checkout must not wipe the draft (same idea as /menu).
+    if (isCheckoutState(session.state)) {
+      await this.replyCheckoutNotice(parsed.chatId, conversationId);
+      return;
+    }
+
+    const phone = await this.resolveKnownPhone(parsed.userId, contactId, leadId);
+    const resolvedContactId =
+      (phone ? await this.findCrmContactIdByPhone(phone) : null) ??
+      (await this.resolveContactId(contactId, leadId));
+
     if (resolvedContactId) {
       await this.linkTelegramToContact(parsed.userId, parsed.chatId, resolvedContactId);
+      // Ask role/region only for empty fields on the CRM contact found by phone.
       if (await this.startContactGapFillIfNeeded(parsed, conversationId, resolvedContactId)) {
         return;
       }
@@ -1362,7 +1423,6 @@ export class TelegramClientBotService {
       return;
     }
 
-    const phone = await this.resolveKnownPhone(parsed.userId, contactId, leadId);
     if (phone) {
       // Phone known but no CRM contact yet — finish profile (name / role / region).
       await this.startOnboarding(parsed, conversationId);
@@ -1378,8 +1438,9 @@ export class TelegramClientBotService {
   // ─── New-client onboarding ───────────────────────────────────────────────
 
   /**
-   * Catalog / cart / orders / checkout require a CRM contact.
-   * Returns the contact id when ready; otherwise starts phone/onboarding and returns null.
+   * Catalog / cart / orders require a CRM contact identity.
+   * Role/region gap-fill is NOT gated here — that only runs on /start and phone share,
+   * so «Замовлення» never loops on лікар/технік.
    */
   private async ensureCrmProfile(
     parsed: ParsedInbound,
@@ -1390,9 +1451,6 @@ export class TelegramClientBotService {
     const resolved = await this.resolveContactId(contactId, leadId);
     if (resolved) {
       await this.linkTelegramToContact(parsed.userId, parsed.chatId, resolved);
-      if (await this.startContactGapFillIfNeeded(parsed, conversationId, resolved)) {
-        return null;
-      }
       return resolved;
     }
 
@@ -1416,6 +1474,10 @@ export class TelegramClientBotService {
     return null;
   }
 
+  /**
+   * CRM contact already exists (matched by phone). Ask only for fields that are
+   * empty on that card — never re-ask role/region that CRM already has.
+   */
   private async startContactGapFillIfNeeded(
     parsed: ParsedInbound,
     conversationId: string,
@@ -1594,6 +1656,35 @@ export class TelegramClientBotService {
         await this.replyOnboardingText(parsed.chatId, conversationId, TELEGRAM_ONBOARDING_ASK_NAME);
         return;
       }
+
+      // Persist role immediately so Замовлення/Каталог never re-ask if region step is skipped.
+      const gapContactId = session.payload.onboardingContactId;
+      if (gapContactId) {
+        try {
+          await this.contacts.update(gapContactId, { clientType });
+        } catch (err) {
+          this.logger.warn(
+            `gap-fill role save: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
+        const existing = await this.prisma.contact.findUnique({
+          where: { id: gapContactId },
+          select: { region: true },
+        });
+        const existingRegion = String(existing?.region ?? "").trim();
+        if (existingRegion) {
+          await this.finishOnboarding(parsed, conversationId, {
+            firstName,
+            lastName,
+            clientType,
+            region: existingRegion,
+            contactId: gapContactId,
+            checkoutDraft: pickCheckoutDraft(session.payload),
+          });
+          return;
+        }
+      }
+
       await this.sessions.set(
         parsed.userId,
         "onboarding_region",
@@ -1689,7 +1780,18 @@ export class TelegramClientBotService {
     let ownerId: string | null = null;
     try {
       const org = await this.settings.getOrgChartStructure();
-      ownerId = resolveAssignedManagerForRegion(org, profile.region)?.managerId ?? null;
+      const resolved = resolveAssignedManagerForRegion(org, profile.region)?.managerId ?? null;
+      if (resolved) {
+        const active = await this.prisma.user.findFirst({
+          where: {
+            id: resolved,
+            isActive: true,
+            role: { in: [UserRole.ADMIN, UserRole.LEAD, UserRole.MANAGER] },
+          },
+          select: { id: true },
+        });
+        ownerId = active?.id ?? null;
+      }
     } catch (err) {
       this.logger.warn(
         `onboarding org-chart: ${err instanceof Error ? err.message : String(err)}`,
@@ -1778,7 +1880,12 @@ export class TelegramClientBotService {
     });
     await this.prisma.conversation.updateMany({
       where: { telegramChatId: parsed.chatId },
-      data: { contactId, leadId: null },
+      data: {
+        contactId,
+        leadId: null,
+        // Auto-assign inbox thread to the regional manager from org-chart.
+        ...(ownerId ? { assignedToUserId: ownerId } : {}),
+      },
     });
 
     if (account?.leadId) {
@@ -1802,7 +1909,15 @@ export class TelegramClientBotService {
       ...pickCheckoutDraft(profile.checkoutDraft ?? {}),
       region: profile.checkoutDraft?.region ?? profile.region,
     };
-    const hasCheckoutDraft = Boolean(draft.deliveryMethod || draft.paymentType || draft.cod);
+    const hasCheckoutDraft = Boolean(
+      draft.region ||
+        draft.deliveryMethod ||
+        draft.paymentType ||
+        draft.cod ||
+        draft.cityRef ||
+        draft.warehouseRef ||
+        draft.profileId,
+    );
     await this.sessions.set(parsed.userId, "idle", hasCheckoutDraft ? draft : {});
 
     let doneText = ownerId ? TELEGRAM_ONBOARDING_DONE : TELEGRAM_ONBOARDING_DONE_NO_MANAGER;
@@ -1925,10 +2040,11 @@ export class TelegramClientBotService {
       await this.replyMenu(parsed.chatId, conversationId, "Кошик порожній.");
       return;
     }
+    const prior = await this.sessions.get(parsed.userId);
+    const draft = pickCheckoutDraft(prior.payload);
     const phone = await this.resolveKnownPhone(parsed.userId, contactId, leadId);
     if (!phone) {
-      const prior = await this.sessions.get(parsed.userId);
-      await this.sessions.set(parsed.userId, "checkout_phone", pickCheckoutDraft(prior.payload));
+      await this.sessions.set(parsed.userId, "checkout_phone", draft);
       await this.telegram.sendMessageToChat(
         parsed.chatId,
         "Для оформлення поділіться номером телефону:",
@@ -1936,24 +2052,78 @@ export class TelegramClientBotService {
       );
       return;
     }
-    await this.sessions.set(parsed.userId, "checkout_flow", {});
+    // Resume any draft saved across onboarding / phone share instead of wiping it.
+    await this.resumeCheckoutFromDraft(parsed, conversationId, contactId, draft);
+  }
+
+  private buildRegionInlineRows(): InlineBtn[][] {
     const regionRows: InlineBtn[][] = [];
     for (let i = 0; i < UKRAINE_REGIONS.length; i += 2) {
       const row: InlineBtn[] = [
-        { text: UKRAINE_REGIONS[i], callback_data: `chk:reg:${i}` },
+        { text: UKRAINE_REGIONS[i]!, callback_data: `chk:reg:${i}` },
       ];
       if (UKRAINE_REGIONS[i + 1]) {
-        row.push({ text: UKRAINE_REGIONS[i + 1], callback_data: `chk:reg:${i + 1}` });
+        row.push({ text: UKRAINE_REGIONS[i + 1]!, callback_data: `chk:reg:${i + 1}` });
       }
       regionRows.push(row);
     }
-    // 25 regions → 13 rows (Telegram allows up to 100 buttons).
-    await this.replyInline(
-      parsed.chatId,
-      conversationId,
-      "Оберіть область доставки:",
-      regionRows,
+    return regionRows;
+  }
+
+  private canFinishCheckout(payload: BotSessionPayload): boolean {
+    return Boolean(
+      payload.region &&
+        this.isCheckoutAddressReady(payload) &&
+        (payload.paymentType || payload.cod),
     );
+  }
+
+  /** Continue wizard from a preserved draft (post-onboarding / phone share / «Оформити»). */
+  private async resumeCheckoutFromDraft(
+    parsed: ParsedInbound,
+    conversationId: string,
+    contactId: string | null,
+    payload: BotSessionPayload,
+  ): Promise<void> {
+    const draft = pickCheckoutDraft(payload);
+    await this.sessions.set(parsed.userId, "checkout_flow", draft);
+
+    if (!draft.region) {
+      await this.replyCheckoutInline(
+        parsed.chatId,
+        conversationId,
+        "Оберіть область доставки:",
+        this.buildRegionInlineRows(),
+      );
+      return;
+    }
+
+    if (!draft.deliveryMethod) {
+      await this.replyCheckoutInline(parsed.chatId, conversationId, "Спосіб доставки:", [
+        [{ text: "🏪 Самовивіз", callback_data: "chk:del:pickup" }],
+        [{ text: "📦 Нова Пошта", callback_data: "chk:del:np" }],
+      ]);
+      return;
+    }
+
+    if (draft.deliveryMethod === "PICKUP") {
+      if (!(draft.paymentType || draft.cod)) {
+        await this.askPayment(parsed, conversationId);
+        return;
+      }
+      await this.askComment(parsed, conversationId, draft);
+      return;
+    }
+
+    if (!this.isCheckoutAddressReady(draft)) {
+      await this.continueCheckoutAddress(parsed, conversationId, draft, contactId);
+      return;
+    }
+    if (!(draft.paymentType || draft.cod)) {
+      await this.askPayment(parsed, conversationId);
+      return;
+    }
+    await this.askComment(parsed, conversationId, draft);
   }
 
   private async handleCheckoutCallback(
@@ -1964,14 +2134,33 @@ export class TelegramClientBotService {
     rest: string[],
   ): Promise<void> {
     const session = await this.sessions.get(parsed.userId);
+    // Ignore stale inline buttons after cancel / leave checkout.
+    if (!isCheckoutState(session.state)) return;
     let payload = { ...session.payload };
 
     if (action === "reg" && rest[0] != null) {
       const idx = Number(rest[0]);
       const region = UKRAINE_REGIONS[idx];
       if (!region) return;
+      try {
+        const org = await this.settings.getOrgChartStructure();
+        const hasManager =
+          Boolean(resolveAssignedManagerForRegion(org, region)?.managerId) ||
+          Boolean(process.env.STORE_OWNER_ID?.trim());
+        if (!hasManager) {
+          await this.replyCheckoutInline(
+            parsed.chatId,
+            conversationId,
+            `Для області «${region}» ще немає менеджера в CRM. Оберіть іншу область або напишіть у «Менеджер».`,
+            this.buildRegionInlineRows(),
+          );
+          return;
+        }
+      } catch {
+        // Org-chart unavailable — still let checkout proceed; store layer may reject later.
+      }
       payload = await this.sessions.patchPayload(parsed.userId, "checkout_flow", { ...payload, region });
-      await this.replyInline(parsed.chatId, conversationId, "Спосіб доставки:", [
+      await this.replyCheckoutInline(parsed.chatId, conversationId, "Спосіб доставки:", [
         [{ text: "🏪 Самовивіз", callback_data: "chk:del:pickup" }],
         [{ text: "📦 Нова Пошта", callback_data: "chk:del:np" }],
       ]);
@@ -2014,7 +2203,7 @@ export class TelegramClientBotService {
               ]);
               rows.push([{ text: "➕ Нова адреса", callback_data: "chk:prof:new" }]);
               rows.push([{ text: "🏢 На компанію (менеджер)", callback_data: "chk:company" }]);
-              await this.replyInline(
+              await this.replyCheckoutInline(
                 parsed.chatId,
                 conversationId,
                 "Оберіть збережену адресу або нову:",
@@ -2071,7 +2260,7 @@ export class TelegramClientBotService {
         deliveryMethod: "NOVA_POSHTA",
         profileId: undefined,
       });
-      await this.replyMenu(
+      await this.replyCheckoutText(
         parsed.chatId,
         conversationId,
         "Напишіть назву міста (як у Новій Пошті):",
@@ -2083,7 +2272,7 @@ export class TelegramClientBotService {
       const ref = rest.join(":");
       const hit = payload.cityHits?.find((item) => item.ref === ref);
       if (!hit) {
-        await this.replyMenu(
+        await this.replyCheckoutText(
           parsed.chatId,
           conversationId,
           "Цей список міст уже недійсний. Напишіть назву міста ще раз.",
@@ -2098,7 +2287,7 @@ export class TelegramClientBotService {
       if (payload.deliveryType === "ADDRESS") {
         await this.replyCheckoutText(parsed.chatId, conversationId, "Напишіть назву вулиці:");
       } else {
-        await this.replyMenu(
+        await this.replyCheckoutText(
           parsed.chatId,
           conversationId,
           payload.deliveryType === "POSTOMAT"
@@ -2113,7 +2302,7 @@ export class TelegramClientBotService {
       const ref = rest.join(":");
       const hit = payload.warehouseHits?.find((item) => item.ref === ref);
       if (!hit) {
-        await this.replyMenu(
+        await this.replyCheckoutText(
           parsed.chatId,
           conversationId,
           "Цей список відділень уже недійсний. Напишіть номер або назву ще раз.",
@@ -2133,7 +2322,7 @@ export class TelegramClientBotService {
       const ref = rest.join(":");
       const hit = payload.streetHits?.find((item) => item.ref === ref);
       if (!hit) {
-        await this.replyMenu(
+        await this.replyCheckoutText(
           parsed.chatId,
           conversationId,
           "Цей список вулиць уже недійсний. Напишіть назву вулиці ще раз.",
@@ -2145,7 +2334,7 @@ export class TelegramClientBotService {
         streetRef: hit.ref,
         streetName: hit.name,
       });
-      await this.replyMenu(parsed.chatId, conversationId, "Номер будинку:");
+      await this.replyCheckoutText(parsed.chatId, conversationId, "Номер будинку:");
       return;
     }
 
@@ -2180,7 +2369,7 @@ export class TelegramClientBotService {
     if (action === "skipc") {
       const next = { ...payload, comment: undefined };
       await this.sessions.set(parsed.userId, "checkout_comment", next);
-      await this.replyInline(
+      await this.replyCheckoutInline(
         parsed.chatId,
         conversationId,
         "Без коментаря.\n\nНатисніть «Оформити», щоб створити замовлення.",
@@ -2190,8 +2379,8 @@ export class TelegramClientBotService {
     }
 
     if (action === "go") {
-      if (!this.isCheckoutAddressReady(payload) || !payload.region || (!payload.paymentType && !payload.cod)) {
-        await this.replyMenu(
+      if (!this.canFinishCheckout(payload)) {
+        await this.replyCheckoutText(
           parsed.chatId,
           conversationId,
           "Оформлення ще не завершене. Відкрийте кошик і натисніть «Оформити» знову.",
@@ -2227,7 +2416,7 @@ export class TelegramClientBotService {
     }
     if (!payload.cityRef) {
       await this.sessions.patchPayload(parsed.userId, "checkout_city", payload);
-      await this.replyMenu(
+      await this.replyCheckoutText(
         parsed.chatId,
         conversationId,
         "Напишіть назву міста (як у Новій Пошті):",
@@ -2241,11 +2430,11 @@ export class TelegramClientBotService {
         return;
       }
       await this.sessions.patchPayload(parsed.userId, "checkout_building", payload);
-      await this.replyMenu(parsed.chatId, conversationId, "Номер будинку:");
+      await this.replyCheckoutText(parsed.chatId, conversationId, "Номер будинку:");
       return;
     }
     await this.sessions.patchPayload(parsed.userId, "checkout_warehouse_q", payload);
-    await this.replyMenu(
+    await this.replyCheckoutText(
       parsed.chatId,
       conversationId,
       payload.deliveryType === "POSTOMAT"
@@ -2255,7 +2444,7 @@ export class TelegramClientBotService {
   }
 
   private async askDeliveryType(parsed: ParsedInbound, conversationId: string): Promise<void> {
-    await this.replyInline(parsed.chatId, conversationId, "Тип доставки Новою Поштою:", [
+    await this.replyCheckoutInline(parsed.chatId, conversationId, "Тип доставки Новою Поштою:", [
       [{ text: "Відділення", callback_data: "chk:dtype:wh" }],
       [{ text: "Поштомат", callback_data: "chk:dtype:pm" }],
       [{ text: "Адреса", callback_data: "chk:dtype:addr" }],
@@ -2264,7 +2453,7 @@ export class TelegramClientBotService {
   }
 
   private async askPayment(parsed: ParsedInbound, conversationId: string): Promise<void> {
-    await this.replyInline(parsed.chatId, conversationId, "Оплата:", [
+    await this.replyCheckoutInline(parsed.chatId, conversationId, "Оплата:", [
       [{ text: "💳 Передоплата", callback_data: "chk:pay:pre" }],
       [{ text: "📦 Накладений платіж", callback_data: "chk:pay:cod" }],
     ]);
@@ -2281,14 +2470,12 @@ export class TelegramClientBotService {
       return;
     }
     await this.sessions.patchPayload(parsed.userId, "checkout_comment", _payload);
-    await this.replyCheckoutText(
+    await this.replyCheckoutInline(
       parsed.chatId,
       conversationId,
       "Коментар до замовлення (напишіть текст або натисніть «Без коментаря»):",
+      [[{ text: "⏭ Без коментаря", callback_data: "chk:skipc" }]],
     );
-    await this.replyInline(parsed.chatId, conversationId, "Пропустити коментар?", [
-      [{ text: "⏭ Без коментаря", callback_data: "chk:skipc" }],
-    ]);
   }
 
   private async searchCities(
@@ -2319,7 +2506,7 @@ export class TelegramClientBotService {
         ...payload,
         cityHits: hits,
       });
-      await this.replyInline(
+      await this.replyCheckoutInline(
         parsed.chatId,
         conversationId,
         "Оберіть місто:",
@@ -2330,7 +2517,7 @@ export class TelegramClientBotService {
       );
     } catch (err) {
       this.logger.warn(`searchCities failed: ${err instanceof Error ? err.message : String(err)}`);
-      await this.replyMenu(
+      await this.replyCheckoutText(
         parsed.chatId,
         conversationId,
         `Пошук міста тимчасово недоступний. Спробуйте ще раз або напишіть менеджеру.`,
@@ -2363,7 +2550,7 @@ export class TelegramClientBotService {
         name: String(w.Description ?? w.description ?? w.Number ?? w.number ?? ""),
       })).filter((h) => h.ref && h.name);
       if (!hits.length) {
-        await this.replyMenu(
+        await this.replyCheckoutText(
           parsed.chatId,
           conversationId,
           "Нічого не знайдено. Спробуйте інший запит або «-»:",
@@ -2374,7 +2561,7 @@ export class TelegramClientBotService {
         ...payload,
         warehouseHits: hits,
       });
-      await this.replyInline(
+      await this.replyCheckoutInline(
         parsed.chatId,
         conversationId,
         "Оберіть відділення / поштомат:",
@@ -2387,7 +2574,7 @@ export class TelegramClientBotService {
       this.logger.warn(
         `searchWarehouses failed: ${err instanceof Error ? err.message : String(err)}`,
       );
-      await this.replyMenu(
+      await this.replyCheckoutText(
         parsed.chatId,
         conversationId,
         `Пошук відділень тимчасово недоступний. Спробуйте інший запит або напишіть менеджеру.`,
@@ -2425,7 +2612,7 @@ export class TelegramClientBotService {
         ...payload,
         streetHits: hits,
       });
-      await this.replyInline(
+      await this.replyCheckoutInline(
         parsed.chatId,
         conversationId,
         "Оберіть вулицю:",
@@ -2436,7 +2623,7 @@ export class TelegramClientBotService {
       );
     } catch (err) {
       this.logger.warn(`searchStreets failed: ${err instanceof Error ? err.message : String(err)}`);
-      await this.replyMenu(
+      await this.replyCheckoutText(
         parsed.chatId,
         conversationId,
         `Пошук вулиць тимчасово недоступний. Спробуйте ще або напишіть менеджеру.`,
@@ -2667,6 +2854,20 @@ export class TelegramClientBotService {
   ): Promise<void> {
     const { messageId } = await this.telegram.sendMessageToChat(chatId, text, {
       menuKeyboard: CLIENT_FLOW_KEYBOARD,
+    });
+    await this.recordOutbound(conversationId, text, messageId);
+  }
+
+  /** Checkout wizard: inline choices + cancel keyboard (no commerce menu). */
+  private async replyCheckoutInline(
+    chatId: string,
+    conversationId: string,
+    text: string,
+    inlineKeyboard: InlineBtn[][],
+  ): Promise<void> {
+    const { messageId } = await this.telegram.sendMessageToChat(chatId, text, {
+      menuKeyboard: CLIENT_FLOW_KEYBOARD,
+      inlineKeyboard,
     });
     await this.recordOutbound(conversationId, text, messageId);
   }

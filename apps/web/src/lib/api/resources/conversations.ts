@@ -42,6 +42,7 @@ export type ConversationItem = {
   /** Server-built label: who this chat is. */
   displayName?: string | null;
   assignedTo: { id: string; fullName: string; email: string } | null;
+  collaborators?: Array<{ id: string; fullName: string; email: string }>;
   status: "OPEN" | "PENDING" | "CLOSED";
   pinnedAt: string | null;
   lastReadAt: string | null;
@@ -181,6 +182,26 @@ export const conversationsApi = {
       `/conversations/${conversationId}/assign`,
       { userId },
     );
+    return res.data;
+  },
+
+  addCollaborator: async (
+    conversationId: string,
+    userId: string,
+  ): Promise<{ collaborators: Array<{ id: string; fullName: string; email: string }> }> => {
+    const res = await apiHttp.post<{
+      collaborators: Array<{ id: string; fullName: string; email: string }>;
+    }>(`/conversations/${conversationId}/collaborators`, { userId });
+    return res.data;
+  },
+
+  removeCollaborator: async (
+    conversationId: string,
+    userId: string,
+  ): Promise<{ collaborators: Array<{ id: string; fullName: string; email: string }> }> => {
+    const res = await apiHttp.delete<{
+      collaborators: Array<{ id: string; fullName: string; email: string }>;
+    }>(`/conversations/${conversationId}/collaborators/${userId}`);
     return res.data;
   },
 

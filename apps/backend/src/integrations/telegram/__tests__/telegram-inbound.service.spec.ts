@@ -137,6 +137,7 @@ function makeService(prisma: AnyRec) {
     phoneEntityLookup as never,
     authService as never,
     inboxNotifier as never,
+    undefined, // conversations (auto-assign optional in unit harness)
     clientBot as never,
   );
 

@@ -41,6 +41,7 @@ import {
   TELEGRAM_PRESS_START,
   TELEGRAM_REQUEST_PHONE,
 } from "./telegram-client.constants";
+import { ConversationsService } from "./conversations.service";
 import { TelegramClientBotService } from "./telegram-client-bot.service";
 import { TelegramInboxNotifierService } from "./telegram-inbox-notifier.service";
 import { TelegramManagerBotService } from "./telegram-manager-bot.service";
@@ -77,6 +78,9 @@ export class TelegramService {
     private readonly phoneEntityLookup: PhoneEntityLookupService,
     @Inject(forwardRef(() => AuthService)) private readonly authService: AuthService,
     private readonly inboxNotifier: TelegramInboxNotifierService,
+    @Optional()
+    @Inject(forwardRef(() => ConversationsService))
+    private readonly conversations?: ConversationsService,
     @Optional()
     @Inject(forwardRef(() => TelegramClientBotService))
     private readonly clientBot?: TelegramClientBotService,
@@ -383,6 +387,8 @@ export class TelegramService {
       });
 
       let contactId: string | null = account.contactId;
+      /** Deep-link / phone / chat repair just attached CRM — allow one auto-assign pass. */
+      let linkChangedThisTurn = false;
       if (parsed.text && parsed.text.startsWith("/start ")) {
         const token = parsed.text.slice(7).trim();
         if (token) {
@@ -404,6 +410,7 @@ export class TelegramService {
               .delete({ where: { id: linkRow.id } })
               .catch(() => {});
             contactId = linkRow.contactId;
+            linkChangedThisTurn = true;
           }
         }
       }
@@ -422,95 +429,107 @@ export class TelegramService {
             where: { id: account.id },
             data: { contactId, leadId: null },
           });
+          linkChangedThisTurn = true;
         } else if (linkedChat?.leadId) {
           leadId = linkedChat.leadId;
           await this.prisma.telegramAccount.update({
             where: { id: account.id },
             data: { leadId },
           });
+          linkChangedThisTurn = true;
         }
       }
 
-      if (!contactId && !leadId) {
-        if (parsed.phone) {
-          const digits =
-            getPhoneNormalizedDigits(parsed.phone) ?? normalizePhoneDigits(parsed.phone);
-          const candidates = digits ? getPhoneCandidatesForLookup(digits) : [];
+      if (parsed.phone) {
+        // Always resolve CRM contact by the shared phone — even if a lead/placeholder
+        // was already linked. Role/region gap-fill must read THAT contact's fields.
+        const digits =
+          getPhoneNormalizedDigits(parsed.phone) ?? normalizePhoneDigits(parsed.phone);
+        const candidates = digits ? getPhoneCandidatesForLookup(digits) : [];
 
-          for (const c of candidates) {
-            const row = await this.contactsService.findContactByPhone(c);
-            if (row) {
-              contactId = row.id;
-              break;
-            }
+        let phoneContactId: string | null = null;
+        for (const c of candidates) {
+          const row = await this.contactsService.findContactByPhone(c);
+          if (row) {
+            phoneContactId = row.id;
+            break;
           }
+        }
 
-          if (contactId) {
+        if (phoneContactId) {
+          const phoneLinkChanged =
+            phoneContactId !== account.contactId || account.leadId != null;
+          contactId = phoneContactId;
+          leadId = null;
+          await this.prisma.telegramAccount.update({
+            where: { id: account.id },
+            data: { contactId, leadId: null },
+          });
+          shouldSendExistingClientMenu = true;
+          if (phoneLinkChanged) linkChangedThisTurn = true;
+        } else if (!contactId && !leadId) {
+          const existingLead =
+            candidates.length > 0
+              ? await this.prisma.lead.findFirst({
+                  where: { OR: candidates.map((phoneNormalized) => ({ phoneNormalized })) },
+                  select: { id: true },
+                })
+              : null;
+
+          if (existingLead) {
+            leadId = existingLead.id;
             await this.prisma.telegramAccount.update({
               where: { id: account.id },
-              data: { contactId },
+              data: { leadId },
             });
             shouldSendExistingClientMenu = true;
           } else {
-            const existingLead =
+            const knownCompanyId =
               candidates.length > 0
-                ? await this.prisma.lead.findFirst({
-                    where: { OR: candidates.map((phoneNormalized) => ({ phoneNormalized })) },
-                    select: { id: true },
-                  })
+                ? await this.phoneEntityLookup.findCompanyIdByNormalizedKeys(candidates)
                 : null;
 
-            if (existingLead) {
-              leadId = existingLead.id;
+            let targetCompanyId: string | null = knownCompanyId;
+            if (!targetCompanyId) {
+              const secrets = await this.settings.getTelegramSecrets();
+              targetCompanyId =
+                secrets.leadCompanyId ||
+                (process.env.TELEGRAM_LEAD_COMPANY_ID as string) ||
+                null;
+            }
+
+            if (targetCompanyId) {
+              const lead = await this.prisma.lead.create({
+                data: {
+                  companyId: targetCompanyId,
+                  status: LeadStatus.NEW,
+                  source: LeadSource.TELEGRAM,
+                  firstName: parsed.firstName ?? "Telegram",
+                  lastName: parsed.lastName ?? "User",
+                  middleName: null,
+                  fullName: [parsed.lastName, parsed.firstName].filter(Boolean).join(" ") || null,
+                  name: [parsed.lastName, parsed.firstName].filter(Boolean).join(" ") || null,
+                  phone: parsed.phone,
+                  phoneNormalized: digits || normalizePhoneDigits(parsed.phone),
+                },
+              });
+              leadId = lead.id;
               await this.prisma.telegramAccount.update({
                 where: { id: account.id },
                 data: { leadId },
               });
+              // Menu is sent by TelegramClientBotService on phone share.
               shouldSendExistingClientMenu = true;
             } else {
-              const knownCompanyId =
-                candidates.length > 0
-                  ? await this.phoneEntityLookup.findCompanyIdByNormalizedKeys(candidates)
-                  : null;
-
-              let targetCompanyId: string | null = knownCompanyId;
-              if (!targetCompanyId) {
-                const secrets = await this.settings.getTelegramSecrets();
-                targetCompanyId =
-                  secrets.leadCompanyId ||
-                  (process.env.TELEGRAM_LEAD_COMPANY_ID as string) ||
-                  null;
-              }
-
-              if (targetCompanyId) {
-                const lead = await this.prisma.lead.create({
-                  data: {
-                    companyId: targetCompanyId,
-                    status: LeadStatus.NEW,
-                    source: LeadSource.TELEGRAM,
-                    firstName: parsed.firstName ?? "Telegram",
-                    lastName: parsed.lastName ?? "User",
-                    middleName: null,
-                    fullName: [parsed.lastName, parsed.firstName].filter(Boolean).join(" ") || null,
-                    name: [parsed.lastName, parsed.firstName].filter(Boolean).join(" ") || null,
-                    phone: parsed.phone,
-                    phoneNormalized: digits || normalizePhoneDigits(parsed.phone),
-                  },
-                });
-                leadId = lead.id;
-                await this.prisma.telegramAccount.update({
-                  where: { id: account.id },
-                  data: { leadId },
-                });
-                // Menu is sent by TelegramClientBotService on phone share.
-                shouldSendExistingClientMenu = true;
-              } else {
-                // Phone saved on TelegramAccount only — still show menu via client bot.
-                shouldSendExistingClientMenu = true;
-              }
+              // Phone saved on TelegramAccount only — still show menu via client bot.
+              shouldSendExistingClientMenu = true;
             }
           }
-        } else if (!isCommandMessage && !account.phone) {
+        }
+      }
+
+      if (!contactId && !leadId) {
+        if (!parsed.phone && !isCommandMessage && !account.phone) {
           // Beginning of dialog: ask to press Старт (not the working commerce menu).
           if (trimmedText === MENU_START) {
             /* handled by client bot replyStart */
@@ -601,6 +620,9 @@ export class TelegramService {
         conversation?.status === ConversationStatus.CLOSED ||
         conversation?.status === ConversationStatus.PENDING;
 
+      // Auto-assign on first create or when contact/lead is newly linked — not on every
+      // inbound (manual «Зняти» must stick until someone claims the pool again).
+      let shouldAutoAssign = false;
       if (!conversation) {
         conversation = await this.prisma.conversation.create({
           data: {
@@ -612,16 +634,38 @@ export class TelegramService {
             lastMessageAt: now,
           },
         });
+        shouldAutoAssign = true;
       } else {
+        const prevContactId = conversation.contactId;
+        const prevLeadId = conversation.leadId;
+        // Phone→contact sets leadId=null locally; do not coalesce back to the old lead.
+        const nextContactId = contactId ?? conversation.contactId;
+        const nextLeadId = contactId != null ? leadId : (leadId ?? conversation.leadId);
+
         await this.prisma.conversation.update({
           where: { id: conversation.id },
           data: {
-            contactId: contactId ?? conversation.contactId,
-            leadId: leadId ?? conversation.leadId,
+            contactId: nextContactId,
+            leadId: nextLeadId,
             lastMessageAt: now,
             ...(reopen && !parsed.isCallback ? { status: ConversationStatus.OPEN } : {}),
           },
         });
+
+        const newlyLinked =
+          (contactId != null && contactId !== prevContactId) ||
+          (leadId != null && leadId !== prevLeadId);
+        shouldAutoAssign = newlyLinked || linkChangedThisTurn;
+      }
+
+      if (shouldAutoAssign && this.conversations) {
+        try {
+          await this.conversations.autoAssignByRegion(conversation.id);
+        } catch (err) {
+          this.logger.warn(
+            `autoAssignByRegion: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
       }
 
       // Callbacks are UX-only: do not pollute the transcript with callback_data.

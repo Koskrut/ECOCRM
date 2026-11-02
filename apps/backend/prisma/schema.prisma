@@ -701,6 +701,8 @@ model User {
   routePlans                 RoutePlan[]
   routeSessions              RouteSession[]
   assignedConversations      Conversation[]
+  conversationCollaborations ConversationCollaborator[]
+  conversationCollaboratorsAdded ConversationCollaborator[] @relation("ConversationCollaboratorAddedBy")
   outboundMessages           Message[]
   cannedResponses            CannedResponse[]
   tasks                      Task[]
@@ -3572,6 +3574,7 @@ model Conversation {
   assignedTo      User?            @relation(fields: [assignedToUserId], references: [id], onDelete: SetNull)
   metaParticipant MetaParticipant? @relation(fields: [metaParticipantId], references: [id], onDelete: SetNull)
   messages        Message[]
+  collaborators   ConversationCollaborator[]
 
   @@unique([channel, metaParticipantId])
   @@index([channel])
@@ -3580,6 +3583,21 @@ model Conversation {
   @@index([lastMessageAt])
   @@index([pinnedAt])
   @@index([metaParticipantId])
+}
+
+/** Extra managers who can see and reply alongside the primary assignee. */
+model ConversationCollaborator {
+  conversationId String
+  userId         String
+  addedById      String?
+  createdAt      DateTime @default(now())
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  addedBy      User?        @relation("ConversationCollaboratorAddedBy", fields: [addedById], references: [id], onDelete: SetNull)
+
+  @@id([conversationId, userId])
+  @@index([userId])
 }
 
 model CannedResponse {

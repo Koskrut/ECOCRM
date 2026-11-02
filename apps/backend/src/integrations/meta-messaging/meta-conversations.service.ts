@@ -304,23 +304,23 @@ export class MetaConversationsService {
     this.assertMetaChannel(conv.channel);
     this.assertManagerCanAccessConversation(safeActor, conv);
 
-    const { page, pageSize, offset, limit } = normalizePagination(
+    const { page, pageSize, limit } = normalizePagination(
       { page: q.page ?? 1, pageSize: q.pageSize ?? 50 },
       { page: 1, pageSize: 50 },
     );
 
-    const [messages, total] = await Promise.all([
-      this.prisma.message.findMany({
-        where: { conversationId },
-        orderBy: { sentAt: "asc" },
-        skip: offset,
-        take: limit,
-        include: {
-          author: { select: { id: true, fullName: true, email: true } },
-        },
-      }),
-      this.prisma.message.count({ where: { conversationId } }),
-    ]);
+    // Same as Telegram inbox: page 1 = newest window (asc for UI), not the oldest page.
+    const total = await this.prisma.message.count({ where: { conversationId } });
+    const skip = Math.max(0, total - page * limit);
+    const messages = await this.prisma.message.findMany({
+      where: { conversationId },
+      orderBy: { sentAt: "asc" },
+      skip,
+      take: limit,
+      include: {
+        author: { select: { id: true, fullName: true, email: true } },
+      },
+    });
 
     return {
       items: messages.map((m) => ({

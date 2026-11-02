@@ -59,6 +59,7 @@ describe("TelegramInboxNotifierService", () => {
           id: "conv1",
           assignedToUserId: "mgr1",
           leadId: "lead1",
+          collaborators: [],
           contact: null,
           lead: { ownerId: "owner1", fullName: "Іван", firstName: null, lastName: null, phone: null },
         }),
@@ -76,6 +77,64 @@ describe("TelegramInboxNotifierService", () => {
     assert.equal(creates[0]?.type, "TELEGRAM_MESSAGE");
     assert.equal(creates[0]?.entityType, "CONVERSATION");
     assert.equal(creates[0]?.entityId, "conv1");
+  });
+
+  it("notifies assignee and collaborators together", async () => {
+    const creates: Array<Record<string, unknown>> = [];
+    const prisma = makePrisma({
+      conversation: {
+        findUnique: async () => ({
+          id: "conv1",
+          assignedToUserId: "mgr1",
+          leadId: null,
+          collaborators: [{ userId: "mgr2" }, { userId: "mgr3" }],
+          contact: { firstName: "Аня", lastName: null, phone: null, ownerId: null },
+          lead: null,
+        }),
+      },
+    });
+    const service = new TelegramInboxNotifierService(prisma, makeNotifications(creates));
+    await service.notifyInboundMessage({
+      conversationId: "conv1",
+      telegramChatId: "123",
+      messageText: "Питання по замовленню",
+    });
+
+    assert.deepEqual(
+      creates.map((c) => c.userId).sort(),
+      ["mgr1", "mgr2", "mgr3"],
+    );
+  });
+
+  it("unassigned without owner also notifies ADMIN/LEAD, not only leftover collaborators", async () => {
+    const creates: Array<Record<string, unknown>> = [];
+    const prisma = makePrisma({
+      conversation: {
+        findUnique: async () => ({
+          id: "conv1",
+          assignedToUserId: null,
+          leadId: null,
+          collaborators: [{ userId: "mgr-left" }],
+          contact: { firstName: "Олена", lastName: "К.", phone: null, ownerId: null },
+          lead: null,
+        }),
+      },
+      user: {
+        findFirst: async () => null,
+        findMany: async () => [{ id: "admin1" }, { id: "lead1" }],
+      },
+    });
+    const service = new TelegramInboxNotifierService(prisma, makeNotifications(creates));
+    await service.notifyInboundMessage({
+      conversationId: "conv1",
+      telegramChatId: "999",
+      messageText: "Hello",
+    });
+
+    assert.deepEqual(
+      creates.map((c) => c.userId).sort(),
+      ["admin1", "lead1", "mgr-left"],
+    );
   });
 
   it("falls back to lead owner when unassigned", async () => {

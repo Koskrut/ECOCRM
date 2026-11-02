@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { TelegramClientBotService } from "../telegram-client-bot.service";
 import type { ParsedInbound } from "../telegram.types";
-import { MENU_CATALOG, MENU_MANAGER, MENU_START } from "../telegram-client.constants";
+import { MENU_CATALOG, MENU_MANAGER, MENU_ORDERS, MENU_START } from "../telegram-client.constants";
 
 type AnyRec = Record<string, unknown>;
 
@@ -35,6 +35,8 @@ function makeBot(opts: {
   orders?: Array<AnyRec>;
   account?: AnyRec | null;
   contact?: AnyRec | null;
+  /** When set, findContactByPhone returns this id (CRM match by phone). */
+  contactByPhoneId?: string | null;
   lead?: AnyRec | null;
   cartItems?: Array<AnyRec>;
   tree?: Array<AnyRec>;
@@ -57,7 +59,9 @@ function makeBot(opts: {
   const pathCalls: unknown[][] = [];
   const checkoutCalls: AnyRec[] = [];
   const contactCreates: AnyRec[] = [];
+  const contactUpdates: AnyRec[] = [];
   const accountUpdates: AnyRec[] = [];
+  const conversationUpdates: AnyRec[] = [];
   const sessions = {
     state: opts.sessionState ?? "idle",
     payload: { ...(opts.sessionPayload ?? {}) } as AnyRec,
@@ -94,7 +98,13 @@ function makeBot(opts: {
   };
   const prisma = {
     message: { create: async () => ({}) },
-    conversation: { update: async () => ({}), updateMany: async () => ({ count: 0 }) },
+    conversation: {
+      update: async () => ({}),
+      updateMany: async (args: AnyRec) => {
+        conversationUpdates.push(args);
+        return { count: 1 };
+      },
+    },
     order: {
       findMany: async () => opts.orders ?? [],
       count: async () => (opts.orders ?? []).length,
@@ -116,6 +126,13 @@ function makeBot(opts: {
     telegramAccount: {
       findUnique: async () => opts.account ?? null,
       updateMany: async () => ({ count: 0 }),
+    },
+    user: {
+      findFirst: async (args: AnyRec) => {
+        const id = args?.where?.id as string | undefined;
+        if (!id) return null;
+        return { id };
+      },
     },
   };
   const products = {
@@ -185,8 +202,12 @@ function makeBot(opts: {
       contactCreates.push(data);
       return { id: "contact-new", ...data };
     },
-    findContactByPhone: async () => null,
-    update: async () => ({ id: "contact-new" }),
+    findContactByPhone: async () =>
+      opts.contactByPhoneId ? { id: opts.contactByPhoneId } : null,
+    update: async (id: string, data: AnyRec) => {
+      contactUpdates.push({ id, ...data });
+      return { id, ...data };
+    },
   };
   (prisma.telegramAccount as AnyRec).updateMany = async (args: AnyRec) => {
     accountUpdates.push(args);
@@ -219,7 +240,9 @@ function makeBot(opts: {
     pathCalls,
     checkoutCalls,
     contactCreates,
+    contactUpdates,
     accountUpdates,
+    conversationUpdates,
   };
 }
 
@@ -414,8 +437,10 @@ describe("TelegramClientBotService menu / idle", () => {
   });
 
   it("stores cash on delivery without deferred credit terms", async () => {
-    const { service, sessions } = makeBot({});
-    sessions.payload = { region: "Київська", deliveryMethod: "PICKUP" };
+    const { service, sessions } = makeBot({
+      sessionState: "checkout_flow",
+      sessionPayload: { region: "Київська", deliveryMethod: "PICKUP" },
+    });
     await service.handleClientTurn({
       parsed: parsed({ text: "chk:pay:cod", isCallback: true, callbackQueryId: "cb-cod" }),
       conversationId: "conv1",
@@ -429,11 +454,13 @@ describe("TelegramClientBotService menu / idle", () => {
   });
 
   it("rejects a city button that no longer matches the latest search", async () => {
-    const { service, sent, sessions } = makeBot({});
-    sessions.payload = {
-      deliveryType: "WAREHOUSE",
-      cityHits: [{ ref: "new-ref", name: "Львів" }],
-    };
+    const { service, sent, sessions } = makeBot({
+      sessionState: "checkout_city",
+      sessionPayload: {
+        deliveryType: "WAREHOUSE",
+        cityHits: [{ ref: "new-ref", name: "Львів" }],
+      },
+    });
     await service.handleClientTurn({
       parsed: parsed({ text: "chk:city:old-ref", isCallback: true, callbackQueryId: "cb-city" }),
       conversationId: "conv1",
@@ -557,6 +584,50 @@ describe("TelegramClientBotService menu / idle", () => {
     assert.equal(result.handled, true);
     assert.equal(result.notifyManager, false);
     assert.ok(sent.some((s) => /Раді бачити/i.test(s.text)));
+  });
+
+  it("phone share does not ask role/region when CRM contact already has them", async () => {
+    const { service, sent, sessions } = makeBot({
+      contactByPhoneId: "c1",
+      contact: {
+        firstName: "Іван",
+        lastName: "Петренко",
+        region: "Київська",
+        clientType: "Врач",
+        phone: "+380501234567",
+      },
+    });
+    await service.handleClientTurn({
+      parsed: parsed({ phone: "+380501234567", text: null }),
+      conversationId: "conv1",
+      contactId: null,
+      leadId: "stale-lead",
+    });
+    assert.equal(sessions.state, "idle");
+    assert.ok(sent.some((s) => /Раді бачити/i.test(s.text)));
+    assert.ok(!sent.some((s) => /лікар чи технік|область/i.test(s.text)));
+  });
+
+  it("phone share asks only missing region when role already set", async () => {
+    const { service, sent, sessions } = makeBot({
+      contactByPhoneId: "c1",
+      contact: {
+        firstName: "Іван",
+        lastName: "Петренко",
+        region: null,
+        clientType: "Врач",
+        phone: "+380501234567",
+      },
+    });
+    await service.handleClientTurn({
+      parsed: parsed({ phone: "+380501234567", text: null }),
+      conversationId: "conv1",
+      contactId: null,
+      leadId: null,
+    });
+    assert.equal(sessions.state, "onboarding_region");
+    assert.ok(sent.some((s) => /област/i.test(s.text)));
+    assert.ok(!sent.some((s) => /лікар чи технік/i.test(s.text)));
   });
 
   it("phone share for known contact with missing role starts gap-fill", async () => {
@@ -809,6 +880,94 @@ describe("TelegramClientBotService menu / idle", () => {
     assert.ok(sent.some((s) => /лікар чи технік/i.test(s.text)));
   });
 
+  it("orders work even when contact is missing clientType (no gap-fill loop)", async () => {
+    const { service, sent, sessions } = makeBot({
+      contact: {
+        firstName: "Олена",
+        lastName: "Коваленко",
+        region: "Київська",
+        clientType: null,
+      },
+      orders: [
+        {
+          id: "o1",
+          orderNumber: "42",
+          orderStage: "NEW",
+          status: "NEW",
+          totalAmount: 100,
+          currency: "UAH",
+          createdAt: new Date(),
+        },
+      ],
+    });
+    await service.handleClientTurn({
+      parsed: parsed({ text: MENU_ORDERS }),
+      conversationId: "conv1",
+      contactId: "c1",
+      leadId: null,
+    });
+    assert.equal(sessions.state, "idle");
+    assert.ok(!sent.some((s) => /лікар чи технік/i.test(s.text)));
+    assert.ok(sent.some((s) => /Замовлення|№42/i.test(s.text)));
+  });
+
+  it("gap-fill role finishes immediately when contact already has region", async () => {
+    const { service, sent, sessions, contactUpdates } = makeBot({
+      contact: {
+        firstName: "Олена",
+        lastName: "Коваленко",
+        region: "Київська",
+        clientType: null,
+      },
+      sessionState: "onboarding_role",
+      sessionPayload: {
+        onboardingContactId: "c1",
+        onboardingFirstName: "Олена",
+        onboardingLastName: "Коваленко",
+      },
+    });
+    await service.handleClientTurn({
+      parsed: parsed({
+        text: "onb:role:doctor",
+        isCallback: true,
+        callbackQueryId: "cb-role",
+      }),
+      conversationId: "conv1",
+      contactId: "c1",
+      leadId: null,
+    });
+    assert.equal(sessions.state, "idle");
+    assert.ok(contactUpdates.some((u) => u.clientType === "Врач"));
+    assert.ok(sent.some((s) => /Готово|профіль збережено/i.test(s.text)));
+    assert.ok(!sent.some((s) => /Оберіть область/i.test(s.text)));
+  });
+
+  it("Замовлення escapes a stuck gap-fill session", async () => {
+    const { service, sent, sessions } = makeBot({
+      contact: {
+        firstName: "Олена",
+        lastName: "Коваленко",
+        region: "Київська",
+        clientType: null,
+      },
+      sessionState: "onboarding_role",
+      sessionPayload: {
+        onboardingContactId: "c1",
+        onboardingFirstName: "Олена",
+        onboardingLastName: "Коваленко",
+      },
+      orders: [],
+    });
+    await service.handleClientTurn({
+      parsed: parsed({ text: MENU_ORDERS }),
+      conversationId: "conv1",
+      contactId: "c1",
+      leadId: null,
+    });
+    assert.equal(sessions.state, "idle");
+    assert.ok(!sent.some((s) => /лікар чи технік/i.test(s.text)));
+  });
+
   it("greets a linked client without asking for a phone", async () => {
     const { service, sent } = makeBot({});
     const result = await service.handleClientTurn({
@@ -855,7 +1014,8 @@ describe("TelegramClientBotService menu / idle", () => {
   });
 
   it("onboarding collects name → role → region and creates CRM contact", async () => {
-    const { service, sent, sessions, contactCreates, accountUpdates } = makeBot({
+    const { service, sent, sessions, contactCreates, accountUpdates, conversationUpdates } =
+      makeBot({
       account: { phone: "+380501112233", contactId: null, leadId: "lead-1" },
       lead: { companyId: "company-1" },
       orgChart: {
@@ -911,6 +1071,10 @@ describe("TelegramClientBotService menu / idle", () => {
     assert.equal(contactCreates[0]?.ownerId, "mgr-kyiv");
     assert.equal(contactCreates[0]?.companyId, "company-1");
     assert.ok(accountUpdates.some((u) => u?.data?.contactId === "contact-new"));
+    assert.ok(
+      conversationUpdates.some((u) => u?.data?.assignedToUserId === "mgr-kyiv"),
+      "inbox thread auto-assigned to regional manager",
+    );
     assert.ok(sent.some((s) => /Готово/i.test(s.text)));
   });
 
@@ -936,5 +1100,112 @@ describe("TelegramClientBotService menu / idle", () => {
     const body = sent.map((s) => s.text).join("\n");
     assert.equal(/поділіться номером/i.test(body), false);
     assert.match(body, /область/);
+  });
+
+  it("Оформити resumes a saved checkout draft instead of wiping it", async () => {
+    const { service, sent, sessions } = makeBot({
+      cartItems: [{ id: "1" }],
+      account: { phone: "+380501112233", contactId: "c1", leadId: null },
+      sessionState: "idle",
+      sessionPayload: {
+        region: "Київська",
+        deliveryMethod: "PICKUP",
+      },
+    });
+    await service.handleClientTurn({
+      parsed: parsed({ text: "cart:chk", isCallback: true }),
+      conversationId: "conv1",
+      contactId: "c1",
+      leadId: null,
+    });
+    assert.equal(sessions.state, "checkout_flow");
+    assert.equal(sessions.payload.region, "Київська");
+    assert.equal(sessions.payload.deliveryMethod, "PICKUP");
+    assert.ok(sent.some((s) => /Оплата/i.test(s.text)));
+    assert.ok(
+      sent.some((s) => JSON.stringify(s.keyboard ?? []).includes("Скасувати")),
+      "checkout uses flow keyboard, not commerce menu",
+    );
+  });
+
+  it("phone share during incomplete NP checkout does not call finishCheckout", async () => {
+    const { service, checkoutCalls, sessions, sent } = makeBot({
+      account: { phone: null, firstName: "Оля", lastName: "Тест", contactId: null },
+      contactByPhoneId: "c1",
+      sessionState: "checkout_phone",
+      sessionPayload: {
+        region: "Київська",
+        deliveryMethod: "NOVA_POSHTA",
+        // city / warehouse / payment still missing
+      },
+    });
+    await service.handleClientTurn({
+      parsed: parsed({ phone: "+380501112233", text: null }),
+      conversationId: "conv1",
+      contactId: null,
+      leadId: null,
+    });
+    assert.equal(checkoutCalls.length, 0);
+    assert.equal(sessions.payload.region, "Київська");
+    assert.equal(sessions.payload.deliveryMethod, "NOVA_POSHTA");
+    assert.ok(sent.some((s) => /Продовжуємо оформлення|Тип доставки|міста/i.test(s.text)));
+  });
+
+  it("/start during checkout keeps the draft and reminds the user", async () => {
+    const { service, sent, sessions } = makeBot({
+      sessionState: "checkout_city",
+      sessionPayload: { region: "Київська", deliveryMethod: "NOVA_POSHTA" },
+    });
+    await service.handleClientTurn({
+      parsed: parsed({ text: "/start" }),
+      conversationId: "conv1",
+      contactId: "c1",
+      leadId: null,
+    });
+    assert.equal(sessions.state, "checkout_city");
+    assert.equal(sessions.payload.region, "Київська");
+    assert.ok(sent.some((s) => /оформлення|кошик|Скасувати/i.test(s.text)));
+  });
+
+  it("stale chk callback while idle is ignored", async () => {
+    const { service, sessions } = makeBot({
+      sessionState: "idle",
+      sessionPayload: {},
+    });
+    await service.handleClientTurn({
+      parsed: parsed({ text: "chk:reg:0", isCallback: true, callbackQueryId: "stale-chk" }),
+      conversationId: "conv1",
+      contactId: "c1",
+      leadId: null,
+      callbackQueryId: "stale-chk",
+    });
+    assert.equal(sessions.state, "idle");
+    assert.equal(sessions.payload.region, undefined);
+  });
+
+  it("blocks checkout region with no manager and no STORE_OWNER_ID", async () => {
+    const prev = process.env.STORE_OWNER_ID;
+    delete process.env.STORE_OWNER_ID;
+    try {
+      const { service, sent, sessions } = makeBot({
+        sessionState: "checkout_flow",
+        sessionPayload: {},
+        orgChart: { assignments: {}, regions: {} },
+        cartItems: [{ id: "1" }],
+        account: { phone: "+380501112233", contactId: "c1" },
+      });
+      await service.handleClientTurn({
+        parsed: parsed({ text: "chk:reg:0", isCallback: true, callbackQueryId: "cb-reg" }),
+        conversationId: "conv1",
+        contactId: "c1",
+        leadId: null,
+        callbackQueryId: "cb-reg",
+      });
+      assert.equal(sessions.payload.region, undefined);
+      assert.ok(sent.some((s) => /немає менеджера/i.test(s.text)));
+    } finally {
+      if (prev == null) delete process.env.STORE_OWNER_ID;
+      else process.env.STORE_OWNER_ID = prev;
+    }
   });
 });

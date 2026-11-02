@@ -35,11 +35,23 @@ function makeSessions(initial: { state?: string; payload?: AnyRec } = {}) {
     get: async () => ({ state: sessions.state, payload: sessions.payload }),
     set: async (_id: string, state: string, payload: AnyRec = {}) => {
       sessions.state = state;
-      sessions.payload = payload;
+      // Mirror TelegramBotSessionService: preserve staffShopMode unless explicitly cleared.
+      if (!Object.prototype.hasOwnProperty.call(payload, "staffShopMode")) {
+        sessions.payload = sessions.payload.staffShopMode
+          ? { ...payload, staffShopMode: true }
+          : { ...payload };
+        return;
+      }
+      if (payload.staffShopMode === false) {
+        const { staffShopMode: _drop, ...rest } = payload;
+        sessions.payload = rest;
+        return;
+      }
+      sessions.payload = { ...payload };
     },
     resetIdle: async () => {
       sessions.state = "idle";
-      sessions.payload = {};
+      sessions.payload = sessions.payload.staffShopMode ? { staffShopMode: true } : {};
     },
   };
   return sessions;
@@ -81,6 +93,52 @@ describe("TelegramManagerBotService", () => {
     assert.equal(handled, true);
     assert.equal(assignCalls[0]?.userId, "user-1");
     assert.ok(sent.some((t) => /закріплено/i.test(t)));
+  });
+
+  it("does not pitch /link to clients on /start or Скасувати", async () => {
+    const sent: string[] = [];
+    const svc = new TelegramManagerBotService(
+      { user: { findFirst: async () => null } } as never,
+      { getStoreConfig: async () => ({}) } as never,
+      makeSessions() as never,
+      { assign: async () => ({}) } as never,
+      { muteConversation: () => undefined } as never,
+      {} as never,
+      {
+        sendMessageToChat: async (_chat: string, text: string) => {
+          sent.push(text);
+          return { messageId: 1 };
+        },
+      } as never,
+    );
+
+    assert.equal(
+      await svc.tryHandleStaffText(
+        parsed({ text: "/start", isCallback: false, callbackQueryId: null }),
+      ),
+      false,
+    );
+    assert.equal(
+      await svc.tryHandleStaffText(
+        parsed({ text: "✖️ Скасувати", isCallback: false, callbackQueryId: null }),
+      ),
+      false,
+    );
+    assert.equal(
+      await svc.tryHandleStaffText(
+        parsed({ text: "🛍 Каталог", isCallback: false, callbackQueryId: null }),
+      ),
+      false,
+    );
+    assert.equal(sent.length, 0);
+
+    assert.equal(
+      await svc.tryHandleStaffText(
+        parsed({ text: "👤 Клієнт", isCallback: false, callbackQueryId: null }),
+      ),
+      true,
+    );
+    assert.ok(sent.some((t) => /менеджера CRM/i.test(t)));
   });
 
   it("starts client search from menu button", async () => {
@@ -274,6 +332,25 @@ describe("TelegramManagerBotService", () => {
     );
     assert.equal(sessions.payload.staffShopMode, undefined);
     assert.ok(sent.some((s) => /Режим менеджера/i.test(s.text)));
+  });
+
+  it("in shop mode, Скасувати falls through to the client FSM", async () => {
+    const sessions = makeSessions({ payload: { staffShopMode: true } });
+    const svc = new TelegramManagerBotService(
+      { user: { findFirst: async () => staffUser } } as never,
+      { getStoreConfig: async () => ({}) } as never,
+      sessions as never,
+      { assign: async () => ({}) } as never,
+      { muteConversation: () => undefined } as never,
+      {} as never,
+      { sendMessageToChat: async () => ({ messageId: 1 }) } as never,
+    );
+
+    const handled = await svc.tryHandleStaffText(
+      parsed({ text: "✖️ Скасувати", isCallback: false, callbackQueryId: null }),
+    );
+    assert.equal(handled, false);
+    assert.equal(sessions.payload.staffShopMode, true);
   });
 
   it("shows orders then destination menu including client send", async () => {

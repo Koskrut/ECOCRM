@@ -18,6 +18,8 @@ import type { AuthUser } from "../../auth/auth.types";
 import { normalizePagination } from "../../common/pagination";
 import { ContactsService } from "../../contacts/contacts.service";
 import { PrismaService } from "../../prisma/prisma.service";
+import { resolveAssignedManagerForRegion } from "../../settings/org-chart-region-resolver";
+import { SettingsService } from "../../settings/settings.service";
 import { TelegramAiService } from "./telegram-ai.service";
 import { TelegramService } from "./telegram.service";
 import {
@@ -37,6 +39,7 @@ export class ConversationsService {
     private readonly telegramService: TelegramService,
     private readonly telegramAiService: TelegramAiService,
     private readonly contactsService: ContactsService,
+    private readonly settings: SettingsService,
   ) {}
 
   private requireActor(actor: AuthUser | undefined): AuthUser {
@@ -44,21 +47,44 @@ export class ConversationsService {
     return actor;
   }
 
+  /**
+   * Managers: chats assigned to them, chats where they collaborate, + unassigned.
+   * Admin/Lead see everything.
+   */
   private buildVisibilityWhere(actor: AuthUser): Prisma.ConversationWhereInput {
     if (actor.role !== UserRole.MANAGER) return {};
     return {
-      OR: [{ assignedToUserId: actor.id }, { assignedToUserId: null }],
+      OR: [
+        { assignedToUserId: actor.id },
+        { assignedToUserId: null },
+        { collaborators: { some: { userId: actor.id } } },
+      ],
     };
   }
 
   private assertManagerCanAccessConversation(
     actor: AuthUser,
-    conversation: { assignedToUserId: string | null },
+    conversation: {
+      assignedToUserId: string | null;
+      collaborators?: Array<{ userId: string }>;
+    },
   ) {
     if (actor.role !== UserRole.MANAGER) return;
-    if (conversation.assignedToUserId && conversation.assignedToUserId !== actor.id) {
-      throw new ForbiddenException("You cannot access a conversation assigned to another manager");
-    }
+    if (!conversation.assignedToUserId) return;
+    if (conversation.assignedToUserId === actor.id) return;
+    if (conversation.collaborators?.some((c) => c.userId === actor.id)) return;
+    throw new ForbiddenException("You cannot access a conversation assigned to another manager");
+  }
+
+  private collaboratorAccessSelect(actor: AuthUser) {
+    return {
+      assignedToUserId: true as const,
+      collaborators: {
+        where: { userId: actor.id },
+        select: { userId: true },
+        take: 1,
+      },
+    };
   }
 
   async list(q: ListConversationsQueryDto, actor: AuthUser | undefined) {
@@ -118,6 +144,13 @@ export class ConversationsService {
           assignedTo: {
             select: { id: true, fullName: true, email: true },
           },
+          collaborators: {
+            select: {
+              userId: true,
+              user: { select: { id: true, fullName: true, email: true } },
+            },
+            orderBy: { createdAt: "asc" },
+          },
           messages: {
             orderBy: { sentAt: "desc" },
             take: 1,
@@ -174,6 +207,11 @@ export class ConversationsService {
             telegramChatId: c.telegramChatId,
           }),
           assignedTo: c.assignedTo,
+          collaborators: c.collaborators.map((row) => ({
+            id: row.user.id,
+            fullName: row.user.fullName,
+            email: row.user.email,
+          })),
           status: c.status,
           pinnedAt: c.pinnedAt,
           lastReadAt: c.lastReadAt,
@@ -296,28 +334,37 @@ export class ConversationsService {
     const safeActor = this.requireActor(actor);
     const conv = await this.prisma.conversation.findUnique({
       where: { id: conversationId },
-      select: { id: true, assignedToUserId: true },
+      select: {
+        id: true,
+        assignedToUserId: true,
+        collaborators: {
+          where: { userId: safeActor.id },
+          select: { userId: true },
+          take: 1,
+        },
+      },
     });
     if (!conv) throw new NotFoundException("Conversation not found");
     this.assertManagerCanAccessConversation(safeActor, conv);
 
-    const { page, pageSize, offset, limit } = normalizePagination(
+    const { page, pageSize, limit } = normalizePagination(
       { page: q.page ?? 1, pageSize: q.pageSize ?? 50 },
       { page: 1, pageSize: 50 },
     );
 
-    const [messages, total] = await Promise.all([
-      this.prisma.message.findMany({
-        where: { conversationId },
-        orderBy: { sentAt: "asc" },
-        skip: offset,
-        take: limit,
-        include: {
-          author: { select: { id: true, fullName: true, email: true } },
-        },
-      }),
-      this.prisma.message.count({ where: { conversationId } }),
-    ]);
+    // Inbox chat needs the *newest* window. Page 1 = latest N (chronological asc for UI);
+    // page 2+ walks further back. Old "page 1 = oldest" hid CRM replies after poll in long threads.
+    const total = await this.prisma.message.count({ where: { conversationId } });
+    const skip = Math.max(0, total - page * limit);
+    const messages = await this.prisma.message.findMany({
+      where: { conversationId },
+      orderBy: { sentAt: "asc" },
+      skip,
+      take: limit,
+      include: {
+        author: { select: { id: true, fullName: true, email: true } },
+      },
+    });
 
     const items = messages.map((m) => {
       let fileUrl = m.fileUrl;
@@ -358,7 +405,15 @@ export class ConversationsService {
     const safeActor = this.requireActor(actor);
     const conv = await this.prisma.conversation.findUnique({
       where: { id: conversationId },
-      select: { id: true, assignedToUserId: true },
+      select: {
+        id: true,
+        assignedToUserId: true,
+        collaborators: {
+          where: { userId: safeActor.id },
+          select: { userId: true },
+          take: 1,
+        },
+      },
     });
     if (!conv) throw new NotFoundException("Conversation not found");
     this.assertManagerCanAccessConversation(safeActor, conv);
@@ -379,7 +434,15 @@ export class ConversationsService {
     const safeActor = this.requireActor(actor);
     const conv = await this.prisma.conversation.findUnique({
       where: { id: conversationId },
-      select: { id: true, assignedToUserId: true },
+      select: {
+        id: true,
+        assignedToUserId: true,
+        collaborators: {
+          where: { userId: safeActor.id },
+          select: { userId: true },
+          take: 1,
+        },
+      },
     });
     if (!conv) throw new NotFoundException("Conversation not found");
     this.assertManagerCanAccessConversation(safeActor, conv);
@@ -399,7 +462,15 @@ export class ConversationsService {
     const safeActor = this.requireActor(actor);
     const conv = await this.prisma.conversation.findUnique({
       where: { id: conversationId },
-      select: { id: true, assignedToUserId: true },
+      select: {
+        id: true,
+        assignedToUserId: true,
+        collaborators: {
+          where: { userId: safeActor.id },
+          select: { userId: true },
+          take: 1,
+        },
+      },
     });
     if (!conv) throw new NotFoundException("Conversation not found");
     this.assertManagerCanAccessConversation(safeActor, conv);
@@ -420,7 +491,15 @@ export class ConversationsService {
     const safeActor = this.requireActor(actor);
     const conv = await this.prisma.conversation.findUnique({
       where: { id: conversationId },
-      select: { id: true, assignedToUserId: true },
+      select: {
+        id: true,
+        assignedToUserId: true,
+        collaborators: {
+          where: { userId: safeActor.id },
+          select: { userId: true },
+          take: 1,
+        },
+      },
     });
     if (!conv) throw new NotFoundException("Conversation not found");
     this.assertManagerCanAccessConversation(safeActor, conv);
@@ -442,7 +521,15 @@ export class ConversationsService {
 
     const conv = await this.prisma.conversation.findUnique({
       where: { id: conversationId },
-      select: { id: true, assignedToUserId: true },
+      select: {
+        id: true,
+        assignedToUserId: true,
+        collaborators: {
+          where: { userId: safeActor.id },
+          select: { userId: true },
+          take: 1,
+        },
+      },
     });
     if (!conv) throw new NotFoundException("Conversation not found");
     this.assertManagerCanAccessConversation(safeActor, conv);
@@ -470,38 +557,270 @@ export class ConversationsService {
     return message;
   }
 
+  /**
+   * Assign an unassigned conversation to the regional manager from CRM contact/lead
+   * ownership or org-chart region mapping. No-op when already assigned or no match.
+   */
+  async autoAssignByRegion(conversationId: string): Promise<string | null> {
+    const conv = await this.prisma.conversation.findUnique({
+      where: { id: conversationId },
+      select: {
+        id: true,
+        assignedToUserId: true,
+        contactId: true,
+        leadId: true,
+        contact: { select: { id: true, ownerId: true, region: true } },
+        lead: { select: { id: true, ownerId: true, region: true } },
+      },
+    });
+    if (!conv) return null;
+    if (conv.assignedToUserId) return conv.assignedToUserId;
+
+    let managerId =
+      (await this.activeStaffUserId(conv.contact?.ownerId)) ??
+      (await this.activeStaffUserId(conv.lead?.ownerId));
+
+    if (!managerId) {
+      const region =
+        String(conv.contact?.region ?? "").trim() ||
+        String(conv.lead?.region ?? "").trim();
+      if (region) {
+        try {
+          const org = await this.settings.getOrgChartStructure();
+          const resolved = resolveAssignedManagerForRegion(org, region)?.managerId ?? null;
+          managerId = await this.activeStaffUserId(resolved);
+        } catch {
+          managerId = null;
+        }
+      }
+    }
+
+    if (!managerId) return null;
+
+    await this.prisma.conversation.update({
+      where: { id: conv.id },
+      data: { assignedToUserId: managerId },
+    });
+
+    if (conv.contactId && !conv.contact?.ownerId) {
+      await this.prisma.contact
+        .update({ where: { id: conv.contactId }, data: { ownerId: managerId } })
+        .catch(() => {});
+    }
+    if (conv.leadId && !conv.lead?.ownerId) {
+      await this.prisma.lead
+        .update({ where: { id: conv.leadId }, data: { ownerId: managerId } })
+        .catch(() => {});
+    }
+
+    return managerId;
+  }
+
+  private async activeStaffUserId(userId: string | null | undefined): Promise<string | null> {
+    if (!userId) return null;
+    const user = await this.prisma.user.findFirst({
+      where: {
+        id: userId,
+        isActive: true,
+        role: { in: [UserRole.ADMIN, UserRole.LEAD, UserRole.MANAGER] },
+      },
+      select: { id: true },
+    });
+    return user?.id ?? null;
+  }
+
   async assign(conversationId: string, userId: string | null, actor: AuthUser | undefined) {
     const safeActor = this.requireActor(actor);
     const conv = await this.prisma.conversation.findUnique({
       where: { id: conversationId },
-      select: { id: true, assignedToUserId: true },
+      select: {
+        id: true,
+        assignedToUserId: true,
+        collaborators: {
+          where: { userId: safeActor.id },
+          select: { userId: true },
+          take: 1,
+        },
+      },
     });
     if (!conv) throw new NotFoundException("Conversation not found");
     this.assertManagerCanAccessConversation(safeActor, conv);
 
-    // Managers may only claim a conversation for themselves or release it; leads
-    // and admins can assign it to anyone.
-    if (safeActor.role === UserRole.MANAGER && userId && userId !== safeActor.id) {
-      throw new ForbiddenException("Managers can only assign conversations to themselves");
+    // Collaborators may reply, but only the assignee (or Lead/Admin) may transfer/unassign.
+    // Claiming from the unassigned pool is always allowed for managers.
+    const isLeadOrAdmin =
+      safeActor.role === UserRole.ADMIN || safeActor.role === UserRole.LEAD;
+    const isAssignee = conv.assignedToUserId === safeActor.id;
+    const isUnassigned = !conv.assignedToUserId;
+    const claimingSelf = Boolean(userId && userId === safeActor.id && isUnassigned);
+    if (
+      safeActor.role === UserRole.MANAGER &&
+      !isLeadOrAdmin &&
+      !isAssignee &&
+      !claimingSelf
+    ) {
+      throw new ForbiddenException(
+        "Тільки відповідальний може передати або зняти призначення з чату",
+      );
     }
 
     if (userId) {
-      const user = await this.prisma.user.findUnique({
-        where: { id: userId },
+      const user = await this.prisma.user.findFirst({
+        where: {
+          id: userId,
+          isActive: true,
+          role: { in: [UserRole.ADMIN, UserRole.LEAD, UserRole.MANAGER] },
+        },
         select: { id: true },
       });
       if (!user) throw new NotFoundException("User not found");
     }
 
-    return this.prisma.conversation.update({
+    // Transfer: drop new assignee from collaborators if they were joint.
+    // Unassign: clear all collaborators so the thread is a true open pool.
+    if (userId) {
+      await this.prisma.conversationCollaborator
+        .deleteMany({ where: { conversationId, userId } })
+        .catch(() => {});
+    } else {
+      await this.prisma.conversationCollaborator
+        .deleteMany({ where: { conversationId } })
+        .catch(() => {});
+    }
+
+    const updated = await this.prisma.conversation.update({
       where: { id: conversationId },
       data: { assignedToUserId: userId },
       include: {
         contact: { select: { id: true, firstName: true, lastName: true } },
         lead: { select: { id: true, fullName: true } },
-        assignedTo: { select: { id: true, fullName: true } },
+        assignedTo: { select: { id: true, fullName: true, email: true } },
+        collaborators: {
+          select: {
+            user: { select: { id: true, fullName: true, email: true } },
+          },
+        },
       },
     });
+    return {
+      ...updated,
+      collaborators: updated.collaborators.map((row) => ({
+        id: row.user.id,
+        fullName: row.user.fullName,
+        email: row.user.email,
+      })),
+    };
+  }
+
+  /** Invite another manager to work the thread jointly (keeps primary assignee). */
+  async addCollaborator(
+    conversationId: string,
+    userId: string,
+    actor: AuthUser | undefined,
+  ) {
+    const safeActor = this.requireActor(actor);
+    const conv = await this.prisma.conversation.findUnique({
+      where: { id: conversationId },
+      select: {
+        id: true,
+        assignedToUserId: true,
+        collaborators: {
+          where: { userId: safeActor.id },
+          select: { userId: true },
+          take: 1,
+        },
+      },
+    });
+    if (!conv) throw new NotFoundException("Conversation not found");
+    this.assertManagerCanAccessConversation(safeActor, conv);
+
+    // Collaborators may reply; only assignee / Lead / Admin may invite more people.
+    const isLeadOrAdmin =
+      safeActor.role === UserRole.ADMIN || safeActor.role === UserRole.LEAD;
+    if (
+      safeActor.role === UserRole.MANAGER &&
+      !isLeadOrAdmin &&
+      conv.assignedToUserId !== safeActor.id
+    ) {
+      throw new ForbiddenException(
+        "Тільки відповідальний може додати співавтора до чату",
+      );
+    }
+
+    if (!userId || userId === conv.assignedToUserId) {
+      throw new BadRequestException("Choose a manager who is not already the assignee");
+    }
+
+    const user = await this.prisma.user.findFirst({
+      where: {
+        id: userId,
+        isActive: true,
+        role: { in: [UserRole.ADMIN, UserRole.LEAD, UserRole.MANAGER] },
+      },
+      select: { id: true, fullName: true, email: true },
+    });
+    if (!user) throw new NotFoundException("User not found");
+
+    await this.prisma.conversationCollaborator.upsert({
+      where: { conversationId_userId: { conversationId, userId } },
+      create: { conversationId, userId, addedById: safeActor.id },
+      update: {},
+    });
+
+    return this.listCollaborators(conversationId);
+  }
+
+  async removeCollaborator(
+    conversationId: string,
+    userId: string,
+    actor: AuthUser | undefined,
+  ) {
+    const safeActor = this.requireActor(actor);
+    const conv = await this.prisma.conversation.findUnique({
+      where: { id: conversationId },
+      select: {
+        id: true,
+        assignedToUserId: true,
+        collaborators: {
+          where: { userId: safeActor.id },
+          select: { userId: true },
+          take: 1,
+        },
+      },
+    });
+    if (!conv) throw new NotFoundException("Conversation not found");
+    this.assertManagerCanAccessConversation(safeActor, conv);
+
+    // Collaborator may leave themselves; otherwise assignee/admin removes.
+    if (
+      safeActor.role === UserRole.MANAGER &&
+      userId !== safeActor.id &&
+      conv.assignedToUserId !== safeActor.id
+    ) {
+      throw new ForbiddenException("Only the assignee can remove other collaborators");
+    }
+
+    await this.prisma.conversationCollaborator.deleteMany({
+      where: { conversationId, userId },
+    });
+    return this.listCollaborators(conversationId);
+  }
+
+  private async listCollaborators(conversationId: string) {
+    const rows = await this.prisma.conversationCollaborator.findMany({
+      where: { conversationId },
+      orderBy: { createdAt: "asc" },
+      select: {
+        user: { select: { id: true, fullName: true, email: true } },
+      },
+    });
+    return {
+      collaborators: rows.map((r) => ({
+        id: r.user.id,
+        fullName: r.user.fullName,
+        email: r.user.email,
+      })),
+    };
   }
 
   async sendMessage(conversationId: string, text: string, actor: AuthUser | undefined) {
@@ -513,7 +832,16 @@ export class ConversationsService {
 
     const conv = await this.prisma.conversation.findUnique({
       where: { id: conversationId },
-      select: { id: true, telegramChatId: true, assignedToUserId: true },
+      select: {
+        id: true,
+        telegramChatId: true,
+        assignedToUserId: true,
+        collaborators: {
+          where: { userId: safeActor.id },
+          select: { userId: true },
+          take: 1,
+        },
+      },
     });
     if (!conv) throw new NotFoundException("Conversation not found");
     this.assertManagerCanAccessConversation(safeActor, conv);
@@ -571,7 +899,17 @@ export class ConversationsService {
 
     const conv = await this.prisma.conversation.findUnique({
       where: { id: conversationId },
-      select: { id: true, telegramChatId: true, leadId: true, assignedToUserId: true },
+      select: {
+        id: true,
+        telegramChatId: true,
+        leadId: true,
+        assignedToUserId: true,
+        collaborators: {
+          where: { userId: safeActor.id },
+          select: { userId: true },
+          take: 1,
+        },
+      },
     });
     if (!conv) throw new NotFoundException("Conversation not found");
     this.assertManagerCanAccessConversation(safeActor, conv);
@@ -612,6 +950,7 @@ export class ConversationsService {
         : []),
     ]);
 
+    await this.autoAssignByRegion(conversationId);
     return { ok: true, contactId };
   }
 
@@ -620,7 +959,14 @@ export class ConversationsService {
 
     const conv = await this.prisma.conversation.findUnique({
       where: { id: conversationId },
-      include: { lead: true },
+      include: {
+        lead: true,
+        collaborators: {
+          where: { userId: safeActor.id },
+          select: { userId: true },
+          take: 1,
+        },
+      },
     });
     if (!conv) throw new NotFoundException("Conversation not found");
     this.assertManagerCanAccessConversation(safeActor, conv);
@@ -677,6 +1023,7 @@ export class ConversationsService {
       }),
     ]);
 
+    await this.autoAssignByRegion(conversationId);
     return { contact };
   }
 
@@ -684,7 +1031,15 @@ export class ConversationsService {
     const safeActor = this.requireActor(actor);
     const conv = await this.prisma.conversation.findUnique({
       where: { id: conversationId },
-      select: { id: true, assignedToUserId: true },
+      select: {
+        id: true,
+        assignedToUserId: true,
+        collaborators: {
+          where: { userId: safeActor.id },
+          select: { userId: true },
+          take: 1,
+        },
+      },
     });
     if (!conv) throw new NotFoundException("Conversation not found");
     this.assertManagerCanAccessConversation(safeActor, conv);

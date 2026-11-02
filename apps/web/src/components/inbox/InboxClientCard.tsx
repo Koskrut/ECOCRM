@@ -43,11 +43,17 @@ type LeadBrief = {
   phone: string | null;
 };
 
+type StaffOption = { id: string; fullName: string };
+
 type AssignBlock = {
   assignedTo: { id: string; fullName: string } | null;
+  collaborators?: StaffOption[];
+  staffOptions?: StaffOption[];
   meId: string | null;
   assignLoading?: boolean;
   onAssign: (userId: string | null) => void;
+  onAddCollaborator?: (userId: string) => void;
+  onRemoveCollaborator?: (userId: string) => void;
 };
 
 type LinkBlock = {
@@ -188,32 +194,114 @@ export function InboxClientCard({
       <h4 className="text-sm font-medium text-zinc-700">Картка</h4>
 
       {assign ? (
-        <div className="rounded-lg border border-zinc-200 bg-white p-3 text-sm">
-          <p className="text-xs text-zinc-500">Відповідальний</p>
-          <p className="mt-0.5 font-medium text-zinc-900">
-            {assign.assignedTo?.fullName ?? "Не призначено"}
-          </p>
-          <div className="mt-2 flex flex-wrap gap-2">
-            {assign.assignedTo?.id !== assign.meId && (
-              <button
-                type="button"
-                onClick={() => assign.onAssign(assign.meId)}
-                disabled={assign.assignLoading || !assign.meId}
-                className="inline-flex items-center gap-1 rounded border border-zinc-200 px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
-              >
-                Взяти собі
-              </button>
+        <div className="rounded-lg border border-zinc-200 bg-white p-3 text-sm space-y-3">
+          <div>
+            <p className="text-xs text-zinc-500">Відповідальний</p>
+            <p className="mt-0.5 font-medium text-zinc-900">
+              {assign.assignedTo?.fullName ?? "Не призначено"}
+            </p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {assign.assignedTo?.id !== assign.meId && (
+                <button
+                  type="button"
+                  onClick={() => assign.meId && assign.onAssign(assign.meId)}
+                  disabled={assign.assignLoading || !assign.meId}
+                  className="inline-flex items-center gap-1 rounded border border-zinc-200 px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+                >
+                  Взяти собі
+                </button>
+              )}
+              {assign.assignedTo && (
+                <button
+                  type="button"
+                  onClick={() => assign.onAssign(null)}
+                  disabled={assign.assignLoading}
+                  className="inline-flex items-center gap-1 rounded border border-zinc-200 px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+                >
+                  Зняти
+                </button>
+              )}
+            </div>
+            {assign.staffOptions && assign.staffOptions.length > 0 ? (
+              <label className="mt-2 block text-xs text-zinc-500">
+                Передати менеджеру
+                <select
+                  className="mt-1 w-full rounded border border-zinc-200 bg-white px-2 py-1.5 text-sm text-zinc-900"
+                  disabled={assign.assignLoading}
+                  defaultValue=""
+                  onChange={(e) => {
+                    const id = e.target.value;
+                    e.target.value = "";
+                    if (id) assign.onAssign(id);
+                  }}
+                >
+                  <option value="">Оберіть…</option>
+                  {assign.staffOptions
+                    .filter((u) => u.id !== assign.assignedTo?.id)
+                    .map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {u.fullName}
+                      </option>
+                    ))}
+                </select>
+              </label>
+            ) : null}
+          </div>
+
+          <div>
+            <p className="text-xs text-zinc-500">Спільно (доступ до чату)</p>
+            {(assign.collaborators ?? []).length > 0 ? (
+              <ul className="mt-1 space-y-1">
+                {(assign.collaborators ?? []).map((u) => (
+                  <li
+                    key={u.id}
+                    className="flex items-center justify-between gap-2 text-sm text-zinc-800"
+                  >
+                    <span>{u.fullName}</span>
+                    {assign.onRemoveCollaborator ? (
+                      <button
+                        type="button"
+                        disabled={assign.assignLoading}
+                        onClick={() => assign.onRemoveCollaborator?.(u.id)}
+                        className="text-xs text-zinc-500 hover:text-zinc-800 disabled:opacity-50"
+                      >
+                        Прибрати
+                      </button>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-0.5 text-xs text-zinc-400">Нікого не додано</p>
             )}
-            {assign.assignedTo && (
-              <button
-                type="button"
-                onClick={() => assign.onAssign(null)}
-                disabled={assign.assignLoading}
-                className="inline-flex items-center gap-1 rounded border border-zinc-200 px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
-              >
-                Зняти
-              </button>
-            )}
+            {assign.staffOptions && assign.onAddCollaborator ? (
+              <label className="mt-2 block text-xs text-zinc-500">
+                Додати до спільної роботи
+                <select
+                  className="mt-1 w-full rounded border border-zinc-200 bg-white px-2 py-1.5 text-sm text-zinc-900"
+                  disabled={assign.assignLoading}
+                  defaultValue=""
+                  onChange={(e) => {
+                    const id = e.target.value;
+                    e.target.value = "";
+                    if (id) assign.onAddCollaborator?.(id);
+                  }}
+                >
+                  <option value="">Оберіть…</option>
+                  {assign.staffOptions
+                    .filter(
+                      (u) =>
+                        u.id !== assign.assignedTo?.id &&
+                        !(assign.collaborators ?? []).some((c) => c.id === u.id),
+                    )
+                    .map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {u.fullName}
+                      </option>
+                    ))}
+                </select>
+              </label>
+            ) : null}
           </div>
         </div>
       ) : null}
