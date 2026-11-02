@@ -30,14 +30,19 @@ import {
   CATALOG_SEARCH_BUTTON,
   CATALOG_SYSTEMS,
   CITY_RESULTS_LIMIT,
+  CLIENT_FLOW_KEYBOARD,
   CLIENT_MENU_KEYBOARD,
+  CLIENT_START_KEYBOARD,
   buildClientMenuKeyboard,
   MENU_CART,
   MENU_CATALOG,
+  MENU_CLIENT_CANCEL,
   MENU_MANAGER,
   MENU_ORDERS,
+  MENU_START,
   ORDERS_PAGE_SIZE,
   TELEGRAM_CANCELLED,
+  TELEGRAM_CHECKOUT_IN_PROGRESS,
   TELEGRAM_CLIENT_TYPE_DOCTOR,
   TELEGRAM_CLIENT_TYPE_TECH,
   TELEGRAM_EXISTING_CLIENT,
@@ -145,6 +150,29 @@ function isOnboardingState(state: string): state is Extract<
   return state === "onboarding_name" || state === "onboarding_role" || state === "onboarding_region";
 }
 
+function isCheckoutState(state: string): boolean {
+  return (
+    state === "checkout_flow" ||
+    state === "checkout_city" ||
+    state === "checkout_warehouse_q" ||
+    state === "checkout_street" ||
+    state === "checkout_building" ||
+    state === "checkout_flat" ||
+    state === "checkout_comment" ||
+    state === "checkout_phone"
+  );
+}
+
+function isSlashCommand(text: string, name: string): boolean {
+  const lower = text.trim().toLowerCase();
+  const base = `/${name}`;
+  return (
+    lower === base ||
+    lower.startsWith(`${base}@`) ||
+    lower.startsWith(`${base} `)
+  );
+}
+
 /** Keep checkout draft fields while collecting CRM profile. */
 function pickCheckoutDraft(payload: BotSessionPayload): BotSessionPayload {
   const draft: BotSessionPayload = {};
@@ -250,19 +278,22 @@ export class TelegramClientBotService {
     const inOnboarding = isOnboardingState(earlySession.state);
 
     // Explicit cancel always exits any wizard (including onboarding).
-    if (lower === "/cancel") {
+    if (text === MENU_CLIENT_CANCEL || isSlashCommand(text, "cancel")) {
       const wasOnboarding = inOnboarding;
+      const wasCheckout = isCheckoutState(earlySession.state);
       await this.sessions.resetIdle(parsed.userId);
-      await this.replyMenu(
-        parsed.chatId,
-        conversationId,
-        wasOnboarding ? TELEGRAM_ONBOARDING_PAUSED : TELEGRAM_CANCELLED,
-      );
+      if (wasOnboarding) {
+        await this.replyStartOnly(parsed.chatId, conversationId, TELEGRAM_ONBOARDING_PAUSED);
+      } else if (wasCheckout) {
+        await this.replyMenu(parsed.chatId, conversationId, TELEGRAM_CANCELLED);
+      } else {
+        await this.replyMenu(parsed.chatId, conversationId, TELEGRAM_CANCELLED);
+      }
       return { handled: true, notifyManager: false };
     }
 
     // /menu during onboarding must not wipe name/role/region progress.
-    if (lower === "/menu") {
+    if (isSlashCommand(text, "menu")) {
       if (inOnboarding) {
         await this.repromptOnboarding(
           parsed,
@@ -272,19 +303,19 @@ export class TelegramClientBotService {
         );
         return { handled: true, notifyManager: false };
       }
+      if (isCheckoutState(earlySession.state)) {
+        await this.replyCheckoutNotice(parsed.chatId, conversationId);
+        return { handled: true, notifyManager: false };
+      }
       await this.sessions.resetIdle(parsed.userId);
       await this.replyMenu(parsed.chatId, conversationId, "Головне меню:");
       return { handled: true, notifyManager: false };
     }
-    if (lower === "/help") {
+    if (isSlashCommand(text, "help")) {
       await this.replyMenu(parsed.chatId, conversationId, TELEGRAM_HELP);
       return { handled: true, notifyManager: false };
     }
-    if (
-      lower === "/start" ||
-      lower.startsWith("/start ") ||
-      (lower.startsWith("/start") && text.length <= 6)
-    ) {
+    if (text === MENU_START || isSlashCommand(text, "start")) {
       await this.replyStart(parsed, conversationId, contactId, leadId);
       return { handled: true, notifyManager: false };
     }
@@ -312,6 +343,10 @@ export class TelegramClientBotService {
       }
       if (resolvedContactId) {
         await this.linkTelegramToContact(parsed.userId, parsed.chatId, resolvedContactId);
+        // Same gap-fill as /start: role/region before the working menu.
+        if (await this.startContactGapFillIfNeeded(parsed, conversationId, resolvedContactId)) {
+          return { handled: true, notifyManager: false };
+        }
         await this.sessions.resetIdle(parsed.userId);
         await this.replyMenu(parsed.chatId, conversationId, TELEGRAM_EXISTING_CLIENT);
         return { handled: true, notifyManager: false };
@@ -337,6 +372,7 @@ export class TelegramClientBotService {
         lower === "/cart" ||
         lower === "/orders";
       // Reply-keyboard taps must not be stored as a person name.
+      // (🏠 Старт is handled above like /start and resumes onboarding.)
       if (isMenuShortcut || parsed.isCallback || !text) {
         await this.repromptOnboarding(
           parsed,
@@ -358,8 +394,22 @@ export class TelegramClientBotService {
       return { handled: true, notifyManager: false };
     }
 
+    // Reply-keyboard menu — never wipe an active checkout with Catalog/Cart taps.
+    const wantsCommerceMenu =
+      text === MENU_CATALOG ||
+      text === MENU_CART ||
+      text === MENU_ORDERS ||
+      text === MENU_MANAGER ||
+      isSlashCommand(text, "catalog") ||
+      isSlashCommand(text, "cart") ||
+      isSlashCommand(text, "orders");
+    if (wantsCommerceMenu && isCheckoutState(earlySession.state)) {
+      await this.replyCheckoutNotice(parsed.chatId, conversationId);
+      return { handled: true, notifyManager: false };
+    }
+
     // Reply-keyboard menu — commerce requires a CRM contact (profile gate).
-    if (text === MENU_CATALOG || lower === "/catalog") {
+    if (text === MENU_CATALOG || isSlashCommand(text, "catalog")) {
       if (!(await this.ensureCrmProfile(parsed, conversationId, contactId, leadId))) {
         return { handled: true, notifyManager: false };
       }
@@ -367,7 +417,7 @@ export class TelegramClientBotService {
       await this.showCatalogHome(parsed, conversationId);
       return { handled: true, notifyManager: false };
     }
-    if (text === MENU_CART || lower === "/cart") {
+    if (text === MENU_CART || isSlashCommand(text, "cart")) {
       if (!(await this.ensureCrmProfile(parsed, conversationId, contactId, leadId))) {
         return { handled: true, notifyManager: false };
       }
@@ -375,7 +425,7 @@ export class TelegramClientBotService {
       await this.showCart(parsed, conversationId);
       return { handled: true, notifyManager: false };
     }
-    if (text === MENU_ORDERS || lower === "/orders") {
+    if (text === MENU_ORDERS || isSlashCommand(text, "orders")) {
       if (!(await this.ensureCrmProfile(parsed, conversationId, contactId, leadId))) {
         return { handled: true, notifyManager: false };
       }
@@ -426,6 +476,26 @@ export class TelegramClientBotService {
     const session = await this.sessions.get(parsed.userId);
     if (session.state !== "idle" && text && !parsed.isCallback) {
       await this.handleWizardText(parsed, conversationId, contactId, leadId, session.state, session.payload, text);
+      return { handled: true, notifyManager: false };
+    }
+
+    // No CRM identity yet: beginning of dialog (Старт / phone) — do not ping managers.
+    if (!(await this.identityKnown(parsed.userId, contactId, leadId))) {
+      return { handled: true, notifyManager: false };
+    }
+
+    // Phone known but CRM contact incomplete — resume profile instead of pinging managers.
+    const resolvedContact = await this.resolveContactId(contactId, leadId);
+    if (!resolvedContact) {
+      await this.startOnboarding(parsed, conversationId, earlySession.payload);
+      return { handled: true, notifyManager: false };
+    }
+    if (await this.startContactGapFillIfNeeded(parsed, conversationId, resolvedContact)) {
+      return { handled: true, notifyManager: false };
+    }
+
+    if (isCheckoutState(earlySession.state)) {
+      await this.replyCheckoutNotice(parsed.chatId, conversationId);
       return { handled: true, notifyManager: false };
     }
 
@@ -572,7 +642,7 @@ export class TelegramClientBotService {
     if (state === "onboarding_name") {
       const name = parsePersonName(text);
       if (!name) {
-        await this.replyMenu(
+        await this.replyOnboardingText(
           parsed.chatId,
           conversationId,
           `Потрібні ім'я та прізвище.\n\n${TELEGRAM_ONBOARDING_ASK_NAME}`,
@@ -617,7 +687,7 @@ export class TelegramClientBotService {
         ...payload,
         building: text,
       });
-      await this.replyMenu(
+      await this.replyCheckoutText(
         parsed.chatId,
         conversationId,
         "Квартира / офіс (або «-» якщо немає):",
@@ -679,18 +749,19 @@ export class TelegramClientBotService {
   }
 
   private async showCatalogHome(parsed: ParsedInbound, conversationId: string): Promise<void> {
-    await this.sessions.set(parsed.userId, "idle", {});
+    await this.sessions.resetIdle(parsed.userId);
     const storeUrl = await this.resolveStoreMiniAppUrl();
     if (storeUrl) {
-      await this.replyMenu(
+      // One message: Telegram allows a single reply_markup (inline wins).
+      await this.replyInline(
         parsed.chatId,
         conversationId,
-        "Каталог відкривається в магазині Telegram.\n\nЯкщо вікно не з’явилось — натисніть кнопку нижче.",
+        "Каталог відкривається в магазині Telegram.\n\nНатисніть кнопку нижче або «Каталог» у меню.",
+        [
+          [{ text: "🛍 Відкрити каталог", web_app: { url: storeUrl } }],
+          [{ text: "🛒 Кошик у чаті", callback_data: "cart:show" }],
+        ],
       );
-      await this.replyInline(parsed.chatId, conversationId, "Магазин SUPREX:", [
-        [{ text: "🛍 Відкрити каталог", web_app: { url: storeUrl } }],
-        [{ text: "🛒 Кошик у чаті", callback_data: "cart:show" }],
-      ]);
       return;
     }
 
@@ -709,13 +780,12 @@ export class TelegramClientBotService {
     }
     rows.push([{ text: CATALOG_SEARCH_BUTTON, callback_data: "cat:s" }]);
     rows.push([{ text: "🛒 Кошик", callback_data: "cart:show" }]);
-    // Reply keyboard replaces the share-phone button. Inline buttons cannot do that.
-    await this.replyMenu(
+    await this.replyInline(
       parsed.chatId,
       conversationId,
-      "Каталог\n\nОберіть систему кнопками під наступним повідомленням.",
+      "Каталог\n\nОберіть систему:",
+      rows,
     );
-    await this.replyInline(parsed.chatId, conversationId, "Системи:", rows);
   }
 
   /** System → categories. Products are shown only at a leaf, or when the system has no categories. */
@@ -1328,14 +1398,14 @@ export class TelegramClientBotService {
 
     const session = await this.sessions.get(parsed.userId);
     if (isOnboardingState(session.state)) {
-      await this.replyMenu(parsed.chatId, conversationId, TELEGRAM_PROFILE_REQUIRED);
+      // One prompt: resume the current step (no extra PROFILE_REQUIRED ping).
       await this.repromptOnboarding(parsed, conversationId, session.state, session.payload);
       return null;
     }
 
     const phone = await this.resolveKnownPhone(parsed.userId, contactId, leadId);
     if (phone) {
-      await this.replyMenu(parsed.chatId, conversationId, TELEGRAM_PROFILE_REQUIRED);
+      // startOnboarding already sends intro + ask name.
       await this.startOnboarding(parsed, conversationId, session.payload);
       return null;
     }
@@ -1376,22 +1446,38 @@ export class TelegramClientBotService {
 
     if (missingRole) {
       await this.sessions.set(parsed.userId, "onboarding_role", draft);
-      await this.replyMenu(
+      // Single message (inline). /cancel still exits; reply keyboard may already show Скасувати.
+      await this.replyOnboardingInline(
         parsed.chatId,
         conversationId,
         "У профілі не вистачає даних. Оберіть, ви лікар чи технік:",
+        [
+          [
+            { text: "Лікар", callback_data: "onb:role:doctor" },
+            { text: "Технік", callback_data: "onb:role:tech" },
+          ],
+        ],
       );
-      await this.askOnboardingRole(parsed, conversationId);
       return true;
     }
 
     await this.sessions.set(parsed.userId, "onboarding_region", draft);
-    await this.replyMenu(
+    const regionRows: InlineBtn[][] = [];
+    for (let i = 0; i < UKRAINE_REGIONS.length; i += 2) {
+      const row: InlineBtn[] = [
+        { text: UKRAINE_REGIONS[i]!, callback_data: `onb:reg:${i}` },
+      ];
+      if (UKRAINE_REGIONS[i + 1]) {
+        row.push({ text: UKRAINE_REGIONS[i + 1]!, callback_data: `onb:reg:${i + 1}` });
+      }
+      regionRows.push(row);
+    }
+    await this.replyOnboardingInline(
       parsed.chatId,
       conversationId,
       "У профілі немає області — оберіть її, щоб закріпити менеджера:",
+      regionRows,
     );
-    await this.askOnboardingRegion(parsed, conversationId);
     return true;
   }
 
@@ -1416,7 +1502,8 @@ export class TelegramClientBotService {
     preservePayload: BotSessionPayload = {},
   ): Promise<void> {
     await this.sessions.set(parsed.userId, "onboarding_name", pickCheckoutDraft(preservePayload));
-    await this.replyMenu(
+    // Hide share-phone / commerce keyboard until the profile is complete.
+    await this.replyOnboardingText(
       parsed.chatId,
       conversationId,
       `${TELEGRAM_ONBOARDING_INTRO}\n\n${TELEGRAM_ONBOARDING_ASK_NAME}`,
@@ -1424,7 +1511,7 @@ export class TelegramClientBotService {
   }
 
   private async askOnboardingRole(parsed: ParsedInbound, conversationId: string): Promise<void> {
-    await this.replyInline(parsed.chatId, conversationId, TELEGRAM_ONBOARDING_ASK_ROLE, [
+    await this.replyOnboardingInline(parsed.chatId, conversationId, TELEGRAM_ONBOARDING_ASK_ROLE, [
       [
         { text: "Лікар", callback_data: "onb:role:doctor" },
         { text: "Технік", callback_data: "onb:role:tech" },
@@ -1443,7 +1530,12 @@ export class TelegramClientBotService {
       }
       regionRows.push(row);
     }
-    await this.replyInline(parsed.chatId, conversationId, TELEGRAM_ONBOARDING_ASK_REGION, regionRows);
+    await this.replyOnboardingInline(
+      parsed.chatId,
+      conversationId,
+      TELEGRAM_ONBOARDING_ASK_REGION,
+      regionRows,
+    );
   }
 
   private async repromptOnboarding(
@@ -1453,7 +1545,7 @@ export class TelegramClientBotService {
     payload: BotSessionPayload,
   ): Promise<void> {
     if (state === "onboarding_name") {
-      await this.replyMenu(parsed.chatId, conversationId, TELEGRAM_ONBOARDING_ASK_NAME);
+      await this.replyOnboardingText(parsed.chatId, conversationId, TELEGRAM_ONBOARDING_ASK_NAME);
       return;
     }
     if (state === "onboarding_role") {
@@ -1499,7 +1591,7 @@ export class TelegramClientBotService {
             onboardingContactId: session.payload.onboardingContactId,
           }),
         );
-        await this.replyMenu(parsed.chatId, conversationId, TELEGRAM_ONBOARDING_ASK_NAME);
+        await this.replyOnboardingText(parsed.chatId, conversationId, TELEGRAM_ONBOARDING_ASK_NAME);
         return;
       }
       await this.sessions.set(
@@ -1535,7 +1627,7 @@ export class TelegramClientBotService {
             onboardingContactId: session.payload.onboardingContactId,
           }),
         );
-        await this.replyMenu(parsed.chatId, conversationId, TELEGRAM_ONBOARDING_ASK_NAME);
+        await this.replyOnboardingText(parsed.chatId, conversationId, TELEGRAM_ONBOARDING_ASK_NAME);
         return;
       }
       if (!clientType) {
@@ -1835,7 +1927,8 @@ export class TelegramClientBotService {
     }
     const phone = await this.resolveKnownPhone(parsed.userId, contactId, leadId);
     if (!phone) {
-      await this.sessions.set(parsed.userId, "checkout_phone", {});
+      const prior = await this.sessions.get(parsed.userId);
+      await this.sessions.set(parsed.userId, "checkout_phone", pickCheckoutDraft(prior.payload));
       await this.telegram.sendMessageToChat(
         parsed.chatId,
         "Для оформлення поділіться номером телефону:",
@@ -1843,7 +1936,7 @@ export class TelegramClientBotService {
       );
       return;
     }
-    await this.sessions.set(parsed.userId, "idle", {});
+    await this.sessions.set(parsed.userId, "checkout_flow", {});
     const regionRows: InlineBtn[][] = [];
     for (let i = 0; i < UKRAINE_REGIONS.length; i += 2) {
       const row: InlineBtn[] = [
@@ -1877,7 +1970,7 @@ export class TelegramClientBotService {
       const idx = Number(rest[0]);
       const region = UKRAINE_REGIONS[idx];
       if (!region) return;
-      payload = await this.sessions.patchPayload(parsed.userId, "idle", { ...payload, region });
+      payload = await this.sessions.patchPayload(parsed.userId, "checkout_flow", { ...payload, region });
       await this.replyInline(parsed.chatId, conversationId, "Спосіб доставки:", [
         [{ text: "🏪 Самовивіз", callback_data: "chk:del:pickup" }],
         [{ text: "📦 Нова Пошта", callback_data: "chk:del:np" }],
@@ -1887,7 +1980,7 @@ export class TelegramClientBotService {
 
     if (action === "del") {
       if (rest[0] === "pickup") {
-        payload = await this.sessions.patchPayload(parsed.userId, "idle", {
+        payload = await this.sessions.patchPayload(parsed.userId, "checkout_flow", {
           ...payload,
           deliveryMethod: "PICKUP",
         });
@@ -1895,7 +1988,7 @@ export class TelegramClientBotService {
         return;
       }
       if (rest[0] === "np") {
-        payload = await this.sessions.patchPayload(parsed.userId, "idle", {
+        payload = await this.sessions.patchPayload(parsed.userId, "checkout_flow", {
           ...payload,
           deliveryMethod: "NOVA_POSHTA",
         });
@@ -1954,7 +2047,7 @@ export class TelegramClientBotService {
         return;
       }
       if (rest[0]) {
-        payload = await this.sessions.patchPayload(parsed.userId, "idle", {
+        payload = await this.sessions.patchPayload(parsed.userId, "checkout_flow", {
           ...payload,
           profileId: rest[0],
           deliveryMethod: "NOVA_POSHTA",
@@ -2003,7 +2096,7 @@ export class TelegramClientBotService {
         { ...payload, cityRef: hit.ref, cityName: hit.name },
       );
       if (payload.deliveryType === "ADDRESS") {
-        await this.replyMenu(parsed.chatId, conversationId, "Напишіть назву вулиці:");
+        await this.replyCheckoutText(parsed.chatId, conversationId, "Напишіть назву вулиці:");
       } else {
         await this.replyMenu(
           parsed.chatId,
@@ -2059,14 +2152,14 @@ export class TelegramClientBotService {
     if (action === "pay") {
       const method = rest[0];
       if (method === "cod") {
-        payload = await this.sessions.patchPayload(parsed.userId, "idle", {
+        payload = await this.sessions.patchPayload(parsed.userId, "checkout_flow", {
           ...payload,
           paymentMethod: PaymentMethod.CASH,
           paymentType: "",
           cod: true,
         });
       } else if (method === "pre") {
-        payload = await this.sessions.patchPayload(parsed.userId, "idle", {
+        payload = await this.sessions.patchPayload(parsed.userId, "checkout_flow", {
           ...payload,
           paymentMethod: PaymentMethod.FOP,
           paymentType: PaymentType.PREPAYMENT,
@@ -2081,6 +2174,18 @@ export class TelegramClientBotService {
         return;
       }
       await this.continueCheckoutAddress(parsed, conversationId, payload, contactId);
+      return;
+    }
+
+    if (action === "skipc") {
+      const next = { ...payload, comment: undefined };
+      await this.sessions.set(parsed.userId, "checkout_comment", next);
+      await this.replyInline(
+        parsed.chatId,
+        conversationId,
+        "Без коментаря.\n\nНатисніть «Оформити», щоб створити замовлення.",
+        [[{ text: "Оформити замовлення", callback_data: "chk:go" }]],
+      );
       return;
     }
 
@@ -2132,7 +2237,7 @@ export class TelegramClientBotService {
     if (payload.deliveryType === "ADDRESS") {
       if (!payload.streetRef) {
         await this.sessions.patchPayload(parsed.userId, "checkout_street", payload);
-        await this.replyMenu(parsed.chatId, conversationId, "Напишіть назву вулиці:");
+        await this.replyCheckoutText(parsed.chatId, conversationId, "Напишіть назву вулиці:");
         return;
       }
       await this.sessions.patchPayload(parsed.userId, "checkout_building", payload);
@@ -2171,17 +2276,19 @@ export class TelegramClientBotService {
     _payload: BotSessionPayload,
   ): Promise<void> {
     if (!_payload.paymentType && !_payload.cod) {
-      await this.sessions.patchPayload(parsed.userId, "idle", _payload);
+      await this.sessions.patchPayload(parsed.userId, "checkout_flow", _payload);
       await this.askPayment(parsed, conversationId);
       return;
     }
     await this.sessions.patchPayload(parsed.userId, "checkout_comment", _payload);
-    await this.replyInline(
+    await this.replyCheckoutText(
       parsed.chatId,
       conversationId,
-      "Коментар до замовлення (текст або «-» щоб пропустити):",
-      [[{ text: "⏭ Без коментаря", callback_data: "chk:go" }]],
+      "Коментар до замовлення (напишіть текст або натисніть «Без коментаря»):",
     );
+    await this.replyInline(parsed.chatId, conversationId, "Пропустити коментар?", [
+      [{ text: "⏭ Без коментаря", callback_data: "chk:skipc" }],
+    ]);
   }
 
   private async searchCities(
@@ -2201,7 +2308,7 @@ export class TelegramClientBotService {
         name: String(c.Description ?? c.description ?? c.Present ?? ""),
       })).filter((h) => h.ref && h.name);
       if (!hits.length) {
-        await this.replyMenu(
+        await this.replyCheckoutText(
           parsed.chatId,
           conversationId,
           "Місто не знайдено. Спробуйте іншу назву:",
@@ -2239,7 +2346,7 @@ export class TelegramClientBotService {
   ): Promise<void> {
     if (!payload.cityRef) {
       await this.sessions.set(parsed.userId, "checkout_city", payload);
-      await this.replyMenu(parsed.chatId, conversationId, "Спочатку вкажіть місто:");
+      await this.replyCheckoutText(parsed.chatId, conversationId, "Спочатку вкажіть місто:");
       return;
     }
     const query = q === "-" ? "" : q;
@@ -2307,7 +2414,11 @@ export class TelegramClientBotService {
         name: String(s.Description ?? s.description ?? ""),
       })).filter((h) => h.ref && h.name);
       if (!hits.length) {
-        await this.replyMenu(parsed.chatId, conversationId, "Вулицю не знайдено. Спробуйте ще:");
+        await this.replyCheckoutText(
+          parsed.chatId,
+          conversationId,
+          "Вулицю не знайдено. Спробуйте ще:",
+        );
         return;
       }
       await this.sessions.patchPayload(parsed.userId, "checkout_street", {
@@ -2505,6 +2616,57 @@ export class TelegramClientBotService {
   ): Promise<void> {
     const { messageId } = await this.telegram.sendMessageToChat(chatId, text, {
       menuKeyboard: keyboard,
+    });
+    await this.recordOutbound(conversationId, text, messageId);
+  }
+
+  /** Onboarding steps: no commerce reply keyboard (avoids Catalog while filling profile). */
+  private async replyOnboardingText(
+    chatId: string,
+    conversationId: string,
+    text: string,
+  ): Promise<void> {
+    const { messageId } = await this.telegram.sendMessageToChat(chatId, text, {
+      menuKeyboard: CLIENT_FLOW_KEYBOARD,
+    });
+    await this.recordOutbound(conversationId, text, messageId);
+  }
+
+  private async replyOnboardingInline(
+    chatId: string,
+    conversationId: string,
+    text: string,
+    inlineKeyboard: InlineBtn[][],
+  ): Promise<void> {
+    // Reply keyboard from the previous onboarding text (Скасувати) stays visible.
+    const { messageId } = await this.telegram.sendMessageToChat(chatId, text, {
+      inlineKeyboard,
+    });
+    await this.recordOutbound(conversationId, text, messageId);
+  }
+
+  private async replyStartOnly(
+    chatId: string,
+    conversationId: string,
+    text: string,
+  ): Promise<void> {
+    const { messageId } = await this.telegram.sendMessageToChat(chatId, text, {
+      menuKeyboard: CLIENT_START_KEYBOARD,
+    });
+    await this.recordOutbound(conversationId, text, messageId);
+  }
+
+  private async replyCheckoutNotice(chatId: string, conversationId: string): Promise<void> {
+    await this.replyCheckoutText(chatId, conversationId, TELEGRAM_CHECKOUT_IN_PROGRESS);
+  }
+
+  private async replyCheckoutText(
+    chatId: string,
+    conversationId: string,
+    text: string,
+  ): Promise<void> {
+    const { messageId } = await this.telegram.sendMessageToChat(chatId, text, {
+      menuKeyboard: CLIENT_FLOW_KEYBOARD,
     });
     await this.recordOutbound(conversationId, text, messageId);
   }

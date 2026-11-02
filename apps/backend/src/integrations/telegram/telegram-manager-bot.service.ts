@@ -17,6 +17,22 @@ import { OrdersTelegramDocumentsService } from "../../orders/orders-telegram-doc
 import { PrismaService } from "../../prisma/prisma.service";
 import { SettingsService } from "../../settings/settings.service";
 import {
+  CLIENT_MENU_KEYBOARD,
+  MENU_STAFF_CANCEL,
+  MENU_STAFF_CLIENT,
+  MENU_STAFF_DOCS,
+  MENU_STAFF_HOME,
+  MENU_STAFF_SHOP,
+  STAFF_FLOW_KEYBOARD,
+  STAFF_MENU_BUTTONS,
+  STAFF_MENU_KEYBOARD,
+  TELEGRAM_STAFF_ASK_CLIENT,
+  TELEGRAM_STAFF_ASK_ORDER,
+  TELEGRAM_STAFF_SHOP_ON,
+  TELEGRAM_STAFF_SHORT,
+  TELEGRAM_STAFF_WELCOME,
+} from "./telegram-client.constants";
+import {
   TelegramBotSessionService,
   type BotSessionPayload,
 } from "./telegram-bot-session.service";
@@ -53,44 +69,107 @@ export class TelegramManagerBotService {
 
   isDocsCommand(text: string | null | undefined): boolean {
     const t = text?.trim() ?? "";
-    return /^\/docs(?:@\w+)?(?:\s|$)/i.test(t);
+    return t === MENU_STAFF_DOCS || /^\/docs(?:@\w+)?(?:\s|$)/i.test(t);
   }
 
   isClientCommand(text: string | null | undefined): boolean {
     const t = text?.trim() ?? "";
-    return /^\/(?:client|find)(?:@\w+)?(?:\s|$)/i.test(t);
+    return t === MENU_STAFF_CLIENT || /^\/(?:client|find)(?:@\w+)?(?:\s|$)/i.test(t);
+  }
+
+  isStaffMenuButton(text: string | null | undefined): boolean {
+    const t = text?.trim() ?? "";
+    return (STAFF_MENU_BUTTONS as readonly string[]).includes(t);
+  }
+
+  /** Linked staff temporarily shopping as a client on this bot. */
+  async isStaffShopMode(telegramUserId: string): Promise<boolean> {
+    const session = await this.sessions.get(telegramUserId);
+    return Boolean(session.payload.staffShopMode);
+  }
+
+  /** Short nudge when staff sends media / empty payload with no menu tap. */
+  async nudgeStaffMenu(chatId: string): Promise<void> {
+    await this.showStaffMenu(chatId, TELEGRAM_STAFF_SHORT, "short");
   }
 
   /**
-   * Staff text before the client shop pipeline: /client, /docs, mgr_search query, /cancel in mgr flow.
+   * Staff text before the client shop pipeline: menu buttons, /client, /docs,
+   * mgr_search / mgr_docs queries, cancel.
    */
   async tryHandleStaffText(parsed: ParsedInbound): Promise<boolean> {
     if (parsed.isCallback) return false;
     const text = parsed.text?.trim() ?? "";
     if (!text) return false;
 
-    const wantsStaffCmd = this.isDocsCommand(text) || this.isClientCommand(text);
+    const wantsStaffUi =
+      this.isDocsCommand(text) ||
+      this.isClientCommand(text) ||
+      this.isStaffMenuButton(text) ||
+      /^\/(?:menu|start|help|cancel|shop)(?:@\w+)?$/i.test(text);
     const user = await this.findStaffUser(parsed.userId);
 
-    if (wantsStaffCmd && !user) {
+    if (wantsStaffUi && !user) {
       await this.telegram.sendMessageToChat(
         parsed.chatId,
-        "Команди /client і /docs для менеджерів CRM. Прив'яжіть акаунт: Налаштування → Telegram → /link.",
+        "Меню менеджера для акаунтів CRM. Прив'яжіть Telegram: Налаштування → Telegram → отримати /link.",
       );
       return true;
     }
 
     if (!user) return false;
 
-    const lower = text.toLowerCase();
-    if (lower === "/cancel") {
-      const session = await this.sessions.get(parsed.userId);
-      if (session.state === "mgr_search" || session.payload.mgrContactId || session.payload.mgrOrderId) {
-        await this.sessions.resetIdle(parsed.userId);
-        await this.telegram.sendMessageToChat(parsed.chatId, "Скасовано.");
+    const session = await this.sessions.get(parsed.userId);
+    const inShop = Boolean(session.payload.staffShopMode);
+
+    // Leave client-shop mode → staff tools.
+    if (
+      inShop &&
+      (text === MENU_STAFF_HOME ||
+        text === MENU_STAFF_CANCEL ||
+        /^\/(?:menu|start|help|cancel)(?:@\w+)?$/i.test(text))
+    ) {
+      await this.sessions.set(parsed.userId, "idle", {});
+      await this.showStaffMenu(parsed.chatId, "Режим менеджера.", "full");
+      return true;
+    }
+
+    // While in shop mode, only staff tool buttons reclaim the chat; else client pipeline.
+    if (inShop) {
+      if (
+        this.isClientCommand(text) ||
+        this.isDocsCommand(text) ||
+        text === MENU_STAFF_DOCS ||
+        text === MENU_STAFF_CLIENT
+      ) {
+        await this.sessions.set(parsed.userId, "idle", { staffShopMode: false });
+        // fall through to staff handlers below
+      } else if (text === MENU_STAFF_SHOP || /^\/shop(?:@\w+)?$/i.test(text)) {
+        await this.enterStaffShopMode(parsed);
         return true;
+      } else {
+        return false;
       }
-      return false;
+    }
+
+    if (text === MENU_STAFF_SHOP || /^\/shop(?:@\w+)?$/i.test(text)) {
+      await this.enterStaffShopMode(parsed);
+      return true;
+    }
+
+    if (text === MENU_STAFF_CANCEL || /^\/cancel(?:@\w+)?$/i.test(text)) {
+      await this.sessions.resetIdle(parsed.userId);
+      await this.showStaffMenu(parsed.chatId, "Скасовано.", "short");
+      return true;
+    }
+
+    if (
+      text === MENU_STAFF_HOME ||
+      /^\/(?:menu|start|help)(?:@\w+)?$/i.test(text)
+    ) {
+      await this.sessions.resetIdle(parsed.userId);
+      await this.showStaffMenu(parsed.chatId, undefined, "full");
+      return true;
     }
 
     if (this.isClientCommand(text)) {
@@ -98,49 +177,115 @@ export class TelegramManagerBotService {
       return true;
     }
 
-    if (this.isDocsCommand(text)) {
-      await this.handleDocsCommand(parsed, user);
+    if (text === MENU_STAFF_DOCS || /^\/docs(?:@\w+)?$/i.test(text)) {
+      await this.startDocsPrompt(parsed);
       return true;
     }
 
-    const session = await this.sessions.get(parsed.userId);
+    if (/^\/docs(?:@\w+)?\s+\S+/i.test(text)) {
+      const match = text.match(/^\/docs(?:@\w+)?\s+(.+)$/i);
+      await this.resolveDocsByOrderNumber(parsed, user, match?.[1]?.trim() ?? "");
+      return true;
+    }
+
     if (session.state === "mgr_search") {
+      if (this.isStaffMenuButton(text)) {
+        await this.showStaffMenu(
+          parsed.chatId,
+          "Спочатку завершіть пошук або натисніть «Скасувати».",
+          "short",
+        );
+        return true;
+      }
       await this.runClientSearch(parsed, user, text);
       return true;
     }
+    if (session.state === "mgr_docs") {
+      if (this.isStaffMenuButton(text)) {
+        await this.showStaffMenu(
+          parsed.chatId,
+          "Введіть номер замовлення або натисніть «Скасувати».",
+          "short",
+        );
+        return true;
+      }
+      await this.resolveDocsByOrderNumber(parsed, user, text);
+      return true;
+    }
 
-    return false;
+    // Idle free text: short ack, not the full welcome dump.
+    await this.showStaffMenu(
+      parsed.chatId,
+      `Вітаю, ${user.fullName}! ${TELEGRAM_STAFF_SHORT}`,
+      "short",
+    );
+    return true;
   }
 
-  async handleDocsCommand(parsed: ParsedInbound, staff?: AuthUser): Promise<boolean> {
-    if (!this.isDocsCommand(parsed.text)) return false;
+  /** After /link — show the persistent staff reply keyboard. */
+  async greetLinkedStaff(chatId: string, email: string): Promise<void> {
+    await this.showStaffMenu(
+      chatId,
+      `Telegram прив'язано до акаунта CRM (${email}).`,
+      "full",
+    );
+  }
 
-    const user = staff ?? (await this.findStaffUser(parsed.userId));
-    if (!user) {
-      await this.telegram.sendMessageToChat(
-        parsed.chatId,
-        "Команда /docs для менеджерів CRM. Прив'яжіть акаунт: Налаштування → Telegram → /link.",
-      );
-      return true;
+  private async enterStaffShopMode(parsed: ParsedInbound): Promise<void> {
+    await this.sessions.set(parsed.userId, "idle", { staffShopMode: true });
+    // Client commerce rows + «Меню» to return to staff tools.
+    await this.telegram.sendMessageToChat(parsed.chatId, TELEGRAM_STAFF_SHOP_ON, {
+      menuKeyboard: [...CLIENT_MENU_KEYBOARD, [MENU_STAFF_HOME]],
+    });
+  }
+
+  private async showStaffMenu(
+    chatId: string,
+    preface?: string,
+    mode: "full" | "short" = "full",
+  ): Promise<void> {
+    const intro = preface?.trim();
+    let body: string;
+    if (mode === "short") {
+      body = intro || TELEGRAM_STAFF_SHORT;
+    } else if (intro) {
+      body = intro.includes(TELEGRAM_STAFF_WELCOME)
+        ? intro
+        : `${intro}\n\n${TELEGRAM_STAFF_WELCOME}`;
+    } else {
+      body = TELEGRAM_STAFF_WELCOME;
+    }
+    await this.telegram.sendMessageToChat(chatId, body, {
+      menuKeyboard: STAFF_MENU_KEYBOARD,
+    });
+  }
+
+  private async startDocsPrompt(parsed: ParsedInbound): Promise<void> {
+    await this.sessions.set(parsed.userId, "mgr_docs", {});
+    await this.telegram.sendMessageToChat(parsed.chatId, TELEGRAM_STAFF_ASK_ORDER, {
+      menuKeyboard: STAFF_FLOW_KEYBOARD,
+    });
+  }
+
+  private async resolveDocsByOrderNumber(
+    parsed: ParsedInbound,
+    user: AuthUser,
+    query: string,
+  ): Promise<void> {
+    const q = query.trim().replace(/^№\s*/u, "");
+    if (!q) {
+      await this.startDocsPrompt(parsed);
+      return;
     }
 
-    const match = parsed.text!.trim().match(/^\/docs(?:@\w+)?(?:\s+(.+))?$/i);
-    const query = match?.[1]?.trim() ?? "";
-    if (!query) {
-      await this.telegram.sendMessageToChat(
-        parsed.chatId,
-        "Документи PDF:\n" +
-          "• /docs <номер замовлення>\n" +
-          "• /client — знайти клієнта → замовлення → надіслати собі або клієнту\n\n" +
-          "Приклад: /docs 121",
-      );
-      return true;
-    }
-
-    const order = await this.findOrderByNumber(query, user);
+    const order = await this.findOrderByNumber(q, user);
     if (!order) {
-      await this.telegram.sendMessageToChat(parsed.chatId, `Замовлення «${query}» не знайдено.`);
-      return true;
+      await this.telegram.sendMessageToChat(
+        parsed.chatId,
+        `Замовлення «${q}» не знайдено. Спробуйте інший номер або «Скасувати».`,
+        { menuKeyboard: STAFF_FLOW_KEYBOARD },
+      );
+      return;
     }
 
     const clientChatId = await this.resolveClientTelegramChatId(
@@ -153,7 +298,6 @@ export class TelegramManagerBotService {
       mgrClientChatId: clientChatId,
     });
     await this.replyOrderDocMenu(parsed.chatId, order.orderNumber, Boolean(clientChatId));
-    return true;
   }
 
   async handleCallback(parsed: ParsedInbound): Promise<boolean> {
@@ -241,7 +385,7 @@ export class TelegramManagerBotService {
         if (!orderId) {
           await this.telegram.sendMessageToChat(
             parsed.chatId,
-            "Спочатку оберіть замовлення: /client або /docs <номер>.",
+            "Спочатку оберіть замовлення кнопкою «Клієнт» або «За номером».",
           );
           return true;
         }
@@ -271,10 +415,9 @@ export class TelegramManagerBotService {
   private async startClientSearch(parsed: ParsedInbound, user: AuthUser): Promise<void> {
     void user;
     await this.sessions.set(parsed.userId, "mgr_search", {});
-    await this.telegram.sendMessageToChat(
-      parsed.chatId,
-      "Пошук клієнта для документів.\nНапишіть телефон або прізвище/ім'я:\n\n/cancel — скасувати",
-    );
+    await this.telegram.sendMessageToChat(parsed.chatId, TELEGRAM_STAFF_ASK_CLIENT, {
+      menuKeyboard: STAFF_FLOW_KEYBOARD,
+    });
   }
 
   private async runClientSearch(
@@ -286,7 +429,8 @@ export class TelegramManagerBotService {
     if (hits.length === 0) {
       await this.telegram.sendMessageToChat(
         parsed.chatId,
-        `Нічого не знайдено за «${query}». Спробуйте інший запит або /cancel.`,
+        `Нічого не знайдено за «${query}». Спробуйте інший запит або «Скасувати».`,
+        { menuKeyboard: STAFF_FLOW_KEYBOARD },
       );
       return;
     }
@@ -296,7 +440,8 @@ export class TelegramManagerBotService {
       label: h.label,
       hasTelegram: h.hasTelegram,
     }));
-    await this.sessions.set(parsed.userId, "idle", { mgrContactHits });
+    // Stay in mgr_search so another query refines the list (until pick / cancel / Меню).
+    await this.sessions.set(parsed.userId, "mgr_search", { mgrContactHits });
 
     const rows: TelegramInlineButton[][] = mgrContactHits.map((h, index) => [
       {
@@ -306,8 +451,8 @@ export class TelegramManagerBotService {
     ]);
     await this.telegram.sendMessageToChat(
       parsed.chatId,
-      `Знайдено ${hits.length}. Оберіть клієнта:`,
-      { inlineKeyboard: rows },
+      `Знайдено ${hits.length}. Оберіть клієнта або напишіть інший запит:`,
+      { inlineKeyboard: rows, menuKeyboard: STAFF_FLOW_KEYBOARD },
     );
   }
 
@@ -321,7 +466,7 @@ export class TelegramManagerBotService {
     if (!hit) {
       await this.telegram.sendMessageToChat(
         parsed.chatId,
-        "Список застарів. Напишіть /client і пошукайте знову.",
+        "Список застарів. Натисніть «Клієнт» і пошукайте знову.",
       );
       return;
     }
@@ -374,7 +519,7 @@ export class TelegramManagerBotService {
     if (!hit) {
       await this.telegram.sendMessageToChat(
         parsed.chatId,
-        "Список замовлень застарів. Почніть з /client.",
+        "Список замовлень застарів. Почніть з кнопки «Клієнт».",
       );
       return;
     }
@@ -439,7 +584,12 @@ export class TelegramManagerBotService {
         await this.telegram.sendMessageToChat(
           managerChatId,
           `✅ ${label} надіслано клієнту в Telegram.`,
+          { menuKeyboard: STAFF_MENU_KEYBOARD },
         );
+      } else {
+        await this.telegram.sendMessageToChat(managerChatId, "✅ Готово.", {
+          menuKeyboard: STAFF_MENU_KEYBOARD,
+        });
       }
     } catch (err) {
       if (dest === "client" && err instanceof BadRequestException) {
@@ -449,6 +599,9 @@ export class TelegramManagerBotService {
         );
         await this.orderTelegramDocuments.sendDocument(orderId, docKind, "me", actor, {
           managerChatId,
+        });
+        await this.telegram.sendMessageToChat(managerChatId, "✅ Надіслано вам.", {
+          menuKeyboard: STAFF_MENU_KEYBOARD,
         });
         return;
       }

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { TelegramClientBotService } from "../telegram-client-bot.service";
 import type { ParsedInbound } from "../telegram.types";
-import { MENU_CATALOG, MENU_MANAGER } from "../telegram-client.constants";
+import { MENU_CATALOG, MENU_MANAGER, MENU_START } from "../telegram-client.constants";
 
 type AnyRec = Record<string, unknown>;
 
@@ -10,6 +10,7 @@ function parsed(overrides: Partial<ParsedInbound> = {}): ParsedInbound {
   return {
     chatId: "123",
     chatType: "private",
+    chatTitle: null,
     userId: "777",
     username: null,
     firstName: "Тест",
@@ -44,7 +45,14 @@ function makeBot(opts: {
     regions?: Record<string, string[]>;
   };
 }) {
-  const sent: Array<{ text: string; inline?: boolean; keyboard?: unknown; contact?: boolean; buttons?: string[] }> = [];
+  const sent: Array<{
+    text: string;
+    inline?: boolean;
+    keyboard?: unknown;
+    contact?: boolean;
+    removeKeyboard?: boolean;
+    buttons?: string[];
+  }> = [];
   const listCalls: unknown[][] = [];
   const pathCalls: unknown[][] = [];
   const checkoutCalls: AnyRec[] = [];
@@ -77,6 +85,7 @@ function makeBot(opts: {
         inline: Boolean(options?.inlineKeyboard),
         keyboard: options?.menuKeyboard,
         contact: Boolean(options?.requestContactButton),
+        removeKeyboard: Boolean(options?.removeKeyboard),
         buttons: inline?.flat().map((button) => button.text ?? "").filter(Boolean),
       });
       return { messageId: sent.length };
@@ -225,11 +234,10 @@ describe("TelegramClientBotService menu / idle", () => {
     });
     assert.equal(result.handled, true);
     assert.equal(result.notifyManager, false);
-    assert.ok(sent.some((s) => /Каталог/i.test(s.text)));
-    const menu = sent.find((s) => Array.isArray(s.keyboard) && !s.inline);
-    const systems = sent.find((s) => s.inline && /Системи/.test(s.text));
-    assert.ok(menu);
-    assert.ok(systems);
+    // Single outbound: catalog systems inline (reply keyboard may already be set).
+    assert.equal(sent.length, 1);
+    assert.ok(sent[0]?.inline && /Каталог/i.test(sent[0].text));
+    assert.ok(/Оберіть систему/i.test(sent[0]!.text));
   });
 
   it("opens the Mini App when the public store URL is configured", async () => {
@@ -528,6 +536,14 @@ describe("TelegramClientBotService menu / idle", () => {
     assert.equal(sessions.state, "onboarding_name");
     assert.ok(sent.some((s) => /Номер збережено/i.test(s.text)));
     assert.ok(sent.some((s) => /ім'я та прізвище/i.test(s.text)));
+    assert.ok(
+      sent.some((s) => JSON.stringify(s.keyboard ?? []).includes("Скасувати")),
+      "onboarding shows cancel, not commerce menu",
+    );
+    assert.ok(
+      !sent.some((s) => JSON.stringify(s.keyboard ?? []).includes("Каталог")),
+      "hides commerce keyboard during onboarding",
+    );
   });
 
   it("phone share for known contact: existing-client copy", async () => {
@@ -541,6 +557,33 @@ describe("TelegramClientBotService menu / idle", () => {
     assert.equal(result.handled, true);
     assert.equal(result.notifyManager, false);
     assert.ok(sent.some((s) => /Раді бачити/i.test(s.text)));
+  });
+
+  it("phone share for known contact with missing role starts gap-fill", async () => {
+    const { service, sent, sessions } = makeBot({
+      contact: {
+        firstName: "Іван",
+        lastName: "Петренко",
+        region: "Київська",
+        clientType: null,
+        phone: "+380501234567",
+      },
+    });
+    const result = await service.handleClientTurn({
+      parsed: parsed({ phone: "+380501234567", text: null }),
+      conversationId: "conv1",
+      contactId: "c1",
+      leadId: null,
+    });
+    assert.equal(result.handled, true);
+    assert.equal(sessions.state, "onboarding_role");
+    assert.ok(sent.some((s) => /лікар чи технік/i.test(s.text)));
+    assert.ok(!sent.some((s) => /Раді бачити/i.test(s.text)));
+    assert.equal(
+      sent.filter((s) => /лікар чи технік|профілі не вистачає/i.test(s.text)).length,
+      1,
+      "gap-fill role is a single message",
+    );
   });
 
   it("phone share skips onboarding when lead already has a CRM contact", async () => {
@@ -597,6 +640,28 @@ describe("TelegramClientBotService menu / idle", () => {
     assert.equal(sessions.state, "onboarding_region");
     assert.equal(sessions.payload.onboardingClientType, "Врач");
     assert.ok(sent.some((s) => /Оберіть область/i.test(s.text)));
+  });
+
+  it("🏠 Старт button resumes like /start for a known client", async () => {
+    const { service, sent } = makeBot({
+      account: { phone: "+380501112233", contactId: "c1", leadId: null },
+    });
+    await service.handleClientTurn({
+      parsed: parsed({ text: MENU_START }),
+      conversationId: "conv1",
+      contactId: "c1",
+      leadId: null,
+    });
+    assert.ok(sent.some((s) => /Раді бачити/i.test(s.text)));
+    // Working menu has no permanent Старт — only commerce buttons.
+    assert.ok(
+      sent.some(
+        (s) =>
+          Array.isArray(s.keyboard) &&
+          JSON.stringify(s.keyboard).includes("Каталог") &&
+          !JSON.stringify(s.keyboard).includes("Старт"),
+      ),
+    );
   });
 
   it("stale onboarding callback does not wipe an active checkout session", async () => {
@@ -676,7 +741,8 @@ describe("TelegramClientBotService menu / idle", () => {
       leadId: null,
     });
     assert.equal(sessions.state, "onboarding_name");
-    assert.ok(sent.some((s) => /профіль/i.test(s.text)));
+    // One onboarding prompt (intro + ask name), no separate PROFILE_REQUIRED ping.
+    assert.equal(sent.length, 1);
     assert.ok(sent.some((s) => /ім'я та прізвище/i.test(s.text)));
   });
 
@@ -696,6 +762,11 @@ describe("TelegramClientBotService menu / idle", () => {
     });
     assert.equal(sessions.state, "idle");
     assert.ok(sent.some((s) => /Профіль ще не завершено/i.test(s.text)));
+    assert.ok(sent.some((s) => /Старт/i.test(s.text)));
+    assert.ok(
+      sent.some((s) => JSON.stringify(s.keyboard ?? []).includes("Старт")),
+      "pause shows Старт, not commerce menu",
+    );
   });
 
   it("preserves checkout draft while starting onboarding after checkout phone", async () => {

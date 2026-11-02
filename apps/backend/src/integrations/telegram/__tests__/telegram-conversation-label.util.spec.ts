@@ -59,4 +59,18 @@ describe("telegram-conversation-label.util", () => {
       "Max T",
     );
   });
+
+  it("labels group chats clearly", () => {
+    assert.equal(
+      formatTelegramConversationLabel({
+        peer: { firstName: "SUPREX Team" },
+        telegramChatId: "-100123",
+      }),
+      "Група · SUPREX Team",
+    );
+    assert.equal(
+      formatTelegramConversationLabel({ telegramChatId: "-100123" }),
+      "Група · -100123",
+    );
+  });
 });

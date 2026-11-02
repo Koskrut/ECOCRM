@@ -43,6 +43,9 @@ describe("TelegramInboxNotifierService", () => {
     assert.equal(service.shouldSkipNotification("/start"), true);
     assert.equal(service.shouldSkipNotification("/START"), true);
     assert.equal(service.shouldSkipNotification("🛍 Каталог"), true);
+    assert.equal(service.shouldSkipNotification("👤 Клієнт"), true);
+    assert.equal(service.shouldSkipNotification("📄 За номером"), true);
+    assert.equal(service.shouldSkipNotification("🏠 Меню"), true);
     assert.equal(service.shouldSkipNotification("cat:p:1"), true);
     assert.equal(service.shouldSkipNotification("Привіт"), false);
     assert.equal(service.shouldSkipNotification(null), false);

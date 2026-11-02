@@ -34,8 +34,11 @@ import type {
 import {
   CLIENT_MENU_BUTTONS,
   CLIENT_MENU_KEYBOARD,
+  CLIENT_START_KEYBOARD,
+  MENU_START,
   buildClientMenuKeyboard,
   TELEGRAM_EXISTING_CLIENT,
+  TELEGRAM_PRESS_START,
   TELEGRAM_REQUEST_PHONE,
 } from "./telegram-client.constants";
 import { TelegramClientBotService } from "./telegram-client-bot.service";
@@ -130,6 +133,7 @@ export class TelegramService {
       return {
         chatId: String(chat.id),
         chatType: chat.type ?? null,
+        chatTitle: typeof chat.title === "string" ? chat.title : null,
         userId: String(cb.from.id),
         username: cb.from.username ?? null,
         firstName: cb.from.first_name ?? null,
@@ -168,6 +172,7 @@ export class TelegramService {
     return {
       chatId: String(chat.id),
       chatType: chat.type ?? null,
+      chatTitle: typeof chat.title === "string" ? chat.title : null,
       userId: String(from.id),
       username: from.username ?? null,
       firstName: from.first_name ?? null,
@@ -203,6 +208,12 @@ export class TelegramService {
    */
   async handleInboundUpdate(update: TelegramUpdate): Promise<void> {
     if (!update || typeof update !== "object" || update.update_id == null) return;
+
+    if (update.my_chat_member) {
+      await this.handleMyChatMemberUpdate(update);
+      return;
+    }
+
     const parsed = this.parseInbound(update);
     if (!parsed) return;
     const updateId = String(update.update_id);
@@ -232,7 +243,12 @@ export class TelegramService {
     let succeeded = false;
     try {
       if (!isPrivateTelegramChat(parsed.chatType, parsed.chatId)) {
-        await this.leaveChat(parsed.chatId);
+        const staffGroupId = await this.getStaffGroupChatId();
+        if (staffGroupId && parsed.chatId === staffGroupId) {
+          await this.handleStaffGroupInbound(parsed);
+        } else {
+          await this.leaveChat(parsed.chatId);
+        }
         succeeded = true;
         return;
       }
@@ -279,10 +295,14 @@ export class TelegramService {
             phone: parsed.phone,
             lastMessageAt: new Date(),
           });
-          await this.sendMessageToChat(
-            parsed.chatId,
-            `Telegram прив'язано до акаунта CRM (${email}).\n\nСюди приходитимуть сповіщення (налаштування — у CRM → Сповіщення).\nДокументи PDF:\n• /client — клієнт → замовлення → собі або клієнту\n• /docs <номер замовлення>\nТакож можна входити через Telegram і отримувати коди скидання пароля.`,
-          );
+          if (this.managerBot) {
+            await this.managerBot.greetLinkedStaff(parsed.chatId, email);
+          } else {
+            await this.sendMessageToChat(
+              parsed.chatId,
+              `Telegram прив'язано до акаунта CRM (${email}).`,
+            );
+          }
         } catch {
           await this.sendMessageToChat(
             parsed.chatId,
@@ -293,7 +313,8 @@ export class TelegramService {
         return;
       }
 
-      // Linked staff: keep profile fresh, never enter the client shop / inbox pipeline.
+      // Linked staff: keep profile fresh; stay out of client shop unless «Магазин» mode.
+      // Menu buttons / flows are handled earlier in tryHandleStaffText.
       const linkedStaff = await this.prisma.user.findFirst({
         where: {
           isActive: true,
@@ -313,16 +334,18 @@ export class TelegramService {
           phone: parsed.phone,
           lastMessageAt: new Date(),
         });
-        const text = parsed.text?.trim() ?? "";
-        if (text && !parsed.isCallback && !text.startsWith("/")) {
-          await this.sendMessageToChat(
-            parsed.chatId,
-            `Ви в акаунті співробітника CRM (${linkedStaff.fullName || linkedStaff.email}).\n` +
-              `Команди: /client — документи клієнта, /docs <номер> — PDF замовлення.`,
-          );
+        const inShop = this.managerBot
+          ? await this.managerBot.isStaffShopMode(parsed.userId)
+          : false;
+        if (!inShop) {
+          // Media / empty: tryHandleStaffText skipped — nudge the reply keyboard.
+          if (!parsed.text?.trim() && !parsed.isCallback && this.managerBot) {
+            await this.managerBot.nudgeStaffMenu(parsed.chatId);
+          }
+          succeeded = true;
+          return;
         }
-        succeeded = true;
-        return;
+        // staffShopMode: fall through to the client shop / inbox pipeline.
       }
 
       // Minimal log (no token / message content)
@@ -336,9 +359,10 @@ export class TelegramService {
 
       const trimmedText = parsed.text?.trim() ?? "";
       const isHelpCommand = trimmedText.toLowerCase() === "/help";
+      const startLower = trimmedText.toLowerCase();
       const isStartPlainCommand =
-        trimmedText.toLowerCase() === "/start" ||
-        (trimmedText.toLowerCase().startsWith("/start") && trimmedText.length <= 6);
+        startLower === "/start" ||
+        /^\/start(?:@\w+)?(?:\s|$)/i.test(trimmedText);
       const isClientMenuAction = (CLIENT_MENU_BUTTONS as readonly string[]).includes(trimmedText);
       const isCommandMessage =
         isHelpCommand ||
@@ -487,10 +511,15 @@ export class TelegramService {
             }
           }
         } else if (!isCommandMessage && !account.phone) {
-          await this.sendMessageToChat(parsed.chatId, TELEGRAM_REQUEST_PHONE, {
-            requestContactButton: true,
-          });
-          botReplySent = true;
+          // Beginning of dialog: ask to press Старт (not the working commerce menu).
+          if (trimmedText === MENU_START) {
+            /* handled by client bot replyStart */
+          } else {
+            await this.sendMessageToChat(parsed.chatId, TELEGRAM_PRESS_START, {
+              menuKeyboard: CLIENT_START_KEYBOARD,
+            });
+            botReplySent = true;
+          }
         }
       }
 
@@ -697,6 +726,173 @@ export class TelegramService {
       await this.callBotApi<boolean>("leaveChat", { chat_id: chatId });
     } catch (error) {
       this.logger.warn(`leaveChat failed for ${chatId}: ${this.safeErrorText(error)}`);
+    }
+  }
+
+  async getStaffGroupChatId(): Promise<string | null> {
+    try {
+      const secrets = await this.settings.getTelegramSecrets();
+      const id = secrets.staffGroupChatId?.trim() || null;
+      return id || null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Internal staff group: keep messages in CRM Inbox, allow mgr callbacks,
+   * never run the client shop FSM. Skip inbox push alerts (managers already see the group).
+   */
+  private async handleStaffGroupInbound(parsed: ParsedInbound): Promise<void> {
+    if (
+      parsed.isCallback &&
+      this.managerBot?.isManagerCallback(parsed.text) &&
+      (await this.managerBot.handleCallback(parsed))
+    ) {
+      return;
+    }
+
+    if (parsed.isEdit) {
+      await this.applyEditedMessage(parsed);
+      return;
+    }
+
+    if (parsed.isCallback) return;
+
+    const now = new Date();
+    const title = parsed.chatTitle?.trim() || null;
+    // Persist group title via a synthetic TelegramAccount so Inbox labels stay stable.
+    await this.upsertTelegramAccount({
+      telegramUserId: `group:${parsed.chatId}`,
+      telegramChatId: parsed.chatId,
+      username: null,
+      firstName: title,
+      lastName: null,
+      middleName: null,
+      phone: null,
+      lastMessageAt: now,
+    });
+
+    let conversation = await this.prisma.conversation.findUnique({
+      where: { telegramChatId: parsed.chatId },
+    });
+    const reopen =
+      conversation?.status === ConversationStatus.CLOSED ||
+      conversation?.status === ConversationStatus.PENDING;
+    if (!conversation) {
+      conversation = await this.prisma.conversation.create({
+        data: {
+          channel: ConversationChannel.TELEGRAM,
+          telegramChatId: parsed.chatId,
+          status: ConversationStatus.OPEN,
+          lastMessageAt: now,
+        },
+      });
+    } else {
+      await this.prisma.conversation.update({
+        where: { id: conversation.id },
+        data: {
+          lastMessageAt: now,
+          ...(reopen ? { status: ConversationStatus.OPEN } : {}),
+        },
+      });
+    }
+
+    const authorUser = await this.prisma.user.findFirst({
+      where: {
+        isActive: true,
+        telegramUserId: parsed.userId,
+        role: { in: [UserRole.ADMIN, UserRole.LEAD, UserRole.MANAGER] },
+      },
+      select: { id: true, fullName: true },
+    });
+    const authorLabel =
+      authorUser?.fullName?.trim() ||
+      [parsed.firstName, parsed.lastName].filter(Boolean).join(" ").trim() ||
+      (parsed.username ? `@${parsed.username}` : null) ||
+      `tg:${parsed.userId}`;
+    const body = parsed.text ?? this.mediaPlaceholderText(parsed.mediaType);
+    const text = body ? `[${authorLabel}]: ${body}` : `[${authorLabel}]`;
+
+    try {
+      await this.prisma.message.create({
+        data: {
+          conversationId: conversation.id,
+          direction: MessageDirection.INBOUND,
+          text,
+          mediaType: parsed.mediaType,
+          fileId: parsed.fileId,
+          fileUrl: null,
+          tgMessageId: String(parsed.messageId),
+          sentAt: parsed.date,
+          authorUserId: authorUser?.id ?? null,
+        },
+      });
+    } catch (error) {
+      if (!this.isUniqueConstraintError(error)) throw error;
+    }
+  }
+
+  private async handleMyChatMemberUpdate(update: TelegramUpdate): Promise<void> {
+    const event = update.my_chat_member;
+    if (!event?.chat?.id) return;
+    const updateId = String(update.update_id);
+    const chatId = String(event.chat.id);
+    const chatType = event.chat.type ?? null;
+
+    try {
+      await this.prisma.telegramInboundUpdate.create({
+        data: { updateId, telegramChatId: chatId },
+      });
+    } catch (error) {
+      if (this.isUniqueConstraintError(error)) return;
+      throw error;
+    }
+
+    let succeeded = false;
+    try {
+      const newStatus = event.new_chat_member?.status ?? "";
+      const joined = newStatus === "member" || newStatus === "administrator";
+      const left = newStatus === "left" || newStatus === "kicked";
+      const staffGroupId = await this.getStaffGroupChatId();
+      const isStaffGroup = Boolean(staffGroupId && chatId === staffGroupId);
+
+      if (joined && !isPrivateTelegramChat(chatType, chatId) && !isStaffGroup) {
+        this.logger.log(`Leaving non-staff group ${chatId} after bot was added`);
+        await this.leaveChat(chatId);
+      } else if (joined && isStaffGroup) {
+        this.logger.log(`Bot joined configured staff group ${chatId}`);
+        const title = typeof event.chat.title === "string" ? event.chat.title : null;
+        if (title) {
+          await this.upsertTelegramAccount({
+            telegramUserId: `group:${chatId}`,
+            telegramChatId: chatId,
+            username: null,
+            firstName: title,
+            lastName: null,
+            middleName: null,
+            phone: null,
+            lastMessageAt: new Date(),
+          });
+        }
+      } else if (left && isStaffGroup) {
+        this.logger.warn(`Bot removed from staff group ${chatId}`);
+      }
+
+      succeeded = true;
+      await this.prisma.telegramInboundUpdate.update({
+        where: { updateId },
+        data: { processedAt: new Date(), processingError: null },
+      });
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      await this.prisma.telegramInboundUpdate
+        .update({
+          where: { updateId },
+          data: { processingError: msg.slice(0, 500) },
+        })
+        .catch(() => {});
+      if (!succeeded) throw error;
     }
   }
 
@@ -940,23 +1136,20 @@ export class TelegramService {
       };
       return;
     }
-    const replyKeyboard =
-      options?.menuKeyboard ??
-      (options?.menuButtons?.length ? options.menuButtons.map((b) => [b]) : undefined);
     if (options?.inlineKeyboard?.length) {
+      // Telegram allows only one reply_markup; inline wins for wizard steps.
       body.reply_markup = {
         inline_keyboard: options.inlineKeyboard,
       };
-      // Also keep the persistent reply keyboard if provided (Telegram allows only one reply_markup).
-      // Prefer inline for wizard steps; attach reply keyboard on plain menu replies instead.
-      if (replyKeyboard?.length && !options.inlineKeyboard.length) {
-        body.reply_markup = {
-          keyboard: replyKeyboard.map((row) => row.map((button) => this.mapMenuButton(button))),
-          resize_keyboard: true,
-        };
-      }
       return;
     }
+    if (options?.removeKeyboard) {
+      body.reply_markup = { remove_keyboard: true };
+      return;
+    }
+    const replyKeyboard =
+      options?.menuKeyboard ??
+      (options?.menuButtons?.length ? options.menuButtons.map((b) => [b]) : undefined);
     if (replyKeyboard?.length) {
       body.reply_markup = {
         keyboard: replyKeyboard.map((row) => row.map((button) => this.mapMenuButton(button))),
@@ -1022,7 +1215,7 @@ export class TelegramService {
     const secretToken = secrets.webhookSecret ?? process.env.TELEGRAM_WEBHOOK_SECRET;
     await this.callBotApi<boolean>("setWebhook", {
       url,
-      allowed_updates: ["message", "edited_message", "callback_query"],
+      allowed_updates: ["message", "edited_message", "callback_query", "my_chat_member"],
       ...(secretToken ? { secret_token: secretToken } : {}),
     });
     return { ok: true, url };

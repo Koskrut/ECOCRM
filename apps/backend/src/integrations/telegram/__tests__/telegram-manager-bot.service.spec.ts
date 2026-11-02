@@ -10,6 +10,7 @@ function parsed(overrides: Partial<ParsedInbound> = {}): ParsedInbound {
   return {
     chatId: "mgr-chat",
     chatType: "private",
+    chatTitle: null,
     userId: "tg-mgr-1",
     username: null,
     firstName: "Mgr",
@@ -82,8 +83,8 @@ describe("TelegramManagerBotService", () => {
     assert.ok(sent.some((t) => /закріплено/i.test(t)));
   });
 
-  it("starts client search on /client", async () => {
-    const sent: string[] = [];
+  it("starts client search from menu button", async () => {
+    const sent: Array<{ text: string; options?: AnyRec }> = [];
     const sessions = makeSessions();
     const svc = new TelegramManagerBotService(
       { user: { findFirst: async () => staffUser } } as never,
@@ -93,19 +94,79 @@ describe("TelegramManagerBotService", () => {
       { muteConversation: () => undefined } as never,
       {} as never,
       {
-        sendMessageToChat: async (_chat: string, text: string) => {
-          sent.push(text);
+        sendMessageToChat: async (_chat: string, text: string, options?: AnyRec) => {
+          sent.push({ text, options });
           return { messageId: 1 };
         },
       } as never,
     );
 
     const handled = await svc.tryHandleStaffText(
-      parsed({ text: "/client", isCallback: false, callbackQueryId: null }),
+      parsed({ text: "👤 Клієнт", isCallback: false, callbackQueryId: null }),
     );
     assert.equal(handled, true);
     assert.equal(sessions.state, "mgr_search");
-    assert.ok(sent.some((t) => /телефон або прізвище/i.test(t)));
+    assert.ok(sent.some((s) => /телефон або прізвище/i.test(s.text)));
+    assert.ok(
+      sent.some((s) =>
+        JSON.stringify(s.options?.menuKeyboard ?? []).includes("Скасувати"),
+      ),
+    );
+  });
+
+  it("asks for order number from docs menu button", async () => {
+    const sent: Array<{ text: string; options?: AnyRec }> = [];
+    const sessions = makeSessions();
+    const svc = new TelegramManagerBotService(
+      { user: { findFirst: async () => staffUser } } as never,
+      { getStoreConfig: async () => ({}) } as never,
+      sessions as never,
+      { assign: async () => ({}) } as never,
+      { muteConversation: () => undefined } as never,
+      {} as never,
+      {
+        sendMessageToChat: async (_chat: string, text: string, options?: AnyRec) => {
+          sent.push({ text, options });
+          return { messageId: 1 };
+        },
+      } as never,
+    );
+
+    const handled = await svc.tryHandleStaffText(
+      parsed({ text: "📄 За номером", isCallback: false, callbackQueryId: null }),
+    );
+    assert.equal(handled, true);
+    assert.equal(sessions.state, "mgr_docs");
+    assert.ok(sent.some((s) => /номер замовлення/i.test(s.text)));
+  });
+
+  it("shows staff menu keyboard on Меню", async () => {
+    const sent: Array<{ text: string; options?: AnyRec }> = [];
+    const sessions = makeSessions({ state: "mgr_search" });
+    const svc = new TelegramManagerBotService(
+      { user: { findFirst: async () => staffUser } } as never,
+      { getStoreConfig: async () => ({}) } as never,
+      sessions as never,
+      { assign: async () => ({}) } as never,
+      { muteConversation: () => undefined } as never,
+      {} as never,
+      {
+        sendMessageToChat: async (_chat: string, text: string, options?: AnyRec) => {
+          sent.push({ text, options });
+          return { messageId: 1 };
+        },
+      } as never,
+    );
+
+    const handled = await svc.tryHandleStaffText(
+      parsed({ text: "🏠 Меню", isCallback: false, callbackQueryId: null }),
+    );
+    assert.equal(handled, true);
+    assert.equal(sessions.state, "idle");
+    assert.ok(sent.some((s) => /Меню менеджера/i.test(s.text)));
+    assert.ok(
+      sent.some((s) => JSON.stringify(s.options?.menuKeyboard ?? []).includes("Клієнт")),
+    );
   });
 
   it("lists contacts after search query", async () => {
@@ -144,10 +205,75 @@ describe("TelegramManagerBotService", () => {
       parsed({ text: "Петренко", isCallback: false, callbackQueryId: null }),
     );
     assert.equal(handled, true);
+    assert.equal(sessions.state, "mgr_search", "stay in search so another query can refine");
     assert.equal(sessions.payload.mgrContactHits?.[0]?.id, "c1");
     const buttons = (sent.find((s) => s.options?.inlineKeyboard)?.options
       ?.inlineKeyboard as Array<Array<AnyRec>>)!.flat();
     assert.equal(buttons[0]?.callback_data, "mgr:c:0");
+  });
+
+  it("idle free text gets a short ack, not the full welcome", async () => {
+    const sent: Array<{ text: string; options?: AnyRec }> = [];
+    const svc = new TelegramManagerBotService(
+      { user: { findFirst: async () => staffUser } } as never,
+      { getStoreConfig: async () => ({}) } as never,
+      makeSessions() as never,
+      { assign: async () => ({}) } as never,
+      { muteConversation: () => undefined } as never,
+      {} as never,
+      {
+        sendMessageToChat: async (_chat: string, text: string, options?: AnyRec) => {
+          sent.push({ text, options });
+          return { messageId: 1 };
+        },
+      } as never,
+    );
+
+    await svc.tryHandleStaffText(
+      parsed({ text: "привіт", isCallback: false, callbackQueryId: null }),
+    );
+    assert.equal(sent.length, 1);
+    assert.ok(/Вітаю.*Оберіть дію/i.test(sent[0]!.text));
+    assert.ok(!/Клієнт — пошук/i.test(sent[0]!.text));
+  });
+
+  it("Магазин enters staff shop mode and Меню leaves it", async () => {
+    const sent: Array<{ text: string }> = [];
+    const sessions = makeSessions();
+    const svc = new TelegramManagerBotService(
+      { user: { findFirst: async () => staffUser } } as never,
+      { getStoreConfig: async () => ({}) } as never,
+      sessions as never,
+      { assign: async () => ({}) } as never,
+      { muteConversation: () => undefined } as never,
+      {} as never,
+      {
+        sendMessageToChat: async (_chat: string, text: string) => {
+          sent.push({ text });
+          return { messageId: 1 };
+        },
+      } as never,
+    );
+
+    assert.equal(await svc.isStaffShopMode("tg-mgr-1"), false);
+    await svc.tryHandleStaffText(
+      parsed({ text: "🛍 Магазин", isCallback: false, callbackQueryId: null }),
+    );
+    assert.equal(sessions.payload.staffShopMode, true);
+    assert.equal(await svc.isStaffShopMode("tg-mgr-1"), true);
+    assert.ok(sent.some((s) => /Режим клієнта/i.test(s.text)));
+
+    // Catalog tap must fall through to the client pipeline.
+    const catalogHandled = await svc.tryHandleStaffText(
+      parsed({ text: "🛍 Каталог", isCallback: false, callbackQueryId: null }),
+    );
+    assert.equal(catalogHandled, false);
+
+    await svc.tryHandleStaffText(
+      parsed({ text: "🏠 Меню", isCallback: false, callbackQueryId: null }),
+    );
+    assert.equal(sessions.payload.staffShopMode, undefined);
+    assert.ok(sent.some((s) => /Режим менеджера/i.test(s.text)));
   });
 
   it("shows orders then destination menu including client send", async () => {

@@ -66,7 +66,13 @@ export class TelegramInboxNotifierService {
       trimmed === "🛍 Каталог" ||
       trimmed === "🛒 Кошик" ||
       trimmed === "📦 Замовлення" ||
-      trimmed === "💬 Менеджер"
+      trimmed === "💬 Менеджер" ||
+      trimmed === "🏠 Старт" ||
+      trimmed === "👤 Клієнт" ||
+      trimmed === "📄 За номером" ||
+      trimmed === "🏠 Меню" ||
+      trimmed === "✖️ Скасувати" ||
+      /^\/start(?:@\w+)?(?:\s|$)/i.test(trimmed)
     ) {
       return true;
     }

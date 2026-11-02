@@ -23,6 +23,7 @@ export class NotificationsDeliveryService {
   async afterCreate(notification: UserNotification): Promise<void> {
     await Promise.allSettled([
       this.deliverTelegram(notification),
+      this.deliverTelegramStaffGroup(notification),
       this.deliverMobilePush(notification),
     ]);
   }
@@ -57,6 +58,52 @@ export class NotificationsDeliveryService {
     } catch (err) {
       this.logger.warn(
         `Telegram notification failed for user ${notification.userId}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
+  /**
+   * Mirror CRM Telegram alerts into the configured internal staff group once per
+   * notification burst (first UserNotification row wins). Skips alerts that
+   * originated from that same group to avoid loops.
+   */
+  private async deliverTelegramStaffGroup(notification: UserNotification): Promise<void> {
+    if (!defaultChannelsForType(notification.type).telegram) return;
+
+    const staffGroupChatId = await this.telegram.getStaffGroupChatId();
+    if (!staffGroupChatId) return;
+
+    const meta =
+      notification.meta && typeof notification.meta === "object" && !Array.isArray(notification.meta)
+        ? (notification.meta as Record<string, unknown>)
+        : null;
+    if (meta?.telegramChatId != null && String(meta.telegramChatId) === staffGroupChatId) {
+      return;
+    }
+
+    const since = new Date(Date.now() - 10_000);
+    const first = await this.prisma.userNotification.findFirst({
+      where: {
+        type: notification.type,
+        createdAt: { gte: since },
+        ...(notification.entityId
+          ? { entityId: notification.entityId }
+          : { title: notification.title, body: notification.body }),
+      },
+      orderBy: { createdAt: "asc" },
+      select: { id: true },
+    });
+    if (first && first.id !== notification.id) return;
+
+    const text = [notification.title, notification.body].filter(Boolean).join("\n");
+    const inlineKeyboard = await this.buildManagerKeyboard(notification);
+    try {
+      await this.telegram.sendMessageToChat(staffGroupChatId, text.slice(0, 4000), {
+        ...(inlineKeyboard?.length ? { inlineKeyboard } : {}),
+      });
+    } catch (err) {
+      this.logger.warn(
+        `Telegram staff-group notification failed: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
   }

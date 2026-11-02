@@ -114,6 +114,11 @@ export type TelegramConfig = {
   webhookSecret?: string;
   publicBaseUrl?: string;
   leadCompanyId?: string;
+  /**
+   * Internal staff Telegram group/supergroup chat id (e.g. "-100…").
+   * Bot stays in this group, mirrors CRM alerts, and stores group messages in Inbox.
+   */
+  staffGroupChatId?: string;
   /** AI reply suggestions in inbox. */
   aiEnabled?: boolean;
   aiOpenaiApiKey?: string;
@@ -957,12 +962,15 @@ export class SettingsService {
     const webhookSecret = typeof v.webhookSecret === "string" ? v.webhookSecret : undefined;
     const publicBaseUrl = typeof v.publicBaseUrl === "string" ? v.publicBaseUrl : undefined;
     const leadCompanyId = typeof v.leadCompanyId === "string" ? v.leadCompanyId : undefined;
+    const staffGroupChatId =
+      typeof v.staffGroupChatId === "string" ? v.staffGroupChatId : undefined;
     const aiOpenaiApiKey = typeof v.aiOpenaiApiKey === "string" ? v.aiOpenaiApiKey : undefined;
     return {
       botTokenMasked: maskToken(botToken),
       webhookSecretMasked: maskToken(webhookSecret),
       publicBaseUrl: publicBaseUrl || undefined,
       leadCompanyId: leadCompanyId || undefined,
+      staffGroupChatId: staffGroupChatId || undefined,
       aiEnabled: typeof v.aiEnabled === "boolean" ? v.aiEnabled : undefined,
       aiOpenaiApiKeyMasked: maskToken(aiOpenaiApiKey),
       aiModel: typeof v.aiModel === "string" ? v.aiModel : undefined,
@@ -997,6 +1005,10 @@ export class SettingsService {
         typeof config.leadCompanyId === "string"
           ? config.leadCompanyId
           : (current.leadCompanyId as string) ?? undefined,
+      staffGroupChatId:
+        typeof config.staffGroupChatId === "string"
+          ? config.staffGroupChatId
+          : (current.staffGroupChatId as string) ?? undefined,
       aiEnabled:
         typeof config.aiEnabled === "boolean" ? config.aiEnabled : (current.aiEnabled as boolean) ?? undefined,
       aiOpenaiApiKey:
@@ -1010,8 +1022,13 @@ export class SettingsService {
     if (config.webhookSecret === "") next.webhookSecret = undefined;
     if (config.publicBaseUrl === "") next.publicBaseUrl = undefined;
     if (config.leadCompanyId === "") next.leadCompanyId = undefined;
+    if (config.staffGroupChatId === "") next.staffGroupChatId = undefined;
     if (config.aiOpenaiApiKey === "") next.aiOpenaiApiKey = undefined;
     if (config.aiModel === "") next.aiModel = undefined;
+    if (typeof next.staffGroupChatId === "string") {
+      next.staffGroupChatId = next.staffGroupChatId.trim();
+      if (!next.staffGroupChatId) next.staffGroupChatId = undefined;
+    }
     await this.prisma.systemSetting.upsert({
       where: { id: TELEGRAM_KEY },
       create: { id: TELEGRAM_KEY, value: next as Prisma.InputJsonValue },
@@ -1024,6 +1041,7 @@ export class SettingsService {
       webhookSecretMasked: maskToken(webhookSecret),
       publicBaseUrl: next.publicBaseUrl as string | undefined,
       leadCompanyId: next.leadCompanyId as string | undefined,
+      staffGroupChatId: next.staffGroupChatId as string | undefined,
       aiEnabled: next.aiEnabled as boolean | undefined,
       aiOpenaiApiKeyMasked: maskToken(next.aiOpenaiApiKey as string | undefined),
       aiModel: next.aiModel as string | undefined,
@@ -1036,6 +1054,7 @@ export class SettingsService {
     webhookSecret: string | null;
     publicBaseUrl: string | null;
     leadCompanyId: string | null;
+    staffGroupChatId: string | null;
   }> {
     const row = await this.prisma.systemSetting.findUnique({
       where: { id: TELEGRAM_KEY },
@@ -1046,6 +1065,7 @@ export class SettingsService {
         webhookSecret: null,
         publicBaseUrl: null,
         leadCompanyId: null,
+        staffGroupChatId: null,
       };
     }
     const v = row.value as Record<string, unknown>;
@@ -1054,6 +1074,10 @@ export class SettingsService {
       webhookSecret: typeof v.webhookSecret === "string" ? v.webhookSecret : null,
       publicBaseUrl: typeof v.publicBaseUrl === "string" ? v.publicBaseUrl : null,
       leadCompanyId: typeof v.leadCompanyId === "string" ? v.leadCompanyId : null,
+      staffGroupChatId:
+        typeof v.staffGroupChatId === "string" && v.staffGroupChatId.trim()
+          ? v.staffGroupChatId.trim()
+          : null,
     };
   }
 

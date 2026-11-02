@@ -91,6 +91,7 @@ function makeService(prisma: AnyRec) {
       webhookSecret: "S",
       publicBaseUrl: "https://api.example.com",
       leadCompanyId: null,
+      staffGroupChatId: null as string | null,
     }),
   };
   const contactsService = { findContactByPhone: async () => null };
@@ -245,9 +246,9 @@ describe("TelegramService.handleInboundUpdate", () => {
   it("does not stack request-phone and auto-reply on the first message", async () => {
     await harness.service.handleInboundUpdate(textUpdate("Хочу замовлення"));
 
-    // Exactly one reply: the request-phone prompt (auto-reply suppressed).
+    // Exactly one reply: press Старт at the beginning of the dialog.
     assert.equal(harness.sent.length, 1);
-    assert.match(harness.sent[0].text, /номер/i);
+    assert.match(harness.sent[0].text, /Старт/i);
   });
 
   it("does not replace the menu with the share-phone button on catalog", async () => {
@@ -363,6 +364,73 @@ describe("TelegramService.handleInboundUpdate", () => {
     assert.deepEqual(harness.leaveCalls, ["-100"]);
   });
 
+  it("keeps the configured staff group and stores the message in Inbox", async () => {
+    harness.settings.getTelegramSecrets = async () => ({
+      botToken: "T",
+      webhookSecret: "S",
+      publicBaseUrl: "https://api.example.com",
+      leadCompanyId: null,
+      staffGroupChatId: "-100555",
+    });
+    const { prisma, calls } = makePrisma({
+      conversation: {
+        findUnique: async () => null,
+        create: async () => ({ id: "conv-staff", status: "OPEN" }),
+        update: async () => ({}),
+        updateMany: async () => ({ count: 0 }),
+      },
+      user: {
+        findFirst: async () => ({ id: "user-1", fullName: "Оля" }),
+      },
+    });
+    const staffHarness = makeService(prisma);
+    staffHarness.settings.getTelegramSecrets = harness.settings.getTelegramSecrets;
+
+    const update: TelegramUpdate = {
+      update_id: 51,
+      message: {
+        message_id: 510,
+        date: 1700000000,
+        chat: { id: -100555, type: "supergroup", title: "SUPREX Team" },
+        from: { id: 777, first_name: "Оля", username: "olya" },
+        text: "Хто на зміні?",
+      },
+    };
+
+    await staffHarness.service.handleInboundUpdate(update);
+
+    assert.deepEqual(staffHarness.leaveCalls, []);
+    assert.equal(staffHarness.confirmLinkCalls.length, 0);
+    assert.ok(
+      staffHarness.upsertCalls.some((c) => c.telegramUserId === "group:-100555"),
+    );
+    assert.equal(calls.messageCreate.length, 1);
+    assert.match(String(calls.messageCreate[0]?.data?.text ?? ""), /Оля.*Хто на зміні/);
+  });
+
+  it("leaves a non-staff group even when a staff group is configured", async () => {
+    harness.settings.getTelegramSecrets = async () => ({
+      botToken: "T",
+      webhookSecret: "S",
+      publicBaseUrl: "https://api.example.com",
+      leadCompanyId: null,
+      staffGroupChatId: "-100555",
+    });
+    const update: TelegramUpdate = {
+      update_id: 52,
+      message: {
+        message_id: 520,
+        date: 1700000000,
+        chat: { id: -100777, type: "group", title: "Other" },
+        from: { id: 777, first_name: "Тест" },
+        text: "hello",
+      },
+    };
+
+    await harness.service.handleInboundUpdate(update);
+    assert.deepEqual(harness.leaveCalls, ["-100777"]);
+  });
+
   it("confirms /link in a private chat and replies with the linked account", async () => {
     await harness.service.handleInboundUpdate(textUpdate("/link tok-123", 6));
 
@@ -414,7 +482,7 @@ describe("TelegramService.handleInboundUpdate", () => {
     assert.equal(harness.upsertCalls[0]?.phone ?? null, null);
     const saved = mock.calls.messageCreate[0]?.data as AnyRec;
     assert.match(String(saved.text), /380501112233/);
-    assert.match(harness.sent[0]?.text ?? "", /номер/i);
+    assert.match(harness.sent[0]?.text ?? "", /Старт/i);
   });
 
   it("does not create a lead in whichever company happens to be first", async () => {

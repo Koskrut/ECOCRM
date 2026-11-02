@@ -57,6 +57,8 @@ export type BotSessionPayload = {
   mgrOrderId?: string;
   /** Client Telegram chat for «надіслати клієнту». */
   mgrClientChatId?: string | null;
+  /** Linked CRM staff temporarily using the client shop on the same bot. */
+  staffShopMode?: boolean;
 };
 
 @Injectable()
@@ -107,6 +109,12 @@ export class TelegramBotSessionService {
   }
 
   async resetIdle(telegramUserId: string): Promise<void> {
-    await this.set(telegramUserId, "idle", {});
+    // Keep staff shop mode across client catalog/cart resets until «Меню» clears it.
+    const current = await this.get(telegramUserId);
+    await this.set(
+      telegramUserId,
+      "idle",
+      current.payload.staffShopMode ? { staffShopMode: true } : {},
+    );
   }
 }

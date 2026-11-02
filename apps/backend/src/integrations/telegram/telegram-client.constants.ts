@@ -5,8 +5,52 @@ export const MENU_CATALOG = "🛍 Каталог";
 export const MENU_CART = "🛒 Кошик";
 export const MENU_ORDERS = "📦 Замовлення";
 export const MENU_MANAGER = "💬 Менеджер";
+export const MENU_START = "🏠 Старт";
+export const MENU_CLIENT_CANCEL = "✖️ Скасувати";
 
+/** Persistent working menu (after profile). Старт is only shown at dialog start. */
 export const CLIENT_MENU_BUTTONS = [MENU_CATALOG, MENU_CART, MENU_ORDERS, MENU_MANAGER];
+
+/** Reply-keyboard for CRM staff (managers) on the shared bot. */
+export const MENU_STAFF_CLIENT = "👤 Клієнт";
+export const MENU_STAFF_DOCS = "📄 За номером";
+export const MENU_STAFF_HOME = "🏠 Меню";
+export const MENU_STAFF_SHOP = "🛍 Магазин";
+export const MENU_STAFF_CANCEL = "✖️ Скасувати";
+
+export const STAFF_MENU_BUTTONS = [
+  MENU_STAFF_CLIENT,
+  MENU_STAFF_DOCS,
+  MENU_STAFF_HOME,
+  MENU_STAFF_SHOP,
+  MENU_STAFF_CANCEL,
+] as const;
+
+export const STAFF_MENU_KEYBOARD: string[][] = [
+  [MENU_STAFF_CLIENT, MENU_STAFF_DOCS],
+  [MENU_STAFF_SHOP, MENU_STAFF_HOME],
+];
+
+export const STAFF_FLOW_KEYBOARD: string[][] = [[MENU_STAFF_CANCEL], [MENU_STAFF_HOME]];
+
+export const TELEGRAM_STAFF_WELCOME =
+  "Меню менеджера CRM.\n\n" +
+  "• Клієнт — пошук → замовлення → PDF собі або клієнту\n" +
+  "• За номером — рахунок / РН за номером замовлення\n" +
+  "• Магазин — режим клієнта (каталог / кошик)\n\n" +
+  "Сповіщення приходитимуть у цей чат.";
+
+export const TELEGRAM_STAFF_SHORT =
+  "Оберіть дію кнопкою нижче.";
+
+export const TELEGRAM_STAFF_ASK_CLIENT =
+  "Пошук клієнта для документів.\nНапишіть телефон або прізвище/ім'я:";
+
+export const TELEGRAM_STAFF_ASK_ORDER =
+  "Напишіть номер замовлення (наприклад 121):";
+
+export const TELEGRAM_STAFF_SHOP_ON =
+  "Режим клієнта. Каталог, кошик і замовлення — як у покупця.\n«Меню» — назад до інструментів менеджера.";
 
 /** Reply-keyboard label that starts catalog search. Exact match, so it is not sent to a manager. */
 export const CATALOG_SEARCH_BUTTON = "🔍 Пошук";
@@ -29,11 +73,17 @@ export const CATALOG_SYSTEMS: { id: string; name: string }[] = [
   { id: "10", name: "OSSTEM Regular" },
 ];
 
-/** Reply keyboard layout: 2×2. */
+/** Reply keyboard after phone / profile — working commerce menu only. */
 export const CLIENT_MENU_KEYBOARD: string[][] = [
   [MENU_CATALOG, MENU_CART],
   [MENU_ORDERS, MENU_MANAGER],
 ];
+
+/** One-shot keyboard before identity: only Старт. */
+export const CLIENT_START_KEYBOARD: string[][] = [[MENU_START]];
+
+/** During onboarding / checkout — cancel without commerce shortcuts. */
+export const CLIENT_FLOW_KEYBOARD: string[][] = [[MENU_CLIENT_CANCEL]];
 
 /** When the public store URL is set, Catalog opens as a Mini App. */
 export function buildClientMenuKeyboard(
@@ -51,12 +101,19 @@ export function buildClientMenuKeyboard(
 
 export const TELEGRAM_WELCOME =
   "Вітаємо! Це бот магазину SUPREX.\n\nЩоб відкрити каталог, кошик і кабінет — спочатку поділіться номером телефону кнопкою нижче.";
+export const TELEGRAM_PRESS_START =
+  "Вітаємо в SUPREX!\nНатисніть «Старт», щоб почати.";
 export const TELEGRAM_HELP =
-  "Команди: /menu /catalog /cart /orders /cancel\n\nВільне повідомлення в головному меню потрапляє менеджеру. Під час оформлення текст використовується для кроків (місто, адреса тощо).";
+  "Меню внизу екрана:\n" +
+  "• 🛍 Каталог — товари\n" +
+  "• 🛒 Кошик — оформлення\n" +
+  "• 📦 Замовлення — ваші замовлення\n" +
+  "• 💬 Менеджер — написати нам\n\n" +
+  "Вільне повідомлення в головному меню також потрапляє менеджеру. Під час оформлення текст — для кроків (місто, адреса тощо).";
 export const TELEGRAM_REQUEST_PHONE =
   "Щоб ідентифікувати вас у CRM і показувати замовлення, поділіться номером телефону кнопкою нижче.";
 export const TELEGRAM_EXISTING_CLIENT =
-  "Раді бачити вас знову! Оберіть дію в меню або напишіть менеджеру.";
+  "Раді бачити вас знову! Оберіть дію кнопками внизу або напишіть менеджеру.";
 export const TELEGRAM_PROFILE_REQUIRED =
   "Спочатку завершіть короткий профіль — тоді відкриються каталог, кошик і замовлення.";
 export const TELEGRAM_ONBOARDING_INTRO =
@@ -70,7 +127,10 @@ export const TELEGRAM_ONBOARDING_DONE =
 export const TELEGRAM_ONBOARDING_DONE_NO_MANAGER =
   "Готово! Профіль збережено в CRM.\n\nДля вашої області менеджер ще не закріплений у системі — напишіть нам у чат, і ми допоможемо вручну.";
 export const TELEGRAM_ONBOARDING_PAUSED =
-  "Профіль ще не завершено. Натисніть /start, щоб продовжити — без цього каталог і оформлення недоступні.";
+  "Профіль ще не завершено. Натисніть «Старт», щоб продовжити — без цього каталог і оформлення недоступні.";
+
+export const TELEGRAM_CHECKOUT_IN_PROGRESS =
+  "Оформлення триває. Продовжіть кроки вище або натисніть «Скасувати».";
 export const TELEGRAM_CLIENT_TYPE_DOCTOR = "Врач";
 export const TELEGRAM_CLIENT_TYPE_TECH = "Техник";
 export const TELEGRAM_MANAGER_PROMPT =
@@ -146,8 +206,12 @@ export type BotSessionState =
   | "checkout_flat"
   | "checkout_comment"
   | "checkout_phone"
+  /** Checkout: waiting for inline picks (region / delivery / payment). */
+  | "checkout_flow"
   /** Manager: waiting for client phone/name query. */
-  | "mgr_search";
+  | "mgr_search"
+  /** Manager: waiting for order number for /docs. */
+  | "mgr_docs";
 
 export type InlineBtn =
   | { text: string; callback_data: string }

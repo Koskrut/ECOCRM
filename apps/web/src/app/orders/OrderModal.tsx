@@ -2191,19 +2191,21 @@ export function OrderModal({
               className="absolute right-0 top-full z-[100] mt-1 w-[min(100vw-2rem,20rem)] rounded-lg border border-zinc-200 bg-white shadow-lg"
               role="menu"
             >
-              <div className="max-h-[min(70vh,28rem)] space-y-4 overflow-auto p-3">
+              <div className="max-h-[min(70vh,28rem)] space-y-2.5 overflow-auto p-2.5">
                 <div>
-                  <div className="mb-1.5 text-xs font-medium text-zinc-600">PDF документи</div>
-                  <div className="flex flex-col gap-1.5">
+                  <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+                    Документи
+                  </div>
+                  <div className="grid grid-cols-2 gap-1">
                     <a
                       href={`/api/orders/${order.id}/documents/invoice`}
                       target="_blank"
                       rel="noopener noreferrer"
                       role="menuitem"
                       onClick={() => setReturnsDocsMenuOpen(false)}
-                      className="rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm font-medium text-zinc-800 hover:bg-zinc-50"
+                      className="rounded border border-zinc-200 bg-white px-2 py-1.5 text-center text-xs font-medium text-zinc-800 hover:bg-zinc-50"
                     >
-                      Рахунок (PDF)
+                      Рахунок PDF
                     </a>
                     <a
                       href={`/api/orders/${order.id}/documents/waybill`}
@@ -2211,18 +2213,16 @@ export function OrderModal({
                       rel="noopener noreferrer"
                       role="menuitem"
                       onClick={() => setReturnsDocsMenuOpen(false)}
-                      className="rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm font-medium text-zinc-800 hover:bg-zinc-50"
+                      className="rounded border border-zinc-200 bg-white px-2 py-1.5 text-center text-xs font-medium text-zinc-800 hover:bg-zinc-50"
                     >
-                      РН (PDF)
+                      РН PDF
                     </a>
                   </div>
-                </div>
-                <div className="border-t border-zinc-100 pt-3">
-                  <div className="mb-1.5 text-xs font-medium text-zinc-600">Telegram</div>
+                  <div className="mt-1.5 text-[11px] font-medium text-zinc-500">Telegram</div>
                   {telegramDocsStatus == null ? (
-                    <div className="text-xs text-zinc-500">Перевірка Telegram…</div>
+                    <div className="mt-1 text-[11px] text-zinc-400">…</div>
                   ) : (
-                    <div className="flex flex-col gap-1.5">
+                    <div className="mt-1 grid grid-cols-2 gap-1">
                       {(
                         [
                           {
@@ -2230,28 +2230,28 @@ export function OrderModal({
                             dest: "me" as const,
                             label: "Рахунок → мені",
                             enabled: telegramDocsStatus.managerLinked,
-                            hint: "Прив'яжіть Telegram у профілі",
+                            hint: "Прив'яжіть Telegram у профілі (Налаштування → Telegram → /link)",
                           },
                           {
                             kind: "waybill" as const,
                             dest: "me" as const,
                             label: "РН → мені",
                             enabled: telegramDocsStatus.managerLinked,
-                            hint: "Прив'яжіть Telegram у профілі",
+                            hint: "Прив'яжіть Telegram у профілі (Налаштування → Telegram → /link)",
                           },
                           {
                             kind: "invoice" as const,
                             dest: "client" as const,
                             label: "Рахунок → клієнту",
                             enabled: telegramDocsStatus.clientLinked,
-                            hint: "У клієнта немає Telegram",
+                            hint: "У клієнта немає прив'язаного Telegram",
                           },
                           {
                             kind: "waybill" as const,
                             dest: "client" as const,
                             label: "РН → клієнту",
                             enabled: telegramDocsStatus.clientLinked,
-                            hint: "У клієнта немає Telegram",
+                            hint: "У клієнта немає прив'язаного Telegram",
                           },
                         ] as const
                       ).map((item) => {
@@ -2265,27 +2265,19 @@ export function OrderModal({
                             disabled={!item.enabled || telegramDocsSending != null}
                             title={item.enabled ? item.label : item.hint}
                             onClick={() => void sendOrderDocTelegram(item.kind, item.dest)}
-                            className="rounded-md border border-zinc-200 bg-white px-3 py-2 text-left text-sm font-medium text-zinc-800 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50"
+                            className="rounded border border-zinc-200 bg-white px-2 py-1.5 text-center text-[11px] font-medium leading-tight text-zinc-800 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-40"
                           >
-                            {busy ? "Надсилаю…" : item.label}
+                            {busy ? "…" : item.label}
                           </button>
                         );
                       })}
-                      {!telegramDocsStatus.managerLinked ? (
-                        <p className="text-[11px] leading-snug text-zinc-500">
-                          Щоб отримати собі: Налаштування → Telegram → /link
-                        </p>
-                      ) : null}
-                      {!telegramDocsStatus.clientLinked ? (
-                        <p className="text-[11px] leading-snug text-zinc-500">
-                          Клієнту можна надіслати після прив'язки Telegram до контакту
-                        </p>
-                      ) : null}
                     </div>
                   )}
                 </div>
-                <div className="border-t border-zinc-100 pt-3">
-                  <div className="mb-1.5 text-xs font-medium text-zinc-600">Повернення</div>
+                <div className="border-t border-zinc-100 pt-2">
+                  <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+                    Повернення
+                  </div>
                   {(order.orderStage === "RECEIVED" || order.orderStage === "COMPLETED") &&
                   orderReturns.length > 0 ? (
                     <div className="mb-2 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-900">

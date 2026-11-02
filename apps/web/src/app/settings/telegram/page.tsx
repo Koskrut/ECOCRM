@@ -12,6 +12,7 @@ type TelegramConfig = {
   webhookSecretMasked?: string;
   publicBaseUrl?: string;
   leadCompanyId?: string;
+  staffGroupChatId?: string;
   aiEnabled?: boolean;
   aiOpenaiApiKeyMasked?: string;
   aiModel?: string;
@@ -35,6 +36,7 @@ export default function TelegramSettingsPage() {
   const [webhookSecret, setWebhookSecret] = useState("");
   const [publicBaseUrl, setPublicBaseUrl] = useState("");
   const [leadCompanyId, setLeadCompanyId] = useState("");
+  const [staffGroupChatId, setStaffGroupChatId] = useState("");
   const [aiEnabled, setAiEnabled] = useState(false);
   const [aiOpenaiApiKey, setAiOpenaiApiKey] = useState("");
   const [aiModel, setAiModel] = useState("");
@@ -68,6 +70,7 @@ export default function TelegramSettingsPage() {
       setWebhookSecret("");
       setPublicBaseUrl(data.publicBaseUrl ?? "");
       setLeadCompanyId(data.leadCompanyId ?? "");
+      setStaffGroupChatId(data.staffGroupChatId ?? "");
       setAiEnabled(data.aiEnabled ?? false);
       setAiOpenaiApiKey("");
       setAiModel(data.aiModel ?? "");
@@ -92,6 +95,7 @@ export default function TelegramSettingsPage() {
       const body: Record<string, string | boolean> = {
         publicBaseUrl: publicBaseUrl.trim(),
         leadCompanyId: leadCompanyId.trim(),
+        staffGroupChatId: staffGroupChatId.trim(),
         aiEnabled,
         aiModel: aiModel.trim(),
       };
@@ -111,6 +115,7 @@ export default function TelegramSettingsPage() {
       setAiOpenaiApiKey("");
       setPublicBaseUrl(data.publicBaseUrl ?? publicBaseUrl);
       setLeadCompanyId(data.leadCompanyId ?? leadCompanyId);
+      setStaffGroupChatId(data.staffGroupChatId ?? staffGroupChatId);
       setAiEnabled(data.aiEnabled ?? aiEnabled);
       setAiModel(data.aiModel ?? aiModel);
       setPublicStoreUrl(
@@ -294,6 +299,35 @@ export default function TelegramSettingsPage() {
                 onChange={(e) => setLeadCompanyId(e.target.value)}
                 placeholder="Company ID"
                 className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
+              />
+            </div>
+            <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-3">
+              <label className="block text-sm font-medium text-zinc-700">
+                ID внутрішньої групи співробітників
+              </label>
+              <p className="mt-0.5 text-xs text-zinc-500">
+                Chat id групи/супергрупи (наприклад <span className="font-mono">-100…</span>). Бот
+                лишається лише в цій групі, читає повідомлення в Inbox і дублює CRM-сповіщення.
+                Інші групи — виходить.
+              </p>
+              <ul className="mt-2 list-disc space-y-1 pl-4 text-xs text-zinc-500">
+                <li>
+                  @BotFather → Bot Settings → Group Privacy → <strong>Turn off</strong> (інакше бот
+                  не бачить звичайний текст).
+                </li>
+                <li>Додайте бота в групу і зробіть адміністратором.</li>
+                <li>
+                  Після зміни privacy інколи треба прибрати й знову додати бота. Chat id зʼявиться в
+                  логах webhook або можна взяти з будь-якого апдейту групи.
+                </li>
+                <li>Після збереження натисніть Register webhook (оновлює allowed_updates).</li>
+              </ul>
+              <input
+                type="text"
+                value={staffGroupChatId}
+                onChange={(e) => setStaffGroupChatId(e.target.value)}
+                placeholder="-1001234567890"
+                className="mt-2 w-full rounded-lg border border-zinc-300 px-3 py-2 font-mono text-sm text-zinc-900 placeholder:text-zinc-400"
               />
             </div>
             <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-3">

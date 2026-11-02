@@ -58,10 +58,23 @@ export function formatUaPersonName(
   return [clean(lastName), clean(firstName)].filter(Boolean).join(" ");
 }
 
+export function isTelegramGroupChatId(telegramChatId?: string | null): boolean {
+  const id = clean(telegramChatId);
+  return id.startsWith("-");
+}
+
 export function formatTelegramPeerLabel(
   peer?: TelegramPeerBrief | null,
   telegramChatId?: string | null,
 ): string {
+  const chatId = clean(telegramChatId);
+  if (isTelegramGroupChatId(chatId)) {
+    const title =
+      clean(peer?.firstName) ||
+      clean(peer?.lastName) ||
+      clean(peer?.username).replace(/^@/, "");
+    return title ? `Група · ${title}` : `Група · ${chatId}`;
+  }
   const first = clean(peer?.firstName);
   const last = clean(peer?.lastName);
   const username = clean(peer?.username).replace(/^@/, "");
@@ -70,7 +83,6 @@ export function formatTelegramPeerLabel(
   if (name && username) return `${name} · @${username}`;
   if (name) return name;
   if (username) return `@${username}`;
-  const chatId = clean(telegramChatId);
   if (chatId) return `Telegram · ${chatId}`;
   return "Telegram";
 }
@@ -117,6 +129,11 @@ export function formatTelegramConversationLabel(input: ConversationLabelInput): 
     if (peer && peer !== "Telegram") return withPhone(`Лід · ${peer}`, lead.phone);
     if (clean(lead.phone)) return `Лід · ${clean(lead.phone)}`;
     return "Лід";
+  }
+
+  // Group chats (staff / other) — never show as a person.
+  if (isTelegramGroupChatId(input.telegramChatId)) {
+    return formatTelegramPeerLabel(input.peer, input.telegramChatId);
   }
 
   return formatTelegramPeerLabel(input.peer, input.telegramChatId);

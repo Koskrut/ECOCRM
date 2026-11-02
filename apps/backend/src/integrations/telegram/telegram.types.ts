@@ -68,11 +68,26 @@ export type TelegramCallbackQuery = {
   data?: string;
 };
 
+/** Minimal ChatMember shape for my_chat_member updates. */
+export type TelegramChatMember = {
+  status?: string;
+  user?: TelegramUser;
+};
+
+export type TelegramChatMemberUpdated = {
+  chat: TelegramChat;
+  from?: TelegramUser;
+  date?: number;
+  old_chat_member?: TelegramChatMember;
+  new_chat_member?: TelegramChatMember;
+};
+
 export type TelegramUpdate = {
   update_id: number;
   message?: TelegramMessage;
   edited_message?: TelegramMessage;
   callback_query?: TelegramCallbackQuery;
+  my_chat_member?: TelegramChatMemberUpdated;
 };
 
 /** Media kind persisted on Message.mediaType for inbound non-text content. */
@@ -100,6 +115,8 @@ export type TelegramWebhookInfo = {
 export type ParsedInbound = {
   chatId: string;
   chatType: string | null;
+  /** Group/supergroup/channel title when present. */
+  chatTitle: string | null;
   userId: string;
   username: string | null;
   firstName: string | null;
@@ -134,4 +151,6 @@ export type SendMessageOptions = {
   /** Reply keyboard rows, e.g. 2×2 main menu. */
   menuKeyboard?: TelegramMenuButton[][];
   inlineKeyboard?: TelegramInlineButton[][];
+  /** Hide the reply keyboard (e.g. during onboarding after phone share). */
+  removeKeyboard?: boolean;
 };
