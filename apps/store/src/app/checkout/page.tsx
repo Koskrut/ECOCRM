@@ -83,8 +83,13 @@ export default function CheckoutPage() {
 
   useEffect(() => {
     if (!telegram.ready) return;
+    // Wait for Mini App initData → store_token before the first /me (matches Header).
+    if (telegram.isTelegram && telegram.loading) return;
+
+    let cancelled = false;
     getMe()
       .then((me) => {
+        if (cancelled) return;
         setLoggedIn(true);
         setFirstName(me.firstName ?? "");
         setLastName(me.lastName ?? "");
@@ -94,14 +99,26 @@ export default function CheckoutPage() {
         if (savedRegion) setRegion(savedRegion);
       })
       .catch(() => {
+        if (cancelled) return;
         setLoggedIn(false);
+        // Telegram session can still carry CRM phone/names before cabinet cookie sticks.
         if (isTelegramCheckout && telegram.profile) {
           if (telegram.profile.phone) setPhone(formatUaPhoneInput(telegram.profile.phone));
           if (telegram.profile.firstName) setFirstName(telegram.profile.firstName);
           if (telegram.profile.lastName) setLastName(telegram.profile.lastName);
         }
       });
-  }, [telegram.ready, isTelegramCheckout, telegram.profile]);
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    telegram.ready,
+    telegram.isTelegram,
+    telegram.loading,
+    telegram.loggedIn,
+    isTelegramCheckout,
+    telegram.profile,
+  ]);
 
   useEffect(() => {
     getCheckoutRegions()

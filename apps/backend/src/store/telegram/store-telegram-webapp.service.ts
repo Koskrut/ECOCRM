@@ -71,6 +71,16 @@ export class StoreTelegramWebAppService {
     let firstName = account?.firstName ?? parsed.user.first_name ?? null;
     let lastName = account?.lastName ?? parsed.user.last_name ?? null;
 
+    // Bot may have linked the contact on the conversation while telegramAccount.contactId
+    // is still empty — pull it so Mini App can issue store_token and prefill checkout.
+    if (!contactId && account?.telegramChatId) {
+      const conv = await this.prisma.conversation.findUnique({
+        where: { telegramChatId: account.telegramChatId },
+        select: { contactId: true },
+      });
+      if (conv?.contactId) contactId = conv.contactId;
+    }
+
     if (!contactId && account?.leadId) {
       const lead = await this.prisma.lead.findUnique({
         where: { id: account.leadId },
@@ -103,14 +113,17 @@ export class StoreTelegramWebAppService {
       });
     }
 
-    if (contactId && !phone) {
+    // Always prefer CRM contact identity for checkout prefill (not only when phone missing).
+    if (contactId) {
       const contact = await this.prisma.contact.findUnique({
         where: { id: contactId },
         select: { phone: true, firstName: true, lastName: true },
       });
-      phone = contact?.phone ?? null;
-      firstName = firstName || contact?.firstName || null;
-      lastName = lastName || contact?.lastName || null;
+      if (contact) {
+        phone = contact.phone ?? phone;
+        firstName = contact.firstName?.trim() || firstName;
+        lastName = contact.lastName?.trim() || lastName;
+      }
     }
 
     const chatId = account?.telegramChatId ?? telegramUserId;
