@@ -6,6 +6,7 @@ import { PaymentRequestsModule } from "../payment-requests/payment-requests.modu
 import { PrismaModule } from "../prisma/prisma.module";
 import { ProductsModule } from "../products/products.module";
 import { SettingsModule } from "../settings/settings.module";
+import { StoreJwtGuard } from "./auth/store-jwt.guard";
 import { StoreAuthModule } from "./auth/store-auth.module";
 import { StoreCabinetController } from "./cabinet/store-cabinet.controller";
 import { StoreCustomerController } from "./customer/store-customer.controller";
@@ -47,6 +48,7 @@ import { StoreTelegramWebAppService } from "./telegram/store-telegram-webapp.ser
     StoreTelegramWebAppController,
   ],
   providers: [
+    StoreJwtGuard,
     StoreCartService,
     StoreCheckoutService,
     StoreCheckoutPaymentLinkService,

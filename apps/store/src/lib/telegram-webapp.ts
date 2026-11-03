@@ -27,7 +27,39 @@ export type TelegramWebApp = {
 declare global {
   interface Window {
     Telegram?: { WebApp?: TelegramWebApp };
+    /** Set by the inline head script before telegram-web-app.js can drop the hash. */
+    __SUPREX_TG_INIT_DATA?: string;
   }
+}
+
+/** `tgWebAppData` from the Mini App URL hash or query. */
+export function parseTgWebAppData(source: string): string {
+  if (!source) return "";
+  const match = source.match(/(?:^|[?#&])tgWebAppData=([^&]*)/);
+  if (!match?.[1]) return "";
+  try {
+    return decodeURIComponent(match[1].replace(/\+/g, " ")).trim();
+  } catch {
+    return "";
+  }
+}
+
+export function readCapturedTelegramInitData(): string {
+  if (typeof window === "undefined") return "";
+  const snap = window.__SUPREX_TG_INIT_DATA?.trim() ?? "";
+  if (snap) return snap;
+  return parseTgWebAppData(window.location.hash) || parseTgWebAppData(window.location.search);
+}
+
+export function resolveTelegramInitData(app?: TelegramWebApp | null): string {
+  const live = app?.initData?.trim() || getTelegramInitData();
+  if (live) return live;
+  return readCapturedTelegramInitData();
+}
+
+export function isTelegramUserAgent(): boolean {
+  if (typeof navigator === "undefined") return false;
+  return /Telegram/i.test(navigator.userAgent);
 }
 
 /** True when Telegram injected the WebApp bridge (initData may still be empty briefly). */
@@ -43,7 +75,7 @@ export function getTelegramWebApp(): TelegramWebApp | null {
 
 export function getTelegramInitData(): string {
   const app = getTelegramWebApp();
-  return app?.initData?.trim() ?? "";
+  return app?.initData?.trim() || readCapturedTelegramInitData();
 }
 
 /** Script loads outside Telegram too — only initData (or unsafe user) means a real Mini App. */
@@ -62,8 +94,9 @@ export async function waitForTelegramWebApp(opts?: {
   timeoutMs?: number;
 }): Promise<TelegramWebApp | null> {
   if (typeof window === "undefined") return null;
-  const timeoutMs = opts?.timeoutMs ?? 4_000;
   const started = Date.now();
+  const inTelegramClient = isTelegramUserAgent() || Boolean(readCapturedTelegramInitData());
+  const timeoutMs = inTelegramClient ? (opts?.timeoutMs ?? 8_000) : 800;
 
   while (Date.now() - started < timeoutMs) {
     const app = window.Telegram?.WebApp;
@@ -73,11 +106,29 @@ export async function waitForTelegramWebApp(opts?: {
       } catch {
         /* ignore */
       }
-      if (isRealTelegramMiniApp(app)) return app;
+      if (isRealTelegramMiniApp(app) || readCapturedTelegramInitData()) return app;
+    } else if (readCapturedTelegramInitData()) {
+      return {
+        initData: readCapturedTelegramInitData(),
+        ready: () => undefined,
+        expand: () => undefined,
+        close: () => undefined,
+      };
     }
     await new Promise((r) => setTimeout(r, 50));
   }
 
+  const captured = readCapturedTelegramInitData();
+  if (captured) {
+    return (
+      window.Telegram?.WebApp ?? {
+        initData: captured,
+        ready: () => undefined,
+        expand: () => undefined,
+        close: () => undefined,
+      }
+    );
+  }
   const app = window.Telegram?.WebApp ?? null;
   return isRealTelegramMiniApp(app) ? app : null;
 }

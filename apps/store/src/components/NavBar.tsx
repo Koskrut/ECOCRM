@@ -67,6 +67,16 @@ export function NavBar() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [accountDropdownOpen]);
 
+  const authPending = !telegram.ready || telegram.loading;
+  const accountLoggedIn = Boolean(telegram.loggedIn || loggedIn);
+  const visibleAccountLinks = authPending
+    ? []
+    : accountLoggedIn
+      ? accountLinks.filter((link) => link.href === "/cabinet")
+      : telegram.isTelegram
+        ? []
+        : accountLinks;
+
   return (
     <nav
       data-site-nav
@@ -115,7 +125,7 @@ export function NavBar() {
                 className="absolute right-0 top-full z-10 mt-1 min-w-[160px] rounded-lg border border-[var(--border)] bg-white py-1 shadow-lg"
                 role="menu"
               >
-                {(loggedIn === true ? accountLinks.filter((l) => l.href === "/cabinet") : accountLinks).map(
+                {visibleAccountLinks.map(
                   ({ href, label, prefetch }) => (
                     <Link
                       key={href}

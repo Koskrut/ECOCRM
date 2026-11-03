@@ -10,18 +10,21 @@ const API = "/api/store";
 function storeAuthHeaders(path: string, extra?: Record<string, string>): HeadersInit {
   const headers: Record<string, string> = { ...(extra ?? {}) };
   if (typeof window === "undefined") return headers;
+  const pathname = path.split("?")[0] || path;
   const needsTelegramCart =
-    path === "/cart" ||
-    path.startsWith("/cart/") ||
-    path === "/checkout" ||
-    path.startsWith("/checkout/");
+    pathname === "/cart" ||
+    pathname.startsWith("/cart/") ||
+    pathname === "/checkout" ||
+    pathname.startsWith("/checkout/");
+  const tgToken = getTelegramStoreToken();
+  const cabinetToken = getTelegramCabinetToken();
   if (needsTelegramCart) {
-    const tgToken = getTelegramStoreToken();
     if (tgToken) headers.Authorization = `Bearer ${tgToken}`;
     return headers;
   }
-  const cabinetToken = getTelegramCabinetToken();
+  // Cabinet routes: store JWT, or the Mini App JWT when the cookie never stuck.
   if (cabinetToken) headers.Authorization = `Bearer ${cabinetToken}`;
+  else if (tgToken) headers.Authorization = `Bearer ${tgToken}`;
   return headers;
 }
 

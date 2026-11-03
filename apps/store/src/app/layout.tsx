@@ -62,6 +62,13 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="uk">
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var src=(location.hash||"")+"&"+(location.search||"");var m=src.match(/(?:^|[?#&])tgWebAppData=([^&]*)/);var data="";if(m&&m[1]){try{data=decodeURIComponent(m[1].replace(/\\+/g," "))}catch(e){data=""}}if(!data&&window.Telegram&&window.Telegram.WebApp&&window.Telegram.WebApp.initData){data=window.Telegram.WebApp.initData}if(data)window.__SUPREX_TG_INIT_DATA=data}catch(e){}})();`,
+          }}
+        />
+      </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} ${manrope.variable} antialiased min-h-screen flex flex-col`}
       >

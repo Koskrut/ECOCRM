@@ -113,6 +113,15 @@ export function Header() {
   };
 
   const initialSearch = searchParams.get("search") ?? "";
+  const authPending = !telegram.ready || telegram.loading;
+  const accountLoggedIn = Boolean(telegram.loggedIn || loggedIn);
+  const visibleAccountLinks = authPending
+    ? []
+    : accountLoggedIn
+      ? accountLinks.filter((link) => link.href === "/cabinet")
+      : telegram.isTelegram
+        ? []
+        : accountLinks;
 
   return (
     <header className="sticky top-0 z-20 border-b border-[var(--border)] bg-white shadow-sm safe-area-top">
@@ -231,7 +240,7 @@ export function Header() {
                     )}
                   </Link>
                 ))}
-                {(loggedIn === true ? accountLinks.filter((l) => l.href === "/cabinet") : accountLinks).map(
+                {visibleAccountLinks.map(
                   ({ href, label, prefetch }) => (
                     <Link
                       key={href}

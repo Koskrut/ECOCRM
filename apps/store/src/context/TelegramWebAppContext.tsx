@@ -10,8 +10,9 @@ import {
   useState,
 } from "react";
 import {
-  getTelegramInitData,
   getTelegramWebApp,
+  isTelegramUserAgent,
+  resolveTelegramInitData,
   waitForTelegramWebApp,
 } from "@/lib/telegram-webapp";
 import {
@@ -108,7 +109,7 @@ export function TelegramWebAppProvider({ children }: { children: React.ReactNode
         lastName: session.lastName,
         contactId: session.contactId,
       });
-      const nextLoggedIn = Boolean(session.loggedIn);
+      const nextLoggedIn = Boolean(session.loggedIn || session.contactId);
       loggedInRef.current = nextLoggedIn;
       setLoggedIn(nextLoggedIn);
       setError(null);
@@ -117,7 +118,7 @@ export function TelegramWebAppProvider({ children }: { children: React.ReactNode
   );
 
   const refreshSession = useCallback(async () => {
-    const initData = getTelegramInitData();
+    const initData = resolveTelegramInitData();
     if (!initData) return false;
     try {
       const session = await exchangeInitData(initData);
@@ -137,12 +138,13 @@ export function TelegramWebAppProvider({ children }: { children: React.ReactNode
 
     const boot = async () => {
       setLoading(true);
-      // Catalog web_app can hydrate before telegram-web-app.js finishes — wait briefly.
-      const app = await waitForTelegramWebApp({ timeoutMs: 4_000 });
+      // Catalog web_app can hydrate before telegram-web-app.js copies tgWebAppData.
+      const app = await waitForTelegramWebApp({ timeoutMs: 8_000 });
       if (cancelled) return;
+      const initData = resolveTelegramInitData(app);
+      const inTelegram = Boolean(initData) || isTelegramUserAgent() || Boolean(app);
 
-      if (!app) {
-        // Regular browser (or Telegram script stub without initData).
+      if (!inTelegram) {
         clearTelegramStoreSession();
         setIsTelegram(false);
         setLoading(false);
@@ -152,13 +154,13 @@ export function TelegramWebAppProvider({ children }: { children: React.ReactNode
 
       setIsTelegram(true);
       try {
-        app.ready();
-        app.expand();
+        app?.ready();
+        app?.expand();
       } catch {
         /* ignore */
       }
 
-      const theme = app.themeParams ?? {};
+      const theme = app?.themeParams ?? {};
       if (theme.bg_color) {
         document.documentElement.style.setProperty("--tg-bg", theme.bg_color);
       }
@@ -166,7 +168,6 @@ export function TelegramWebAppProvider({ children }: { children: React.ReactNode
         document.documentElement.style.setProperty("--primary", theme.button_color);
       }
 
-      const initData = app.initData?.trim() ?? "";
       if (!initData) {
         setError("Telegram не передав сесію. Закрийте вітрину і знову натисніть «Каталог» у боті.");
         setLoading(false);
