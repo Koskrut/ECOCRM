@@ -15,7 +15,7 @@ export async function GET(
     res = await fetch(target.toString(), {
       method: "GET",
       headers: { Accept: req.headers.get("accept") ?? "image/*" },
-      cache: "no-store",
+      next: { revalidate: 86400 },
     });
   } catch {
     return NextResponse.json(

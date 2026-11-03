@@ -2,6 +2,12 @@
 # Usage: copy .env from apps/backend/.env.example, add POSTGRES_PASSWORD, then:
 #   docker compose -f docker-compose.prod.yml --env-file .env up -d --build
 
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -11,10 +17,9 @@ services:
       POSTGRES_DB: crm
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    # Expose 5432 on all interfaces so import run from another host (e.g. 159.159.31.153) can connect. Restrict with firewall (e.g. ufw allow from 159.159.31.153 to any port 5432).
-    ports:
-      - "5432:5432"
+    # Internal only — do not publish 5432 to the host/internet.
     restart: unless-stopped
+    logging: *default-logging
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U crm -d crm"]
       interval: 5s
@@ -55,6 +60,7 @@ services:
     ports:
       - "3001:3001"
     restart: unless-stopped
+    logging: *default-logging
 
   osrm:
     image: osrm/osrm-backend:latest
@@ -62,6 +68,7 @@ services:
     volumes:
       - osrm_data:/data:ro
     restart: unless-stopped
+    logging: *default-logging
     # Internal only — do not publish port 5000 to the internet.
 
   web:
@@ -76,6 +83,7 @@ services:
     ports:
       - "3000:3000"
     restart: unless-stopped
+    logging: *default-logging
 
   store:
     build:
@@ -89,6 +97,7 @@ services:
     ports:
       - "3002:3002"
     restart: unless-stopped
+    logging: *default-logging
 
 volumes:
   postgres_data:

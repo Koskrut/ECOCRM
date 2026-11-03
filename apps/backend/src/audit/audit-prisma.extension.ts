@@ -1,7 +1,12 @@
-import type { AuditAction, Prisma, PrismaClient } from "@prisma/client";
+import type { AuditAction, PrismaClient } from "@prisma/client";
 import { Prisma as PrismaNamespace } from "@prisma/client";
 import { computeAuditDiff } from "./audit-diff";
 import { getAuditContext } from "./audit-context";
+import {
+  buildAuditLogPayload,
+  shouldSkipAuditModel,
+  type AuditDiffEntry,
+} from "./audit-payload";
 import { redactAuditValue } from "./audit-redaction";
 
 const AUDITED_ACTIONS = new Set([
@@ -85,6 +90,16 @@ type QueryArgs = {
   query: (args: Record<string, unknown>) => Promise<unknown>;
 };
 
+function fireAndForgetAuditInsert(
+  client: PrismaClient,
+  payload: ReturnType<typeof buildAuditLogPayload>,
+): void {
+  void client.auditLog.create({ data: payload as any }).catch((err: unknown) => {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[auditExtension] auditLog.create failed: ${msg}`);
+  });
+}
+
 // Object-form defineExtension — callback form breaks model delegates in Prisma 7 (`.user` is undefined).
 export const auditExtension = PrismaNamespace.defineExtension({
   name: "crm-audit",
@@ -92,8 +107,7 @@ export const auditExtension = PrismaNamespace.defineExtension({
     $allModels: {
       async $allOperations({ model, operation, args, query }: QueryArgs) {
         if (
-          !model ||
-          model === "AuditLog" ||
+          shouldSkipAuditModel(model) ||
           !AUDITED_ACTIONS.has(operation) ||
           getAuditContext()?.skipAudit
         ) {
@@ -101,7 +115,7 @@ export const auditExtension = PrismaNamespace.defineExtension({
         }
 
         const client = getAuditPrismaClient();
-        const entityType = model;
+        const entityType = model as string;
         const argsObj = args as Record<string, unknown>;
         const where = argsObj?.where;
         const data = argsObj?.data;
@@ -112,7 +126,7 @@ export const auditExtension = PrismaNamespace.defineExtension({
           !isBulk &&
           (operation === "update" || operation === "delete" || operation === "upsert")
         ) {
-          const delegate = (client as unknown as Record<string, unknown>)[modelDelegateName(model)] as
+          const delegate = (client as unknown as Record<string, unknown>)[modelDelegateName(entityType)] as
             | { findUnique?: (findArgs: unknown) => Promise<unknown> }
             | undefined;
           if (delegate?.findUnique && where) {
@@ -138,7 +152,7 @@ export const auditExtension = PrismaNamespace.defineExtension({
 
         let after: unknown = null;
         let entityId: string;
-        let diff: ReturnType<typeof computeAuditDiff> | null = null;
+        let diff: AuditDiffEntry[] | null = null;
         let beforeRedacted: unknown = null;
         let afterRedacted: unknown = null;
 
@@ -154,32 +168,47 @@ export const auditExtension = PrismaNamespace.defineExtension({
         } else {
           if (operation === "create" || operation === "update" || operation === "upsert") {
             after = result;
+          } else if (operation === "delete") {
+            after = null;
           }
           entityId =
             extractEntityId(after) !== "*" ? extractEntityId(after) : extractEntityId(before);
           beforeRedacted = redactAuditValue(before);
           afterRedacted = redactAuditValue(after);
-          if (action === "UPDATE" || action === "STATUS_CHANGE" || action === "RELATION_CHANGE") {
-            diff = computeAuditDiff(beforeRedacted, afterRedacted);
+          if (
+            action === "UPDATE" ||
+            action === "STATUS_CHANGE" ||
+            action === "RELATION_CHANGE" ||
+            action === "CREATE" ||
+            action === "DELETE"
+          ) {
+            if (entityType === "Order") {
+              // Diff built inside buildAuditLogPayload from before/after redacted.
+              diff = null;
+            } else if (
+              action === "UPDATE" ||
+              action === "STATUS_CHANGE" ||
+              action === "RELATION_CHANGE"
+            ) {
+              diff = computeAuditDiff(beforeRedacted, afterRedacted);
+            }
           }
         }
 
         const context = getAuditContext();
-        const payload = {
+        const payload = buildAuditLogPayload({
           entityType,
           entityId,
           action,
           changedBy: context?.actor.id ?? "system",
           changedByRole: context?.actor.role ?? null,
-          before: (beforeRedacted ?? null) as Prisma.InputJsonValue | null,
-          after: (afterRedacted ?? null) as Prisma.InputJsonValue | null,
-          diff: (diff ?? null) as unknown as Prisma.InputJsonValue | null,
-          context: (redactAuditValue(context?.request ?? null) ?? null) as Prisma.InputJsonValue | null,
-        };
-
-        await client.auditLog.create({
-          data: payload as any,
+          beforeRedacted,
+          afterRedacted,
+          diff,
+          context: context?.request ?? null,
         });
+
+        fireAndForgetAuditInsert(client, payload);
 
         return result;
       },

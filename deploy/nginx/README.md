@@ -81,6 +81,13 @@ sudo nginx -t && sudo systemctl reload nginx
 ```
 
 После обновления конфига на сервере продублируйте эту директиву и в HTTPS-блоках, которые certbot добавил вручную (`listen 443 ssl`), если их там нет.
+
+### Картинки каталога (`/api/products/images/.../source`)
+
+В шаблоне для **crm** и **www** location `^/api/products/images/([^/]+)/source/?$` проксирует сразу на backend (`127.0.0.1:3001`), минуя Next. Так браузер получает `Cache-Control` от API без лишнего hop через web/store.
+
+Если certbot вынес HTTPS в отдельный `server { listen 443 ssl; ... }`, **продублируйте тот же location** в блок `:443` для `crm.suprex.dental` и `www.suprex.dental` — иначе картинки снова пойдут через Next на HTTPS.
+
 ## 4. Получить SSL-сертификаты
 
 ```bash

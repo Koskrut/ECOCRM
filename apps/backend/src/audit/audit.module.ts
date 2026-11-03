@@ -4,6 +4,7 @@ import { TimelineModule } from "../timeline/timeline.module";
 import { AuditAccessService } from "./audit-access.service";
 import { AuditController } from "./audit.controller";
 import { AuditContextInterceptor } from "./audit-context.interceptor";
+import { AuditRetentionCron } from "./audit-retention.cron";
 import { AuditService } from "./audit.service";
 
 @Module({
@@ -12,6 +13,7 @@ import { AuditService } from "./audit.service";
   providers: [
     AuditService,
     AuditAccessService,
+    AuditRetentionCron,
     {
       provide: APP_INTERCEPTOR,
       useClass: AuditContextInterceptor,
