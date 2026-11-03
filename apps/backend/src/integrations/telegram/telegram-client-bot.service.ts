@@ -59,6 +59,7 @@ import {
   TELEGRAM_ONBOARDING_DONE_NO_MANAGER,
   TELEGRAM_ONBOARDING_INTRO,
   TELEGRAM_ONBOARDING_PAUSED,
+  TELEGRAM_PRESS_START,
   TELEGRAM_PROFILE_REQUIRED,
   TELEGRAM_REQUEST_PHONE,
   TELEGRAM_WELCOME,
@@ -165,6 +166,25 @@ function isCheckoutState(state: string): boolean {
     state === "checkout_comment" ||
     state === "checkout_phone"
   );
+}
+
+/** Inline footer: Cancel always; Back when the wizard has a previous step. */
+function withCheckoutNav(rows: InlineBtn[][], opts?: { back?: boolean }): InlineBtn[][] {
+  const nav: InlineBtn[] = [];
+  if (opts?.back) {
+    nav.push({ text: "« Назад", callback_data: "chk:back" });
+  }
+  nav.push({ text: MENU_CLIENT_CANCEL, callback_data: "chk:abort" });
+  return [...rows, nav];
+}
+
+function withOnboardingNav(rows: InlineBtn[][], opts?: { back?: boolean }): InlineBtn[][] {
+  const nav: InlineBtn[] = [];
+  if (opts?.back) {
+    nav.push({ text: "« Назад", callback_data: "onb:back" });
+  }
+  nav.push({ text: MENU_CLIENT_CANCEL, callback_data: "onb:abort" });
+  return [...rows, nav];
 }
 
 function isSlashCommand(text: string, name: string): boolean {
@@ -284,13 +304,18 @@ export class TelegramClientBotService {
     // Explicit cancel always exits any wizard (including onboarding).
     if (text === MENU_CLIENT_CANCEL || isSlashCommand(text, "cancel")) {
       const wasOnboarding = inOnboarding;
-      const wasCheckout = isCheckoutState(earlySession.state);
-      await this.sessions.resetIdle(parsed.userId);
-      if (wasOnboarding) {
+      const wasCatalogSearch = earlySession.state === "catalog_search";
+      const known = await this.identityKnown(parsed.userId, contactId, leadId);
+      if (wasCatalogSearch) {
+        await this.restoreCatalogPlace(parsed, conversationId, earlySession.payload);
+      } else if (wasOnboarding) {
+        await this.sessions.resetIdle(parsed.userId);
         await this.replyStartOnly(parsed.chatId, conversationId, TELEGRAM_ONBOARDING_PAUSED);
-      } else if (wasCheckout) {
-        await this.replyMenu(parsed.chatId, conversationId, TELEGRAM_CANCELLED);
+      } else if (!known) {
+        await this.sessions.resetIdle(parsed.userId);
+        await this.replyStartOnly(parsed.chatId, conversationId, TELEGRAM_PRESS_START);
       } else {
+        await this.sessions.resetIdle(parsed.userId);
         await this.replyMenu(parsed.chatId, conversationId, TELEGRAM_CANCELLED);
       }
       return { handled: true, notifyManager: false };
@@ -316,7 +341,27 @@ export class TelegramClientBotService {
       return { handled: true, notifyManager: false };
     }
     if (isSlashCommand(text, "help")) {
-      await this.replyMenu(parsed.chatId, conversationId, TELEGRAM_HELP);
+      if (isCheckoutState(earlySession.state)) {
+        await this.replyCheckoutText(
+          parsed.chatId,
+          conversationId,
+          "Оформлення триває. Напишіть дані цього кроку, «Назад» під повідомленням або «Скасувати».",
+        );
+      } else if (inOnboarding) {
+        await this.replyOnboardingText(
+          parsed.chatId,
+          conversationId,
+          "Спочатку завершіть профіль. «Назад» і «Скасувати» — під повідомленням.",
+        );
+      } else if (earlySession.state === "catalog_search") {
+        await this.replyCheckoutText(
+          parsed.chatId,
+          conversationId,
+          "Напишіть назву або артикул. «Скасувати» поверне до того місця каталогу, звідки ви шукали.",
+        );
+      } else {
+        await this.replyMenu(parsed.chatId, conversationId, TELEGRAM_HELP);
+      }
       return { handled: true, notifyManager: false };
     }
     if (text === MENU_START || isSlashCommand(text, "start")) {
@@ -470,12 +515,7 @@ export class TelegramClientBotService {
         if (!(await this.ensureCrmProfile(parsed, conversationId, contactId, leadId))) {
           return { handled: true, notifyManager: false };
         }
-        await this.sessions.set(parsed.userId, "catalog_search", {});
-        await this.replyMenu(
-          parsed.chatId,
-          conversationId,
-          "Напишіть назву або артикул товару для пошуку:",
-        );
+        await this.beginCatalogSearch(parsed, conversationId);
         return { handled: true, notifyManager: false };
       }
       const system = CATALOG_SYSTEMS.find((item) => item.name === text);
@@ -491,6 +531,17 @@ export class TelegramClientBotService {
     // Callbacks
     if (parsed.isCallback && text) {
       const commerceNs = text.startsWith("cat:") || text.startsWith("cart:") || text.startsWith("ord:") || text.startsWith("chk:");
+      // Old catalog/cart/orders inline buttons must not wipe an active checkout draft.
+      // cart:chk is the resume/start path; chk:* is the wizard itself.
+      const blocksCheckout =
+        isCheckoutState(earlySession.state) &&
+        (text.startsWith("cat:") ||
+          text.startsWith("ord:") ||
+          (text.startsWith("cart:") && !text.startsWith("cart:chk")));
+      if (blocksCheckout) {
+        await this.replyCheckoutNotice(parsed.chatId, conversationId);
+        return { handled: true, notifyManager: false };
+      }
       if (commerceNs && !(await this.ensureCrmProfile(parsed, conversationId, contactId, leadId))) {
         return { handled: true, notifyManager: false };
       }
@@ -519,6 +570,11 @@ export class TelegramClientBotService {
 
     if (isCheckoutState(earlySession.state)) {
       await this.replyCheckoutNotice(parsed.chatId, conversationId);
+      return { handled: true, notifyManager: false };
+    }
+
+    // Staff shopping as a client: do not ping CRM inbox for catalog/idle chatter.
+    if (earlySession.payload.staffShopMode) {
       return { handled: true, notifyManager: false };
     }
 
@@ -588,12 +644,7 @@ export class TelegramClientBotService {
         return;
       }
       if (action === "s") {
-        await this.sessions.set(parsed.userId, "catalog_search", {});
-        await this.replyMenu(
-          parsed.chatId,
-          conversationId,
-          "Напишіть назву або артикул товару для пошуку:",
-        );
+        await this.beginCatalogSearch(parsed, conversationId);
         return;
       }
       if (action === "i" && rest[0]) {
@@ -608,8 +659,12 @@ export class TelegramClientBotService {
     }
 
     if (ns === "cart") {
+      if (action === "inc" || action === "dec" || action === "rm") {
+        await this.adjustCartItem(parsed, conversationId, action, rest.join(":"));
+        return;
+      }
       if (action === "clr") {
-        await this.cart.clearCart({ sessionId: cartSessionId(parsed.userId) });
+        await this.cart.clearCart(await this.syncChatCart(parsed.userId));
         await this.replyMenu(parsed.chatId, conversationId, "Кошик очищено.");
         return;
       }
@@ -710,12 +765,7 @@ export class TelegramClientBotService {
         ...payload,
         building: text,
       });
-      await this.replyCheckoutText(
-        parsed.chatId,
-        conversationId,
-        "Квартира / офіс (або «-» якщо немає):",
-      );
-      void next;
+      await this.promptFlat(parsed, conversationId, next);
       return;
     }
     if (state === "checkout_flat") {
@@ -748,10 +798,10 @@ export class TelegramClientBotService {
         }
         return;
       }
-      await this.telegram.sendMessageToChat(
+      await this.requestCheckoutPhone(
         parsed.chatId,
+        conversationId,
         "Щоб продовжити оформлення, поділіться номером кнопкою нижче.",
-        { requestContactButton: true },
       );
       return;
     }
@@ -785,6 +835,69 @@ export class TelegramClientBotService {
     } catch {
       return null;
     }
+  }
+
+  private catalogPlace(payload: BotSessionPayload): BotSessionPayload {
+    return {
+      catalogPage: payload.catalogPage,
+      catalogSearch: payload.catalogSearch,
+      catalogGroup: payload.catalogGroup,
+      catalogCategory: payload.catalogCategory,
+      catalogSubcategory: payload.catalogSubcategory,
+      catalogCategoryOnlySub: payload.catalogCategoryOnlySub,
+      catalogBranches: payload.catalogBranches,
+      catalogSubHits: payload.catalogSubHits,
+    };
+  }
+
+  private async beginCatalogSearch(parsed: ParsedInbound, conversationId: string): Promise<void> {
+    const session = await this.sessions.get(parsed.userId);
+    await this.sessions.set(parsed.userId, "catalog_search", this.catalogPlace(session.payload));
+    await this.replyCheckoutText(
+      parsed.chatId,
+      conversationId,
+      "Напишіть назву або артикул товару для пошуку.\n\nСкасувати поверне до цього місця каталогу.",
+    );
+  }
+
+  /** Leave search on the list, category, or system the user opened it from. */
+  private async restoreCatalogPlace(
+    parsed: ParsedInbound,
+    conversationId: string,
+    payload: BotSessionPayload,
+  ): Promise<void> {
+    if (
+      payload.catalogPage ||
+      payload.catalogSearch ||
+      payload.catalogCategory ||
+      payload.catalogSubcategory ||
+      payload.catalogCategoryOnlySub
+    ) {
+      await this.showCatalog(
+        parsed,
+        conversationId,
+        payload.catalogPage || 1,
+        payload.catalogSearch,
+        payload.catalogGroup,
+        {
+          category: payload.catalogCategory,
+          subcategory: payload.catalogSubcategory,
+          categoryOnlySub: payload.catalogCategoryOnlySub,
+          subHits: payload.catalogSubHits,
+          branches: payload.catalogBranches,
+        },
+      );
+      return;
+    }
+    if (payload.catalogGroup && payload.catalogCategory && payload.catalogSubHits?.length) {
+      await this.showCatalogSubcategories(parsed, conversationId, payload);
+      return;
+    }
+    if (payload.catalogGroup) {
+      await this.showCatalogGroup(parsed, conversationId, payload.catalogGroup);
+      return;
+    }
+    await this.showCatalogHome(parsed, conversationId);
   }
 
   private async showCatalogHome(parsed: ParsedInbound, conversationId: string): Promise<void> {
@@ -858,8 +971,11 @@ export class TelegramClientBotService {
     const rows: InlineBtn[][] = shown.map((branch, index) => [
       { text: branch.name.slice(0, 64), callback_data: `cat:k:${index}` },
     ]);
-    rows.push([{ text: "« Системи", callback_data: "cat:home" }]);
-    rows.push([{ text: CATALOG_SEARCH_BUTTON, callback_data: "cat:s" }]);
+    rows.push([
+      { text: "« Системи", callback_data: "cat:home" },
+      { text: CATALOG_SEARCH_BUTTON, callback_data: "cat:s" },
+      { text: "🛒 Кошик", callback_data: "cart:show" },
+    ]);
     await this.replyInline(
       parsed.chatId,
       conversationId,
@@ -940,10 +1056,13 @@ export class TelegramClientBotService {
     const rows: InlineBtn[][] = hits.map((name, index) => [
       { text: name.slice(0, 64), callback_data: `cat:n:${index}` },
     ]);
+    const footer: InlineBtn[] = [];
     if (payload.catalogGroup) {
-      rows.push([{ text: "« Категорії", callback_data: `cat:g:${payload.catalogGroup}` }]);
+      footer.push({ text: "« Категорії", callback_data: `cat:g:${payload.catalogGroup}` });
     }
-    rows.push([{ text: CATALOG_SEARCH_BUTTON, callback_data: "cat:s" }]);
+    footer.push({ text: CATALOG_SEARCH_BUTTON, callback_data: "cat:s" });
+    footer.push({ text: "🛒 Кошик", callback_data: "cart:show" });
+    rows.push(footer);
     await this.replyInline(
       parsed.chatId,
       conversationId,
@@ -1006,7 +1125,7 @@ export class TelegramClientBotService {
           : path?.category || path?.subcategory
             ? "У цій категорії поки немає товарів."
             : "У цій системі поки немає товарів.",
-        [backRow, [{ text: CATALOG_SEARCH_BUTTON, callback_data: "cat:s" }], [{ text: "🛒 Кошик", callback_data: "cart:show" }]],
+        [[...backRow, { text: CATALOG_SEARCH_BUTTON, callback_data: "cat:s" }, { text: "🛒 Кошик", callback_data: "cart:show" }]],
       );
       return;
     }
@@ -1045,11 +1164,23 @@ export class TelegramClientBotService {
       [
         ...productRows,
         ...(nav.length ? [nav] : []),
-        backRow,
-        [{ text: CATALOG_SEARCH_BUTTON, callback_data: "cat:s" }],
-        [{ text: "🛒 Кошик", callback_data: "cart:show" }],
+        [
+          ...backRow,
+          { text: CATALOG_SEARCH_BUTTON, callback_data: "cat:s" },
+          { text: "🛒 Кошик", callback_data: "cart:show" },
+        ],
       ],
     );
+  }
+
+  /** Return to the current catalog list page / branch (not hard-coded page 1). */
+  private async catalogReturnCallback(userId: string): Promise<string> {
+    const session = await this.sessions.get(userId);
+    const page = session.payload.catalogPage;
+    if (typeof page === "number" && page >= 1) return `cat:p:${page}`;
+    if (session.payload.catalogSubHits?.length) return "cat:branch";
+    if (session.payload.catalogGroup) return `cat:g:${session.payload.catalogGroup}`;
+    return "cat:home";
   }
 
   private async showProduct(
@@ -1075,6 +1206,7 @@ export class TelegramClientBotService {
     ]
       .filter(Boolean)
       .join("\n");
+    const backData = await this.catalogReturnCallback(parsed.userId);
     const buttons: InlineBtn[][] = [];
     if (p.stock > 0) {
       buttons.push([
@@ -1083,15 +1215,17 @@ export class TelegramClientBotService {
         { text: "+5", callback_data: `cat:a:${p.id}:5` },
       ]);
     }
-    buttons.push([{ text: "🛒 Кошик", callback_data: "cart:show" }]);
-    buttons.push([{ text: "⬅️ Каталог", callback_data: "cat:p:1" }]);
+    buttons.push([
+      { text: "⬅️ Каталог", callback_data: backData },
+      { text: "🛒 Кошик", callback_data: "cart:show" },
+    ]);
 
     if (p.primaryImageUrl) {
       try {
         const { messageId } = await this.telegram.sendPhotoToChat(parsed.chatId, p.primaryImageUrl, {
           caption,
           inlineKeyboard: buttons,
-          menuKeyboard: CLIENT_MENU_KEYBOARD,
+          menuKeyboard: await this.clientMenuKeyboard(),
         });
         await this.recordOutbound(conversationId, caption, messageId);
         return;
@@ -1109,11 +1243,8 @@ export class TelegramClientBotService {
     qty: number,
   ): Promise<void> {
     try {
-      const cart = await this.cart.addItem(
-        { sessionId: cartSessionId(parsed.userId) },
-        productId,
-        qty,
-      );
+      const cart = await this.cart.addItem(await this.syncChatCart(parsed.userId), productId, qty);
+      const backData = await this.catalogReturnCallback(parsed.userId);
       await this.replyInline(
         parsed.chatId,
         conversationId,
@@ -1121,7 +1252,7 @@ export class TelegramClientBotService {
         [
           [{ text: "🛒 Кошик", callback_data: "cart:show" }],
           [{ text: "✅ Оформити", callback_data: "cart:chk" }],
-          [{ text: "⬅️ Каталог", callback_data: "cat:p:1" }],
+          [{ text: "⬅️ Каталог", callback_data: backData }],
         ],
       );
     } catch (err) {
@@ -1132,11 +1263,65 @@ export class TelegramClientBotService {
 
   // ─── Cart ────────────────────────────────────────────────────────────────
 
+  /** Bot + Mini App share `tg:{userId}`. Fold a leftover customer cart into that session. */
+  private async syncChatCart(userId: string): Promise<{ sessionId: string }> {
+    const sessionId = cartSessionId(userId);
+    try {
+      const account = await this.prisma.telegramAccount.findUnique({
+        where: { telegramUserId: userId },
+        select: { contactId: true },
+      });
+      const contactId = account?.contactId;
+      if (!contactId) return { sessionId };
+      const customer = await this.prisma.customer.findUnique({
+        where: { contactId },
+        select: { id: true },
+      });
+      if (customer) await this.cart.unifyTelegramCart(customer.id, sessionId);
+    } catch {
+      /* session cart still works */
+    }
+    return { sessionId };
+  }
+
+  private async adjustCartItem(
+    parsed: ParsedInbound,
+    conversationId: string,
+    action: string,
+    itemId: string,
+  ): Promise<void> {
+    if (!itemId) {
+      await this.showCart(parsed, conversationId);
+      return;
+    }
+    const identity = await this.syncChatCart(parsed.userId);
+    try {
+      const cart = await this.cart.getCart(identity);
+      const item = cart.items.find((row) => row.id === itemId);
+      if (!item) {
+        await this.showCart(parsed, conversationId);
+        return;
+      }
+      if (action === "rm" || (action === "dec" && item.qty <= 1)) {
+        await this.cart.removeItem(identity, itemId);
+      } else if (action === "dec") {
+        await this.cart.updateItemQty(identity, itemId, item.qty - 1);
+      } else {
+        await this.cart.updateItemQty(identity, itemId, item.qty + 1);
+      }
+    } catch (err) {
+      const msg = err instanceof BadRequestException ? String(err.message) : "Не вдалося змінити кількість.";
+      await this.replyMenu(parsed.chatId, conversationId, msg);
+      return;
+    }
+    await this.showCart(parsed, conversationId);
+  }
+
   private async showCart(parsed: ParsedInbound, conversationId: string): Promise<void> {
-    const cart = await this.cart.getCart({ sessionId: cartSessionId(parsed.userId) });
+    const cart = await this.cart.getCart(await this.syncChatCart(parsed.userId));
     if (!cart.items.length) {
       await this.replyInline(parsed.chatId, conversationId, "Кошик порожній.", [
-        [{ text: "🛍 Каталог", callback_data: "cat:p:1" }],
+        [{ text: "🛍 Каталог", callback_data: "cat:home" }],
       ]);
       return;
     }
@@ -1144,14 +1329,21 @@ export class TelegramClientBotService {
       (i) => `• ${i.name} × ${i.qty} = ${Math.round(i.lineTotal * cart.uahPerUsd)} грн`,
     );
     const totalUah = Math.round(cart.subtotal * cart.uahPerUsd);
+    const qtyRows: InlineBtn[][] = cart.items.map((item) => [
+      { text: "−", callback_data: `cart:dec:${item.id}` },
+      { text: `${item.name} · ${item.qty}`.slice(0, 40), callback_data: "cart:show" },
+      { text: "+", callback_data: `cart:inc:${item.id}` },
+      { text: "✕", callback_data: `cart:rm:${item.id}` },
+    ]);
     await this.replyInline(
       parsed.chatId,
       conversationId,
       `Кошик:\n${lines.join("\n")}\n\nРазом: ${totalUah} грн`,
       [
+        ...qtyRows,
         [{ text: "✅ Оформити", callback_data: "cart:chk" }],
         [{ text: "🗑 Очистити", callback_data: "cart:clr" }],
-        [{ text: "🛍 Каталог", callback_data: "cat:p:1" }],
+        [{ text: "🛍 Каталог", callback_data: "cat:home" }],
       ],
     );
   }
@@ -1221,8 +1413,17 @@ export class TelegramClientBotService {
       }),
       this.prisma.order.count({ where }),
     ]);
+    const commerceFooter: InlineBtn[] = [
+      { text: "🛍 Каталог", callback_data: "cat:home" },
+      { text: "🛒 Кошик", callback_data: "cart:show" },
+    ];
     if (items.length === 0) {
-      await this.replyMenu(parsed.chatId, conversationId, "У CRM поки немає ваших замовлень.");
+      await this.replyInline(
+        parsed.chatId,
+        conversationId,
+        "У CRM поки немає ваших замовлень.",
+        [commerceFooter],
+      );
       return;
     }
     const lines = items.map((o) => {
@@ -1243,7 +1444,7 @@ export class TelegramClientBotService {
       parsed.chatId,
       conversationId,
       `Ваші замовлення:\n${lines.join("\n")}`,
-      [...rows, nav.length ? nav : []].filter((r) => r.length > 0),
+      [...rows, ...(nav.length ? [nav] : []), commerceFooter],
     );
   }
 
@@ -1313,6 +1514,10 @@ export class TelegramClientBotService {
     }
     buttons.push([{ text: "🔁 Повторити", callback_data: `ord:rep:${order.id}` }]);
     buttons.push([{ text: "⬅️ Список", callback_data: "ord:p:1" }]);
+    buttons.push([
+      { text: "🛍 Каталог", callback_data: "cat:home" },
+      { text: "🛒 Кошик", callback_data: "cart:show" },
+    ]);
     await this.replyInline(parsed.chatId, conversationId, lines.join("\n"), buttons);
   }
 
@@ -1343,7 +1548,9 @@ export class TelegramClientBotService {
       );
       return;
     }
-    await this.replyMenu(parsed.chatId, conversationId, `Оплата замовлення:\n${url}`);
+    await this.replyInline(parsed.chatId, conversationId, "Оплата замовлення:", [
+      [{ text: "💳 Оплатити", url }],
+    ]);
   }
 
   private async repeatOrder(
@@ -1366,13 +1573,13 @@ export class TelegramClientBotService {
       await this.replyMenu(parsed.chatId, conversationId, "Замовлення не знайдено.");
       return;
     }
-    const sessionId = cartSessionId(parsed.userId);
-    await this.cart.clearCart({ sessionId });
+    const identity = await this.syncChatCart(parsed.userId);
+    await this.cart.clearCart(identity);
     let added = 0;
     for (const item of order.items) {
       if (!item.productId) continue;
       try {
-        await this.cart.addItem({ sessionId }, item.productId, item.qty);
+        await this.cart.addItem(identity, item.productId, item.qty);
         added += 1;
       } catch {
         /* skip unavailable */
@@ -1432,6 +1639,7 @@ export class TelegramClientBotService {
     await this.sessions.resetIdle(parsed.userId);
     await this.telegram.sendMessageToChat(parsed.chatId, TELEGRAM_WELCOME, {
       requestContactButton: true,
+      menuKeyboard: CLIENT_FLOW_KEYBOARD,
     });
   }
 
@@ -1470,6 +1678,7 @@ export class TelegramClientBotService {
 
     await this.telegram.sendMessageToChat(parsed.chatId, TELEGRAM_REQUEST_PHONE, {
       requestContactButton: true,
+      menuKeyboard: CLIENT_FLOW_KEYBOARD,
     });
     return null;
   }
@@ -1508,38 +1717,23 @@ export class TelegramClientBotService {
 
     if (missingRole) {
       await this.sessions.set(parsed.userId, "onboarding_role", draft);
-      // Single message (inline). /cancel still exits; reply keyboard may already show Скасувати.
-      await this.replyOnboardingInline(
+      // Reply keyboard (Скасувати) before the first inline step.
+      await this.replyOnboardingText(
         parsed.chatId,
         conversationId,
-        "У профілі не вистачає даних. Оберіть, ви лікар чи технік:",
-        [
-          [
-            { text: "Лікар", callback_data: "onb:role:doctor" },
-            { text: "Технік", callback_data: "onb:role:tech" },
-          ],
-        ],
+        "У профілі не вистачає даних. Скасувати — кнопка нижче.",
       );
+      await this.askOnboardingRole(parsed, conversationId, { back: true });
       return true;
     }
 
     await this.sessions.set(parsed.userId, "onboarding_region", draft);
-    const regionRows: InlineBtn[][] = [];
-    for (let i = 0; i < UKRAINE_REGIONS.length; i += 2) {
-      const row: InlineBtn[] = [
-        { text: UKRAINE_REGIONS[i]!, callback_data: `onb:reg:${i}` },
-      ];
-      if (UKRAINE_REGIONS[i + 1]) {
-        row.push({ text: UKRAINE_REGIONS[i + 1]!, callback_data: `onb:reg:${i + 1}` });
-      }
-      regionRows.push(row);
-    }
-    await this.replyOnboardingInline(
+    await this.replyOnboardingText(
       parsed.chatId,
       conversationId,
-      "У профілі немає області — оберіть її, щоб закріпити менеджера:",
-      regionRows,
+      "У профілі немає області. Скасувати — кнопка нижче.",
     );
+    await this.askOnboardingRegion(parsed, conversationId);
     return true;
   }
 
@@ -1572,13 +1766,25 @@ export class TelegramClientBotService {
     );
   }
 
-  private async askOnboardingRole(parsed: ParsedInbound, conversationId: string): Promise<void> {
-    await this.replyOnboardingInline(parsed.chatId, conversationId, TELEGRAM_ONBOARDING_ASK_ROLE, [
-      [
-        { text: "Лікар", callback_data: "onb:role:doctor" },
-        { text: "Технік", callback_data: "onb:role:tech" },
-      ],
-    ]);
+  private async askOnboardingRole(
+    parsed: ParsedInbound,
+    conversationId: string,
+    opts?: { back?: boolean },
+  ): Promise<void> {
+    await this.replyOnboardingInline(
+      parsed.chatId,
+      conversationId,
+      TELEGRAM_ONBOARDING_ASK_ROLE,
+      withOnboardingNav(
+        [
+          [
+            { text: "Лікар", callback_data: "onb:role:doctor" },
+            { text: "Технік", callback_data: "onb:role:tech" },
+          ],
+        ],
+        { back: opts?.back !== false },
+      ),
+    );
   }
 
   private async askOnboardingRegion(parsed: ParsedInbound, conversationId: string): Promise<void> {
@@ -1596,7 +1802,7 @@ export class TelegramClientBotService {
       parsed.chatId,
       conversationId,
       TELEGRAM_ONBOARDING_ASK_REGION,
-      regionRows,
+      withOnboardingNav(regionRows, { back: true }),
     );
   }
 
@@ -1629,6 +1835,51 @@ export class TelegramClientBotService {
     const session = await this.sessions.get(parsed.userId);
     // Stale inline buttons must not hijack checkout / catalog sessions.
     if (!isOnboardingState(session.state)) {
+      return;
+    }
+
+    if (action === "abort") {
+      await this.sessions.resetIdle(parsed.userId);
+      await this.replyStartOnly(parsed.chatId, conversationId, TELEGRAM_ONBOARDING_PAUSED);
+      return;
+    }
+
+    if (action === "back") {
+      if (session.state === "onboarding_region") {
+        await this.sessions.set(
+          parsed.userId,
+          "onboarding_role",
+          withOnboardingFields(session.payload, {
+            onboardingFirstName: session.payload.onboardingFirstName,
+            onboardingLastName: session.payload.onboardingLastName,
+            onboardingContactId: session.payload.onboardingContactId,
+            onboardingClientType: undefined,
+          }),
+        );
+        await this.askOnboardingRole(parsed, conversationId, {
+          back: !session.payload.onboardingContactId,
+        });
+        return;
+      }
+      if (session.state === "onboarding_role") {
+        if (session.payload.onboardingContactId) {
+          // Gap-fill started at role — back = abort to Start.
+          await this.sessions.resetIdle(parsed.userId);
+          await this.replyStartOnly(parsed.chatId, conversationId, TELEGRAM_ONBOARDING_PAUSED);
+          return;
+        }
+        await this.sessions.set(
+          parsed.userId,
+          "onboarding_name",
+          withOnboardingFields(session.payload, {
+            onboardingFirstName: undefined,
+            onboardingLastName: undefined,
+            onboardingClientType: undefined,
+          }),
+        );
+        await this.replyOnboardingText(parsed.chatId, conversationId, TELEGRAM_ONBOARDING_ASK_NAME);
+        return;
+      }
       return;
     }
 
@@ -1918,12 +2169,23 @@ export class TelegramClientBotService {
         draft.warehouseRef ||
         draft.profileId,
     );
-    await this.sessions.set(parsed.userId, "idle", hasCheckoutDraft ? draft : {});
-
     let doneText = ownerId ? TELEGRAM_ONBOARDING_DONE : TELEGRAM_ONBOARDING_DONE_NO_MANAGER;
     if (hasCheckoutDraft) {
-      doneText += "\n\nЧернетку оформлення збережено — відкрийте кошик і натисніть «Оформити».";
+      const cart = await this.cart.getCart(await this.syncChatCart(parsed.userId));
+      if (cart.items.length) {
+        await this.replyCheckoutText(
+          parsed.chatId,
+          conversationId,
+          `${doneText}\n\nПродовжуємо оформлення.`,
+        );
+        await this.resumeCheckoutFromDraft(parsed, conversationId, contactId, draft, {
+          announce: false,
+        });
+        return;
+      }
+      doneText += "\n\nЧернетку збережено. Додайте товари в кошик і натисніть «Оформити».";
     }
+    await this.sessions.set(parsed.userId, "idle", hasCheckoutDraft ? draft : {});
     await this.replyMenu(parsed.chatId, conversationId, doneText);
   }
 
@@ -2035,7 +2297,7 @@ export class TelegramClientBotService {
     contactId: string | null,
     leadId: string | null = null,
   ): Promise<void> {
-    const cart = await this.cart.getCart({ sessionId: cartSessionId(parsed.userId) });
+    const cart = await this.cart.getCart(await this.syncChatCart(parsed.userId));
     if (!cart.items.length) {
       await this.replyMenu(parsed.chatId, conversationId, "Кошик порожній.");
       return;
@@ -2045,15 +2307,15 @@ export class TelegramClientBotService {
     const phone = await this.resolveKnownPhone(parsed.userId, contactId, leadId);
     if (!phone) {
       await this.sessions.set(parsed.userId, "checkout_phone", draft);
-      await this.telegram.sendMessageToChat(
+      await this.requestCheckoutPhone(
         parsed.chatId,
+        conversationId,
         "Для оформлення поділіться номером телефону:",
-        { requestContactButton: true },
       );
       return;
     }
     // Resume any draft saved across onboarding / phone share instead of wiping it.
-    await this.resumeCheckoutFromDraft(parsed, conversationId, contactId, draft);
+    await this.resumeCheckoutFromDraft(parsed, conversationId, contactId, draft, { announce: true });
   }
 
   private buildRegionInlineRows(): InlineBtn[][] {
@@ -2084,9 +2346,18 @@ export class TelegramClientBotService {
     conversationId: string,
     contactId: string | null,
     payload: BotSessionPayload,
+    opts?: { announce?: boolean },
   ): Promise<void> {
     const draft = pickCheckoutDraft(payload);
     await this.sessions.set(parsed.userId, "checkout_flow", draft);
+    // Telegram keeps only one reply_markup. Set Cancel once when entering from the commerce menu.
+    if (opts?.announce) {
+      await this.replyCheckoutText(
+        parsed.chatId,
+        conversationId,
+        "Оформлення. Скасувати — кнопка нижче або під кроками.",
+      );
+    }
 
     if (!draft.region) {
       await this.replyCheckoutInline(
@@ -2094,15 +2365,13 @@ export class TelegramClientBotService {
         conversationId,
         "Оберіть область доставки:",
         this.buildRegionInlineRows(),
+        { back: false },
       );
       return;
     }
 
     if (!draft.deliveryMethod) {
-      await this.replyCheckoutInline(parsed.chatId, conversationId, "Спосіб доставки:", [
-        [{ text: "🏪 Самовивіз", callback_data: "chk:del:pickup" }],
-        [{ text: "📦 Нова Пошта", callback_data: "chk:del:np" }],
-      ]);
+      await this.askDeliveryMethod(parsed, conversationId);
       return;
     }
 
@@ -2138,6 +2407,17 @@ export class TelegramClientBotService {
     if (!isCheckoutState(session.state)) return;
     let payload = { ...session.payload };
 
+    if (action === "abort") {
+      await this.sessions.resetIdle(parsed.userId);
+      await this.replyMenu(parsed.chatId, conversationId, TELEGRAM_CANCELLED);
+      return;
+    }
+
+    if (action === "back") {
+      await this.handleCheckoutBack(parsed, conversationId, contactId, payload);
+      return;
+    }
+
     if (action === "reg" && rest[0] != null) {
       const idx = Number(rest[0]);
       const region = UKRAINE_REGIONS[idx];
@@ -2153,6 +2433,7 @@ export class TelegramClientBotService {
             conversationId,
             `Для області «${region}» ще немає менеджера в CRM. Оберіть іншу область або напишіть у «Менеджер».`,
             this.buildRegionInlineRows(),
+            { back: false },
           );
           return;
         }
@@ -2160,10 +2441,7 @@ export class TelegramClientBotService {
         // Org-chart unavailable — still let checkout proceed; store layer may reject later.
       }
       payload = await this.sessions.patchPayload(parsed.userId, "checkout_flow", { ...payload, region });
-      await this.replyCheckoutInline(parsed.chatId, conversationId, "Спосіб доставки:", [
-        [{ text: "🏪 Самовивіз", callback_data: "chk:del:pickup" }],
-        [{ text: "📦 Нова Пошта", callback_data: "chk:del:np" }],
-      ]);
+      await this.askDeliveryMethod(parsed, conversationId);
       return;
     }
 
@@ -2221,11 +2499,13 @@ export class TelegramClientBotService {
     }
 
     if (action === "company") {
-      await this.sessions.resetIdle(parsed.userId);
-      await this.replyMenu(
+      const draft = pickCheckoutDraft(payload);
+      await this.sessions.set(parsed.userId, "idle", draft);
+      await this.replyInline(
         parsed.chatId,
         conversationId,
-        "Оформлення на компанію (ЄДРПОУ) робить менеджер. Напишіть реквізити в чат — передамо в CRM.",
+        "Оформлення на компанію (ЄДРПОУ) робить менеджер. Напишіть реквізити в чат — передамо в CRM.\n\nЧернетку збережено.",
+        [[{ text: "🛒 Кошик", callback_data: "cart:show" }]],
       );
       return;
     }
@@ -2254,17 +2534,13 @@ export class TelegramClientBotService {
       };
       const deliveryType = map[rest[0] ?? ""];
       if (!deliveryType) return;
-      payload = await this.sessions.patchPayload(parsed.userId, "checkout_city", {
+      payload = {
         ...payload,
         deliveryType,
         deliveryMethod: "NOVA_POSHTA",
         profileId: undefined,
-      });
-      await this.replyCheckoutText(
-        parsed.chatId,
-        conversationId,
-        "Напишіть назву міста (як у Новій Пошті):",
-      );
+      };
+      await this.promptCity(parsed, conversationId, payload);
       return;
     }
 
@@ -2272,28 +2548,18 @@ export class TelegramClientBotService {
       const ref = rest.join(":");
       const hit = payload.cityHits?.find((item) => item.ref === ref);
       if (!hit) {
-        await this.replyCheckoutText(
+        await this.replyCheckoutPrompt(
           parsed.chatId,
           conversationId,
           "Цей список міст уже недійсний. Напишіть назву міста ще раз.",
         );
         return;
       }
-      payload = await this.sessions.patchPayload(
-        parsed.userId,
-        payload.deliveryType === "ADDRESS" ? "checkout_street" : "checkout_warehouse_q",
-        { ...payload, cityRef: hit.ref, cityName: hit.name },
-      );
+      payload = { ...payload, cityRef: hit.ref, cityName: hit.name };
       if (payload.deliveryType === "ADDRESS") {
-        await this.replyCheckoutText(parsed.chatId, conversationId, "Напишіть назву вулиці:");
+        await this.promptStreet(parsed, conversationId, payload);
       } else {
-        await this.replyCheckoutText(
-          parsed.chatId,
-          conversationId,
-          payload.deliveryType === "POSTOMAT"
-            ? "Напишіть номер або назву поштомату (або «-» щоб показати список):"
-            : "Напишіть номер/назву відділення (або «-» щоб показати список):",
-        );
+        await this.promptWarehouse(parsed, conversationId, payload);
       }
       return;
     }
@@ -2302,7 +2568,7 @@ export class TelegramClientBotService {
       const ref = rest.join(":");
       const hit = payload.warehouseHits?.find((item) => item.ref === ref);
       if (!hit) {
-        await this.replyCheckoutText(
+        await this.replyCheckoutPrompt(
           parsed.chatId,
           conversationId,
           "Цей список відділень уже недійсний. Напишіть номер або назву ще раз.",
@@ -2322,19 +2588,15 @@ export class TelegramClientBotService {
       const ref = rest.join(":");
       const hit = payload.streetHits?.find((item) => item.ref === ref);
       if (!hit) {
-        await this.replyCheckoutText(
+        await this.replyCheckoutPrompt(
           parsed.chatId,
           conversationId,
           "Цей список вулиць уже недійсний. Напишіть назву вулиці ще раз.",
         );
         return;
       }
-      payload = await this.sessions.patchPayload(parsed.userId, "checkout_building", {
-        ...payload,
-        streetRef: hit.ref,
-        streetName: hit.name,
-      });
-      await this.replyCheckoutText(parsed.chatId, conversationId, "Номер будинку:");
+      payload = { ...payload, streetRef: hit.ref, streetName: hit.name };
+      await this.promptBuilding(parsed, conversationId, payload);
       return;
     }
 
@@ -2415,32 +2677,29 @@ export class TelegramClientBotService {
       return;
     }
     if (!payload.cityRef) {
-      await this.sessions.patchPayload(parsed.userId, "checkout_city", payload);
-      await this.replyCheckoutText(
-        parsed.chatId,
-        conversationId,
-        "Напишіть назву міста (як у Новій Пошті):",
-      );
+      await this.promptCity(parsed, conversationId, payload);
       return;
     }
     if (payload.deliveryType === "ADDRESS") {
       if (!payload.streetRef) {
-        await this.sessions.patchPayload(parsed.userId, "checkout_street", payload);
-        await this.replyCheckoutText(parsed.chatId, conversationId, "Напишіть назву вулиці:");
+        await this.promptStreet(parsed, conversationId, payload);
         return;
       }
-      await this.sessions.patchPayload(parsed.userId, "checkout_building", payload);
-      await this.replyCheckoutText(parsed.chatId, conversationId, "Номер будинку:");
+      if (!payload.building) {
+        await this.promptBuilding(parsed, conversationId, payload);
+        return;
+      }
+      await this.promptFlat(parsed, conversationId, payload);
       return;
     }
-    await this.sessions.patchPayload(parsed.userId, "checkout_warehouse_q", payload);
-    await this.replyCheckoutText(
-      parsed.chatId,
-      conversationId,
-      payload.deliveryType === "POSTOMAT"
-        ? "Напишіть номер або назву поштомату (або «-» щоб показати список):"
-        : "Напишіть номер/назву відділення (або «-» щоб показати список):",
-    );
+    await this.promptWarehouse(parsed, conversationId, payload);
+  }
+
+  private async askDeliveryMethod(parsed: ParsedInbound, conversationId: string): Promise<void> {
+    await this.replyCheckoutInline(parsed.chatId, conversationId, "Спосіб доставки:", [
+      [{ text: "🏪 Самовивіз", callback_data: "chk:del:pickup" }],
+      [{ text: "📦 Нова Пошта", callback_data: "chk:del:np" }],
+    ]);
   }
 
   private async askDeliveryType(parsed: ParsedInbound, conversationId: string): Promise<void> {
@@ -2457,6 +2716,211 @@ export class TelegramClientBotService {
       [{ text: "💳 Передоплата", callback_data: "chk:pay:pre" }],
       [{ text: "📦 Накладений платіж", callback_data: "chk:pay:cod" }],
     ]);
+  }
+
+  /** Text step: inline Back + Cancel, so a hidden reply keyboard is not a dead end. */
+  private async replyCheckoutPrompt(
+    chatId: string,
+    conversationId: string,
+    text: string,
+  ): Promise<void> {
+    await this.replyCheckoutInline(chatId, conversationId, text, []);
+  }
+
+  private async promptCity(
+    parsed: ParsedInbound,
+    conversationId: string,
+    draft: BotSessionPayload,
+  ): Promise<void> {
+    await this.sessions.set(parsed.userId, "checkout_city", draft);
+    await this.replyCheckoutPrompt(
+      parsed.chatId,
+      conversationId,
+      "Напишіть назву міста (як у Новій Пошті):",
+    );
+  }
+
+  private async promptWarehouse(
+    parsed: ParsedInbound,
+    conversationId: string,
+    draft: BotSessionPayload,
+  ): Promise<void> {
+    await this.sessions.set(parsed.userId, "checkout_warehouse_q", draft);
+    await this.replyCheckoutPrompt(
+      parsed.chatId,
+      conversationId,
+      draft.deliveryType === "POSTOMAT"
+        ? "Напишіть номер або назву поштомату (або «-» щоб показати список):"
+        : "Напишіть номер/назву відділення (або «-» щоб показати список):",
+    );
+  }
+
+  private async promptStreet(
+    parsed: ParsedInbound,
+    conversationId: string,
+    draft: BotSessionPayload,
+  ): Promise<void> {
+    await this.sessions.set(parsed.userId, "checkout_street", draft);
+    await this.replyCheckoutPrompt(parsed.chatId, conversationId, "Напишіть назву вулиці:");
+  }
+
+  private async promptBuilding(
+    parsed: ParsedInbound,
+    conversationId: string,
+    draft: BotSessionPayload,
+  ): Promise<void> {
+    await this.sessions.set(parsed.userId, "checkout_building", draft);
+    await this.replyCheckoutPrompt(parsed.chatId, conversationId, "Номер будинку:");
+  }
+
+  private async promptFlat(
+    parsed: ParsedInbound,
+    conversationId: string,
+    draft: BotSessionPayload,
+  ): Promise<void> {
+    await this.sessions.set(parsed.userId, "checkout_flat", draft);
+    await this.replyCheckoutPrompt(
+      parsed.chatId,
+      conversationId,
+      "Квартира / офіс (або «-» якщо немає):",
+    );
+  }
+
+  /** Delivery picker. Method and any NP address are cleared so Back cannot mix pickup with an old warehouse. */
+  private async showDeliveryMethodStep(
+    parsed: ParsedInbound,
+    conversationId: string,
+    draft: BotSessionPayload,
+  ): Promise<void> {
+    const next: BotSessionPayload = {};
+    if (draft.region) next.region = draft.region;
+    await this.sessions.set(parsed.userId, "checkout_flow", next);
+    await this.askDeliveryMethod(parsed, conversationId);
+  }
+
+  /** Peel the last checkout draft field and re-show the previous wizard step. */
+  private async handleCheckoutBack(
+    parsed: ParsedInbound,
+    conversationId: string,
+    _contactId: string | null,
+    payload: BotSessionPayload,
+  ): Promise<void> {
+    const session = await this.sessions.get(parsed.userId);
+    let draft = pickCheckoutDraft(payload);
+
+    if (session.state === "checkout_comment") {
+      draft = {
+        ...draft,
+        comment: undefined,
+        paymentType: undefined,
+        paymentMethod: undefined,
+        cod: undefined,
+      };
+      await this.sessions.set(parsed.userId, "checkout_flow", draft);
+      await this.askPayment(parsed, conversationId);
+      return;
+    }
+
+    if (draft.paymentType || draft.cod) {
+      draft = {
+        ...draft,
+        paymentType: undefined,
+        paymentMethod: undefined,
+        cod: undefined,
+        comment: undefined,
+      };
+    }
+
+    if (session.state === "checkout_flat") {
+      draft = { ...draft, building: undefined, flat: undefined };
+      await this.promptBuilding(parsed, conversationId, draft);
+      return;
+    }
+    if (session.state === "checkout_building") {
+      draft = {
+        ...draft,
+        streetRef: undefined,
+        streetName: undefined,
+        building: undefined,
+        flat: undefined,
+      };
+      await this.promptStreet(parsed, conversationId, draft);
+      return;
+    }
+    if (session.state === "checkout_street" || session.state === "checkout_warehouse_q") {
+      draft = {
+        region: draft.region,
+        deliveryMethod: draft.deliveryMethod,
+        deliveryType: draft.deliveryType,
+      };
+      await this.promptCity(parsed, conversationId, draft);
+      return;
+    }
+    if (session.state === "checkout_city") {
+      draft = {
+        region: draft.region,
+        deliveryMethod: draft.deliveryMethod ?? "NOVA_POSHTA",
+      };
+      await this.sessions.set(parsed.userId, "checkout_flow", draft);
+      await this.askDeliveryType(parsed, conversationId);
+      return;
+    }
+
+    if (draft.deliveryMethod === "PICKUP") {
+      await this.showDeliveryMethodStep(parsed, conversationId, draft);
+      return;
+    }
+    if (draft.profileId) {
+      draft = {
+        region: draft.region,
+        deliveryMethod: draft.deliveryMethod ?? "NOVA_POSHTA",
+      };
+      await this.sessions.set(parsed.userId, "checkout_flow", draft);
+      await this.askDeliveryType(parsed, conversationId);
+      return;
+    }
+    if (draft.warehouseRef) {
+      draft = { ...draft, warehouseRef: undefined, warehouseName: undefined };
+      await this.promptWarehouse(parsed, conversationId, draft);
+      return;
+    }
+    if (draft.building && draft.streetRef && draft.cityRef) {
+      draft = { ...draft, flat: undefined };
+      await this.promptFlat(parsed, conversationId, draft);
+      return;
+    }
+    if (draft.streetRef) {
+      draft = { ...draft, streetRef: undefined, streetName: undefined, building: undefined, flat: undefined };
+      await this.promptStreet(parsed, conversationId, draft);
+      return;
+    }
+    if (draft.cityRef) {
+      draft = {
+        region: draft.region,
+        deliveryMethod: draft.deliveryMethod,
+        deliveryType: draft.deliveryType,
+      };
+      await this.promptCity(parsed, conversationId, draft);
+      return;
+    }
+    if (draft.deliveryType || draft.deliveryMethod) {
+      await this.showDeliveryMethodStep(parsed, conversationId, draft);
+      return;
+    }
+    if (draft.region) {
+      await this.sessions.set(parsed.userId, "checkout_flow", {});
+      await this.replyCheckoutInline(
+        parsed.chatId,
+        conversationId,
+        "Оберіть область доставки:",
+        this.buildRegionInlineRows(),
+        { back: false },
+      );
+      return;
+    }
+
+    await this.sessions.resetIdle(parsed.userId);
+    await this.replyMenu(parsed.chatId, conversationId, TELEGRAM_CANCELLED);
   }
 
   private async askComment(
@@ -2495,7 +2959,7 @@ export class TelegramClientBotService {
         name: String(c.Description ?? c.description ?? c.Present ?? ""),
       })).filter((h) => h.ref && h.name);
       if (!hits.length) {
-        await this.replyCheckoutText(
+        await this.replyCheckoutPrompt(
           parsed.chatId,
           conversationId,
           "Місто не знайдено. Спробуйте іншу назву:",
@@ -2533,7 +2997,7 @@ export class TelegramClientBotService {
   ): Promise<void> {
     if (!payload.cityRef) {
       await this.sessions.set(parsed.userId, "checkout_city", payload);
-      await this.replyCheckoutText(parsed.chatId, conversationId, "Спочатку вкажіть місто:");
+      await this.replyCheckoutPrompt(parsed.chatId, conversationId, "Спочатку вкажіть місто:");
       return;
     }
     const query = q === "-" ? "" : q;
@@ -2550,7 +3014,7 @@ export class TelegramClientBotService {
         name: String(w.Description ?? w.description ?? w.Number ?? w.number ?? ""),
       })).filter((h) => h.ref && h.name);
       if (!hits.length) {
-        await this.replyCheckoutText(
+        await this.replyCheckoutPrompt(
           parsed.chatId,
           conversationId,
           "Нічого не знайдено. Спробуйте інший запит або «-»:",
@@ -2601,7 +3065,7 @@ export class TelegramClientBotService {
         name: String(s.Description ?? s.description ?? ""),
       })).filter((h) => h.ref && h.name);
       if (!hits.length) {
-        await this.replyCheckoutText(
+        await this.replyCheckoutPrompt(
           parsed.chatId,
           conversationId,
           "Вулицю не знайдено. Спробуйте ще:",
@@ -2647,10 +3111,10 @@ export class TelegramClientBotService {
     );
     if (!phone) {
       await this.sessions.set(parsed.userId, "checkout_phone", payload);
-      await this.telegram.sendMessageToChat(
+      await this.requestCheckoutPhone(
         parsed.chatId,
+        conversationId,
         "Для оформлення потрібен номер телефону. Чернетку збережено — після номера замовлення створиться саме.",
-        { requestContactButton: true },
       );
       return;
     }
@@ -2745,22 +3209,27 @@ export class TelegramClientBotService {
         (!payload.paymentType || payload.paymentType === PaymentType.PREPAYMENT);
       if (payload.cod) {
         text += "\n\nОплата: накладений платіж при отриманні.";
-      } else if (payUrl && wantsPayLink) {
-        text += `\n\nОплата:\n${payUrl}`;
       } else if (!payUrl && wantsPayLink) {
         text += "\n\nМенеджер надішле реквізити для оплати.";
       }
       text += "\n\nСтатус можна дивитись у «Замовлення».";
       await this.replyMenu(parsed.chatId, conversationId, text);
+      if (payUrl && wantsPayLink && !payload.cod) {
+        await this.replyInline(parsed.chatId, conversationId, "Оплата замовлення:", [
+          [{ text: "💳 Оплатити", url: payUrl }],
+        ]);
+      }
     } catch (err) {
       this.logger.warn(
         `finishCheckout failed: ${err instanceof Error ? err.message : String(err)}`,
       );
       const msg = clientSafeCheckoutError(err);
-      await this.replyMenu(
+      // Keep checkout draft + flow keyboard — commerce menu would swallow the next reply as city/comment.
+      await this.sessions.set(parsed.userId, "checkout_comment", pickCheckoutDraft(payload));
+      await this.replyCheckoutText(
         parsed.chatId,
         conversationId,
-        `Не вдалося оформити: ${msg}\nСпробуйте ще раз або напишіть менеджеру.`,
+        `Не вдалося оформити: ${msg}\nНатисніть «Оформити» в кошику ще раз або «Скасувати».`,
       );
     }
   }
@@ -2847,6 +3316,18 @@ export class TelegramClientBotService {
     await this.replyCheckoutText(chatId, conversationId, TELEGRAM_CHECKOUT_IN_PROGRESS);
   }
 
+  private async requestCheckoutPhone(
+    chatId: string,
+    conversationId: string,
+    text: string,
+  ): Promise<void> {
+    const { messageId } = await this.telegram.sendMessageToChat(chatId, text, {
+      requestContactButton: true,
+      menuKeyboard: CLIENT_FLOW_KEYBOARD,
+    });
+    await this.recordOutbound(conversationId, text, messageId);
+  }
+
   private async replyCheckoutText(
     chatId: string,
     conversationId: string,
@@ -2858,16 +3339,17 @@ export class TelegramClientBotService {
     await this.recordOutbound(conversationId, text, messageId);
   }
 
-  /** Checkout wizard: inline choices + cancel keyboard (no commerce menu). */
+  /** Checkout wizard: inline choices + Cancel/Back footer (reply Cancel set on prior text). */
   private async replyCheckoutInline(
     chatId: string,
     conversationId: string,
     text: string,
     inlineKeyboard: InlineBtn[][],
+    opts?: { back?: boolean },
   ): Promise<void> {
     const { messageId } = await this.telegram.sendMessageToChat(chatId, text, {
       menuKeyboard: CLIENT_FLOW_KEYBOARD,
-      inlineKeyboard,
+      inlineKeyboard: withCheckoutNav(inlineKeyboard, { back: opts?.back !== false }),
     });
     await this.recordOutbound(conversationId, text, messageId);
   }

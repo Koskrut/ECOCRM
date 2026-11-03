@@ -147,6 +147,52 @@ export class StoreCartService {
     return this.getCart(identity);
   }
 
+  /**
+   * Bot and Mini App both read `tg:{userId}`. If a customer cart still holds lines
+   * (older login merged them away), fold those lines back into the telegram session.
+   */
+  async unifyTelegramCart(customerId: string, sessionId: string) {
+    const customerCart = await this.prisma.cart.findFirst({
+      where: { customerId },
+      include: { items: true },
+    });
+    if (!customerCart || customerCart.items.length === 0) {
+      return this.getCart({ sessionId });
+    }
+    const sessionCart = await this.prisma.cart.upsert({
+      where: { sessionId },
+      create: { sessionId },
+      update: {},
+      include: { items: true },
+    });
+    const qtyByProduct = new Map(
+      sessionCart.items.map((item) => [item.productId, { id: item.id, qty: item.qty }]),
+    );
+    for (const line of customerCart.items) {
+      const existing = qtyByProduct.get(line.productId);
+      if (existing) {
+        const qty = existing.qty + line.qty;
+        await this.prisma.cartItem.update({
+          where: { id: existing.id },
+          data: { qty },
+        });
+        existing.qty = qty;
+      } else {
+        const created = await this.prisma.cartItem.create({
+          data: {
+            cartId: sessionCart.id,
+            productId: line.productId,
+            qty: line.qty,
+            price: line.price,
+          },
+        });
+        qtyByProduct.set(line.productId, { id: created.id, qty: line.qty });
+      }
+    }
+    await this.prisma.cartItem.deleteMany({ where: { cartId: customerCart.id } });
+    return this.getCart({ sessionId });
+  }
+
   /** Merge guest cart (sessionId) into customer cart and return customer cart. */
   async mergeCart(customerId: string, sessionId: string) {
     const guestCart = await this.prisma.cart.findFirst({

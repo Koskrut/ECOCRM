@@ -1,11 +1,15 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Alert, Pressable, ScrollView, StyleSheet, View } from "react-native";
 
 import { Text } from "@/components/Themed";
+import { useAuth } from "@/context/auth-context";
+import { warehousesApi } from "@/lib/api/warehouses";
 import {
   getVisibleStageTargets,
   isForwardStageTransition,
+  isPastConfirmedStage,
   isStageTransitionBlocked,
+  managerCanAdvancePastConfirmed,
   TERMINAL_STAGES,
 } from "@/lib/order-stage";
 import { orderHasTtn } from "@/lib/order-utils";
@@ -23,12 +27,50 @@ type Props = {
 
 export function OrderStageControl({ order, busy, onChangeStage }: Props) {
   const theme = useTheme();
+  const { token, user } = useAuth();
   const [updating, setUpdating] = useState(false);
+  const [warehouseResponsibleUserId, setWarehouseResponsibleUserId] = useState<string | null>(
+    null,
+  );
   const currentStage = order.orderStage ?? order.status ?? "NEW";
 
+  useEffect(() => {
+    const warehouseId = order.warehouseId ?? order.warehouse?.id ?? null;
+    if (!token || !warehouseId) {
+      setWarehouseResponsibleUserId(null);
+      return;
+    }
+    let cancelled = false;
+    void warehousesApi
+      .list(token)
+      .then((rows) => {
+        if (cancelled) return;
+        const wh = rows.find((w) => w.id === warehouseId);
+        setWarehouseResponsibleUserId(wh?.responsibleUserId ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setWarehouseResponsibleUserId(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [token, order.warehouseId, order.warehouse?.id]);
+
+  const isManager = String(user?.role ?? "").toUpperCase() === "MANAGER";
+  const canAdvancePastConfirmed =
+    !isManager ||
+    managerCanAdvancePastConfirmed({
+      actorId: user?.id,
+      ownerId: order.ownerId,
+      warehouseResponsibleUserId,
+    });
+
   const targets = useMemo(
-    () => getVisibleStageTargets(currentStage, order.paymentType),
-    [currentStage, order.paymentType],
+    () =>
+      getVisibleStageTargets(currentStage, order.paymentType, {
+        capPastConfirmed: isManager && !canAdvancePastConfirmed,
+      }),
+    [canAdvancePastConfirmed, currentStage, isManager, order.paymentType],
   );
 
   if (TERMINAL_STAGES.has(currentStage) && targets.length === 0) {
@@ -57,6 +99,11 @@ export function OrderStageControl({ order, busy, onChangeStage }: Props) {
         Alert.alert(t("common.error"), t("orderCreate.stageNeedTtn"));
         return;
       }
+    }
+
+    if (isManager && !canAdvancePastConfirmed && isPastConfirmedStage(toStage)) {
+      Alert.alert(t("common.error"), t("orderCreate.stageManagerPastConfirmed"));
+      return;
     }
 
     Alert.alert(

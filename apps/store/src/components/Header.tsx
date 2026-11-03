@@ -72,10 +72,17 @@ export function Header() {
 
   useEffect(() => {
     if (!telegram.ready) return;
+    if (telegram.isTelegram && telegram.loading) return;
+    // Mini App session can be "logged in" before /me cookie is readable.
+    if (telegram.loggedIn) {
+      setLoggedIn(true);
+    }
     getMe()
       .then(() => setLoggedIn(true))
-      .catch(() => setLoggedIn(false));
-  }, [telegram.ready, telegram.loggedIn]);
+      .catch(() => {
+        if (!telegram.loggedIn) setLoggedIn(false);
+      });
+  }, [telegram.ready, telegram.isTelegram, telegram.loading, telegram.loggedIn]);
 
   useEffect(() => {
     if (menuOpen) {

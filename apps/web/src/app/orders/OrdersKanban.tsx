@@ -30,6 +30,7 @@ import {
   getKanbanDropBlock,
   isFinalOrderStage,
   isKnownStage,
+  managerCanAdvancePastConfirmed,
   resolveStage,
   STAGE_LABELS,
   WAREHOUSE_KANBAN_STAGES,
@@ -56,6 +57,7 @@ type BoardOrder = {
   stockReadiness?: OrderStockReadiness | null;
   company?: { id: string; name: string } | null;
   client?: { id: string; firstName: string; lastName: string; phone: string } | null;
+  ownerId?: string | null;
   warehouseId?: string | null;
   warehouse?: { id: string; name: string } | null;
   documentsRequested?: boolean | null;
@@ -125,6 +127,8 @@ function dropBlockMessage(code: KanbanDropBlockCode, from: OrderStage, to: Order
       return tr.prepayMustAwaitPayment;
     case "deferred_no_awaiting_payment":
       return tr.deferredNoAwaitingPayment;
+    case "manager_past_confirmed":
+      return tr.managerPastConfirmed;
     default:
       return tr.invalidTransition(STAGE_LABELS[from], STAGE_LABELS[to]);
   }
@@ -136,6 +140,9 @@ export function OrdersKanban({
   refreshKey = 0,
   warehouseMode = false,
   warehouseRestricted = false,
+  userRole = null,
+  currentUserId = null,
+  warehouseResponsibleById = null,
 }: {
   onOpenOrder: (id: string) => void;
   filters?: BoardFilters;
@@ -143,8 +150,13 @@ export function OrdersKanban({
   warehouseMode?: boolean;
   /** WAREHOUSE role on the full board: keep all columns, restrict drops. */
   warehouseRestricted?: boolean;
+  userRole?: string | null;
+  currentUserId?: string | null;
+  /** Map warehouseId → responsibleUserId */
+  warehouseResponsibleById?: Record<string, string | null> | null;
 }) {
   const restrictTransitions = warehouseMode || warehouseRestricted;
+  const managerStageCap = String(userRole ?? "").trim().toUpperCase() === "MANAGER";
   const [pipeline, setPipeline] = useState<PipelineStageRow[] | null>(null);
 
   const [dragging, setDragging] = useState<{ orderId: string; from: OrderStage } | null>(null);
@@ -384,15 +396,35 @@ export function OrdersKanban({
   const dropBlockFor = useCallback(
     (orderId: string, from: OrderStage, to: OrderStage): KanbanDropBlockCode | null => {
       const order = findOrder(orderId);
+      const warehouseId = order?.warehouseId ?? order?.warehouse?.id ?? null;
+      const responsibleId =
+        warehouseId && warehouseResponsibleById
+          ? (warehouseResponsibleById[warehouseId] ?? null)
+          : null;
+      const exempt =
+        managerStageCap &&
+        managerCanAdvancePastConfirmed({
+          actorId: currentUserId,
+          ownerId: order?.ownerId,
+          warehouseResponsibleUserId: responsibleId,
+        });
       return getKanbanDropBlock({
         from,
         to,
         paymentType: order?.paymentType,
         debtAmount: order?.debtAmount,
         allowedNext: allowedNextByStage.get(from) ?? [],
+        managerStageCap,
+        managerStageCapExempt: Boolean(exempt),
       });
     },
-    [allowedNextByStage, findOrder],
+    [
+      allowedNextByStage,
+      currentUserId,
+      findOrder,
+      managerStageCap,
+      warehouseResponsibleById,
+    ],
   );
 
   const isDropTargetAllowed = useCallback(

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { TelegramClientBotService } from "../telegram-client-bot.service";
 import type { ParsedInbound } from "../telegram.types";
-import { MENU_CATALOG, MENU_MANAGER, MENU_ORDERS, MENU_START } from "../telegram-client.constants";
+import { MENU_CATALOG, MENU_CLIENT_CANCEL, MENU_MANAGER, MENU_ORDERS, MENU_START } from "../telegram-client.constants";
 
 type AnyRec = Record<string, unknown>;
 
@@ -196,6 +196,17 @@ function makeBot(opts: {
     getCart: async () => ({ items: opts.cartItems ?? [], subtotal: 0, uahPerUsd: 41 }),
     addItem: async () => ({ items: [{ id: "1" }], subtotal: 10, uahPerUsd: 41 }),
     clearCart: async () => undefined,
+    updateItemQty: async () => ({
+      items: opts.cartItems ?? [],
+      subtotal: 0,
+      uahPerUsd: 41,
+    }),
+    removeItem: async () => ({ items: [], subtotal: 0, uahPerUsd: 41 }),
+    unifyTelegramCart: async () => ({
+      items: opts.cartItems ?? [],
+      subtotal: 0,
+      uahPerUsd: 41,
+    }),
   };
   const contacts = {
     create: async (data: AnyRec) => {
@@ -649,12 +660,15 @@ describe("TelegramClientBotService menu / idle", () => {
     assert.equal(result.handled, true);
     assert.equal(sessions.state, "onboarding_role");
     assert.ok(sent.some((s) => /лікар чи технік/i.test(s.text)));
+    assert.ok(sent.some((s) => /профілі не вистачає/i.test(s.text)));
     assert.ok(!sent.some((s) => /Раді бачити/i.test(s.text)));
-    assert.equal(
-      sent.filter((s) => /лікар чи технік|профілі не вистачає/i.test(s.text)).length,
-      1,
-      "gap-fill role is a single message",
+    assert.ok(
+      sent.some((s) => JSON.stringify(s.keyboard ?? []).includes("Скасувати")),
+      "gap-fill sets Cancel reply keyboard before role inline",
     );
+    const roleInline = sent.find((s) => s.inline && /лікар чи технік/i.test(s.text));
+    assert.ok(roleInline?.buttons?.some((b) => /Скасувати/i.test(b)));
+    assert.ok(roleInline?.buttons?.some((b) => /Назад/i.test(b)));
   });
 
   it("phone share skips onboarding when lead already has a CRM contact", async () => {
@@ -1207,5 +1221,302 @@ describe("TelegramClientBotService menu / idle", () => {
       if (prev == null) delete process.env.STORE_OWNER_ID;
       else process.env.STORE_OWNER_ID = prev;
     }
+  });
+
+  it("stale catalog callback during checkout does not wipe the draft", async () => {
+    const { service, sessions, sent } = makeBot({
+      sessionState: "checkout_city",
+      sessionPayload: { region: "Київська", deliveryMethod: "NOVA_POSHTA" },
+    });
+    await service.handleClientTurn({
+      parsed: parsed({ text: "cat:home", isCallback: true, callbackQueryId: "stale-cat" }),
+      conversationId: "conv1",
+      contactId: "c1",
+      leadId: null,
+      callbackQueryId: "stale-cat",
+    });
+    assert.equal(sessions.state, "checkout_city");
+    assert.equal(sessions.payload.region, "Київська");
+    assert.ok(sent.some((s) => /оформлення|кошик|Скасувати/i.test(s.text)));
+  });
+
+  it("cart:clr during checkout is ignored so the cart is not emptied mid-wizard", async () => {
+    const { service, sessions, sent } = makeBot({
+      sessionState: "checkout_flow",
+      sessionPayload: { region: "Київська", deliveryMethod: "PICKUP" },
+      cartItems: [{ id: "1" }],
+    });
+    await service.handleClientTurn({
+      parsed: parsed({ text: "cart:clr", isCallback: true, callbackQueryId: "clr" }),
+      conversationId: "conv1",
+      contactId: "c1",
+      leadId: null,
+      callbackQueryId: "clr",
+    });
+    assert.equal(sessions.state, "checkout_flow");
+    assert.equal(sessions.payload.region, "Київська");
+    assert.equal(sent.some((s) => /очищено/i.test(s.text)), false);
+  });
+
+  it("asks for phone during checkout with Скасувати on the keyboard", async () => {
+    const { service, sent, sessions } = makeBot({
+      cartItems: [{ id: "1" }],
+      account: { phone: null, contactId: "c1", leadId: null },
+      contact: {
+        phone: null,
+        firstName: "Оля",
+        lastName: "Тест",
+        region: "Київська",
+        clientType: "Врач",
+      },
+    });
+    await service.handleClientTurn({
+      parsed: parsed({ text: "cart:chk", isCallback: true }),
+      conversationId: "conv1",
+      contactId: "c1",
+      leadId: null,
+    });
+    assert.equal(sessions.state, "checkout_phone");
+    assert.ok(sent.some((s) => s.contact === true));
+    assert.ok(
+      sent.some((s) => JSON.stringify(s.keyboard ?? []).includes("Скасувати")),
+      "phone request keeps checkout cancel keyboard",
+    );
+  });
+
+  it("staff shop idle text is not forwarded to the manager inbox", async () => {
+    const { service } = makeBot({
+      sessionState: "idle",
+      sessionPayload: { staffShopMode: true },
+      account: { phone: "+380501112233", contactId: "c1" },
+    });
+    const result = await service.handleClientTurn({
+      parsed: parsed({ text: "просто дивлюсь каталог" }),
+      conversationId: "conv1",
+      contactId: "c1",
+      leadId: null,
+    });
+    assert.equal(result.handled, true);
+    assert.equal(result.notifyManager, false);
+  });
+
+  it("checkout region and payment inline include Скасувати; payment also has Назад", async () => {
+    const { service, sent, sessions } = makeBot({
+      cartItems: [{ id: "1" }],
+      account: { phone: "+380501112233", contactId: "c1", leadId: null },
+      sessionState: "idle",
+      sessionPayload: {},
+    });
+    await service.handleClientTurn({
+      parsed: parsed({ text: "cart:chk", isCallback: true, callbackQueryId: "chk0" }),
+      conversationId: "conv1",
+      contactId: "c1",
+      leadId: null,
+      callbackQueryId: "chk0",
+    });
+    assert.equal(sessions.state, "checkout_flow");
+    const regionMsg = sent.find((s) => /Оберіть область/i.test(s.text));
+    assert.ok(regionMsg?.buttons?.some((b) => /Скасувати/i.test(b)));
+    assert.equal(
+      regionMsg?.buttons?.some((b) => /Назад/i.test(b)),
+      false,
+      "first checkout step has Cancel only",
+    );
+
+    sessions.state = "checkout_flow";
+    sessions.payload = { region: "Київська" };
+    await service.handleClientTurn({
+      parsed: parsed({ text: "chk:del:pickup", isCallback: true, callbackQueryId: "del2" }),
+      conversationId: "conv1",
+      contactId: "c1",
+      leadId: null,
+      callbackQueryId: "del2",
+    });
+    const payMsg = [...sent].reverse().find((s) => /Оплата/i.test(s.text));
+    assert.ok(payMsg?.buttons?.some((b) => /Скасувати/i.test(b)), "payment has Cancel");
+    assert.ok(payMsg?.buttons?.some((b) => /Назад/i.test(b)), "payment has Back");
+  });
+
+  it("chk:abort resets checkout to idle with cancelled message", async () => {
+    const { service, sent, sessions } = makeBot({
+      sessionState: "checkout_flow",
+      sessionPayload: { region: "Київська", deliveryMethod: "PICKUP" },
+      cartItems: [{ id: "1" }],
+      account: { phone: "+380501112233", contactId: "c1" },
+    });
+    await service.handleClientTurn({
+      parsed: parsed({ text: "chk:abort", isCallback: true, callbackQueryId: "abort1" }),
+      conversationId: "conv1",
+      contactId: "c1",
+      leadId: null,
+      callbackQueryId: "abort1",
+    });
+    assert.equal(sessions.state, "idle");
+    assert.equal(sessions.payload.region, undefined);
+    assert.ok(sent.some((s) => /Скасовано/i.test(s.text)));
+  });
+
+  it("chk:back from payment returns to delivery and keeps region", async () => {
+    const { service, sent, sessions } = makeBot({
+      sessionState: "checkout_flow",
+      sessionPayload: { region: "Київська", deliveryMethod: "PICKUP" },
+      cartItems: [{ id: "1" }],
+      account: { phone: "+380501112233", contactId: "c1" },
+    });
+    await service.handleClientTurn({
+      parsed: parsed({ text: "chk:back", isCallback: true, callbackQueryId: "back1" }),
+      conversationId: "conv1",
+      contactId: "c1",
+      leadId: null,
+      callbackQueryId: "back1",
+    });
+    assert.equal(sessions.state, "checkout_flow");
+    assert.equal(sessions.payload.region, "Київська");
+    assert.equal(sessions.payload.deliveryMethod, undefined);
+    assert.ok(sent.some((s) => /Спосіб доставки/i.test(s.text)));
+    const deliveryMsg = [...sent].reverse().find((s) => /Спосіб доставки/i.test(s.text));
+    assert.ok(deliveryMsg?.buttons?.some((b) => /Скасувати/i.test(b)));
+    assert.ok(deliveryMsg?.buttons?.some((b) => /Назад/i.test(b)));
+  });
+
+  it("subcategory list includes Кошик footer", async () => {
+    const { service, sent, sessions } = makeBot({
+      tree: [{ name: "Абатменти", children: ["Тимчасові", "Постійні"] }],
+    });
+    sessions.payload = {
+      catalogGroup: "00",
+      catalogBranches: [{ name: "Абатменти", children: ["Тимчасові", "Постійні"] }],
+    };
+    await service.handleClientTurn({
+      parsed: parsed({ text: "cat:k:0", isCallback: true, callbackQueryId: "sub1" }),
+      conversationId: "conv1",
+      contactId: "c1",
+      leadId: null,
+      callbackQueryId: "sub1",
+    });
+    const buttons = sent.flatMap((s) => s.buttons ?? []).join("\n");
+    assert.match(buttons, /Кошик/);
+    assert.match(buttons, /Категорії|Пошук/);
+  });
+
+  it("category list includes Кошик footer", async () => {
+    const { service, sent } = makeBot({
+      tree: [
+        { name: "Абатменти", children: ["Тимчасові"] },
+        { name: "Гвинти", children: [] },
+      ],
+    });
+    await service.handleClientTurn({
+      parsed: parsed({ text: "Викрутки SUPREX" }),
+      conversationId: "conv1",
+      contactId: "c1",
+      leadId: null,
+    });
+    const buttons = sent.flatMap((s) => s.buttons ?? []).join("\n");
+    assert.match(buttons, /Кошик/);
+    assert.match(buttons, /Системи/);
+  });
+
+  it("chk:back after Nova Poshta warehouse keeps the city and drops only the branch", async () => {
+    const { service, sent, sessions } = makeBot({
+      sessionState: "checkout_flow",
+      sessionPayload: {
+        region: "Київська",
+        deliveryMethod: "NOVA_POSHTA",
+        deliveryType: "WAREHOUSE",
+        cityRef: "city-1",
+        cityName: "Київ",
+        warehouseRef: "wh-1",
+        warehouseName: "Відділення 1",
+      },
+      account: { phone: "+380501112233", contactId: "c1" },
+    });
+    await service.handleClientTurn({
+      parsed: parsed({ text: "chk:back", isCallback: true, callbackQueryId: "back-np" }),
+      conversationId: "conv1",
+      contactId: "c1",
+      leadId: null,
+      callbackQueryId: "back-np",
+    });
+    assert.equal(sessions.state, "checkout_warehouse_q");
+    assert.equal(sessions.payload.cityRef, "city-1");
+    assert.equal(sessions.payload.warehouseRef, undefined);
+    assert.equal(sessions.payload.deliveryMethod, "NOVA_POSHTA");
+    assert.equal(sessions.payload.deliveryType, "WAREHOUSE");
+    const prompt = [...sent].reverse().find((s) => /відділення/i.test(s.text));
+    assert.ok(prompt?.buttons?.some((b) => /Назад/i.test(b)));
+    assert.ok(prompt?.buttons?.some((b) => /Скасувати/i.test(b)));
+  });
+
+  it("Cancel before a profile returns to Старт instead of the commerce menu", async () => {
+    const { service, sent, sessions } = makeBot({ account: null });
+    await service.handleClientTurn({
+      parsed: parsed({ text: MENU_CLIENT_CANCEL }),
+      conversationId: "conv1",
+      contactId: null,
+      leadId: null,
+    });
+    assert.equal(sessions.state, "idle");
+    assert.ok(sent.some((s) => /Старт/i.test(s.text)));
+    assert.equal(
+      sent.some((s) => JSON.stringify(s.keyboard ?? []).includes("Каталог")),
+      false,
+    );
+  });
+
+  it("/help during checkout keeps the wizard and the Cancel keyboard", async () => {
+    const { service, sent, sessions } = makeBot({
+      sessionState: "checkout_city",
+      sessionPayload: { region: "Київська", deliveryMethod: "NOVA_POSHTA", deliveryType: "WAREHOUSE" },
+    });
+    await service.handleClientTurn({
+      parsed: parsed({ text: "/help" }),
+      conversationId: "conv1",
+      contactId: "c1",
+      leadId: null,
+    });
+    assert.equal(sessions.state, "checkout_city");
+    assert.equal(sessions.payload.region, "Київська");
+    assert.ok(sent.some((s) => JSON.stringify(s.keyboard ?? []).includes("Скасувати")));
+    assert.equal(sent.some((s) => /Каталог — товари/i.test(s.text)), false);
+  });
+
+  it("catalog search cancel returns to the open system, not the root", async () => {
+    const { service, sent } = makeBot({
+      sessionState: "catalog_search",
+      sessionPayload: {
+        catalogGroup: "00",
+        catalogBranches: [{ name: "Абатменти", children: ["Тимчасові"] }],
+      },
+      tree: [{ name: "Абатменти", children: ["Тимчасові"] }],
+    });
+    await service.handleClientTurn({
+      parsed: parsed({ text: MENU_CLIENT_CANCEL }),
+      conversationId: "conv1",
+      contactId: "c1",
+      leadId: null,
+    });
+    const body = sent.map((s) => s.text).join("\n");
+    const buttons = sent.flatMap((s) => s.buttons ?? []).join("\n");
+    assert.match(body, /Оберіть категорію/);
+    assert.match(buttons, /Абатменти/);
+    assert.equal(/Оберіть систему/i.test(body), false);
+  });
+
+  it("cart lines expose plus, minus and remove", async () => {
+    const { service, sent } = makeBot({
+      cartItems: [{ id: "line1", name: "Абатмент", qty: 2, lineTotal: 10, price: 5 }],
+    });
+    await service.handleClientTurn({
+      parsed: parsed({ text: "cart:show", isCallback: true, callbackQueryId: "cart1" }),
+      conversationId: "conv1",
+      contactId: "c1",
+      leadId: null,
+      callbackQueryId: "cart1",
+    });
+    const buttons = sent.flatMap((s) => s.buttons ?? []);
+    assert.ok(buttons.some((b) => b === "−"));
+    assert.ok(buttons.some((b) => b === "+"));
+    assert.ok(buttons.some((b) => b === "✕"));
   });
 });

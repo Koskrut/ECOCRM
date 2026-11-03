@@ -1,6 +1,8 @@
 const TG_TOKEN_KEY = "store_tg_token";
 const TG_CART_KEY = "store_tg_cart_session";
 const TG_PROFILE_KEY = "store_tg_profile";
+/** Cabinet JWT (aud: store) — backup when httpOnly cookie is blocked in Telegram WebView. */
+const TG_CABINET_TOKEN_KEY = "store_cabinet_token";
 
 export type TelegramStoreProfile = {
   phone: string | null;
@@ -12,6 +14,11 @@ export type TelegramStoreProfile = {
 export function getTelegramStoreToken(): string {
   if (typeof window === "undefined") return "";
   return sessionStorage.getItem(TG_TOKEN_KEY) ?? "";
+}
+
+export function getTelegramCabinetToken(): string {
+  if (typeof window === "undefined") return "";
+  return sessionStorage.getItem(TG_CABINET_TOKEN_KEY) ?? "";
 }
 
 export function getTelegramCartSessionId(): string {
@@ -37,6 +44,8 @@ export function setTelegramStoreSession(params: {
   firstName: string | null;
   lastName: string | null;
   contactId: string | null;
+  /** Optional cabinet JWT when Mini App exchange issued store_token. */
+  storeToken?: string | null;
 }): void {
   if (typeof window === "undefined") return;
   sessionStorage.setItem(TG_TOKEN_KEY, params.token);
@@ -50,6 +59,11 @@ export function setTelegramStoreSession(params: {
       contactId: params.contactId,
     } satisfies TelegramStoreProfile),
   );
+  if (params.storeToken) {
+    sessionStorage.setItem(TG_CABINET_TOKEN_KEY, params.storeToken);
+  } else if (params.storeToken === null) {
+    sessionStorage.removeItem(TG_CABINET_TOKEN_KEY);
+  }
 }
 
 export function clearTelegramStoreSession(): void {
@@ -57,4 +71,5 @@ export function clearTelegramStoreSession(): void {
   sessionStorage.removeItem(TG_TOKEN_KEY);
   sessionStorage.removeItem(TG_CART_KEY);
   sessionStorage.removeItem(TG_PROFILE_KEY);
+  sessionStorage.removeItem(TG_CABINET_TOKEN_KEY);
 }

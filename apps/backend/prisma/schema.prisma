@@ -739,6 +739,7 @@ model User {
   pushDevices                UserPushDevice[]
   paymentMatchAudits         PaymentMatchAudit[] @relation("PaymentMatchAuditCreatedBy")
   bankTransactionsIgnored    BankTransaction[]   @relation("BankTransactionIgnoredBy")
+  responsibleWarehouses      Warehouse[]         @relation("WarehouseResponsible")
 
   @@unique([legacySource, legacyId])
   @@index([leadId])
@@ -1744,6 +1745,11 @@ model Warehouse {
    * Код 1С/таблицы для интеграции (напр. 000000190).
    */
   externalCode String?  @unique
+  /**
+   * Менеджер, відповідальний за склад: може проводити етапи далі «Підтверджено» по своїх замовленнях.
+   */
+  responsibleUserId String?
+  responsibleUser   User?   @relation("WarehouseResponsible", fields: [responsibleUserId], references: [id], onDelete: SetNull)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -1755,6 +1761,7 @@ model Warehouse {
   orderReturns           OrderReturn[]
 
   @@index([sortOrder])
+  @@index([responsibleUserId])
 }
 
 model Product {

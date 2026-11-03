@@ -79,6 +79,35 @@ export const WAREHOUSE_ALLOWED_TRANSITIONS: Partial<Record<OrderStage, OrderStag
   READY_TO_SHIP: ["CONFIRMED"],
 };
 
+/** Mirrors backend order-manager-stage-cap PAST_CONFIRMED_STAGES. */
+export const PAST_CONFIRMED_STAGES: ReadonlySet<OrderStage> = new Set([
+  "READY_TO_SHIP",
+  "SHIPPED",
+  "AWAITING_RECEIPT",
+  "RECEIVED",
+  "COMPLETED",
+  "REFUSED",
+  "RETURN_IN_PROGRESS",
+  "FULLY_RETURNED",
+]);
+
+export function isPastConfirmedStage(stage: OrderStage | string | null | undefined): boolean {
+  if (!stage) return false;
+  return PAST_CONFIRMED_STAGES.has(stage as OrderStage);
+}
+
+export function managerCanAdvancePastConfirmed(opts: {
+  actorId: string | null | undefined;
+  ownerId: string | null | undefined;
+  warehouseResponsibleUserId: string | null | undefined;
+}): boolean {
+  const { actorId, ownerId, warehouseResponsibleUserId } = opts;
+  if (!actorId) return false;
+  if (!ownerId || ownerId !== actorId) return false;
+  if (!warehouseResponsibleUserId || warehouseResponsibleUserId !== actorId) return false;
+  return true;
+}
+
 export const WAREHOUSE_KANBAN_STAGES: OrderStage[] = [
   "AWAITING_STOCK",
   "CONFIRMED",
@@ -131,7 +160,8 @@ export type KanbanDropBlockCode =
   | "awaiting_payment_prepay"
   | "prepay_must_await_payment"
   | "deferred_no_awaiting_payment"
-  | "complete_debt";
+  | "complete_debt"
+  | "manager_past_confirmed";
 
 export function allowedNextForStage(
   from: OrderStage,
@@ -150,10 +180,17 @@ export function getKanbanDropBlock(opts: {
   paymentType?: string | null;
   debtAmount?: number | null;
   allowedNext: OrderStage[];
+  /** When true, block targets past CONFIRMED unless exempt. */
+  managerStageCap?: boolean;
+  managerStageCapExempt?: boolean;
 }): KanbanDropBlockCode | null {
   const { from, to, paymentType, debtAmount, allowedNext } = opts;
   if (from === to) return null;
   if (!allowedNext.includes(to)) return "not_allowed";
+
+  if (opts.managerStageCap && !opts.managerStageCapExempt && isPastConfirmedStage(to)) {
+    return "manager_past_confirmed";
+  }
 
   if (isForwardStageTransition(from, to) && !paymentType) return "payment_type";
 

@@ -1,10 +1,11 @@
-import { getTelegramStoreToken } from "@/lib/telegram-session";
+import { getTelegramCabinetToken, getTelegramStoreToken } from "@/lib/telegram-session";
 
 const API = "/api/store";
 
 /**
- * Cabinet uses the store_token cookie (credentials: include).
- * Cart/checkout keep the Mini App JWT so the bot cart and order notify still work.
+ * Cart/checkout: Mini App JWT (store_tg) so bot cart + order notify still work.
+ * Cabinet (/me, orders, …): prefer sessionStorage cabinet token — Telegram WebView
+ * often drops the httpOnly store_token cookie; cookie still works as fallback via proxy.
  */
 function storeAuthHeaders(path: string, extra?: Record<string, string>): HeadersInit {
   const headers: Record<string, string> = { ...(extra ?? {}) };
@@ -17,7 +18,10 @@ function storeAuthHeaders(path: string, extra?: Record<string, string>): Headers
   if (needsTelegramCart) {
     const tgToken = getTelegramStoreToken();
     if (tgToken) headers.Authorization = `Bearer ${tgToken}`;
+    return headers;
   }
+  const cabinetToken = getTelegramCabinetToken();
+  if (cabinetToken) headers.Authorization = `Bearer ${cabinetToken}`;
   return headers;
 }
 

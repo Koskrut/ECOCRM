@@ -8,6 +8,7 @@ import {
   updateWarehouse,
   type WarehouseItem,
 } from "@/lib/api/resources/warehouses";
+import { usersApi, type User } from "@/lib/api/resources/users";
 
 type WarehousesModalProps = {
   open: boolean;
@@ -19,10 +20,12 @@ type EditDraft = {
   name: string;
   sortOrder: string;
   externalCode: string;
+  responsibleUserId: string;
 };
 
 export function WarehousesModal({ open, onClose, onChanged }: WarehousesModalProps) {
   const [items, setItems] = useState<WarehouseItem[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -32,14 +35,23 @@ export function WarehousesModal({ open, onClose, onChanged }: WarehousesModalPro
   const [newName, setNewName] = useState("");
   const [newSortOrder, setNewSortOrder] = useState("");
   const [newExternalCode, setNewExternalCode] = useState("");
+  const [newResponsibleUserId, setNewResponsibleUserId] = useState("");
   const [creating, setCreating] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const rows = await listWarehouses();
+      const [rows, userRows] = await Promise.all([listWarehouses(), usersApi.list()]);
       setItems(rows);
+      setUsers(
+        userRows
+          .filter((u) => u.isActive !== false)
+          .slice()
+          .sort((a, b) =>
+            String(a.fullName || a.email).localeCompare(String(b.fullName || b.email), "uk"),
+          ),
+      );
     } catch (e) {
       setError(e instanceof Error ? e.message : "Не вдалося завантажити склади");
     } finally {
@@ -55,6 +67,7 @@ export function WarehousesModal({ open, onClose, onChanged }: WarehousesModalPro
       setNewName("");
       setNewSortOrder("");
       setNewExternalCode("");
+      setNewResponsibleUserId("");
       setError(null);
     }
   }, [open, load]);
@@ -65,6 +78,7 @@ export function WarehousesModal({ open, onClose, onChanged }: WarehousesModalPro
       name: wh.name,
       sortOrder: String(wh.sortOrder),
       externalCode: wh.externalCode ?? "",
+      responsibleUserId: wh.responsibleUserId ?? "",
     });
   };
 
@@ -82,6 +96,7 @@ export function WarehousesModal({ open, onClose, onChanged }: WarehousesModalPro
         name,
         sortOrder: Math.floor(Number(editDraft.sortOrder) || 0),
         externalCode: editDraft.externalCode.trim() || null,
+        responsibleUserId: editDraft.responsibleUserId.trim() || null,
       });
       setEditingId(null);
       setEditDraft(null);
@@ -108,10 +123,12 @@ export function WarehousesModal({ open, onClose, onChanged }: WarehousesModalPro
         name,
         sortOrder: newSortOrder.trim() ? Math.floor(Number(newSortOrder)) : undefined,
         externalCode: newExternalCode.trim() || null,
+        responsibleUserId: newResponsibleUserId.trim() || null,
       });
       setNewName("");
       setNewSortOrder("");
       setNewExternalCode("");
+      setNewResponsibleUserId("");
       await load();
       onChanged();
     } catch (err) {
@@ -148,15 +165,36 @@ export function WarehousesModal({ open, onClose, onChanged }: WarehousesModalPro
 
   const sorted = [...items].sort((a, b) => a.sortOrder - b.sortOrder);
 
+  const responsibleSelect = (
+    value: string,
+    onChange: (next: string) => void,
+    className?: string,
+  ) => (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className={className ?? "w-full rounded border border-zinc-300 px-2 py-1 text-sm"}
+    >
+      <option value="">— немає —</option>
+      {users.map((u) => (
+        <option key={u.id} value={u.id}>
+          {u.fullName || u.email}
+          {u.role ? ` (${u.role})` : ""}
+        </option>
+      ))}
+    </select>
+  );
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4 backdrop-blur-sm">
-      <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-6 shadow-xl">
+      <div className="max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-2xl bg-white p-6 shadow-xl">
         <div className="mb-4 flex items-start justify-between gap-3">
           <div>
             <h2 className="text-lg font-semibold text-zinc-900">Склади</h2>
             <p className="mt-1 text-sm text-zinc-600">
-              Порядок влияет на колонки каталога и склад по умолчанию в заказах. Импорт Excel
-              ищет колонки по названию склада.
+              Порядок влияет на колонки каталога и склад по умолчанию в заказах. Відповідальний
+              менеджер може проводити етапи далі «Підтверджено» по своїх замовленнях з цього
+              складу.
             </p>
           </div>
           <button
@@ -187,6 +225,7 @@ export function WarehousesModal({ open, onClose, onChanged }: WarehousesModalPro
                   <th className="px-3 py-2">Название</th>
                   <th className="px-3 py-2 w-20">Порядок</th>
                   <th className="px-3 py-2">Код 1С</th>
+                  <th className="px-3 py-2 min-w-[10rem]">Відповідальний</th>
                   <th className="px-3 py-2 w-36" />
                 </tr>
               </thead>
@@ -226,6 +265,11 @@ export function WarehousesModal({ open, onClose, onChanged }: WarehousesModalPro
                         />
                       </td>
                       <td className="px-3 py-2">
+                        {responsibleSelect(editDraft.responsibleUserId, (next) =>
+                          setEditDraft((d) => (d ? { ...d, responsibleUserId: next } : d)),
+                        )}
+                      </td>
+                      <td className="px-3 py-2">
                         <div className="flex gap-1">
                           <button
                             type="button"
@@ -254,6 +298,9 @@ export function WarehousesModal({ open, onClose, onChanged }: WarehousesModalPro
                       <td className="px-3 py-2 tabular-nums text-zinc-700">{wh.sortOrder}</td>
                       <td className="px-3 py-2 font-mono text-xs text-zinc-600">
                         {wh.externalCode ?? "—"}
+                      </td>
+                      <td className="px-3 py-2 text-zinc-700">
+                        {wh.responsibleUser?.fullName ?? "—"}
                       </td>
                       <td className="px-3 py-2">
                         <div className="flex flex-wrap items-center gap-1">
@@ -299,7 +346,7 @@ export function WarehousesModal({ open, onClose, onChanged }: WarehousesModalPro
 
         <form onSubmit={(e) => void handleCreate(e)} className="mt-6 border-t border-zinc-200 pt-4">
           <p className="mb-2 text-sm font-medium text-zinc-800">Добавить склад</p>
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
             <input
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
@@ -319,6 +366,11 @@ export function WarehousesModal({ open, onClose, onChanged }: WarehousesModalPro
               placeholder="Код 1С"
               className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-mono"
             />
+            {responsibleSelect(
+              newResponsibleUserId,
+              setNewResponsibleUserId,
+              "rounded-md border border-zinc-300 px-3 py-2 text-sm",
+            )}
           </div>
           <button
             type="submit"

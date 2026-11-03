@@ -14,7 +14,18 @@ export type WarehouseListItem = {
   name: string;
   sortOrder: number;
   externalCode: string | null;
+  responsibleUserId: string | null;
+  responsibleUser: { id: string; fullName: string } | null;
 };
+
+const warehouseSelect = {
+  id: true,
+  name: true,
+  sortOrder: true,
+  externalCode: true,
+  responsibleUserId: true,
+  responsibleUser: { select: { id: true, fullName: true } },
+} as const;
 
 @Injectable()
 export class WarehousesService {
@@ -23,7 +34,7 @@ export class WarehousesService {
   async list(): Promise<WarehouseListItem[]> {
     const rows = await this.prisma.warehouse.findMany({
       orderBy: { sortOrder: "asc" },
-      select: { id: true, name: true, sortOrder: true, externalCode: true },
+      select: warehouseSelect,
     });
     return rows;
   }
@@ -36,6 +47,8 @@ export class WarehousesService {
     const externalCode = this.normalizeExternalCode(dto.externalCode);
     if (externalCode) await this.assertExternalCodeUnique(externalCode);
 
+    const responsibleUserId = await this.normalizeResponsibleUserId(dto.responsibleUserId);
+
     let sortOrder = dto.sortOrder;
     if (sortOrder === undefined || !Number.isFinite(sortOrder)) {
       const agg = await this.prisma.warehouse.aggregate({ _max: { sortOrder: true } });
@@ -43,8 +56,13 @@ export class WarehousesService {
     }
 
     const created = await this.prisma.warehouse.create({
-      data: { name, sortOrder: Math.floor(sortOrder), externalCode },
-      select: { id: true, name: true, sortOrder: true, externalCode: true },
+      data: {
+        name,
+        sortOrder: Math.floor(sortOrder),
+        externalCode,
+        responsibleUserId,
+      },
+      select: warehouseSelect,
     });
     return created;
   }
@@ -68,6 +86,11 @@ export class WarehousesService {
         ? Math.floor(dto.sortOrder)
         : undefined;
 
+    const responsibleUserId =
+      dto.responsibleUserId === undefined
+        ? undefined
+        : await this.normalizeResponsibleUserId(dto.responsibleUserId);
+
     try {
       const updated = await this.prisma.warehouse.update({
         where: { id },
@@ -75,8 +98,9 @@ export class WarehousesService {
           ...(name !== undefined ? { name } : {}),
           ...(sortOrder !== undefined ? { sortOrder } : {}),
           ...(dto.externalCode !== undefined ? { externalCode } : {}),
+          ...(responsibleUserId !== undefined ? { responsibleUserId } : {}),
         },
-        select: { id: true, name: true, sortOrder: true, externalCode: true },
+        select: warehouseSelect,
       });
       return updated;
     } catch (e) {
@@ -131,6 +155,21 @@ export class WarehousesService {
     if (value === undefined || value === null) return null;
     const s = String(value).trim();
     return s.length > 0 ? s : null;
+  }
+
+  private async normalizeResponsibleUserId(
+    value: string | null | undefined,
+  ): Promise<string | null> {
+    if (value === undefined || value === null) return null;
+    const id = String(value).trim();
+    if (!id) return null;
+    const user = await this.prisma.user.findUnique({
+      where: { id },
+      select: { id: true, isActive: true },
+    });
+    if (!user) throw new BadRequestException("Responsible user not found");
+    if (!user.isActive) throw new BadRequestException("Responsible user is inactive");
+    return user.id;
   }
 
   private async assertNameUnique(name: string, excludeId?: string): Promise<void> {

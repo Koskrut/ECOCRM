@@ -1173,8 +1173,10 @@ export class TelegramService {
 
   private applyReplyMarkup(body: Record<string, unknown>, options?: SendMessageOptions): void {
     if (options?.requestContactButton) {
+      const extra =
+        options.menuKeyboard?.map((row) => row.map((button) => this.mapMenuButton(button))) ?? [];
       body.reply_markup = {
-        keyboard: [[{ text: "📱 Поділитися номером", request_contact: true }]],
+        keyboard: [[{ text: "📱 Поділитися номером", request_contact: true }], ...extra],
         one_time_keyboard: true,
         resize_keyboard: true,
       };

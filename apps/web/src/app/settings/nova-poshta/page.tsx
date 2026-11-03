@@ -486,18 +486,18 @@ export default function NovaPoshtaSettingsPage() {
             </div>
             <div className="flex items-center justify-between gap-4 rounded-lg border border-zinc-100 bg-zinc-50/80 p-4">
               <div className="min-w-0">
-                <p className="text-sm font-medium text-zinc-800">{t.declaredCostTitle}</p>
+                <p className="text-sm font-medium text-zinc-800">{t.insuranceTitle}</p>
                 <p className="mt-0.5 text-xs text-zinc-500">
                   {(config.declaredCostMode ?? "minimum_200") === "order_total"
-                    ? t.declaredCostOrderHint
-                    : t.declaredCostMinHint}
+                    ? t.insuranceOnHint
+                    : t.insuranceOffHint}
                 </p>
               </div>
               <button
                 type="button"
                 role="switch"
                 aria-checked={(config.declaredCostMode ?? "minimum_200") === "order_total"}
-                aria-label={t.declaredCostTitle}
+                aria-label={t.insuranceTitle}
                 onClick={() =>
                   setConfig({
                     ...config,

@@ -86,18 +86,15 @@ export class NpTtnService {
     const codFeatureEnabled = await this.settings.resolveNovaPoshtaCodEnabled();
     const oid = orderId?.trim();
 
-    let orderPaymentMethod: string | null = null;
     if (oid) {
       const orderRow = await this.prisma.order.findUnique({
         where: { id: oid },
-        select: { paymentMethod: true, debtAmount: true, currency: true },
+        select: { debtAmount: true, currency: true },
       });
-      orderPaymentMethod = orderRow?.paymentMethod ?? null;
       const hasOrderItems =
         (await this.prisma.orderItem.count({ where: { orderId: oid } })) > 0;
 
       const resolvedFin = resolveNpFinancialFields({
-        orderPaymentMethod,
         settingsPayerType: fin.payerType,
         settingsPaymentMethod: fin.paymentMethod,
       });
@@ -298,7 +295,6 @@ export class NpTtnService {
       resolved,
       npRefs,
       orderNumber: order.orderNumber,
-      orderPaymentMethod: order.paymentMethod,
     });
 
     // 3) create document
@@ -784,12 +780,10 @@ export class NpTtnService {
     resolved: { data: unknown };
     npRefs: Record<string, unknown>;
     orderNumber: string;
-    orderPaymentMethod?: string | null;
     documentRef?: string | null;
     documentNumber?: string | null;
   }) {
-    const { dto, resolved, npRefs, orderNumber, orderPaymentMethod, documentRef, documentNumber } =
-      args;
+    const { dto, resolved, npRefs, orderNumber, documentRef, documentNumber } = args;
     const d = resolved.data as Record<string, unknown>;
     const sender = await this.getSenderRefsFromEnv();
     const isPerson = d.recipientType === NpRecipientType.PERSON;
@@ -810,7 +804,6 @@ export class NpTtnService {
     const { payerType, paymentMethod } = resolveNpFinancialFields({
       dtoPayerType: dto.payerType,
       dtoPaymentMethod: dto.paymentMethod,
-      orderPaymentMethod,
       settingsPayerType: fin.payerType,
       settingsPaymentMethod: fin.paymentMethod,
     });
@@ -1549,7 +1542,6 @@ export class NpTtnService {
       resolved,
       npRefs,
       orderNumber: order.orderNumber,
-      orderPaymentMethod: order.paymentMethod,
       documentRef: existing.documentRef,
       documentNumber: existing.documentNumber,
     });

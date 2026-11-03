@@ -5,18 +5,22 @@ export type WarehouseItem = {
   name: string;
   sortOrder: number;
   externalCode?: string | null;
+  responsibleUserId?: string | null;
+  responsibleUser?: { id: string; fullName: string } | null;
 };
 
 export type CreateWarehousePayload = {
   name: string;
   sortOrder?: number;
   externalCode?: string | null;
+  responsibleUserId?: string | null;
 };
 
 export type UpdateWarehousePayload = {
   name?: string;
   sortOrder?: number;
   externalCode?: string | null;
+  responsibleUserId?: string | null;
 };
 
 export async function listWarehouses(): Promise<WarehouseItem[]> {

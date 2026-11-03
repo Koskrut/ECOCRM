@@ -107,3 +107,39 @@ test("warehouse restriction intersects pipeline graph", () => {
     "CONFIRMED",
   ]);
 });
+
+test("getKanbanDropBlock caps managers past CONFIRMED unless exempt", () => {
+  assert.equal(
+    getKanbanDropBlock({
+      from: "CONFIRMED",
+      to: "READY_TO_SHIP",
+      paymentType: "DEFERRED",
+      allowedNext: FALLBACK_ALLOWED_TRANSITIONS.CONFIRMED,
+      managerStageCap: true,
+      managerStageCapExempt: false,
+    }),
+    "manager_past_confirmed",
+  );
+  assert.equal(
+    getKanbanDropBlock({
+      from: "CONFIRMED",
+      to: "READY_TO_SHIP",
+      paymentType: "DEFERRED",
+      allowedNext: FALLBACK_ALLOWED_TRANSITIONS.CONFIRMED,
+      managerStageCap: true,
+      managerStageCapExempt: true,
+    }),
+    null,
+  );
+  assert.equal(
+    getKanbanDropBlock({
+      from: "CONFIRMED",
+      to: "AWAITING_STOCK",
+      paymentType: "DEFERRED",
+      allowedNext: FALLBACK_ALLOWED_TRANSITIONS.CONFIRMED,
+      managerStageCap: true,
+      managerStageCapExempt: false,
+    }),
+    null,
+  );
+});

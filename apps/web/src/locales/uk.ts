@@ -648,16 +648,16 @@ export const uk = {
       senderPhonePlaceholder: "380XXXXXXXXX",
       sectionTtnDefaults: "За замовчуванням для ТТН",
       sectionTtnDefaultsHint:
-        "Застосовуються при створенні ТТН, якщо в замовленні не вказано інше.",
+        "Платник і спосіб оплати ТТН беруться з цих налаштувань (не з оплати замовлення). У модалці ТТН їх можна змінити вручну.",
       payerLabel: "Платник",
       paymentLabel: "Спосіб оплати",
       payerRecipient: "Отримувач",
       payerSender: "Відправник",
       paymentCash: "Готівка",
       paymentNonCash: "Безготівково",
-      declaredCostTitle: "Оціночна вартість",
-      declaredCostMinHint: "Фіксовано 200 ₴ при створенні ТТН (якщо не вказано інше).",
-      declaredCostOrderHint: "Сума замовлення в гривні за курсом CRM при створенні ТТН.",
+      insuranceTitle: "Страхування",
+      insuranceOffHint: "Мінімальна оціночна вартість 200 ₴ при створенні ТТН.",
+      insuranceOnHint: "ТТН страхується на суму замовлення (у гривні за курсом CRM).",
       codEnabledTitle: "Наложений платіж",
       codEnabledHint:
         "Дозволяє вказувати суму наложеного платежу при створенні ТТН. Якщо вимкнено — поле не показується в замовленнях.",
@@ -3459,6 +3459,8 @@ export const uk = {
     prepayMustAwaitPayment: "Замовлення з передоплатою спочатку переведіть у «Очікує оплату».",
     deferredNoAwaitingPayment:
       "Для відтермінування використовуйте «Очікує на склад», не «Очікує оплату».",
+    managerPastConfirmed:
+      "Менеджер не може перевести замовлення далі етапу «Підтверджено». Далі працює склад.",
     loadedCardsHint: "Сума по завантажених картках",
     financialLoadingBoard: "Завантаження фін. дошки…",
     financialHint:

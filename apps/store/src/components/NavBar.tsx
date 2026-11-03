@@ -47,10 +47,14 @@ export function NavBar() {
 
   useEffect(() => {
     if (!telegram.ready) return;
+    if (telegram.isTelegram && telegram.loading) return;
+    if (telegram.loggedIn) setLoggedIn(true);
     getMe()
       .then(() => setLoggedIn(true))
-      .catch(() => setLoggedIn(false));
-  }, [telegram.ready, telegram.loggedIn]);
+      .catch(() => {
+        if (!telegram.loggedIn) setLoggedIn(false);
+      });
+  }, [telegram.ready, telegram.isTelegram, telegram.loading, telegram.loggedIn]);
 
   useEffect(() => {
     if (!accountDropdownOpen) return;

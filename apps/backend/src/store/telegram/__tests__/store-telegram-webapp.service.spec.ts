@@ -40,6 +40,9 @@ describe("StoreTelegramWebAppService.createSession", () => {
           firstName: "TgName",
           lastName: "TgLast",
         }),
+        create: async () => {
+          throw new Error("should not create");
+        },
         updateMany: async () => ({ count: 0 }),
       },
       conversation: { findUnique: async () => null },
@@ -60,7 +63,7 @@ describe("StoreTelegramWebAppService.createSession", () => {
       prisma as never,
       { getTelegramSecrets: async () => ({ botToken }) } as never,
       { findContactByPhone: async () => null } as never,
-      { mergeCart: async () => undefined } as never,
+      { unifyTelegramCart: async () => undefined } as never,
     );
 
     const session = await service.createSession(initData);
@@ -93,6 +96,9 @@ describe("StoreTelegramWebAppService.createSession", () => {
           firstName: "Max",
           lastName: null,
         }),
+        create: async () => {
+          throw new Error("should not create");
+        },
         updateMany: async (args: unknown) => {
           updates.push(args);
           return { count: 1 };
@@ -118,7 +124,7 @@ describe("StoreTelegramWebAppService.createSession", () => {
       prisma as never,
       { getTelegramSecrets: async () => ({ botToken }) } as never,
       { findContactByPhone: async () => null } as never,
-      { mergeCart: async () => undefined } as never,
+      { unifyTelegramCart: async () => undefined } as never,
     );
 
     const session = await service.createSession(initData);

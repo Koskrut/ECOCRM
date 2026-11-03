@@ -31,6 +31,7 @@ import {
   assertWarehouseStageTransition,
   WAREHOUSE_FULFILLMENT_QUEUE_STAGES,
 } from "./order-warehouse-role";
+import { assertManagerStageCap } from "./order-manager-stage-cap";
 import { IntegrationPortsService } from "../integration-ports/integration-ports.service";
 import { CustomFieldsService } from "../custom-fields/custom-fields.service";
 import { PrismaService } from "../prisma/prisma.service";
@@ -2088,6 +2089,8 @@ export class OrdersService {
       select: {
         id: true,
         ownerId: true,
+        warehouseId: true,
+        warehouse: { select: { responsibleUserId: true } },
         contactId: true,
         contact: { select: { externalCode: true, ownerId: true } },
         orderStage: true,
@@ -2114,6 +2117,15 @@ export class OrdersService {
     if (!current) throw new NotFoundException("Order not found");
     if (actor) await this.assertOrderAccess(current, actor);
     assertWarehouseStageTransition(actor, current.orderStage, toStage);
+    assertManagerStageCap(
+      actor,
+      {
+        ownerId: current.ownerId,
+        warehouseResponsibleUserId: current.warehouse?.responsibleUserId ?? null,
+      },
+      current.orderStage,
+      toStage,
+    );
 
     assertContactExternalCodeToLeaveNew(
       current.orderStage,

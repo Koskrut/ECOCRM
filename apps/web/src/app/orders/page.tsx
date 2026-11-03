@@ -74,7 +74,38 @@ type OrderSummary = {
   warehouse?: { id: string; name: string } | null;
   documentsRequested?: boolean | null;
   hasPromo?: boolean | null;
+  invoiceNumber?: string | null;
+  invoiceDate?: string | null;
+  waybillNumber?: string | null;
+  waybillDate?: string | null;
 };
+
+/** True when 1C pushed a real invoice/waybill number (not СУ / zeros placeholders). */
+function isMeaningfulOneCDocNumber(raw?: string | null): boolean {
+  let s = String(raw ?? "").trim();
+  if (!s) return false;
+  s = s.replace(/^(?:СУ|CY|SU)[\s\-/_]*/iu, "");
+  s = s.replace(/^0+(?=\d)/, "");
+  return Boolean(s && !/^0+$/.test(s));
+}
+
+function orderHasOneCDocuments(order: OrderSummary): boolean {
+  return (
+    isMeaningfulOneCDocNumber(order.invoiceNumber) ||
+    isMeaningfulOneCDocNumber(order.waybillNumber)
+  );
+}
+
+function oneCDocumentsTitle(order: OrderSummary): string {
+  const parts: string[] = [];
+  if (isMeaningfulOneCDocNumber(order.invoiceNumber)) {
+    parts.push(`Рахунок ${String(order.invoiceNumber).trim()}`);
+  }
+  if (isMeaningfulOneCDocNumber(order.waybillNumber)) {
+    parts.push(`РН ${String(order.waybillNumber).trim()}`);
+  }
+  return parts.length > 0 ? parts.join(" · ") : "Немає документів 1С";
+}
 
 type OrdersListResponse = {
   items: OrderSummary[];
@@ -240,6 +271,10 @@ function OrdersPageContent() {
   const [showIncomingReturnPackage, setShowIncomingReturnPackage] = useState(false);
   const [openPackageId, setOpenPackageId] = useState<string | null>(null);
   const [userRole, setUserRole] = useState<string | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [warehouseResponsibleById, setWarehouseResponsibleById] = useState<
+    Record<string, string | null>
+  >({});
 
   const [creating, setCreating] = useState(false);
   const [ttnHintOrderId, setTtnHintOrderId] = useState<string | null>(null);
@@ -354,9 +389,28 @@ function OrdersPageContent() {
 
   useEffect(() => {
     apiHttp
-      .get<{ user?: { role?: string } }>("/auth/me")
-      .then((res) => setUserRole(res.data?.user?.role ?? null))
-      .catch(() => setUserRole(null));
+      .get<{ user?: { id?: string; role?: string } }>("/auth/me")
+      .then((res) => {
+        setUserRole(res.data?.user?.role ?? null);
+        setCurrentUserId(res.data?.user?.id ?? null);
+      })
+      .catch(() => {
+        setUserRole(null);
+        setCurrentUserId(null);
+      });
+  }, []);
+
+  useEffect(() => {
+    apiHttp
+      .get<Array<{ id: string; responsibleUserId?: string | null }>>("/warehouses")
+      .then((res) => {
+        const map: Record<string, string | null> = {};
+        for (const wh of res.data ?? []) {
+          map[wh.id] = wh.responsibleUserId ?? null;
+        }
+        setWarehouseResponsibleById(map);
+      })
+      .catch(() => setWarehouseResponsibleById({}));
   }, []);
 
   const isWarehouse = userRole === "WAREHOUSE";
@@ -959,6 +1013,9 @@ function OrdersPageContent() {
                     <th className="px-4 py-3">Дата</th>
                     <th className="px-4 py-3 hidden md:table-cell">Оплата</th>
                     <th className="px-4 py-3">Статус</th>
+                    <th className="px-4 py-3 text-center" title="Документи 1С (рахунок / РН)">
+                      1С
+                    </th>
                     <th className="px-4 py-3 text-right hidden lg:table-cell">Товари</th>
                     <th className="px-4 py-3 text-right">Сума</th>
                     {extraColumns.map((col) => (
@@ -971,13 +1028,13 @@ function OrdersPageContent() {
                 <tbody className="divide-y divide-zinc-100">
                   {loading ? (
                     <tr>
-                      <td colSpan={9 + extraColumns.length} className="px-6 py-8 text-center text-zinc-500">
+                      <td colSpan={10 + extraColumns.length} className="px-6 py-8 text-center text-zinc-500">
                         {tOrdersList.loading}
                       </td>
                     </tr>
                   ) : orders.length === 0 ? (
                     <tr>
-                      <td colSpan={9 + extraColumns.length} className="px-6 py-8 text-center text-zinc-500">
+                      <td colSpan={10 + extraColumns.length} className="px-6 py-8 text-center text-zinc-500">
                         {strings.orders.modal.notFound}
                       </td>
                     </tr>
@@ -1075,6 +1132,21 @@ function OrdersPageContent() {
                             status={order.status}
                             orderStage={order.orderStage}
                           />
+                        </td>
+                        <td className="px-4 py-4 text-center">
+                          {orderHasOneCDocuments(order) ? (
+                            <span
+                              title={oneCDocumentsTitle(order)}
+                              className="inline-flex text-emerald-600"
+                              aria-label={oneCDocumentsTitle(order)}
+                            >
+                              <CheckCircle2 className="h-4 w-4" />
+                            </span>
+                          ) : (
+                            <span className="text-zinc-300" title="Немає документів 1С">
+                              —
+                            </span>
+                          )}
                         </td>
                         <td className="px-4 py-4 text-right text-zinc-500 hidden lg:table-cell">
                           <div className="relative inline-flex items-center justify-end group">
@@ -1216,6 +1288,9 @@ function OrdersPageContent() {
             refreshKey={kanbanRefreshKey}
             warehouseMode={false}
             warehouseRestricted={isWarehouse}
+            userRole={userRole}
+            currentUserId={currentUserId}
+            warehouseResponsibleById={warehouseResponsibleById}
             filters={{
               orderStage: orderStageFilter || undefined,
               status: statusFilter || undefined,

@@ -18,18 +18,14 @@ export function normalizeNpPaymentMethod(raw?: string | null): NpPaymentMethod |
   return null;
 }
 
-/** Map CRM order payment method to NP API payment method. */
-export function mapOrderPaymentMethodToNp(orderPm?: string | null): NpPaymentMethod | null {
-  const v = String(orderPm ?? "").trim().toUpperCase();
-  if (v === "FOP") return "NonCash";
-  if (v === "CASH") return "Cash";
-  return null;
-}
-
+/**
+ * Resolve NP payer / payment for a TTN.
+ * Priority: explicit DTO (TTN modal) → Nova Poshta settings → fallback.
+ * Order.paymentMethod is intentionally ignored.
+ */
 export function resolveNpFinancialFields(input: {
   dtoPayerType?: string | null;
   dtoPaymentMethod?: string | null;
-  orderPaymentMethod?: string | null;
   settingsPayerType: string;
   settingsPaymentMethod: string;
 }): { payerType: NpPayerType; paymentMethod: NpPaymentMethod } {
@@ -40,7 +36,6 @@ export function resolveNpFinancialFields(input: {
 
   const paymentMethod =
     normalizeNpPaymentMethod(input.dtoPaymentMethod) ??
-    mapOrderPaymentMethodToNp(input.orderPaymentMethod) ??
     normalizeNpPaymentMethod(input.settingsPaymentMethod) ??
     "Cash";
 

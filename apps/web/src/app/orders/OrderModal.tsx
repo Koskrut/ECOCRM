@@ -424,6 +424,7 @@ function Stepper({
   hasPayment,
   isAdmin,
   isWarehouse,
+  canAdvancePastConfirmed = false,
   paymentType,
   deliveryMethod,
   hasTtn = false,
@@ -437,6 +438,8 @@ function Stepper({
   hasPayment?: boolean;
   isAdmin?: boolean;
   isWarehouse?: boolean;
+  /** Manager exception: warehouse responsible on own order. */
+  canAdvancePastConfirmed?: boolean;
   paymentType?: "PREPAYMENT" | "DEFERRED" | string | null;
   deliveryMethod?: string | null;
   hasTtn?: boolean;
@@ -609,15 +612,30 @@ function Stepper({
       }
       return [];
     }
+    const pastConfirmed = new Set([
+      "READY_TO_SHIP",
+      "SHIPPED",
+      "AWAITING_RECEIPT",
+      "RECEIVED",
+      "COMPLETED",
+      "REFUSED",
+      "RETURN_IN_PROGRESS",
+      "FULLY_RETURNED",
+    ]);
     const specials = new Set(["CANCELED", "REFUSED", "RETURN_IN_PROGRESS", "FULLY_RETURNED"]);
     return filterBlocked(
       filterCompletion(
-        steps.filter((s, idx) => s.key !== stage && (idx > activeIdx || specials.has(s.key))),
+        steps.filter((s, idx) => {
+          if (s.key === stage) return false;
+          if (!canAdvancePastConfirmed && pastConfirmed.has(s.key)) return false;
+          return idx > activeIdx || specials.has(s.key);
+        }),
       ),
     );
   }, [
     isAdmin,
     isWarehouse,
+    canAdvancePastConfirmed,
     stage,
     activeIdx,
     steps,
@@ -781,6 +799,7 @@ export function OrderModal({
   const [deleting, setDeleting] = useState(false);
   const [editing, setEditing] = useState<EditingField>(null);
   const [userRole, setUserRole] = useState<string | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [showFxWriteOff, setShowFxWriteOff] = useState(false);
 
   const [companies, setCompanies] = useState<CompanyOption[]>([]);
@@ -798,7 +817,9 @@ export function OrderModal({
   const [paymentMethod, setPaymentMethod] = useState<string | null>("FOP");
   const [bankAccountId, setBankAccountId] = useState<string | null>(null);
   const [warehouseId, setWarehouseId] = useState<string | null>(null);
-  const [warehouses, setWarehouses] = useState<Array<{ id: string; name: string }>>([]);
+  const [warehouses, setWarehouses] = useState<
+    Array<{ id: string; name: string; responsibleUserId?: string | null }>
+  >([]);
   const [fopAccounts, setFopAccounts] = useState<Array<{ id: string; name: string }>>([]);
   /** From GET /bank/accounts/for-order — user's default FOP id (if visible). */
   const [forOrderDefaultBankId, setForOrderDefaultBankId] = useState<string | null>(null);
@@ -920,7 +941,19 @@ export function OrderModal({
   const isAdmin = effectiveRole != null && String(effectiveRole).trim().toUpperCase() === "ADMIN";
   const isWarehouse =
     effectiveRole != null && String(effectiveRole).trim().toUpperCase() === "WAREHOUSE";
+  const isManager =
+    effectiveRole != null && String(effectiveRole).trim().toUpperCase() === "MANAGER";
   const canEditLineDiscounts = !isWarehouse;
+  const orderWarehouseId = order?.warehouseId ?? warehouseId ?? null;
+  const warehouseResponsibleUserId =
+    warehouses.find((w) => w.id === orderWarehouseId)?.responsibleUserId ?? null;
+  const canAdvancePastConfirmed =
+    !isManager ||
+    Boolean(
+      currentUserId &&
+        order?.ownerId === currentUserId &&
+        warehouseResponsibleUserId === currentUserId,
+    );
   const orderLineDiscountSum = useMemo(
     () => (order?.items ? computeOrderLineDiscountSum(order.items) : 0),
     [order?.items],
@@ -1400,6 +1433,23 @@ export function OrderModal({
           return;
         }
       }
+      const pastConfirmed = new Set([
+        "READY_TO_SHIP",
+        "SHIPPED",
+        "AWAITING_RECEIPT",
+        "RECEIVED",
+        "COMPLETED",
+        "REFUSED",
+        "RETURN_IN_PROGRESS",
+        "FULLY_RETURNED",
+      ]);
+      if (isManager && !canAdvancePastConfirmed && pastConfirmed.has(toStage)) {
+        pushToast(
+          "Менеджер не може перевести замовлення далі етапу «Підтверджено». Далі працює склад.",
+          "error",
+        );
+        return;
+      }
       setStatusUpdating(true);
       try {
         const r = await fetch(`${apiBaseUrl}/orders/${orderId}/stage`, {
@@ -1422,7 +1472,9 @@ export function OrderModal({
     },
     [
       apiBaseUrl,
+      canAdvancePastConfirmed,
       deliveryMethod,
+      isManager,
       order,
       orderId,
       paymentType,
@@ -1547,15 +1599,17 @@ export function OrderModal({
   ]);
 
   useEffect(() => {
-    if (userRoleProp != null) return;
     apiHttp
-      .get<{ user?: { role?: string } }>("/auth/me")
+      .get<{ user?: { id?: string; role?: string } }>("/auth/me")
       .then((res) => {
-        const role = res.data?.user?.role ?? null;
-        setUserRole(role);
+        if (userRoleProp == null) {
+          setUserRole(res.data?.user?.role ?? null);
+        }
+        setCurrentUserId(res.data?.user?.id ?? null);
       })
       .catch(() => {
-        setUserRole(null);
+        if (userRoleProp == null) setUserRole(null);
+        setCurrentUserId(null);
       });
   }, [userRoleProp]);
 
@@ -2389,6 +2443,7 @@ export function OrderModal({
           completionBlockers={order.completionBlockers ?? []}
           isAdmin={isAdmin}
           isWarehouse={isWarehouse}
+          canAdvancePastConfirmed={canAdvancePastConfirmed}
           paymentType={order.paymentType ?? paymentType ?? null}
           deliveryMethod={order.deliveryMethod ?? deliveryMethod ?? null}
           hasTtn={orderHasTtn(order)}

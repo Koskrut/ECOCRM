@@ -5,35 +5,25 @@ import { resolveNpFinancialFields } from "../np-financial.util";
 describe("np-financial.util", () => {
   const settings = { settingsPayerType: "Recipient", settingsPaymentMethod: "Cash" };
 
-  it("maps FOP order payment to NonCash with settings payer", () => {
+  it("uses settings payment and payer when dto is missing", () => {
     const result = resolveNpFinancialFields({
       ...settings,
-      orderPaymentMethod: "FOP",
+      settingsPaymentMethod: "NonCash",
     });
     assert.equal(result.paymentMethod, "NonCash");
     assert.equal(result.payerType, "Recipient");
   });
 
-  it("maps CASH order payment to Cash with settings payer", () => {
-    const result = resolveNpFinancialFields({
-      ...settings,
-      orderPaymentMethod: "CASH",
-    });
-    assert.equal(result.paymentMethod, "Cash");
-    assert.equal(result.payerType, "Recipient");
-  });
-
-  it("prefers dto payerType and order FOP for payment", () => {
+  it("prefers dto payerType over settings", () => {
     const result = resolveNpFinancialFields({
       ...settings,
       dtoPayerType: "Sender",
-      orderPaymentMethod: "FOP",
     });
-    assert.equal(result.paymentMethod, "NonCash");
+    assert.equal(result.paymentMethod, "Cash");
     assert.equal(result.payerType, "Sender");
   });
 
-  it("uses dto payerType and settings payment when order payment is missing", () => {
+  it("uses settings payment when only dto payerType is set", () => {
     const result = resolveNpFinancialFields({
       ...settings,
       settingsPaymentMethod: "NonCash",
@@ -43,12 +33,21 @@ describe("np-financial.util", () => {
     assert.equal(result.payerType, "Recipient");
   });
 
-  it("prefers explicit dto paymentMethod over order mapping", () => {
+  it("prefers explicit dto paymentMethod over settings", () => {
     const result = resolveNpFinancialFields({
       ...settings,
+      settingsPaymentMethod: "NonCash",
       dtoPaymentMethod: "Cash",
-      orderPaymentMethod: "FOP",
     });
     assert.equal(result.paymentMethod, "Cash");
+  });
+
+  it("falls back to Cash when settings payment is invalid", () => {
+    const result = resolveNpFinancialFields({
+      settingsPayerType: "Recipient",
+      settingsPaymentMethod: "Invalid",
+    });
+    assert.equal(result.paymentMethod, "Cash");
+    assert.equal(result.payerType, "Recipient");
   });
 });

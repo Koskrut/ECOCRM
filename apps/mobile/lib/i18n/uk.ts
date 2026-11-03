@@ -541,6 +541,8 @@ export const uk = {
     stageChangeTitle: "Змінити етап",
     stageNeedPayment: "Оберіть умови оплати перед зміною етапу",
     stageNeedTtn: "Створіть ТТН перед підтвердженням",
+    stageManagerPastConfirmed:
+      "Менеджер не може перевести замовлення далі етапу «Підтверджено». Далі працює склад.",
     conditions: "Умови замовлення",
     needPaymentType: "Оберіть тип оплати",
     needBankAccount: "Оберіть рахунок ФОП",

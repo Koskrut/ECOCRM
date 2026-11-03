@@ -334,6 +334,7 @@ export type Order = {
   paymentStatus?: string | null;
   currency?: string | null;
   createdAt: string;
+  ownerId?: string | null;
   contactId?: string | null;
   companyId?: string | null;
   company?: { id: string; name: string } | null;

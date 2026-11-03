@@ -645,17 +645,18 @@ export const en = {
       senderPhone: "Sender phone",
       senderPhonePlaceholder: "380XXXXXXXXX",
       sectionTtnDefaults: "TTN defaults",
-      sectionTtnDefaultsHint: "Used when creating a waybill if not specified in the order.",
+      sectionTtnDefaultsHint:
+        "TTN payer and payment method come from these settings (not from the order payment method). You can still override them in the TTN modal.",
       payerLabel: "Payer",
       paymentLabel: "Payment method",
       payerRecipient: "Recipient",
       payerSender: "Sender",
       paymentCash: "Cash",
       paymentNonCash: "Non-cash",
-      declaredCostTitle: "Declared value",
-      declaredCostMinHint: "Fixed 200 UAH when creating a waybill (unless overridden).",
-      declaredCostOrderHint:
-        "Order total converted to UAH at CRM exchange rate when creating a waybill.",
+      insuranceTitle: "Insurance",
+      insuranceOffHint: "Minimum declared value of 200 UAH when creating a waybill.",
+      insuranceOnHint:
+        "The waybill is insured for the order total (converted to UAH at the CRM rate).",
       codEnabledTitle: "Cash on delivery",
       codEnabledHint:
         "Allows specifying a COD amount when creating a waybill. When off, the field is hidden in orders.",
@@ -3439,6 +3440,8 @@ export const en = {
     awaitingPaymentPrepay: "“Awaiting payment” is only for prepaid orders.",
     prepayMustAwaitPayment: "Prepaid orders must move to “Awaiting payment” first.",
     deferredNoAwaitingPayment: "For deferred payment use “Awaiting stock”, not “Awaiting payment”.",
+    managerPastConfirmed:
+      "Managers cannot move an order past “Confirmed”. Warehouse handles later stages.",
     loadedCardsHint: "Amount for loaded cards",
     financialLoadingBoard: "Loading finance board…",
     financialHint:

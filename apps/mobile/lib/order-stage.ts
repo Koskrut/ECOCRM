@@ -19,6 +19,34 @@ export const SPECIAL_STAGES = [
   "COMPLETED",
 ] as const;
 
+/** Mirrors backend order-manager-stage-cap PAST_CONFIRMED_STAGES. */
+export const PAST_CONFIRMED_STAGES = new Set([
+  "READY_TO_SHIP",
+  "SHIPPED",
+  "AWAITING_RECEIPT",
+  "RECEIVED",
+  "COMPLETED",
+  "REFUSED",
+  "RETURN_IN_PROGRESS",
+  "FULLY_RETURNED",
+]);
+
+export function isPastConfirmedStage(stage: string): boolean {
+  return PAST_CONFIRMED_STAGES.has(stage);
+}
+
+export function managerCanAdvancePastConfirmed(opts: {
+  actorId?: string | null;
+  ownerId?: string | null;
+  warehouseResponsibleUserId?: string | null;
+}): boolean {
+  const { actorId, ownerId, warehouseResponsibleUserId } = opts;
+  if (!actorId) return false;
+  if (!ownerId || ownerId !== actorId) return false;
+  if (!warehouseResponsibleUserId || warehouseResponsibleUserId !== actorId) return false;
+  return true;
+}
+
 export function isForwardStageTransition(from: string, to: string): boolean {
   if (from === to) return false;
   if (to === "CANCELED") return false;
@@ -41,6 +69,7 @@ export function isStageTransitionBlocked(
 export function getVisibleStageTargets(
   currentStage: string,
   paymentType?: string | null,
+  opts?: { capPastConfirmed?: boolean },
 ): string[] {
   const stage = currentStage || "NEW";
   if (TERMINAL_STAGES.has(stage)) return [];
@@ -71,5 +100,7 @@ export function getVisibleStageTargets(
   if (stage === "SHIPPED" || stage === "AWAITING_RECEIPT") targets.push("REFUSED");
   if (stage === "RECEIVED" || stage === "COMPLETED") targets.push("RETURN_IN_PROGRESS");
 
-  return [...new Set(targets)];
+  const unique = [...new Set(targets)];
+  if (!opts?.capPastConfirmed) return unique;
+  return unique.filter((s) => !isPastConfirmedStage(s));
 }

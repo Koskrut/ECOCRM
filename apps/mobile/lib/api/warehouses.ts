@@ -5,6 +5,8 @@ export type Warehouse = {
   name: string;
   sortOrder: number;
   externalCode?: string | null;
+  responsibleUserId?: string | null;
+  responsibleUser?: { id: string; fullName: string } | null;
 };
 
 export const warehousesApi = {

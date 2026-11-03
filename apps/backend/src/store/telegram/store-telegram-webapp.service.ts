@@ -53,7 +53,7 @@ export class StoreTelegramWebAppService {
     }
 
     const telegramUserId = String(parsed.user.id);
-    const account = await this.prisma.telegramAccount.findUnique({
+    let account = await this.prisma.telegramAccount.findUnique({
       where: { telegramUserId },
       select: {
         id: true,
@@ -66,6 +66,36 @@ export class StoreTelegramWebAppService {
       },
     });
 
+    // First Mini App open before any bot inbound — still create a row so later links stick.
+    if (!account) {
+      const accountSelect = {
+        id: true,
+        telegramChatId: true,
+        phone: true,
+        contactId: true,
+        leadId: true,
+        firstName: true,
+        lastName: true,
+      } as const;
+      try {
+        account = await this.prisma.telegramAccount.create({
+          data: {
+            telegramUserId,
+            telegramChatId: telegramUserId,
+            firstName: parsed.user.first_name ?? null,
+            lastName: parsed.user.last_name ?? null,
+            username: parsed.user.username ?? null,
+          },
+          select: accountSelect,
+        });
+      } catch {
+        account = await this.prisma.telegramAccount.findUnique({
+          where: { telegramUserId },
+          select: accountSelect,
+        });
+      }
+    }
+
     let phone = account?.phone ?? null;
     let contactId = account?.contactId ?? null;
     let firstName = account?.firstName ?? parsed.user.first_name ?? null;
@@ -73,12 +103,20 @@ export class StoreTelegramWebAppService {
 
     // Bot may have linked the contact on the conversation while telegramAccount.contactId
     // is still empty — pull it so Mini App can issue store_token and prefill checkout.
-    if (!contactId && account?.telegramChatId) {
-      const conv = await this.prisma.conversation.findUnique({
-        where: { telegramChatId: account.telegramChatId },
-        select: { contactId: true },
-      });
-      if (conv?.contactId) contactId = conv.contactId;
+    if (!contactId) {
+      const chatIds = [account?.telegramChatId, telegramUserId].filter(
+        (id, idx, arr): id is string => Boolean(id) && arr.indexOf(id) === idx,
+      );
+      for (const chatId of chatIds) {
+        const conv = await this.prisma.conversation.findUnique({
+          where: { telegramChatId: chatId },
+          select: { contactId: true },
+        });
+        if (conv?.contactId) {
+          contactId = conv.contactId;
+          break;
+        }
+      }
     }
 
     if (!contactId && account?.leadId) {
@@ -171,9 +209,10 @@ export class StoreTelegramWebAppService {
         { expiresInSeconds: STORE_SESSION_TTL_SECONDS },
       );
       try {
-        await this.cart.mergeCart(customer.id, sessionCartId);
+        // Keep the shared tg: cart. Pull leftovers off the customer cart if an older login moved them.
+        await this.cart.unifyTelegramCart(customer.id, sessionCartId);
       } catch {
-        /* guest cart may be empty */
+        /* cart tables may be empty */
       }
     }
 

@@ -9,7 +9,11 @@ import {
   useRef,
   useState,
 } from "react";
-import { getTelegramWebApp } from "@/lib/telegram-webapp";
+import {
+  getTelegramInitData,
+  getTelegramWebApp,
+  waitForTelegramWebApp,
+} from "@/lib/telegram-webapp";
 import {
   clearTelegramStoreSession,
   getTelegramCartSessionId,
@@ -63,6 +67,7 @@ async function exchangeInitData(initData: string) {
   }
   return res.json() as Promise<{
     token: string;
+    storeToken?: string | null;
     cartSessionId: string;
     phone: string | null;
     firstName: string | null;
@@ -86,7 +91,15 @@ export function TelegramWebAppProvider({ children }: { children: React.ReactNode
 
   const applySession = useCallback(
     (session: Awaited<ReturnType<typeof exchangeInitData>>) => {
-      setTelegramStoreSession(session);
+      setTelegramStoreSession({
+        token: session.token,
+        cartSessionId: session.cartSessionId,
+        phone: session.phone,
+        firstName: session.firstName,
+        lastName: session.lastName,
+        contactId: session.contactId,
+        storeToken: session.storeToken ?? (session.loggedIn ? undefined : null),
+      });
       setToken(session.token);
       setCartSessionId(session.cartSessionId);
       setProfile({
@@ -104,8 +117,7 @@ export function TelegramWebAppProvider({ children }: { children: React.ReactNode
   );
 
   const refreshSession = useCallback(async () => {
-    const app = getTelegramWebApp();
-    const initData = app?.initData?.trim();
+    const initData = getTelegramInitData();
     if (!initData) return false;
     try {
       const session = await exchangeInitData(initData);
@@ -117,50 +129,75 @@ export function TelegramWebAppProvider({ children }: { children: React.ReactNode
   }, [applySession]);
 
   const close = useCallback(() => {
-    getTelegramWebApp()?.close();
+    getTelegramWebApp()?.close?.();
   }, []);
 
   useEffect(() => {
-    const app = getTelegramWebApp();
-    if (!app) {
-      clearTelegramStoreSession();
-      setReady(true);
-      return;
-    }
+    let cancelled = false;
 
-    setIsTelegram(true);
-    setLoading(true);
-    try {
-      app.ready();
-      app.expand();
-    } catch {
-      /* ignore */
-    }
+    const boot = async () => {
+      setLoading(true);
+      // Catalog web_app can hydrate before telegram-web-app.js finishes — wait briefly.
+      const app = await waitForTelegramWebApp({ timeoutMs: 4_000 });
+      if (cancelled) return;
 
-    const theme = app.themeParams ?? {};
-    if (theme.bg_color) {
-      document.documentElement.style.setProperty("--tg-bg", theme.bg_color);
-    }
-    if (theme.button_color) {
-      document.documentElement.style.setProperty("--primary", theme.button_color);
-    }
+      if (!app) {
+        // Regular browser (or Telegram script stub without initData).
+        clearTelegramStoreSession();
+        setIsTelegram(false);
+        setLoading(false);
+        setReady(true);
+        return;
+      }
 
-    void exchangeInitData(app.initData)
-      .then((session) => {
+      setIsTelegram(true);
+      try {
+        app.ready();
+        app.expand();
+      } catch {
+        /* ignore */
+      }
+
+      const theme = app.themeParams ?? {};
+      if (theme.bg_color) {
+        document.documentElement.style.setProperty("--tg-bg", theme.bg_color);
+      }
+      if (theme.button_color) {
+        document.documentElement.style.setProperty("--primary", theme.button_color);
+      }
+
+      const initData = app.initData?.trim() ?? "";
+      if (!initData) {
+        setError("Telegram не передав сесію. Закрийте вітрину і знову натисніть «Каталог» у боті.");
+        setLoading(false);
+        setReady(true);
+        return;
+      }
+
+      try {
+        const session = await exchangeInitData(initData);
+        if (cancelled) return;
         applySession(session);
-      })
-      .catch((err) => {
+      } catch (err) {
+        if (cancelled) return;
         setError(err instanceof Error ? err.message : "Не вдалося увійти через Telegram");
         setToken(getTelegramStoreToken());
         setCartSessionId(getTelegramCartSessionId());
         setProfile(getTelegramStoreProfile());
         loggedInRef.current = false;
         setLoggedIn(false);
-      })
-      .finally(() => {
-        setLoading(false);
-        setReady(true);
-      });
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+          setReady(true);
+        }
+      }
+    };
+
+    void boot();
+    return () => {
+      cancelled = true;
+    };
   }, [applySession]);
 
   // After bot onboarding, Telegram may reopen/focus the Mini App — refresh CRM login.
