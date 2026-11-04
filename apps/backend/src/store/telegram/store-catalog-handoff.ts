@@ -3,6 +3,19 @@ import { signJwt, verifyJwt } from "../../auth/jwt";
 /** Query param on the catalog Mini App URL. Telegram keeps it; initData arrives in the hash. */
 export const CATALOG_HANDOFF_PARAM = "tgAuth";
 
+/**
+ * Real CRM phone. Rejects the bot's synthetic placeholder (`0` + telegram id digits),
+ * which is 11 digits and must not be signed into the catalog URL.
+ */
+export function usableCatalogPhone(phone: string | null | undefined): string | null {
+  if (!phone) return null;
+  const trimmed = phone.trim();
+  const digits = trimmed.replace(/\D/g, "");
+  if (digits.length < 10 || digits.startsWith("0000")) return null;
+  if (digits.length === 11 && digits.startsWith("0")) return null;
+  return trimmed;
+}
+
 const CATALOG_HANDOFF_AUD = "store_catalog_handoff";
 const CATALOG_HANDOFF_TTL_SECONDS = 60 * 60 * 24 * 30;
 
@@ -31,7 +44,7 @@ export function appendCatalogHandoff(
   },
 ): string {
   const secret = process.env.JWT_SECRET;
-  const phone = claims.phone.trim();
+  const phone = usableCatalogPhone(claims.phone);
   if (!secret || !claims.telegramUserId || !phone) return storeUrl;
   const token = signJwt(
     {

@@ -18,7 +18,7 @@ import { cartSessionId } from "../../integrations/telegram/telegram-client.const
 import { PrismaService } from "../../prisma/prisma.service";
 import { SettingsService } from "../../settings/settings.service";
 import { StoreCartService } from "../cart/store-cart.service";
-import { readCatalogHandoff } from "./store-catalog-handoff";
+import { readCatalogHandoff, usableCatalogPhone } from "./store-catalog-handoff";
 import type {
   StoreTelegramWebAppJwtPayload,
   StoreTelegramWebAppSession,
@@ -104,9 +104,11 @@ export class StoreTelegramWebAppService {
     const handoff = readCatalogHandoff(tgAuth);
     if (handoff && handoff.sub === telegramUserId && account) {
       const patch: { phone?: string; contactId?: string; leadId?: null } = {};
-      if (!account.phone && handoff.phone) {
-        account = { ...account, phone: handoff.phone };
-        patch.phone = handoff.phone;
+      const handoffPhone = usableCatalogPhone(handoff.phone);
+      // A placeholder already stored on the account must not block the CRM phone.
+      if (handoffPhone && !usableCatalogPhone(account.phone)) {
+        account = { ...account, phone: handoffPhone };
+        patch.phone = handoffPhone;
       }
       if (!account.contactId && handoff.contactId) {
         account = { ...account, contactId: handoff.contactId };
@@ -314,6 +316,7 @@ export class StoreTelegramWebAppService {
       }
     }
 
+    phone = usableCatalogPhone(phone);
     if (!contactId && phone) {
       contactId = await this.findContactIdByPhone(phone);
     }

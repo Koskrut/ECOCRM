@@ -770,6 +770,40 @@ describe("TelegramClientBotService menu / idle", () => {
     );
   });
 
+  it("reply-keyboard Catalog carries the CRM phone handoff", async () => {
+    process.env.JWT_SECRET = process.env.JWT_SECRET || "test-secret-for-catalog-handoff";
+    const { service, sent } = makeBot({
+      storeUrl: "https://shop.example.com",
+      account: {
+        telegramUserId: "777",
+        phone: "+380501112233",
+        contactId: "c1",
+        leadId: null,
+        firstName: "Тест",
+        lastName: null,
+      },
+    });
+    await service.handleClientTurn({
+      parsed: parsed({ text: MENU_START }),
+      conversationId: "conv1",
+      contactId: "c1",
+      leadId: null,
+    });
+    const keyboard = sent.find((s) => /Раді бачити/i.test(s.text))?.keyboard;
+    const raw = JSON.stringify(keyboard ?? []);
+    assert.match(raw, /tgAuth=/);
+    assert.equal(raw.includes("380501112233"), false);
+    const urlMatch = raw.match(/https:\/\/shop\.example\.com\/\?tgAuth=[^"\\]+/);
+    assert.ok(urlMatch?.[0]);
+    const handoff = verifyJwt<{ sub: string; phone: string; contactId: string | null }>(
+      new URL(urlMatch![0]).searchParams.get("tgAuth") ?? "",
+      process.env.JWT_SECRET!,
+    );
+    assert.equal(handoff.sub, "777");
+    assert.equal(handoff.phone, "+380501112233");
+    assert.equal(handoff.contactId, "c1");
+  });
+
   it("stale onboarding callback does not wipe an active checkout session", async () => {
     const { service, sessions } = makeBot({
       sessionState: "checkout_city",

@@ -53,16 +53,43 @@ export function readCapturedTelegramInitData(): string {
   return parseTgWebAppData(window.location.hash) || parseTgWebAppData(window.location.search);
 }
 
+/** Survives a Mini App URL rewrite that drops `?tgAuth` before React boots. */
+export const CATALOG_AUTH_STORAGE_KEY = "suprex_tg_auth";
+
 /** Phone handoff the bot puts on the catalog button. Empty outside that open. */
 export function readCatalogAuthToken(): string {
   if (typeof window === "undefined") return "";
   const snap = window.__SUPREX_TG_AUTH?.trim() ?? "";
   if (snap) return snap;
   try {
-    return new URLSearchParams(window.location.search).get("tgAuth")?.trim() ?? "";
+    const fromUrl = new URLSearchParams(window.location.search).get("tgAuth")?.trim() ?? "";
+    if (fromUrl) return fromUrl;
+  } catch {
+    /* ignore */
+  }
+  try {
+    return sessionStorage.getItem(CATALOG_AUTH_STORAGE_KEY)?.trim() ?? "";
   } catch {
     return "";
   }
+}
+
+/** This document was opened from the bot catalog button (query or Telegram hash). */
+export function hasTelegramLaunchHint(): boolean {
+  if (typeof window === "undefined") return false;
+  if (window.__SUPREX_TG_AUTH?.trim()) return true;
+  try {
+    if (new URLSearchParams(window.location.search).get("tgAuth")?.trim()) return true;
+  } catch {
+    /* ignore */
+  }
+  const src = `${window.location.hash}&${window.location.search}`;
+  return /(?:^|[?#&])tgWebApp(?:Data|Platform|Version)=/.test(src);
+}
+
+/** telegram-web-app.js sets `unknown` on a normal browser tab. */
+export function isEmbeddedTelegramPlatform(platform: string | undefined): boolean {
+  return Boolean(platform && platform !== "unknown");
 }
 
 export function resolveTelegramInitData(app?: TelegramWebApp | null): string {
@@ -109,11 +136,15 @@ export async function waitForTelegramWebApp(opts?: {
 }): Promise<TelegramWebApp | null> {
   if (typeof window === "undefined") return null;
   const started = Date.now();
-  const inTelegramClient = isTelegramUserAgent() || Boolean(readCapturedTelegramInitData());
-  const timeoutMs = inTelegramClient ? (opts?.timeoutMs ?? 8_000) : 800;
+  const launchHint =
+    isTelegramUserAgent() || Boolean(readCapturedTelegramInitData()) || hasTelegramLaunchHint();
+  let timeoutMs = launchHint ? (opts?.timeoutMs ?? 8_000) : 800;
 
   while (Date.now() - started < timeoutMs) {
     const app = window.Telegram?.WebApp;
+    if (isEmbeddedTelegramPlatform(app?.platform)) {
+      timeoutMs = Math.max(timeoutMs, opts?.timeoutMs ?? 8_000);
+    }
     if (app) {
       try {
         app.ready?.();

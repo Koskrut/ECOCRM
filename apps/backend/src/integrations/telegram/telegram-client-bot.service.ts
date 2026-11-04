@@ -26,7 +26,7 @@ import { SettingsService } from "../../settings/settings.service";
 import { UKRAINE_REGIONS } from "../../store/checkout/uk-regions";
 import { resolveAssignedManagerForRegion } from "../../settings/org-chart-region-resolver";
 import { StoreCartService } from "../../store/cart/store-cart.service";
-import { appendCatalogHandoff } from "../../store/telegram/store-catalog-handoff";
+import { appendCatalogHandoff, usableCatalogPhone } from "../../store/telegram/store-catalog-handoff";
 import { StoreCheckoutPaymentLinkService } from "../../store/checkout/store-checkout-payment-link.service";
 import { StoreCheckoutService } from "../../store/checkout/store-checkout.service";
 import type { StoreCheckoutDto } from "../../store/checkout/dto/store-checkout.dto";
@@ -130,11 +130,7 @@ function npChoiceButton(kind: "city" | "wh" | "st", hit: { ref: string; name: st
 }
 
 function usablePhone(phone: string | null | undefined): string | null {
-  if (!phone) return null;
-  const trimmed = phone.trim();
-  const digits = trimmed.replace(/\D/g, "");
-  if (digits.length < 10 || digits.startsWith("0000")) return null;
-  return trimmed;
+  return usableCatalogPhone(phone);
 }
 
 function parsePersonName(text: string): { firstName: string; lastName: string } | null {
@@ -1236,7 +1232,7 @@ export class TelegramClientBotService {
         const { messageId } = await this.telegram.sendPhotoToChat(parsed.chatId, p.primaryImageUrl, {
           caption,
           inlineKeyboard: buttons,
-          menuKeyboard: await this.clientMenuKeyboard(),
+          menuKeyboard: await this.clientMenuKeyboard(parsed.userId),
         });
         await this.recordOutbound(conversationId, caption, messageId);
         return;
@@ -3291,20 +3287,30 @@ export class TelegramClientBotService {
   /**
    * Mini App URL for this Telegram user. When the CRM phone is known, it is signed
    * into the query so the store can log the client in. initData still has to match.
+   * `id` may be the user id or the private chat id — the token subject is always the user id.
    */
   private async catalogMiniAppUrl(
-    telegramUserId: string,
+    id: string,
     contactId: string | null,
     leadId: string | null,
     names?: { firstName?: string | null; lastName?: string | null },
   ): Promise<string | null> {
     const base = await this.resolveStoreMiniAppUrl();
-    if (!base || !telegramUserId) return base;
-    const phone = await this.resolveKnownPhone(telegramUserId, contactId, leadId);
+    if (!base || !id) return base;
+    const linked = await this.lookupTelegramAccount(id);
+    const telegramUserId = linked?.telegramUserId || id;
+    const phone = await this.resolveKnownPhone(
+      telegramUserId,
+      contactId || linked?.contactId || null,
+      leadId || linked?.leadId || null,
+    );
     if (!phone) return base;
-    const resolvedContact = await this.resolveContactId(contactId, leadId);
-    let firstName = names?.firstName ?? null;
-    let lastName = names?.lastName ?? null;
+    const resolvedContact = await this.resolveContactId(
+      contactId || linked?.contactId || null,
+      leadId || linked?.leadId || null,
+    );
+    let firstName = names?.firstName ?? linked?.firstName ?? null;
+    let lastName = names?.lastName ?? linked?.lastName ?? null;
     if (resolvedContact) {
       try {
         const contact = await this.prisma.contact.findUnique({
@@ -3317,6 +3323,17 @@ export class TelegramClientBotService {
         /* names are optional on the handoff */
       }
     }
+    if (resolvedContact || phone) {
+      await this.prisma.telegramAccount
+        .updateMany({
+          where: { telegramUserId },
+          data: {
+            ...(phone ? { phone } : {}),
+            ...(resolvedContact ? { contactId: resolvedContact, leadId: null } : {}),
+          },
+        })
+        .catch(() => undefined);
+    }
     return appendCatalogHandoff(base, {
       telegramUserId,
       phone,
@@ -3324,6 +3341,41 @@ export class TelegramClientBotService {
       firstName,
       lastName,
     });
+  }
+
+  /** Account row addressed either by Telegram user id or by private chat id. */
+  private async lookupTelegramAccount(id: string): Promise<{
+    telegramUserId: string;
+    contactId: string | null;
+    leadId: string | null;
+    firstName: string | null;
+    lastName: string | null;
+  } | null> {
+    const select = {
+      telegramUserId: true,
+      contactId: true,
+      leadId: true,
+      firstName: true,
+      lastName: true,
+    } as const;
+    try {
+      const byUser = await this.prisma.telegramAccount.findUnique({
+        where: { telegramUserId: id },
+        select,
+      });
+      if (byUser?.telegramUserId) return byUser;
+    } catch {
+      /* partial test doubles */
+    }
+    try {
+      const byChat = await this.prisma.telegramAccount.findUnique({
+        where: { telegramChatId: id },
+        select,
+      });
+      return byChat?.telegramUserId ? byChat : null;
+    } catch {
+      return null;
+    }
   }
 
   private async replyMenu(
@@ -3437,7 +3489,7 @@ export class TelegramClientBotService {
     inlineKeyboard: InlineBtn[][],
   ): Promise<void> {
     const { messageId } = await this.telegram.sendMessageToChat(chatId, text, {
-      menuKeyboard: await this.clientMenuKeyboard(),
+      menuKeyboard: await this.clientMenuKeyboard(chatId),
       inlineKeyboard,
     });
     await this.recordOutbound(conversationId, text, messageId);

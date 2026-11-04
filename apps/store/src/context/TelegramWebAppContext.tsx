@@ -11,6 +11,8 @@ import {
 } from "react";
 import {
   getTelegramWebApp,
+  hasTelegramLaunchHint,
+  isEmbeddedTelegramPlatform,
   isTelegramUserAgent,
   readCatalogAuthToken,
   resolveTelegramInitData,
@@ -142,10 +144,16 @@ export function TelegramWebAppProvider({ children }: { children: React.ReactNode
     const boot = async () => {
       setLoading(true);
       // Catalog web_app can hydrate before telegram-web-app.js copies tgWebAppData.
+      // A signed ?tgAuth= URL is still a Mini App open even when the UA looks like Safari.
       const app = await waitForTelegramWebApp({ timeoutMs: 8_000 });
       if (cancelled) return;
       const initData = resolveTelegramInitData(app);
-      const inTelegram = Boolean(initData) || isTelegramUserAgent() || Boolean(app);
+      const inTelegram =
+        Boolean(initData) ||
+        isTelegramUserAgent() ||
+        isEmbeddedTelegramPlatform(app?.platform) ||
+        hasTelegramLaunchHint() ||
+        Boolean(app);
 
       if (!inTelegram) {
         clearTelegramStoreSession();
@@ -205,6 +213,40 @@ export function TelegramWebAppProvider({ children }: { children: React.ReactNode
       cancelled = true;
     };
   }, [applySession]);
+
+  // Desktop Telegram often injects initData after the first short wait.
+  useEffect(() => {
+    if (!ready || isTelegram) return;
+    let stopped = false;
+    const started = Date.now();
+    const timer = window.setInterval(() => {
+      if (stopped) return;
+      const live = getTelegramWebApp();
+      const initData = resolveTelegramInitData(live);
+      if (!initData) {
+        if (Date.now() - started > 8_000) window.clearInterval(timer);
+        return;
+      }
+      window.clearInterval(timer);
+      setIsTelegram(true);
+      setLoading(true);
+      void exchangeInitData(initData)
+        .then((session) => {
+          if (!stopped) applySession(session);
+        })
+        .catch((err: unknown) => {
+          if (stopped) return;
+          setError(err instanceof Error ? err.message : "Не вдалося увійти через Telegram");
+        })
+        .finally(() => {
+          if (!stopped) setLoading(false);
+        });
+    }, 200);
+    return () => {
+      stopped = true;
+      window.clearInterval(timer);
+    };
+  }, [ready, isTelegram, applySession]);
 
   // After bot onboarding, Telegram may reopen/focus the Mini App — refresh CRM login.
   useEffect(() => {

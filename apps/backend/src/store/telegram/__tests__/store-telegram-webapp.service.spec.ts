@@ -353,4 +353,64 @@ describe("StoreTelegramWebAppService.createSession", () => {
     assert.equal(session.contactId, null);
     assert.equal(session.storeToken, null);
   });
+
+  it("replaces a placeholder telegram phone with the catalog handoff", async () => {
+    process.env.JWT_SECRET = process.env.JWT_SECRET || "test-secret-for-store-tg";
+    const botToken = "123456:ABC-DEF";
+    const user = JSON.stringify({ id: 555, first_name: "Tg" });
+    const initData = signInitData(botToken, {
+      user,
+      auth_date: String(Math.floor(Date.now() / 1000)),
+      query_id: "q7",
+    });
+    const tgAuth = new URL(
+      appendCatalogHandoff("https://shop.example.com", {
+        telegramUserId: "555",
+        phone: "+380671112233",
+        contactId: "c-real",
+        firstName: "Олег",
+        lastName: "Мельник",
+      }),
+    ).searchParams.get("tgAuth");
+    const service = new StoreTelegramWebAppService(
+      {
+        telegramAccount: {
+          findUnique: async () => ({
+            id: "acc7",
+            telegramChatId: "555",
+            phone: "00123456789",
+            contactId: null,
+            leadId: null,
+            firstName: "Tg",
+            lastName: null,
+          }),
+          create: async () => {
+            throw new Error("should not create");
+          },
+          updateMany: async () => ({ count: 1 }),
+        },
+        conversation: { findUnique: async () => null },
+        lead: { findUnique: async () => null, findFirst: async () => null },
+        contact: {
+          findUnique: async () => ({
+            phone: "+380671112233",
+            firstName: "Олег",
+            lastName: "Мельник",
+          }),
+        },
+        customer: {
+          findUnique: async () => ({ id: "cust7", contactId: "c-real" }),
+          create: async () => ({ id: "cust7", contactId: "c-real" }),
+        },
+      } as never,
+      { getTelegramSecrets: async () => ({ botToken }) } as never,
+      { findContactByPhone: async () => null } as never,
+      { unifyTelegramCart: async () => undefined } as never,
+    );
+    const session = await service.createSession(initData, tgAuth);
+    assert.equal(session.loggedIn, true);
+    assert.equal(session.contactId, "c-real");
+    assert.equal(session.phone, "+380671112233");
+    assert.ok(session.storeToken);
+  });
 });

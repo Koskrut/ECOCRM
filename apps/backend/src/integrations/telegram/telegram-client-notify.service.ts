@@ -5,6 +5,7 @@ import { PrismaService } from "../../prisma/prisma.service";
 import { SettingsService } from "../../settings/settings.service";
 import { StoreCheckoutPaymentLinkService } from "../../store/checkout/store-checkout-payment-link.service";
 import { signJwt } from "../../auth/jwt";
+import { appendCatalogHandoff, usableCatalogPhone } from "../../store/telegram/store-catalog-handoff";
 import {
   CLIENT_PUSH_STAGES,
   CLIENT_MENU_KEYBOARD,
@@ -186,11 +187,51 @@ export class TelegramClientNotifyService implements OnModuleInit {
     }
   }
 
-  private async clientMenuKeyboard() {
+  /**
+   * Order pushes replace the reply keyboard. Catalog must keep the signed phone
+   * handoff, otherwise the next tap opens the store as a guest.
+   */
+  private async clientMenuKeyboard(chatId: string) {
     try {
       const store = await this.settings.getStoreConfig();
       const url = (store.publicStoreUrl ?? "").trim().replace(/\/+$/, "");
-      if (/^https:\/\//i.test(url)) return buildClientMenuKeyboard(url);
+      if (!/^https:\/\//i.test(url)) return CLIENT_MENU_KEYBOARD;
+      const account = await this.prisma.telegramAccount
+        .findFirst({
+          where: { telegramChatId: chatId },
+          select: {
+            telegramUserId: true,
+            phone: true,
+            contactId: true,
+            firstName: true,
+            lastName: true,
+          },
+        })
+        .catch(() => null);
+      let phone = usableCatalogPhone(account?.phone);
+      let firstName = account?.firstName ?? null;
+      let lastName = account?.lastName ?? null;
+      if (!phone && account?.contactId) {
+        const contact = await this.prisma.contact
+          .findUnique({
+            where: { id: account.contactId },
+            select: { phone: true, firstName: true, lastName: true },
+          })
+          .catch(() => null);
+        phone = usableCatalogPhone(contact?.phone);
+        firstName = contact?.firstName?.trim() || firstName;
+        lastName = contact?.lastName?.trim() || lastName;
+      }
+      if (!phone || !account?.telegramUserId) return buildClientMenuKeyboard(url);
+      return buildClientMenuKeyboard(
+        appendCatalogHandoff(url, {
+          telegramUserId: account.telegramUserId,
+          phone,
+          contactId: account.contactId,
+          firstName,
+          lastName,
+        }),
+      );
     } catch {
       /* fall through */
     }
@@ -201,7 +242,7 @@ export class TelegramClientNotifyService implements OnModuleInit {
   private async sendAndRecord(chatId: string, text: string): Promise<boolean> {
     try {
       const { messageId } = await this.telegram.sendMessageToChat(chatId, text, {
-        menuKeyboard: await this.clientMenuKeyboard(),
+        menuKeyboard: await this.clientMenuKeyboard(chatId),
       });
       const conversation = await this.prisma.conversation.findUnique({
         where: { telegramChatId: chatId },

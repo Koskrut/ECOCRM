@@ -137,4 +137,61 @@ describe("TelegramClientNotifyService", () => {
     });
     assert.equal(sent.length, 0);
   });
+
+  it("order push keeps a signed catalog button", async () => {
+    process.env.JWT_SECRET = process.env.JWT_SECRET || "test-secret-for-catalog-handoff";
+    let keyboard: unknown;
+    const prisma = {
+      telegramClientNotifyLog: {
+        create: async () => ({ id: "n1" }),
+        deleteMany: async () => ({ count: 0 }),
+      },
+      order: {
+        findUnique: async () => ({
+          id: "o1",
+          orderNumber: "100",
+          clientId: "c1",
+          contactId: "c1",
+          debtAmount: 0,
+          currency: "USD",
+          ttns: [],
+        }),
+      },
+      telegramAccount: {
+        findMany: async () => [{ telegramChatId: "555" }],
+        findFirst: async () => ({
+          telegramUserId: "555",
+          phone: "+380671112233",
+          contactId: "c1",
+          firstName: "Олег",
+          lastName: "Мельник",
+        }),
+      },
+      conversation: {
+        findUnique: async () => ({ id: "conv1" }),
+        update: async () => ({}),
+      },
+      message: { create: async () => ({}) },
+    };
+    const service = new TelegramClientNotifyService(
+      prisma as never,
+      { getStoreConfig: async () => ({ publicStoreUrl: "https://shop.example.com" }) } as never,
+      { registerClientOrderNotify: () => undefined } as never,
+      { createPaymentLink: async () => ({ payPath: "/pay/x" }) } as never,
+      {
+        sendMessageToChat: async (_chat: string, _text: string, options?: AnyRec) => {
+          keyboard = options?.menuKeyboard;
+          return { messageId: 1 };
+        },
+      } as never,
+    );
+    await service.notifyOrderStageChanged({
+      orderId: "o1",
+      fromStage: OrderStage.NEW,
+      toStage: OrderStage.CONFIRMED,
+    });
+    const raw = JSON.stringify(keyboard ?? []);
+    assert.match(raw, /tgAuth=/);
+    assert.equal(raw.includes("380671112233"), false);
+  });
 });
