@@ -997,10 +997,25 @@ describe("TelegramClientBotService menu / idle", () => {
     assert.equal(sent.some((s) => s.contact), false);
   });
 
-  it("asks for a phone only when the chat is not a known client", async () => {
+  it("first /start shows only the Старт button", async () => {
     const { service, sent } = makeBot({});
     await service.handleClientTurn({
       parsed: parsed({ text: "/start" }),
+      conversationId: "conv1",
+      contactId: null,
+      leadId: null,
+    });
+    assert.equal(sent.some((s) => s.contact), false);
+    assert.ok(sent.some((s) => /Натисніть «Старт»/i.test(s.text)));
+    assert.ok(
+      sent.some((s) => JSON.stringify(s.keyboard ?? []).includes("Старт")),
+    );
+  });
+
+  it("Старт asks for a phone only when the chat is not a known client", async () => {
+    const { service, sent } = makeBot({});
+    await service.handleClientTurn({
+      parsed: parsed({ text: MENU_START }),
       conversationId: "conv1",
       contactId: null,
       leadId: null,

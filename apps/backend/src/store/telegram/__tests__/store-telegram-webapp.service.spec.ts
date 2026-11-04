@@ -134,4 +134,111 @@ describe("StoreTelegramWebAppService.createSession", () => {
     assert.equal(session.loggedIn, true);
     assert.ok(updates.length >= 1);
   });
+
+  it("logs in by the phone saved on the telegram account", async () => {
+    process.env.JWT_SECRET = process.env.JWT_SECRET || "test-secret-for-store-tg";
+    const botToken = "123456:ABC-DEF";
+    const user = JSON.stringify({ id: 555, first_name: "Tg" });
+    const initData = signInitData(botToken, {
+      user,
+      auth_date: String(Math.floor(Date.now() / 1000)),
+      query_id: "q3",
+    });
+    const service = new StoreTelegramWebAppService(
+      {
+        telegramAccount: {
+          findUnique: async () => ({
+            id: "acc3",
+            telegramChatId: "555",
+            phone: "+380501112233",
+            contactId: null,
+            leadId: null,
+            firstName: "Tg",
+            lastName: null,
+          }),
+          create: async () => {
+            throw new Error("should not create");
+          },
+          updateMany: async () => ({ count: 1 }),
+        },
+        conversation: { findUnique: async () => null },
+        lead: { findUnique: async () => null, findFirst: async () => null },
+        contact: {
+          findUnique: async () => ({
+            phone: "+380501112233",
+            firstName: "Ірина",
+            lastName: "Савчук",
+          }),
+        },
+        customer: {
+          findUnique: async () => ({ id: "cust3", contactId: "c-phone" }),
+          create: async () => ({ id: "cust3", contactId: "c-phone" }),
+        },
+      } as never,
+      { getTelegramSecrets: async () => ({ botToken }) } as never,
+      { findContactByPhone: async () => ({ id: "c-phone" }) } as never,
+      { unifyTelegramCart: async () => undefined } as never,
+    );
+    const session = await service.createSession(initData);
+    assert.equal(session.loggedIn, true);
+    assert.equal(session.contactId, "c-phone");
+    assert.equal(session.firstName, "Ірина");
+    assert.ok(session.storeToken);
+  });
+
+  it("creates a store contact from the telegram phone when CRM has none", async () => {
+    process.env.JWT_SECRET = process.env.JWT_SECRET || "test-secret-for-store-tg";
+    const botToken = "123456:ABC-DEF";
+    const user = JSON.stringify({ id: 556, first_name: "Олег" });
+    const initData = signInitData(botToken, {
+      user,
+      auth_date: String(Math.floor(Date.now() / 1000)),
+      query_id: "q4",
+    });
+    let createdPhone: string | null = null;
+    const service = new StoreTelegramWebAppService(
+      {
+        telegramAccount: {
+          findUnique: async () => ({
+            id: "acc4",
+            telegramChatId: "556",
+            phone: "+380671234567",
+            contactId: null,
+            leadId: null,
+            firstName: "Олег",
+            lastName: "Мельник",
+          }),
+          create: async () => {
+            throw new Error("should not create account");
+          },
+          updateMany: async () => ({ count: 1 }),
+        },
+        conversation: { findUnique: async () => null },
+        lead: { findUnique: async () => null, findFirst: async () => null },
+        contact: {
+          findUnique: async () => ({
+            phone: "+380671234567",
+            firstName: "Олег",
+            lastName: "Мельник",
+          }),
+          create: async (args: { data: { phone: string } }) => {
+            createdPhone = args.data.phone;
+            return { id: "c-new" };
+          },
+        },
+        customer: {
+          findUnique: async () => null,
+          create: async () => ({ id: "cust4", contactId: "c-new" }),
+        },
+      } as never,
+      { getTelegramSecrets: async () => ({ botToken }) } as never,
+      { findContactByPhone: async () => null } as never,
+      { unifyTelegramCart: async () => undefined } as never,
+    );
+    const session = await service.createSession(initData);
+    assert.equal(createdPhone, "+380671234567");
+    assert.equal(session.contactId, "c-new");
+    assert.equal(session.loggedIn, true);
+    assert.ok(session.storeToken);
+  });
 });

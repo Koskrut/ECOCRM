@@ -1,4 +1,5 @@
-import { BadRequestException, Injectable, UnauthorizedException } from "@nestjs/common";
+import { BadRequestException, Injectable, Logger, UnauthorizedException } from "@nestjs/common";
+import { Prisma } from "@prisma/client";
 import { randomBytes } from "crypto";
 import { signJwt } from "../../auth/jwt";
 import { hashPassword } from "../../auth/password";
@@ -10,6 +11,7 @@ import {
 import {
   getPhoneCandidatesForLookup,
   getPhoneNormalizedDigits,
+  normalizePhoneToE164,
 } from "../../common/phone.utils";
 import { ContactsService } from "../../contacts/contacts.service";
 import { cartSessionId } from "../../integrations/telegram/telegram-client.constants";
@@ -28,6 +30,8 @@ const STORE_SESSION_TTL_SECONDS = 60 * 60 * 24 * 7;
 
 @Injectable()
 export class StoreTelegramWebAppService {
+  private readonly logger = new Logger(StoreTelegramWebAppService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly settings: SettingsService,
@@ -96,73 +100,16 @@ export class StoreTelegramWebAppService {
       }
     }
 
-    let phone = account?.phone ?? null;
-    let contactId = account?.contactId ?? null;
-    let firstName = account?.firstName ?? parsed.user.first_name ?? null;
-    let lastName = account?.lastName ?? parsed.user.last_name ?? null;
-
-    // Bot may have linked the contact on the conversation while telegramAccount.contactId
-    // is still empty — pull it so Mini App can issue store_token and prefill checkout.
-    if (!contactId) {
-      const chatIds = [account?.telegramChatId, telegramUserId].filter(
-        (id, idx, arr): id is string => Boolean(id) && arr.indexOf(id) === idx,
-      );
-      for (const chatId of chatIds) {
-        const conv = await this.prisma.conversation.findUnique({
-          where: { telegramChatId: chatId },
-          select: { contactId: true },
-        });
-        if (conv?.contactId) {
-          contactId = conv.contactId;
-          break;
-        }
-      }
-    }
-
-    if (!contactId && account?.leadId) {
-      const lead = await this.prisma.lead.findUnique({
-        where: { id: account.leadId },
-        select: { contactId: true, phone: true, firstName: true, lastName: true },
-      });
-      if (lead?.contactId) {
-        contactId = lead.contactId;
-        phone = phone ?? lead.phone ?? null;
-        firstName = firstName || lead.firstName || null;
-        lastName = lastName || lead.lastName || null;
-      }
-    }
-
-    if (!contactId && phone) {
-      const digits = getPhoneNormalizedDigits(phone);
-      const candidates = digits ? getPhoneCandidatesForLookup(digits) : [];
-      for (const candidate of candidates) {
-        const row = await this.contacts.findContactByPhone(candidate);
-        if (row) {
-          contactId = row.id;
-          break;
-        }
-      }
-    }
-
-    if (contactId && contactId !== account?.contactId) {
-      await this.prisma.telegramAccount.updateMany({
-        where: { telegramUserId },
-        data: { contactId, leadId: null },
-      });
-    }
-
-    // Always prefer CRM contact identity for checkout prefill (not only when phone missing).
-    if (contactId) {
-      const contact = await this.prisma.contact.findUnique({
-        where: { id: contactId },
-        select: { phone: true, firstName: true, lastName: true },
-      });
-      if (contact) {
-        phone = contact.phone ?? phone;
-        firstName = contact.firstName?.trim() || firstName;
-        lastName = contact.lastName?.trim() || lastName;
-      }
-    }
+    const identity = await this.resolveStoreIdentity({
+      telegramUserId,
+      account,
+      telegramFirstName: parsed.user.first_name ?? null,
+      telegramLastName: parsed.user.last_name ?? null,
+    });
+    const phone = identity.phone;
+    const contactId = identity.contactId;
+    const firstName = identity.firstName;
+    const lastName = identity.lastName;
 
     const chatId = account?.telegramChatId ?? telegramUserId;
     const sessionCartId = cartSessionId(telegramUserId);
@@ -188,31 +135,46 @@ export class StoreTelegramWebAppService {
     let customerId: string | null = null;
 
     if (contactId) {
-      let customer = await this.prisma.customer.findUnique({
-        where: { contactId },
-        select: { id: true, contactId: true },
-      });
-      if (!customer) {
-        customer = await this.prisma.customer.create({
-          data: {
-            contactId,
-            email: null,
-            passwordHash: hashPassword(randomBytes(24).toString("hex")),
-          },
+      try {
+        let customer = await this.prisma.customer.findUnique({
+          where: { contactId },
           select: { id: true, contactId: true },
         });
-      }
-      customerId = customer.id;
-      storeToken = signJwt(
-        { aud: "store", sub: customer.id, contactId: customer.contactId },
-        secret,
-        { expiresInSeconds: STORE_SESSION_TTL_SECONDS },
-      );
-      try {
-        // Keep the shared tg: cart. Pull leftovers off the customer cart if an older login moved them.
-        await this.cart.unifyTelegramCart(customer.id, sessionCartId);
-      } catch {
-        /* cart tables may be empty */
+        if (!customer) {
+          try {
+            customer = await this.prisma.customer.create({
+              data: {
+                contactId,
+                email: null,
+                passwordHash: hashPassword(randomBytes(24).toString("hex")),
+              },
+              select: { id: true, contactId: true },
+            });
+          } catch {
+            customer = await this.prisma.customer.findUnique({
+              where: { contactId },
+              select: { id: true, contactId: true },
+            });
+          }
+        }
+        if (customer) {
+          customerId = customer.id;
+          storeToken = signJwt(
+            { aud: "store", sub: customer.id, contactId: customer.contactId },
+            secret,
+            { expiresInSeconds: STORE_SESSION_TTL_SECONDS },
+          );
+          try {
+            // Keep the shared tg: cart. Pull leftovers off the customer cart if an older login moved them.
+            await this.cart.unifyTelegramCart(customer.id, sessionCartId);
+          } catch {
+            /* cart tables may be empty */
+          }
+        }
+      } catch (err) {
+        this.logger.warn(
+          `store login for contact ${contactId}: ${err instanceof Error ? err.message : String(err)}`,
+        );
       }
     }
 
@@ -227,5 +189,257 @@ export class StoreTelegramWebAppService {
       customerId,
       loggedIn: Boolean(storeToken),
     };
+  }
+
+  /**
+   * Cart already follows `tg:{userId}`. Cabinet login needs a CRM contact:
+   * the bot link, the shared phone, or a contact we create from that phone.
+   */
+  private async resolveStoreIdentity(params: {
+    telegramUserId: string;
+    account: {
+      telegramChatId: string;
+      phone: string | null;
+      contactId: string | null;
+      leadId: string | null;
+      firstName: string | null;
+      lastName: string | null;
+    } | null;
+    telegramFirstName: string | null;
+    telegramLastName: string | null;
+  }): Promise<{
+    phone: string | null;
+    contactId: string | null;
+    firstName: string | null;
+    lastName: string | null;
+  }> {
+    const { telegramUserId, account } = params;
+    let phone = account?.phone ?? null;
+    let contactId = account?.contactId ?? null;
+    let firstName = account?.firstName ?? params.telegramFirstName;
+    let lastName = account?.lastName ?? params.telegramLastName;
+    let leadId = account?.leadId ?? null;
+    let companyId: string | null = null;
+    let region: string | null = null;
+
+    const chatIds = [account?.telegramChatId, telegramUserId].filter(
+      (id, idx, arr): id is string => Boolean(id) && arr.indexOf(id) === idx,
+    );
+    if (!contactId) {
+      for (const chatId of chatIds) {
+        try {
+          const conv = await this.prisma.conversation.findUnique({
+            where: { telegramChatId: chatId },
+            select: { contactId: true, leadId: true },
+          });
+          if (conv?.contactId) {
+            contactId = conv.contactId;
+            break;
+          }
+          if (!leadId && conv?.leadId) leadId = conv.leadId;
+        } catch {
+          /* conversation lookup is best-effort */
+        }
+      }
+    }
+
+    try {
+      const bot = await this.prisma.telegramBotSession.findUnique({
+        where: { telegramUserId },
+        select: { payload: true },
+      });
+      const payload = (bot?.payload ?? null) as {
+        onboardingContactId?: string;
+        onboardingFirstName?: string;
+        onboardingLastName?: string;
+        region?: string;
+      } | null;
+      if (!contactId && payload?.onboardingContactId) contactId = payload.onboardingContactId;
+      if (payload?.onboardingFirstName) firstName = firstName || payload.onboardingFirstName;
+      if (payload?.onboardingLastName) lastName = lastName || payload.onboardingLastName;
+      if (payload?.region?.trim()) region = payload.region.trim();
+    } catch {
+      /* session table is optional for login */
+    }
+
+    if (leadId) {
+      try {
+        const lead = await this.prisma.lead.findUnique({
+          where: { id: leadId },
+          select: {
+            contactId: true,
+            phone: true,
+            firstName: true,
+            lastName: true,
+            region: true,
+            companyId: true,
+          },
+        });
+        if (lead) {
+          if (!contactId && lead.contactId) contactId = lead.contactId;
+          phone = phone ?? lead.phone ?? null;
+          firstName = firstName || lead.firstName || null;
+          lastName = lastName || lead.lastName || null;
+          region = region ?? lead.region ?? null;
+          companyId = lead.companyId;
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+
+    if (!contactId && phone) {
+      contactId = await this.findContactIdByPhone(phone);
+    }
+
+    if (!contactId && phone) {
+      try {
+        const digits = getPhoneNormalizedDigits(phone);
+        const candidates = digits ? getPhoneCandidatesForLookup(digits) : [];
+        if (candidates.length > 0) {
+          const lead = await this.prisma.lead.findFirst({
+            where: { phoneNormalized: { in: candidates } },
+            select: {
+              id: true,
+              contactId: true,
+              phone: true,
+              firstName: true,
+              lastName: true,
+              region: true,
+              companyId: true,
+            },
+            orderBy: { createdAt: "desc" },
+          });
+          if (lead) {
+            leadId = lead.id;
+            if (lead.contactId) contactId = lead.contactId;
+            phone = phone ?? lead.phone ?? null;
+            firstName = firstName || lead.firstName || null;
+            lastName = lastName || lead.lastName || null;
+            region = region ?? lead.region ?? null;
+            companyId = companyId ?? lead.companyId;
+          }
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+
+    if (contactId) {
+      const contact = await this.prisma.contact.findUnique({
+        where: { id: contactId },
+        select: { phone: true, firstName: true, lastName: true },
+      });
+      if (contact) {
+        phone = contact.phone ?? phone;
+        firstName = contact.firstName?.trim() || firstName;
+        lastName = contact.lastName?.trim() || lastName;
+      } else {
+        contactId = null;
+      }
+    }
+
+    if (!contactId && phone) {
+      contactId = await this.provisionContactFromTelegram({
+        phone,
+        firstName,
+        lastName,
+        region,
+        companyId,
+      });
+      if (contactId && leadId) {
+        await this.prisma.lead
+          .update({ where: { id: leadId }, data: { contactId } })
+          .catch(() => undefined);
+      }
+    }
+
+    if (contactId && contactId !== account?.contactId) {
+      await this.prisma.telegramAccount.updateMany({
+        where: { telegramUserId },
+        data: { contactId, leadId: null, ...(phone ? { phone } : {}) },
+      });
+    }
+
+    return { phone, contactId, firstName, lastName };
+  }
+
+  private async findContactIdByPhone(phone: string): Promise<string | null> {
+    const digits = getPhoneNormalizedDigits(phone);
+    const candidates = digits ? getPhoneCandidatesForLookup(digits) : [];
+    for (const candidate of candidates) {
+      try {
+        const row = await this.contacts.findContactByPhone(candidate);
+        if (row?.id) return row.id;
+      } catch {
+        /* ignore */
+      }
+    }
+    const last9 = (digits ?? "").replace(/\D/g, "").slice(-9);
+    if (last9.length !== 9) return null;
+    try {
+      const rows = await this.prisma.$queryRaw<Array<{ id: string }>>(
+        Prisma.sql`
+          SELECT c.id
+          FROM "Contact" c
+          LEFT JOIN "ContactPhone" p ON p."contactId" = c.id
+          WHERE right(regexp_replace(COALESCE(c."phoneNormalized", ''), '[^0-9]', '', 'g'), 9) = ${last9}
+             OR right(regexp_replace(COALESCE(c.phone, ''), '[^0-9]', '', 'g'), 9) = ${last9}
+             OR right(regexp_replace(COALESCE(p."phoneNormalized", ''), '[^0-9]', '', 'g'), 9) = ${last9}
+          ORDER BY c."createdAt" DESC
+          LIMIT 1
+        `,
+      );
+      if (rows[0]?.id) return rows[0].id;
+    } catch {
+      /* raw lookup is a fallback */
+    }
+    try {
+      const rows = await this.prisma.$queryRaw<Array<{ id: string }>>(
+        Prisma.sql`
+          SELECT ct.id
+          FROM "Company" co
+          JOIN "Contact" ct ON ct."companyId" = co.id
+          WHERE right(regexp_replace(COALESCE(co.phone, ''), '[^0-9]', '', 'g'), 9) = ${last9}
+          ORDER BY ct."isPrimary" DESC, ct."createdAt" ASC
+          LIMIT 1
+        `,
+      );
+      return rows[0]?.id ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Phone is already known from the bot, but CRM has no contact yet — open the cabinet anyway. */
+  private async provisionContactFromTelegram(params: {
+    phone: string;
+    firstName: string | null;
+    lastName: string | null;
+    region: string | null;
+    companyId: string | null;
+  }): Promise<string | null> {
+    const phoneNormalized = getPhoneNormalizedDigits(params.phone);
+    if (!phoneNormalized) return null;
+    const phone = normalizePhoneToE164(params.phone) ?? params.phone.trim();
+    try {
+      const created = await this.prisma.contact.create({
+        data: {
+          firstName: params.firstName?.trim() || "Клієнт",
+          lastName: params.lastName?.trim() || "Telegram",
+          phone,
+          phoneNormalized,
+          region: params.region,
+          companyId: params.companyId,
+        },
+        select: { id: true },
+      });
+      return created.id;
+    } catch (err) {
+      this.logger.warn(
+        `provision telegram contact: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return this.findContactIdByPhone(params.phone);
+    }
   }
 }

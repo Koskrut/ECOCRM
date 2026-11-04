@@ -3327,6 +3327,10 @@ export const uk = {
       total: "Разом",
       paidDebt: "Сплачено / Борг",
       paidAmountDue: "Сплачено / До оплати",
+      clientOverdueDebt: "Прострочений борг клієнта",
+      clientOverdueDebtWithOrder: (clientAmount: string, orderAmount: string) =>
+        `Прострочений борг клієнта: ${clientAmount} · це замовлення: ${orderAmount}`,
+      clientOverdueDebtScope: "Лише замовлення клієнта, які вам доступні",
       returnAdjustment: "Корекція по поверненнях:",
       fxVariance: "Ймовірна курсова різниця:",
       writeOff: "Списати",

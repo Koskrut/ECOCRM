@@ -117,7 +117,9 @@ export function NavBar() {
               aria-haspopup="true"
               aria-label="Акаунт"
             >
-              Акаунт
+              {accountLoggedIn
+                ? telegram.profile?.firstName?.trim() || "Кабінет"
+                : "Акаунт"}
               <ChevronDownIcon className={`h-4 w-4 shrink-0 transition ${accountDropdownOpen ? "rotate-180" : ""}`} />
             </button>
             {accountDropdownOpen && (

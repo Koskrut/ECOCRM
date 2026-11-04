@@ -365,7 +365,9 @@ export class TelegramClientBotService {
       return { handled: true, notifyManager: false };
     }
     if (text === MENU_START || isSlashCommand(text, "start")) {
-      await this.replyStart(parsed, conversationId, contactId, leadId);
+      await this.replyStart(parsed, conversationId, contactId, leadId, {
+        requestPhone: text === MENU_START,
+      });
       return { handled: true, notifyManager: false };
     }
 
@@ -1599,6 +1601,7 @@ export class TelegramClientBotService {
     conversationId: string,
     contactId: string | null,
     leadId: string | null,
+    opts?: { requestPhone?: boolean },
   ): Promise<void> {
     const session = await this.sessions.get(parsed.userId);
 
@@ -1637,6 +1640,11 @@ export class TelegramClientBotService {
     }
 
     await this.sessions.resetIdle(parsed.userId);
+    // First open (/start) only shows «Старт». The phone request follows that tap.
+    if (!opts?.requestPhone) {
+      await this.replyStartOnly(parsed.chatId, conversationId, TELEGRAM_PRESS_START);
+      return;
+    }
     await this.telegram.sendMessageToChat(parsed.chatId, TELEGRAM_WELCOME, {
       requestContactButton: true,
       menuKeyboard: CLIENT_FLOW_KEYBOARD,

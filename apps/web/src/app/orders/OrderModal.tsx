@@ -37,6 +37,7 @@ import type { FxVarianceSnapshot } from "@/lib/api/resources/orders";
 import { FxWriteOffModal } from "@/app/payments/FxWriteOffModal";
 import { riskApi, type RiskGateResult } from "@/lib/api/resources/risk";
 import { strings } from "@/locales";
+import { useContactCardSummary } from "@/app/contacts/card/useContactCardSummary";
 import {
   isOperationalDebtOrder,
   orderUnpaidAmountClassName,
@@ -58,6 +59,12 @@ const tr = strings.returns;
 
 function cx(...parts: Array<string | false | null | undefined>) {
   return parts.filter(Boolean).join(" ");
+}
+
+function formatClientMoney(amount: number, currency?: string | null): string {
+  const cur = (currency || "USD").trim().toUpperCase();
+  const sym = cur === "USD" ? "$" : cur === "EUR" ? "€" : cur === "UAH" ? "₴" : cur;
+  return `${Number(amount).toFixed(2)} ${sym}`;
 }
 
 function Badge({
@@ -812,6 +819,22 @@ export function OrderModal({
   // local editable values
   const [companyId, setCompanyId] = useState<string | null>(null);
   const [clientId, setClientId] = useState<string | null>(null);
+  const orderClientId = order?.clientId ?? clientId ?? "";
+  const clientCard = useContactCardSummary(orderClientId, !isCreate && orderClientId.length > 0);
+  const clientOverdue =
+    clientCard.data && clientCard.data.contact.id === orderClientId ? clientCard.data : null;
+  const clientFinanceKey = `${order?.debtAmount ?? ""}:${order?.paidAmount ?? ""}`;
+  const clientFinanceKeyRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!orderClientId) return;
+    if (clientFinanceKeyRef.current === null) {
+      clientFinanceKeyRef.current = clientFinanceKey;
+      return;
+    }
+    if (clientFinanceKeyRef.current === clientFinanceKey) return;
+    clientFinanceKeyRef.current = clientFinanceKey;
+    void clientCard.refetch();
+  }, [clientFinanceKey, orderClientId, clientCard.refetch]);
   const [deliveryMethod, setDeliveryMethod] = useState<string>("PICKUP");
   const [paymentType, setPaymentType] = useState<string | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<string | null>("FOP");
@@ -2461,7 +2484,16 @@ export function OrderModal({
               {(order.completionBlockers ?? []).map((b) => (
                 <li key={b}>
                   {b.startsWith("open_debt:")
-                    ? `Є борг ${b.slice("open_debt:".length)}`
+                    ? clientOverdue
+                      ? t.clientOverdueDebtWithOrder(
+                          formatClientMoney(clientOverdue.kpi.overdue, clientOverdue.kpi.currency),
+                          formatOrderAmount(
+                            Number(b.slice("open_debt:".length)),
+                            order.currency,
+                            order.exchangeRate,
+                          ),
+                        )
+                      : `Є борг ${b.slice("open_debt:".length)}`
                     : b.startsWith("financial_status:")
                       ? `Фінансовий статус: ${b.slice("financial_status:".length)} (потрібно CLOSED)`
                       : b.startsWith("unsettled_return:")
@@ -3702,6 +3734,33 @@ export function OrderModal({
                           )}
                         </span>
                       </div>
+                      {orderClientId ? (
+                        <div className="mt-2">
+                          <div className="text-xs text-zinc-500">{t.clientOverdueDebt}</div>
+                          <div
+                            className={cx(
+                              "mt-0.5 text-sm font-medium tabular-nums",
+                              (clientOverdue?.kpi.overdue ?? 0) > 0.009
+                                ? "text-red-700"
+                                : "text-zinc-600",
+                            )}
+                          >
+                            {clientOverdue
+                              ? formatClientMoney(
+                                  clientOverdue.kpi.overdue,
+                                  clientOverdue.kpi.currency,
+                                )
+                              : clientCard.loading
+                                ? "…"
+                                : "—"}
+                          </div>
+                          {clientOverdue?.insights.financeRestricted ? (
+                            <div className="mt-0.5 text-[11px] text-zinc-500">
+                              {t.clientOverdueDebtScope}
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : null}
                       {Number(order.returnAdjustmentAmount ?? 0) > 0 && (
                         <div className="mt-0.5 text-xs text-zinc-500">
                           {t.returnAdjustment} −

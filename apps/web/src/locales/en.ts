@@ -3310,6 +3310,10 @@ export const en = {
       total: "Total",
       paidDebt: "Paid / Debt",
       paidAmountDue: "Paid / Amount due",
+      clientOverdueDebt: "Client overdue debt",
+      clientOverdueDebtWithOrder: (clientAmount: string, orderAmount: string) =>
+        `Client overdue debt: ${clientAmount} · this order: ${orderAmount}`,
+      clientOverdueDebtScope: "Only this client's orders you can access",
       returnAdjustment: "Return adjustment:",
       fxVariance: "Probable FX variance:",
       writeOff: "Write off",

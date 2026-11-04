@@ -17,6 +17,7 @@ import {
 } from "@/lib/telegram-webapp";
 import {
   clearTelegramStoreSession,
+  getTelegramCabinetToken,
   getTelegramCartSessionId,
   getTelegramStoreProfile,
   getTelegramStoreToken,
@@ -182,11 +183,13 @@ export function TelegramWebAppProvider({ children }: { children: React.ReactNode
       } catch (err) {
         if (cancelled) return;
         setError(err instanceof Error ? err.message : "Не вдалося увійти через Telegram");
+        const savedProfile = getTelegramStoreProfile();
+        const keepLogin = Boolean(getTelegramCabinetToken() && savedProfile?.contactId);
         setToken(getTelegramStoreToken());
         setCartSessionId(getTelegramCartSessionId());
-        setProfile(getTelegramStoreProfile());
-        loggedInRef.current = false;
-        setLoggedIn(false);
+        setProfile(savedProfile);
+        loggedInRef.current = keepLogin;
+        setLoggedIn(keepLogin);
       } finally {
         if (!cancelled) {
           setLoading(false);

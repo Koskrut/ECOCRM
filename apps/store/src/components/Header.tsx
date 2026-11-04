@@ -165,19 +165,28 @@ export function Header() {
           </button>
         </form>
 
-        {/* Mobile: cart icon + badge — always visible */}
-        <Link
-          href="/cart"
-          className="relative ml-auto flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-zinc-600 hover:bg-[var(--surface)] hover:text-[var(--primary)] transition md:hidden"
-          aria-label={cartCount > 0 ? `Кошик: ${cartCount} товарів, ${cartSumUah} грн` : "Кошик"}
-        >
-          <CartIcon className="h-6 w-6" />
-          {cartCount > 0 && (
-            <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-[var(--primary)] px-1.5 text-xs font-medium text-white">
-              {cartCount > 99 ? "99+" : cartCount}
-            </span>
-          )}
-        </Link>
+        <div className="ml-auto flex items-center gap-1 md:hidden">
+          {!authPending && accountLoggedIn ? (
+            <Link
+              href="/cabinet"
+              className="flex h-11 max-w-[8.5rem] items-center truncate rounded-lg px-2 text-sm font-medium text-[var(--primary)] hover:bg-[var(--surface)]"
+            >
+              {telegram.profile?.firstName?.trim() || "Кабінет"}
+            </Link>
+          ) : null}
+          <Link
+            href="/cart"
+            className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-zinc-600 hover:bg-[var(--surface)] hover:text-[var(--primary)] transition"
+            aria-label={cartCount > 0 ? `Кошик: ${cartCount} товарів, ${cartSumUah} грн` : "Кошик"}
+          >
+            <CartIcon className="h-6 w-6" />
+            {cartCount > 0 && (
+              <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-[var(--primary)] px-1.5 text-xs font-medium text-white">
+                {cartCount > 99 ? "99+" : cartCount}
+              </span>
+            )}
+          </Link>
+        </div>
       </div>
 
       {/* Mobile menu overlay + drawer */}
