@@ -46,15 +46,37 @@ export function parseTgWebAppData(source: string): string {
   }
 }
 
+/** Survives a Mini App URL rewrite that drops `?tgAuth` before React boots. */
+export const CATALOG_AUTH_STORAGE_KEY = "suprex_tg_auth";
+/** Same for initData — Desktop Telegram may wipe the hash before React reads it. */
+export const TG_INIT_DATA_STORAGE_KEY = "suprex_tg_init_data";
+
+export function persistTelegramInitData(initData: string): void {
+  const value = initData.trim();
+  if (!value || typeof window === "undefined") return;
+  window.__SUPREX_TG_INIT_DATA = value;
+  try {
+    sessionStorage.setItem(TG_INIT_DATA_STORAGE_KEY, value);
+  } catch {
+    /* WebView may block storage */
+  }
+}
+
 export function readCapturedTelegramInitData(): string {
   if (typeof window === "undefined") return "";
   const snap = window.__SUPREX_TG_INIT_DATA?.trim() ?? "";
   if (snap) return snap;
-  return parseTgWebAppData(window.location.hash) || parseTgWebAppData(window.location.search);
+  const fromUrl = parseTgWebAppData(window.location.hash) || parseTgWebAppData(window.location.search);
+  if (fromUrl) {
+    persistTelegramInitData(fromUrl);
+    return fromUrl;
+  }
+  try {
+    return sessionStorage.getItem(TG_INIT_DATA_STORAGE_KEY)?.trim() ?? "";
+  } catch {
+    return "";
+  }
 }
-
-/** Survives a Mini App URL rewrite that drops `?tgAuth` before React boots. */
-export const CATALOG_AUTH_STORAGE_KEY = "suprex_tg_auth";
 
 /** Phone handoff the bot puts on the catalog button. Empty outside that open. */
 export function readCatalogAuthToken(): string {
@@ -94,7 +116,10 @@ export function isEmbeddedTelegramPlatform(platform: string | undefined): boolea
 
 export function resolveTelegramInitData(app?: TelegramWebApp | null): string {
   const live = app?.initData?.trim() || getTelegramInitData();
-  if (live) return live;
+  if (live) {
+    persistTelegramInitData(live);
+    return live;
+  }
   return readCapturedTelegramInitData();
 }
 
@@ -175,6 +200,9 @@ export async function waitForTelegramWebApp(opts?: {
     );
   }
   const app = window.Telegram?.WebApp ?? null;
+  // Catalog opens with ?tgAuth= before initData arrives — keep the bridge so the
+  // caller can poll instead of treating the tab as a normal browser.
+  if (app && (launchHint || isEmbeddedTelegramPlatform(app.platform))) return app;
   return isRealTelegramMiniApp(app) ? app : null;
 }
 

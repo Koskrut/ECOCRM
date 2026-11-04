@@ -100,7 +100,7 @@ export default function CheckoutPage() {
       })
       .catch(() => {
         if (cancelled) return;
-        setLoggedIn(false);
+        if (!telegram.loggedIn) setLoggedIn(false);
         // Telegram session can still carry CRM phone/names before cabinet cookie sticks.
         if (isTelegramCheckout && telegram.profile) {
           if (telegram.profile.phone) setPhone(formatUaPhoneInput(telegram.profile.phone));
@@ -119,6 +119,21 @@ export default function CheckoutPage() {
     isTelegramCheckout,
     telegram.profile,
   ]);
+
+  // Session exchange often finishes after the first checkout paint — fill empty fields.
+  useEffect(() => {
+    if (!isTelegramCheckout || !telegram.profile) return;
+    if (telegram.profile.phone) {
+      setPhone((prev) => prev.trim() || formatUaPhoneInput(telegram.profile!.phone!));
+    }
+    if (telegram.profile.firstName) {
+      setFirstName((prev) => prev.trim() || telegram.profile!.firstName!);
+    }
+    if (telegram.profile.lastName) {
+      setLastName((prev) => prev.trim() || telegram.profile!.lastName!);
+    }
+    if (telegram.loggedIn) setLoggedIn(true);
+  }, [isTelegramCheckout, telegram.loggedIn, telegram.profile]);
 
   useEffect(() => {
     getCheckoutRegions()

@@ -45,8 +45,9 @@ export function TelegramShell({ children }: { children: React.ReactNode }) {
     main.onClick(onCart);
     if (pathname === "/checkout" || pathname.startsWith("/thank-you")) {
       main.hide();
-    } else if (!telegram.loggedIn) {
-      main.setText("Оновити профіль");
+    } else if (!telegram.loggedIn && !telegram.loading) {
+      // Only nudge when session exchange finished without a CRM contact.
+      main.setText(telegram.error ? "Оновити сесію" : "Оновити профіль");
       main.show();
     } else if (count > 0) {
       main.setText(
@@ -65,6 +66,8 @@ export function TelegramShell({ children }: { children: React.ReactNode }) {
     telegram.isTelegram,
     telegram.ready,
     telegram.loggedIn,
+    telegram.loading,
+    telegram.error,
     telegram.refreshSession,
     count,
     sumUah,

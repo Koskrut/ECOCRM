@@ -65,7 +65,7 @@ export default function RootLayout({
       <head>
         <script
           dangerouslySetInnerHTML={{
-            __html: `(function(){try{var src=(location.hash||"")+"&"+(location.search||"");var m=src.match(/(?:^|[?#&])tgWebAppData=([^&]*)/);var data="";if(m&&m[1]){try{data=decodeURIComponent(m[1].replace(/\\+/g," "))}catch(e){data=""}}if(!data&&window.Telegram&&window.Telegram.WebApp&&window.Telegram.WebApp.initData){data=window.Telegram.WebApp.initData}if(data)window.__SUPREX_TG_INIT_DATA=data;var auth=(location.search||"").match(/(?:^|[?&])tgAuth=([^&]*)/);if(auth&&auth[1]){try{window.__SUPREX_TG_AUTH=decodeURIComponent(auth[1].replace(/\\+/g," "))}catch(e){window.__SUPREX_TG_AUTH=auth[1]}try{sessionStorage.setItem("suprex_tg_auth",window.__SUPREX_TG_AUTH)}catch(e){}}}catch(e){}})();`,
+            __html: `(function(){try{var src=(location.hash||"")+"&"+(location.search||"");var m=src.match(/(?:^|[?#&])tgWebAppData=([^&]*)/);var data="";if(m&&m[1]){try{data=decodeURIComponent(m[1].replace(/\\+/g," "))}catch(e){data=""}}if(!data&&window.Telegram&&window.Telegram.WebApp&&window.Telegram.WebApp.initData){data=window.Telegram.WebApp.initData}if(data){window.__SUPREX_TG_INIT_DATA=data;try{sessionStorage.setItem("suprex_tg_init_data",data)}catch(e){}}var auth=(location.search||"").match(/(?:^|[?&])tgAuth=([^&]*)/);if(auth&&auth[1]){try{window.__SUPREX_TG_AUTH=decodeURIComponent(auth[1].replace(/\\+/g," "))}catch(e){window.__SUPREX_TG_AUTH=auth[1]}try{sessionStorage.setItem("suprex_tg_auth",window.__SUPREX_TG_AUTH)}catch(e){}}}catch(e){}})();`,
           }}
         />
       </head>
