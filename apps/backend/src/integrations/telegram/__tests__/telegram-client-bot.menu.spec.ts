@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { verifyJwt } from "../../../auth/jwt";
 import { TelegramClientBotService } from "../telegram-client-bot.service";
 import type { ParsedInbound } from "../telegram.types";
 import { MENU_CATALOG, MENU_CLIENT_CANCEL, MENU_MANAGER, MENU_ORDERS, MENU_START } from "../telegram-client.constants";
@@ -54,6 +55,7 @@ function makeBot(opts: {
     contact?: boolean;
     removeKeyboard?: boolean;
     buttons?: string[];
+    webAppUrls?: string[];
   }> = [];
   const listCalls: unknown[][] = [];
   const pathCalls: unknown[][] = [];
@@ -83,7 +85,9 @@ function makeBot(opts: {
   const telegram = {
     answerCallbackQuery: async () => undefined,
     sendMessageToChat: async (_chat: string, text: string, options?: AnyRec) => {
-      const inline = options?.inlineKeyboard as Array<Array<{ text?: string }>> | undefined;
+      const inline = options?.inlineKeyboard as
+        | Array<Array<{ text?: string; web_app?: { url?: string } }>>
+        | undefined;
       sent.push({
         text,
         inline: Boolean(options?.inlineKeyboard),
@@ -91,6 +95,10 @@ function makeBot(opts: {
         contact: Boolean(options?.requestContactButton),
         removeKeyboard: Boolean(options?.removeKeyboard),
         buttons: inline?.flat().map((button) => button.text ?? "").filter(Boolean),
+        webAppUrls: inline
+          ?.flat()
+          .map((button) => button.web_app?.url ?? "")
+          .filter(Boolean),
       });
       return { messageId: sent.length };
     },
@@ -275,6 +283,7 @@ describe("TelegramClientBotService menu / idle", () => {
   });
 
   it("opens the Mini App when the public store URL is configured", async () => {
+    process.env.JWT_SECRET = process.env.JWT_SECRET || "test-secret-for-catalog-handoff";
     const { service, sent } = makeBot({
       storeUrl: "https://shop.example.com",
     });
@@ -292,6 +301,18 @@ describe("TelegramClientBotService menu / idle", () => {
       true,
     );
     assert.equal(body.includes("Системи:"), false);
+    const catalogUrl = sent.flatMap((item) => item.webAppUrls ?? [])[0] ?? "";
+    assert.ok(catalogUrl.startsWith("https://shop.example.com/"));
+    assert.equal(catalogUrl.includes("380671112233"), false);
+    const token = new URL(catalogUrl).searchParams.get("tgAuth");
+    assert.ok(token);
+    const handoff = verifyJwt<{ sub: string; phone: string; contactId: string }>(
+      token,
+      process.env.JWT_SECRET,
+    );
+    assert.equal(handoff.sub, "777");
+    assert.equal(handoff.phone, "+380671112233");
+    assert.equal(handoff.contactId, "c1");
   });
 
   it("opens categories inside a system instead of every product", async () => {
@@ -576,11 +597,11 @@ describe("TelegramClientBotService menu / idle", () => {
     assert.ok(sent.some((s) => /ім'я та прізвище/i.test(s.text)));
     assert.ok(
       sent.some((s) => JSON.stringify(s.keyboard ?? []).includes("Скасувати")),
-      "onboarding shows cancel, not commerce menu",
+      "onboarding keeps Cancel",
     );
     assert.ok(
-      !sent.some((s) => JSON.stringify(s.keyboard ?? []).includes("Каталог")),
-      "hides commerce keyboard during onboarding",
+      sent.some((s) => JSON.stringify(s.keyboard ?? []).includes("Каталог")),
+      "commerce menu stays visible during onboarding",
     );
   });
 
@@ -1153,7 +1174,11 @@ describe("TelegramClientBotService menu / idle", () => {
     assert.ok(sent.some((s) => /Оплата/i.test(s.text)));
     assert.ok(
       sent.some((s) => JSON.stringify(s.keyboard ?? []).includes("Скасувати")),
-      "checkout uses flow keyboard, not commerce menu",
+      "checkout keeps Cancel",
+    );
+    assert.ok(
+      sent.some((s) => JSON.stringify(s.keyboard ?? []).includes("Каталог")),
+      "commerce menu stays visible during checkout",
     );
   });
 
@@ -1493,6 +1518,7 @@ describe("TelegramClientBotService menu / idle", () => {
     assert.equal(sessions.state, "checkout_city");
     assert.equal(sessions.payload.region, "Київська");
     assert.ok(sent.some((s) => JSON.stringify(s.keyboard ?? []).includes("Скасувати")));
+    assert.ok(sent.some((s) => JSON.stringify(s.keyboard ?? []).includes("Каталог")));
     assert.equal(sent.some((s) => /Каталог — товари/i.test(s.text)), false);
   });
 

@@ -8,11 +8,17 @@ const API_URL = process.env.API_URL ?? "http://localhost:3001";
  * the client keeps a sessionStorage copy for Authorization on /me.
  */
 export async function POST(req: NextRequest) {
-  const body = await req.json().catch(() => ({}));
+  const body = (await req.json().catch(() => ({}))) as {
+    initData?: string;
+    tgAuth?: string | null;
+  };
   const res = await fetch(`${API_URL}/store/telegram/webapp-session`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
+    body: JSON.stringify({
+      initData: body.initData,
+      tgAuth: typeof body.tgAuth === "string" ? body.tgAuth : undefined,
+    }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {

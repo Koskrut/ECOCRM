@@ -45,6 +45,7 @@ import { ConversationsService } from "./conversations.service";
 import { TelegramClientBotService } from "./telegram-client-bot.service";
 import { TelegramInboxNotifierService } from "./telegram-inbox-notifier.service";
 import { TelegramManagerBotService } from "./telegram-manager-bot.service";
+import { appendCatalogHandoff } from "../../store/telegram/store-catalog-handoff";
 
 function normalizePhoneDigits(phone: string): string {
   return String(phone ?? "").replace(/\D/g, "");
@@ -704,13 +705,13 @@ export class TelegramService {
         } else if (shouldSendExistingClientMenu && !botReplySent && !parsed.phone) {
           // Fallback when client bot did not handle (should be rare).
           await this.sendMessageToChat(parsed.chatId, TELEGRAM_EXISTING_CLIENT, {
-            menuKeyboard: await this.clientMenuKeyboard(),
+            menuKeyboard: await this.clientBot.catalogMenuKeyboard(parsed.userId),
           });
           notifyManager = false;
         }
       } else if (shouldSendExistingClientMenu && !botReplySent) {
         await this.sendMessageToChat(parsed.chatId, TELEGRAM_EXISTING_CLIENT, {
-          menuKeyboard: await this.clientMenuKeyboard(),
+          menuKeyboard: await this.clientMenuKeyboard(parsed.userId),
         });
         notifyManager = false;
       }
@@ -1152,15 +1153,46 @@ export class TelegramService {
     return null;
   }
 
-  private async clientMenuKeyboard() {
+  private async clientMenuKeyboard(telegramUserId?: string) {
     try {
       const config = await this.settings.getStoreConfig();
       const url = (config.publicStoreUrl ?? "").trim().replace(/\/+$/, "");
-      if (/^https:\/\//i.test(url)) return buildClientMenuKeyboard(url);
+      if (/^https:\/\//i.test(url)) {
+        const signed = telegramUserId ? await this.catalogUrlWithPhone(url, telegramUserId) : url;
+        return buildClientMenuKeyboard(signed);
+      }
     } catch {
       /* fall through */
     }
     return CLIENT_MENU_KEYBOARD;
+  }
+
+  /** Same handoff the client bot puts on «Каталог», for the rare path without that bot. */
+  private async catalogUrlWithPhone(storeUrl: string, telegramUserId: string): Promise<string> {
+    const account = await this.prisma.telegramAccount.findUnique({
+      where: { telegramUserId },
+      select: { phone: true, contactId: true, firstName: true, lastName: true },
+    });
+    let phone = account?.phone?.trim() || null;
+    let firstName = account?.firstName ?? null;
+    let lastName = account?.lastName ?? null;
+    if ((!phone || phone.replace(/\D/g, "").startsWith("0000")) && account?.contactId) {
+      const contact = await this.prisma.contact.findUnique({
+        where: { id: account.contactId },
+        select: { phone: true, firstName: true, lastName: true },
+      });
+      phone = contact?.phone?.trim() || null;
+      firstName = contact?.firstName?.trim() || firstName;
+      lastName = contact?.lastName?.trim() || lastName;
+    }
+    if (!phone || phone.replace(/\D/g, "").length < 10) return storeUrl;
+    return appendCatalogHandoff(storeUrl, {
+      telegramUserId,
+      phone,
+      contactId: account?.contactId,
+      firstName,
+      lastName,
+    });
   }
 
   private mapMenuButton(button: string | { text: string; webAppUrl?: string; requestContact?: boolean }) {
@@ -1177,8 +1209,8 @@ export class TelegramService {
         options.menuKeyboard?.map((row) => row.map((button) => this.mapMenuButton(button))) ?? [];
       body.reply_markup = {
         keyboard: [[{ text: "📱 Поділитися номером", request_contact: true }], ...extra],
-        one_time_keyboard: true,
         resize_keyboard: true,
+        is_persistent: true,
       };
       return;
     }
@@ -1200,6 +1232,7 @@ export class TelegramService {
       body.reply_markup = {
         keyboard: replyKeyboard.map((row) => row.map((button) => this.mapMenuButton(button))),
         resize_keyboard: true,
+        is_persistent: true,
       };
     }
   }

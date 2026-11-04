@@ -18,6 +18,7 @@ import { cartSessionId } from "../../integrations/telegram/telegram-client.const
 import { PrismaService } from "../../prisma/prisma.service";
 import { SettingsService } from "../../settings/settings.service";
 import { StoreCartService } from "../cart/store-cart.service";
+import { readCatalogHandoff } from "./store-catalog-handoff";
 import type {
   StoreTelegramWebAppJwtPayload,
   StoreTelegramWebAppSession,
@@ -39,7 +40,7 @@ export class StoreTelegramWebAppService {
     private readonly cart: StoreCartService,
   ) {}
 
-  async createSession(initData: string): Promise<StoreTelegramWebAppSession> {
+  async createSession(initData: string, tgAuth?: string | null): Promise<StoreTelegramWebAppSession> {
     const raw = (initData ?? "").trim();
     if (!raw) throw new BadRequestException("initData required");
 
@@ -97,6 +98,31 @@ export class StoreTelegramWebAppService {
           where: { telegramUserId },
           select: accountSelect,
         });
+      }
+    }
+
+    const handoff = readCatalogHandoff(tgAuth);
+    if (handoff && handoff.sub === telegramUserId && account) {
+      const patch: { phone?: string; contactId?: string; leadId?: null } = {};
+      if (!account.phone && handoff.phone) {
+        account = { ...account, phone: handoff.phone };
+        patch.phone = handoff.phone;
+      }
+      if (!account.contactId && handoff.contactId) {
+        account = { ...account, contactId: handoff.contactId };
+        patch.contactId = handoff.contactId;
+        patch.leadId = null;
+      }
+      if (!account.firstName && handoff.firstName) {
+        account = { ...account, firstName: handoff.firstName };
+      }
+      if (!account.lastName && handoff.lastName) {
+        account = { ...account, lastName: handoff.lastName };
+      }
+      if (Object.keys(patch).length > 0) {
+        await this.prisma.telegramAccount
+          .updateMany({ where: { telegramUserId }, data: patch })
+          .catch(() => undefined);
       }
     }
 

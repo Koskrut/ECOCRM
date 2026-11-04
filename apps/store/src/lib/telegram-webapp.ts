@@ -29,6 +29,8 @@ declare global {
     Telegram?: { WebApp?: TelegramWebApp };
     /** Set by the inline head script before telegram-web-app.js can drop the hash. */
     __SUPREX_TG_INIT_DATA?: string;
+    /** Signed catalog handoff (`tgAuth`) captured before the Mini App rewrites the URL. */
+    __SUPREX_TG_AUTH?: string;
   }
 }
 
@@ -49,6 +51,18 @@ export function readCapturedTelegramInitData(): string {
   const snap = window.__SUPREX_TG_INIT_DATA?.trim() ?? "";
   if (snap) return snap;
   return parseTgWebAppData(window.location.hash) || parseTgWebAppData(window.location.search);
+}
+
+/** Phone handoff the bot puts on the catalog button. Empty outside that open. */
+export function readCatalogAuthToken(): string {
+  if (typeof window === "undefined") return "";
+  const snap = window.__SUPREX_TG_AUTH?.trim() ?? "";
+  if (snap) return snap;
+  try {
+    return new URLSearchParams(window.location.search).get("tgAuth")?.trim() ?? "";
+  } catch {
+    return "";
+  }
 }
 
 export function resolveTelegramInitData(app?: TelegramWebApp | null): string {

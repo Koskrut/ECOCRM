@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { createHmac } from "crypto";
+import { appendCatalogHandoff } from "../store-catalog-handoff";
 import { StoreTelegramWebAppService } from "../store-telegram-webapp.service";
 
 function signInitData(botToken: string, fields: Record<string, string>): string {
@@ -240,5 +241,116 @@ describe("StoreTelegramWebAppService.createSession", () => {
     assert.equal(session.contactId, "c-new");
     assert.equal(session.loggedIn, true);
     assert.ok(session.storeToken);
+  });
+
+  it("logs in from the catalog handoff phone when the telegram account has no contact", async () => {
+    process.env.JWT_SECRET = process.env.JWT_SECRET || "test-secret-for-store-tg";
+    const botToken = "123456:ABC-DEF";
+    const user = JSON.stringify({ id: 555, first_name: "Tg" });
+    const initData = signInitData(botToken, {
+      user,
+      auth_date: String(Math.floor(Date.now() / 1000)),
+      query_id: "q5",
+    });
+    const tgAuth = new URL(
+      appendCatalogHandoff("https://shop.example.com", {
+        telegramUserId: "555",
+        phone: "+380501112233",
+        contactId: "c-handoff",
+        firstName: "Ірина",
+        lastName: "Савчук",
+      }),
+    ).searchParams.get("tgAuth");
+    const service = new StoreTelegramWebAppService(
+      {
+        telegramAccount: {
+          findUnique: async () => ({
+            id: "acc5",
+            telegramChatId: "555",
+            phone: null,
+            contactId: null,
+            leadId: null,
+            firstName: "Tg",
+            lastName: null,
+          }),
+          create: async () => {
+            throw new Error("should not create");
+          },
+          updateMany: async () => ({ count: 1 }),
+        },
+        conversation: { findUnique: async () => null },
+        lead: { findUnique: async () => null, findFirst: async () => null },
+        contact: {
+          findUnique: async () => ({
+            phone: "+380501112233",
+            firstName: "Ірина",
+            lastName: "Савчук",
+          }),
+        },
+        customer: {
+          findUnique: async () => ({ id: "cust5", contactId: "c-handoff" }),
+          create: async () => ({ id: "cust5", contactId: "c-handoff" }),
+        },
+      } as never,
+      { getTelegramSecrets: async () => ({ botToken }) } as never,
+      { findContactByPhone: async () => null } as never,
+      { unifyTelegramCart: async () => undefined } as never,
+    );
+    const session = await service.createSession(initData, tgAuth);
+    assert.equal(session.loggedIn, true);
+    assert.equal(session.contactId, "c-handoff");
+    assert.equal(session.phone, "+380501112233");
+    assert.ok(session.storeToken);
+  });
+
+  it("ignores a catalog handoff that belongs to a different Telegram user", async () => {
+    process.env.JWT_SECRET = process.env.JWT_SECRET || "test-secret-for-store-tg";
+    const botToken = "123456:ABC-DEF";
+    const user = JSON.stringify({ id: 555, first_name: "Tg" });
+    const initData = signInitData(botToken, {
+      user,
+      auth_date: String(Math.floor(Date.now() / 1000)),
+      query_id: "q6",
+    });
+    const tgAuth = new URL(
+      appendCatalogHandoff("https://shop.example.com", {
+        telegramUserId: "999",
+        phone: "+380501112233",
+        contactId: "c-other",
+      }),
+    ).searchParams.get("tgAuth");
+    const service = new StoreTelegramWebAppService(
+      {
+        telegramAccount: {
+          findUnique: async () => ({
+            id: "acc6",
+            telegramChatId: "555",
+            phone: null,
+            contactId: null,
+            leadId: null,
+            firstName: "Tg",
+            lastName: null,
+          }),
+          create: async () => {
+            throw new Error("should not create");
+          },
+          updateMany: async () => ({ count: 1 }),
+        },
+        conversation: { findUnique: async () => null },
+        lead: { findUnique: async () => null, findFirst: async () => null },
+        contact: { findUnique: async () => null, create: async () => ({ id: "should-not" }) },
+        customer: {
+          findUnique: async () => null,
+          create: async () => ({ id: "should-not", contactId: "should-not" }),
+        },
+      } as never,
+      { getTelegramSecrets: async () => ({ botToken }) } as never,
+      { findContactByPhone: async () => null } as never,
+      { unifyTelegramCart: async () => undefined } as never,
+    );
+    const session = await service.createSession(initData, tgAuth);
+    assert.equal(session.loggedIn, false);
+    assert.equal(session.contactId, null);
+    assert.equal(session.storeToken, null);
   });
 });

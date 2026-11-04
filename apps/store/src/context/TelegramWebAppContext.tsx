@@ -12,6 +12,7 @@ import {
 import {
   getTelegramWebApp,
   isTelegramUserAgent,
+  readCatalogAuthToken,
   resolveTelegramInitData,
   waitForTelegramWebApp,
 } from "@/lib/telegram-webapp";
@@ -57,11 +58,12 @@ export function useTelegramWebApp() {
 }
 
 async function exchangeInitData(initData: string) {
+  const tgAuth = readCatalogAuthToken();
   const res = await fetch("/api/auth/store-telegram-session", {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ initData }),
+    body: JSON.stringify(tgAuth ? { initData, tgAuth } : { initData }),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ message: res.statusText }));

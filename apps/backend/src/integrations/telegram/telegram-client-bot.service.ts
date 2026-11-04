@@ -26,6 +26,7 @@ import { SettingsService } from "../../settings/settings.service";
 import { UKRAINE_REGIONS } from "../../store/checkout/uk-regions";
 import { resolveAssignedManagerForRegion } from "../../settings/org-chart-region-resolver";
 import { StoreCartService } from "../../store/cart/store-cart.service";
+import { appendCatalogHandoff } from "../../store/telegram/store-catalog-handoff";
 import { StoreCheckoutPaymentLinkService } from "../../store/checkout/store-checkout-payment-link.service";
 import { StoreCheckoutService } from "../../store/checkout/store-checkout.service";
 import type { StoreCheckoutDto } from "../../store/checkout/dto/store-checkout.dto";
@@ -34,7 +35,6 @@ import {
   CATALOG_SEARCH_BUTTON,
   CATALOG_SYSTEMS,
   CITY_RESULTS_LIMIT,
-  CLIENT_FLOW_KEYBOARD,
   CLIENT_MENU_KEYBOARD,
   CLIENT_START_KEYBOARD,
   buildClientMenuKeyboard,
@@ -483,11 +483,12 @@ export class TelegramClientBotService {
 
     // Reply-keyboard menu — commerce requires a CRM contact (profile gate).
     if (text === MENU_CATALOG || isSlashCommand(text, "catalog")) {
-      if (!(await this.ensureCrmProfile(parsed, conversationId, contactId, leadId))) {
+      const profileId = await this.ensureCrmProfile(parsed, conversationId, contactId, leadId);
+      if (!profileId) {
         return { handled: true, notifyManager: false };
       }
       await this.sessions.resetIdle(parsed.userId);
-      await this.showCatalogHome(parsed, conversationId);
+      await this.showCatalogHome(parsed, conversationId, profileId, leadId);
       return { handled: true, notifyManager: false };
     }
     if (text === MENU_CART || isSlashCommand(text, "cart")) {
@@ -902,9 +903,17 @@ export class TelegramClientBotService {
     await this.showCatalogHome(parsed, conversationId);
   }
 
-  private async showCatalogHome(parsed: ParsedInbound, conversationId: string): Promise<void> {
+  private async showCatalogHome(
+    parsed: ParsedInbound,
+    conversationId: string,
+    contactId: string | null = null,
+    leadId: string | null = null,
+  ): Promise<void> {
     await this.sessions.resetIdle(parsed.userId);
-    const storeUrl = await this.resolveStoreMiniAppUrl();
+    const storeUrl = await this.catalogMiniAppUrl(parsed.userId, contactId, leadId, {
+      firstName: parsed.firstName,
+      lastName: parsed.lastName,
+    });
     if (storeUrl) {
       // One message: Telegram allows a single reply_markup (inline wins).
       await this.replyInline(
@@ -1629,7 +1638,7 @@ export class TelegramClientBotService {
         return;
       }
       await this.sessions.resetIdle(parsed.userId);
-      await this.replyMenu(parsed.chatId, conversationId, TELEGRAM_EXISTING_CLIENT);
+      await this.replyMenu(parsed.chatId, conversationId, TELEGRAM_EXISTING_CLIENT, parsed.userId);
       return;
     }
 
@@ -1647,7 +1656,7 @@ export class TelegramClientBotService {
     }
     await this.telegram.sendMessageToChat(parsed.chatId, TELEGRAM_WELCOME, {
       requestContactButton: true,
-      menuKeyboard: CLIENT_FLOW_KEYBOARD,
+      menuKeyboard: await this.flowMenuKeyboard(parsed.userId),
     });
   }
 
@@ -1686,7 +1695,7 @@ export class TelegramClientBotService {
 
     await this.telegram.sendMessageToChat(parsed.chatId, TELEGRAM_REQUEST_PHONE, {
       requestContactButton: true,
-      menuKeyboard: CLIENT_FLOW_KEYBOARD,
+      menuKeyboard: await this.flowMenuKeyboard(parsed.userId),
     });
     return null;
   }
@@ -2194,7 +2203,7 @@ export class TelegramClientBotService {
       doneText += "\n\nЧернетку збережено. Додайте товари в кошик і натисніть «Оформити».";
     }
     await this.sessions.set(parsed.userId, "idle", hasCheckoutDraft ? draft : {});
-    await this.replyMenu(parsed.chatId, conversationId, doneText);
+    await this.replyMenu(parsed.chatId, conversationId, doneText, parsed.userId);
   }
 
   /** Linked contact/lead, or a phone already stored on the Telegram account. */
@@ -3263,13 +3272,72 @@ export class TelegramClientBotService {
 
   // ─── Send helpers (persist outbound in CRM) ──────────────────────────────
 
-  private async clientMenuKeyboard() {
-    const storeUrl = await this.resolveStoreMiniAppUrl();
+  /** Reply keyboard for one client. Catalog opens the Mini App already carrying their phone. */
+  async catalogMenuKeyboard(telegramUserId: string) {
+    return this.clientMenuKeyboard(telegramUserId);
+  }
+
+  private async clientMenuKeyboard(telegramUserId?: string) {
+    const storeUrl = await this.catalogMiniAppUrl(telegramUserId ?? "", null, null);
     return storeUrl ? buildClientMenuKeyboard(storeUrl) : CLIENT_MENU_KEYBOARD;
   }
 
-  private async replyMenu(chatId: string, conversationId: string, text: string): Promise<void> {
-    await this.replyKeyboard(chatId, conversationId, text, await this.clientMenuKeyboard());
+  /** Commerce menu stays visible; Cancel is an extra row during a wizard. */
+  private async flowMenuKeyboard(telegramUserId?: string) {
+    const menu = await this.clientMenuKeyboard(telegramUserId);
+    return [...menu, [MENU_CLIENT_CANCEL]];
+  }
+
+  /**
+   * Mini App URL for this Telegram user. When the CRM phone is known, it is signed
+   * into the query so the store can log the client in. initData still has to match.
+   */
+  private async catalogMiniAppUrl(
+    telegramUserId: string,
+    contactId: string | null,
+    leadId: string | null,
+    names?: { firstName?: string | null; lastName?: string | null },
+  ): Promise<string | null> {
+    const base = await this.resolveStoreMiniAppUrl();
+    if (!base || !telegramUserId) return base;
+    const phone = await this.resolveKnownPhone(telegramUserId, contactId, leadId);
+    if (!phone) return base;
+    const resolvedContact = await this.resolveContactId(contactId, leadId);
+    let firstName = names?.firstName ?? null;
+    let lastName = names?.lastName ?? null;
+    if (resolvedContact) {
+      try {
+        const contact = await this.prisma.contact.findUnique({
+          where: { id: resolvedContact },
+          select: { firstName: true, lastName: true },
+        });
+        firstName = contact?.firstName?.trim() || firstName;
+        lastName = contact?.lastName?.trim() || lastName;
+      } catch {
+        /* names are optional on the handoff */
+      }
+    }
+    return appendCatalogHandoff(base, {
+      telegramUserId,
+      phone,
+      contactId: resolvedContact,
+      firstName,
+      lastName,
+    });
+  }
+
+  private async replyMenu(
+    chatId: string,
+    conversationId: string,
+    text: string,
+    telegramUserId?: string,
+  ): Promise<void> {
+    await this.replyKeyboard(
+      chatId,
+      conversationId,
+      text,
+      await this.clientMenuKeyboard(telegramUserId ?? chatId),
+    );
   }
 
   private async replyKeyboard(
@@ -3284,14 +3352,14 @@ export class TelegramClientBotService {
     await this.recordOutbound(conversationId, text, messageId);
   }
 
-  /** Onboarding steps: no commerce reply keyboard (avoids Catalog while filling profile). */
+  /** Onboarding steps keep the commerce menu, plus Cancel. */
   private async replyOnboardingText(
     chatId: string,
     conversationId: string,
     text: string,
   ): Promise<void> {
     const { messageId } = await this.telegram.sendMessageToChat(chatId, text, {
-      menuKeyboard: CLIENT_FLOW_KEYBOARD,
+      menuKeyboard: await this.flowMenuKeyboard(chatId),
     });
     await this.recordOutbound(conversationId, text, messageId);
   }
@@ -3331,7 +3399,7 @@ export class TelegramClientBotService {
   ): Promise<void> {
     const { messageId } = await this.telegram.sendMessageToChat(chatId, text, {
       requestContactButton: true,
-      menuKeyboard: CLIENT_FLOW_KEYBOARD,
+      menuKeyboard: await this.flowMenuKeyboard(chatId),
     });
     await this.recordOutbound(conversationId, text, messageId);
   }
@@ -3342,12 +3410,12 @@ export class TelegramClientBotService {
     text: string,
   ): Promise<void> {
     const { messageId } = await this.telegram.sendMessageToChat(chatId, text, {
-      menuKeyboard: CLIENT_FLOW_KEYBOARD,
+      menuKeyboard: await this.flowMenuKeyboard(chatId),
     });
     await this.recordOutbound(conversationId, text, messageId);
   }
 
-  /** Checkout wizard: inline choices + Cancel/Back footer (reply Cancel set on prior text). */
+  /** Checkout wizard: inline choices + Cancel/Back footer. Reply menu stays underneath. */
   private async replyCheckoutInline(
     chatId: string,
     conversationId: string,
@@ -3356,7 +3424,7 @@ export class TelegramClientBotService {
     opts?: { back?: boolean },
   ): Promise<void> {
     const { messageId } = await this.telegram.sendMessageToChat(chatId, text, {
-      menuKeyboard: CLIENT_FLOW_KEYBOARD,
+      menuKeyboard: await this.flowMenuKeyboard(chatId),
       inlineKeyboard: withCheckoutNav(inlineKeyboard, { back: opts?.back !== false }),
     });
     await this.recordOutbound(conversationId, text, messageId);

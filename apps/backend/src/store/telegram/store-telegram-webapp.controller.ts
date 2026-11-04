@@ -7,7 +7,7 @@ export class StoreTelegramWebAppController {
 
   /** Exchange Mini App initData for a short-lived store Telegram session. */
   @Post("webapp-session")
-  createSession(@Body() body: { initData?: string }) {
-    return this.webapp.createSession(body?.initData ?? "");
+  createSession(@Body() body: { initData?: string; tgAuth?: string | null }) {
+    return this.webapp.createSession(body?.initData ?? "", body?.tgAuth);
   }
 }

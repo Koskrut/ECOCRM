@@ -9,6 +9,7 @@ import { useMaxWidthMedia } from "@/lib/use-max-width-media";
 import { formatOrderAmount } from "@/lib/formatOrderAmount";
 import { isForeignOrderCurrency, orderCurrencySymbol } from "@/lib/base-currency";
 import { formatDate, formatDateTime } from "@/lib/crmDatetime";
+import { financialStatusLabel } from "@/app/receivables/receivables-labels";
 import { OrderPaymentBlock } from "./OrderPaymentBlock";
 import { OrderClientBalancePanel, OrderReturnSettlementDialog } from "./OrderClientBalancePanel";
 import { OrderTimeline } from "./OrderTimeline";
@@ -823,6 +824,7 @@ export function OrderModal({
   const clientCard = useContactCardSummary(orderClientId, !isCreate && orderClientId.length > 0);
   const clientOverdue =
     clientCard.data && clientCard.data.contact.id === orderClientId ? clientCard.data : null;
+  const showClientOverdue = (clientOverdue?.kpi.overdue ?? 0) > 0.009;
   const clientFinanceKey = `${order?.debtAmount ?? ""}:${order?.paidAmount ?? ""}`;
   const clientFinanceKeyRef = useRef<string | null>(null);
   useEffect(() => {
@@ -2484,7 +2486,7 @@ export function OrderModal({
               {(order.completionBlockers ?? []).map((b) => (
                 <li key={b}>
                   {b.startsWith("open_debt:")
-                    ? clientOverdue
+                    ? showClientOverdue && clientOverdue
                       ? t.clientOverdueDebtWithOrder(
                           formatClientMoney(clientOverdue.kpi.overdue, clientOverdue.kpi.currency),
                           formatOrderAmount(
@@ -2493,9 +2495,13 @@ export function OrderModal({
                             order.exchangeRate,
                           ),
                         )
-                      : `Є борг ${b.slice("open_debt:".length)}`
+                      : `Є борг ${formatOrderAmount(
+                          Number(b.slice("open_debt:".length)),
+                          order.currency,
+                          order.exchangeRate,
+                        )}`
                     : b.startsWith("financial_status:")
-                      ? `Фінансовий статус: ${b.slice("financial_status:".length)} (потрібно CLOSED)`
+                      ? `Фінансовий статус: ${financialStatusLabel(b.slice("financial_status:".length))} (потрібно ${financialStatusLabel("CLOSED")})`
                       : b.startsWith("unsettled_return:")
                         ? "Є закритe повернення з неоформленою переплатою — проведіть залік або повернення коштів"
                         : b}
@@ -3734,27 +3740,13 @@ export function OrderModal({
                           )}
                         </span>
                       </div>
-                      {orderClientId ? (
+                      {showClientOverdue && clientOverdue ? (
                         <div className="mt-2">
                           <div className="text-xs text-zinc-500">{t.clientOverdueDebt}</div>
-                          <div
-                            className={cx(
-                              "mt-0.5 text-sm font-medium tabular-nums",
-                              (clientOverdue?.kpi.overdue ?? 0) > 0.009
-                                ? "text-red-700"
-                                : "text-zinc-600",
-                            )}
-                          >
-                            {clientOverdue
-                              ? formatClientMoney(
-                                  clientOverdue.kpi.overdue,
-                                  clientOverdue.kpi.currency,
-                                )
-                              : clientCard.loading
-                                ? "…"
-                                : "—"}
+                          <div className="mt-0.5 text-sm font-medium tabular-nums text-red-700">
+                            {formatClientMoney(clientOverdue.kpi.overdue, clientOverdue.kpi.currency)}
                           </div>
-                          {clientOverdue?.insights.financeRestricted ? (
+                          {clientOverdue.insights.financeRestricted ? (
                             <div className="mt-0.5 text-[11px] text-zinc-500">
                               {t.clientOverdueDebtScope}
                             </div>
