@@ -85,10 +85,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    // A saved Mini App token can load the cart while auth is still refreshing.
-    if (!telegram.ready && !telegram.token) return;
-    if (telegram.isTelegram && telegram.loading && !telegram.token) return;
-
+    // Paint the cart immediately. Telegram initData can arrive later and must not hold the skeleton.
     let cancelled = false;
     const run = async () => {
       const tgCartId = telegram.cartSessionId.trim();
@@ -122,14 +119,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [
-    refresh,
-    telegram.ready,
-    telegram.isTelegram,
-    telegram.loading,
-    telegram.cartSessionId,
-    telegram.token,
-  ]);
+  }, [refresh, telegram.isTelegram, telegram.cartSessionId, telegram.token]);
 
   const { count, sumUah } = useMemo(
     () => ({

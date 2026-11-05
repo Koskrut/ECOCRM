@@ -62,14 +62,45 @@ export function persistTelegramInitData(initData: string): void {
   }
 }
 
+/** URL of the first document load. Next.js replaceState drops the Telegram hash; this entry keeps it. */
+function readPerformanceLaunchUrl(): string {
+  try {
+    const nav = performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming | undefined;
+    return nav?.name ?? "";
+  } catch {
+    return "";
+  }
+}
+
+/** Official telegram-web-app.js stores launch params here, including tgWebAppData. */
+function readTelegramSdkInitData(): string {
+  try {
+    const raw = sessionStorage.getItem("__telegram__initParams");
+    if (!raw) return "";
+    const parsed = JSON.parse(raw) as { tgWebAppData?: unknown };
+    return typeof parsed.tgWebAppData === "string" ? parsed.tgWebAppData.trim() : "";
+  } catch {
+    return "";
+  }
+}
+
 export function readCapturedTelegramInitData(): string {
   if (typeof window === "undefined") return "";
   const snap = window.__SUPREX_TG_INIT_DATA?.trim() ?? "";
   if (snap) return snap;
-  const fromUrl = parseTgWebAppData(window.location.hash) || parseTgWebAppData(window.location.search);
+  const fromUrl =
+    parseTgWebAppData(window.location.hash) ||
+    parseTgWebAppData(window.location.search) ||
+    parseTgWebAppData(window.location.href) ||
+    parseTgWebAppData(readPerformanceLaunchUrl());
   if (fromUrl) {
     persistTelegramInitData(fromUrl);
     return fromUrl;
+  }
+  const fromSdk = readTelegramSdkInitData();
+  if (fromSdk) {
+    persistTelegramInitData(fromSdk);
+    return fromSdk;
   }
   try {
     return sessionStorage.getItem(TG_INIT_DATA_STORAGE_KEY)?.trim() ?? "";
@@ -105,7 +136,7 @@ export function hasTelegramLaunchHint(): boolean {
   } catch {
     /* ignore */
   }
-  const src = `${window.location.hash}&${window.location.search}`;
+  const src = `${window.location.href}&${readPerformanceLaunchUrl()}`;
   return /(?:^|[?#&])tgWebApp(?:Data|Platform|Version)=/.test(src);
 }
 

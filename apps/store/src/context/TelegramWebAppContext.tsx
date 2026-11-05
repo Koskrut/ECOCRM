@@ -167,13 +167,13 @@ export function TelegramWebAppProvider({ children }: { children: React.ReactNode
     let cancelled = false;
 
     const boot = async () => {
-      // Show the cart from the previous Mini App token immediately. Auth can refresh behind it.
+      // Cart and checkout render now. Session exchange continues behind them.
       const restored = restoreSavedSession();
-      if (restored) setReady(true);
-      else setLoading(true);
+      setReady(true);
+      if (!restored) setLoading(true);
       // Catalog web_app can hydrate before telegram-web-app.js copies tgWebAppData.
       // A signed ?tgAuth= URL is still a Mini App open even when the UA looks like Safari.
-      const app = await waitForTelegramWebApp({ timeoutMs: restored ? 2_000 : 8_000 });
+      const app = await waitForTelegramWebApp({ timeoutMs: restored ? 1_500 : 2_500 });
       if (cancelled) return;
       let initData = resolveTelegramInitData(app);
       const inTelegram =
@@ -211,7 +211,7 @@ export function TelegramWebAppProvider({ children }: { children: React.ReactNode
       // Keep this short when a cart token is already on screen.
       if (!initData) {
         const started = Date.now();
-        const budget = restored ? 2_000 : 8_000;
+        const budget = restored ? 1_500 : 3_000;
         while (!cancelled && Date.now() - started < budget) {
           await sleep(200);
           initData = resolveTelegramInitData(getTelegramWebApp());

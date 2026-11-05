@@ -4,7 +4,24 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.232**.)_
+_(планируемые изменения после **0.2.233**.)_
+
+## [0.2.233] — 2026-11-05
+
+### Summary
+
+Патч **0.2.233**: Mini App надійніше ловить `initData` після того, як Next.js зрізає Telegram hash; кошик малюється одразу, без очікування сесії.
+
+### Changed
+
+- Capture `tgWebAppData` з `performance` navigation URL, `__telegram__initParams` і `history.replaceState` hook; коротші тайм-аути boot.
+- Cart більше не блокується на `telegram.ready` / loading skeleton під час обміну сесії.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.233`**.
+- **Нових міграцій немає.**
+- **Не використовувати `0.2.230`** і **`0.2.199`–`0.2.202`**.
 
 ## [0.2.232] — 2026-11-05
 
