@@ -11,6 +11,9 @@ export type TelegramWebApp = {
   ready: () => void;
   expand: () => void;
   close: () => void;
+  /** Keep the Mini App chrome on the store palette; Telegram dark theme is ignored. */
+  setBackgroundColor?: (color: string) => void;
+  setHeaderColor?: (color: string) => void;
   themeParams?: Record<string, string>;
   platform?: string;
   MainButton?: {

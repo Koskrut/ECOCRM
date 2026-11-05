@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   checkout,
@@ -19,14 +18,16 @@ import {
 import { getCartSessionId } from "@/lib/cart-session";
 import { formatPhoneDisplay, formatUaPhoneInput } from "@/lib/formatPhone";
 import { Button } from "@/components/Button";
+import { useCart } from "@/context/CartContext";
 import { useTelegramWebApp } from "@/context/TelegramWebAppContext";
 
 const inputClass =
   "mt-1 w-full min-h-[48px] rounded-lg border border-[var(--border)] bg-white px-3 py-3 text-zinc-900 outline-none transition focus:border-[var(--primary)] focus:ring-1 focus:ring-[var(--primary)] sm:min-h-[44px] sm:py-2.5";
 
 export default function CheckoutPage() {
-  const router = useRouter();
   const telegram = useTelegramWebApp();
+  const { applyCart } = useCart();
+  const errorAnchorRef = useRef<HTMLParagraphElement>(null);
   const isTelegramCheckout = telegram.isTelegram && Boolean(telegram.token);
   const telegramLoggedIn = isTelegramCheckout && telegram.loggedIn;
   const [phone, setPhone] = useState("");
@@ -40,6 +41,10 @@ export default function CheckoutPage() {
   const [deliveryMethod, setDeliveryMethod] = useState<"PICKUP" | "NOVA_POSHTA">("PICKUP");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [placedOrder, setPlacedOrder] = useState<{
+    orderNumber: string;
+    href: string;
+  } | null>(null);
 
   const [loggedIn, setLoggedIn] = useState(false);
   const [shippingProfiles, setShippingProfiles] = useState<ShippingProfile[]>([]);
@@ -299,19 +304,36 @@ export default function CheckoutPage() {
     return () => clearTimeout(t);
   }, [fetchStreets]);
 
+  useEffect(() => {
+    if (!error) return;
+    errorAnchorRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [error]);
+
+  const showCheckoutError = (message: string) => {
+    setError(message);
+    setSubmitting(false);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     if (isTelegramCheckout && !telegramLoggedIn) {
-      setError("Завершіть профіль у боті, потім натисніть «Оновити»");
+      showCheckoutError("Завершіть профіль у боті, потім натисніть «Оновити»");
       return;
     }
     setSubmitting(true);
     try {
       const phoneDigits = phone.replace(/\D/g, "");
+      if (phoneDigits.length < 9) {
+        showCheckoutError("Введіть номер телефону");
+        return;
+      }
+      if (!firstName.trim()) {
+        showCheckoutError("Введіть ім'я");
+        return;
+      }
       if (!region.trim()) {
-        setError("Оберіть область");
-        setSubmitting(false);
+        showCheckoutError("Оберіть область");
         return;
       }
       if (
@@ -320,8 +342,7 @@ export default function CheckoutPage() {
         phoneDigits.length >= 10 &&
         password.trim().length < 6
       ) {
-        setError("Придумайте пароль (мінімум 6 символів)");
-        setSubmitting(false);
+        showCheckoutError("Придумайте пароль (мінімум 6 символів)");
         return;
       }
       const sessionId = getCartSessionId();
@@ -333,27 +354,23 @@ export default function CheckoutPage() {
           deliveryData = { profileId: effectiveProfileId };
         } else {
           if (!npCitySelected?.ref) {
-            setError("Оберіть місто");
-            setSubmitting(false);
+            showCheckoutError("Оберіть місто");
             return;
           }
           if (npDeliveryType === "WAREHOUSE" || npDeliveryType === "POSTOMAT") {
             if (!npWarehouseSelected?.ref) {
-              setError("Оберіть відділення або поштомат");
-              setSubmitting(false);
+              showCheckoutError("Оберіть відділення або поштомат");
               return;
             }
           } else {
             if (!npStreetSelected?.ref || !npBuilding.trim()) {
-              setError("Вкажіть вулицю та номер будинку");
-              setSubmitting(false);
+              showCheckoutError("Вкажіть вулицю та номер будинку");
               return;
             }
           }
           if (npRecipientType === "PERSON") {
             if (!npRecipientLastName.trim() || !npRecipientFirstName.trim() || !npRecipientPhone.trim()) {
-              setError("Вкажіть прізвище, ім'я та телефон отримувача");
-              setSubmitting(false);
+              showCheckoutError("Вкажіть прізвище, ім'я та телефон отримувача");
               return;
             }
           } else {
@@ -364,8 +381,7 @@ export default function CheckoutPage() {
               !npContactPersonLastName.trim() ||
               !npContactPersonPhone.trim()
             ) {
-              setError("Заповніть дані компанії та контактної особи");
-              setSubmitting(false);
+              showCheckoutError("Заповніть дані компанії та контактної особи");
               return;
             }
           }
@@ -423,16 +439,55 @@ export default function CheckoutPage() {
         deliveryData: deliveryData ?? null,
         sessionId,
       });
+      applyCart({ id: null, uahPerUsd: 41, items: [], subtotal: 0 });
       const q = new URLSearchParams();
       q.set("orderNumber", result.orderNumber);
       if (result.setPasswordToken) q.set("setPasswordToken", result.setPasswordToken);
       if (result.orderPayToken) q.set("orderPayToken", result.orderPayToken);
-      router.push("/thank-you?" + q.toString());
+      const href = "/thank-you?" + q.toString();
+      setPlacedOrder({ orderNumber: result.orderNumber, href });
+      // Telegram iOS WebView often ignores Next.js client navigation after POST.
+      window.location.assign(href);
+      return;
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Помилка оформлення");
-      setSubmitting(false);
+      showCheckoutError(err instanceof Error ? err.message : "Помилка оформлення");
     }
   };
+
+  if (placedOrder) {
+    return (
+      <div className="min-h-screen">
+        <div className="mx-auto max-w-md px-4 py-12 sm:px-6">
+          <div className="rounded-xl border border-[var(--border)] bg-white p-6 shadow-sm">
+            <h1 className="font-heading text-xl font-semibold text-zinc-900">
+              Дякуємо за замовлення!
+            </h1>
+            <p className="mt-2 text-zinc-600">
+              Номер замовлення: <strong>{placedOrder.orderNumber}</strong>
+            </p>
+            <p className="mt-3 text-sm text-zinc-500">
+              Підтвердження також надійде в чат з ботом.
+            </p>
+            <a
+              href={placedOrder.href}
+              className="mt-6 flex min-h-[48px] w-full items-center justify-center rounded-lg bg-[var(--primary)] px-4 text-sm font-semibold text-white"
+            >
+              Деталі та оплата
+            </a>
+            {telegram.isTelegram ? (
+              <Button
+                type="button"
+                className="mt-3 w-full"
+                onClick={() => telegram.close()}
+              >
+                Закрити і повернутись у чат
+              </Button>
+            ) : null}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen">
@@ -463,6 +518,7 @@ export default function CheckoutPage() {
           </div>
         ) : null}
         <form
+          noValidate
           onSubmit={handleSubmit}
           className={`mt-6 space-y-4 ${
             isTelegramCheckout && !telegramLoggedIn ? "pointer-events-none opacity-50" : ""
@@ -1123,6 +1179,17 @@ export default function CheckoutPage() {
               className={inputClass}
             />
           </div>
+          {error ? (
+            <p
+              ref={errorAnchorRef}
+              className="rounded-lg bg-red-50 p-3 text-sm text-red-700"
+              role="alert"
+            >
+              {error}
+            </p>
+          ) : (
+            <p ref={errorAnchorRef} className="sr-only" aria-live="polite" />
+          )}
           <Button type="submit" disabled={submitting} className="w-full min-h-[48px] sm:min-h-[44px]">
             {submitting ? "Оформлення…" : "Підтвердити замовлення"}
           </Button>

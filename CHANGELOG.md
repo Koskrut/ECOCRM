@@ -4,7 +4,24 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.234**.)_
+_(планируемые изменения после **0.2.235**.)_
+
+## [0.2.235] — 2026-11-05
+
+### Summary
+
+Патч **0.2.235**: кошик показує фото й характеристики; checkout у Telegram iOS надійніше завершує замовлення; у боті «Оформити» після idle не мовчить.
+
+### Changed
+
+- Cart API віддає `primaryImageId` + public characteristics; store cart/bot cart показують артикул і спеки.
+- Checkout: валідація з scroll до помилки, `window.location.assign` на thank-you + inline success (iOS WebView). Bot `chk:go` після idle або доробляє draft, або пояснює, що оформлення закрите.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.235`**.
+- **Нових міграцій немає.**
+- **Не використовувати `0.2.230`** і **`0.2.199`–`0.2.202`**.
 
 ## [0.2.234] — 2026-11-05
 

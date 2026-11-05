@@ -207,12 +207,13 @@ export function TelegramWebAppProvider({ children }: { children: React.ReactNode
         /* ignore */
       }
 
-      const theme = app?.themeParams ?? {};
-      if (theme.bg_color) {
-        document.documentElement.style.setProperty("--tg-bg", theme.bg_color);
-      }
-      if (theme.button_color) {
-        document.documentElement.style.setProperty("--primary", theme.button_color);
+      // The store is light. Telegram dark theme must not paint body/header black
+      // after login (themeParams.bg_color is often #000000 / #1c1c1d).
+      try {
+        app?.setBackgroundColor?.("#f8fafc");
+        app?.setHeaderColor?.("#ffffff");
+      } catch {
+        /* older clients */
       }
 
       // Desktop / some WebViews inject initData after ?tgAuth paints the catalog.

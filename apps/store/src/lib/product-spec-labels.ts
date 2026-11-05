@@ -80,3 +80,32 @@ export function formatSpecValue(value: unknown): string {
   if (typeof value === "string") return value;
   return JSON.stringify(value);
 }
+
+/** Compact identity line for cart rows — system, platform, sizes. */
+const CART_SPEC_KEYS = [
+  "implant_system",
+  "platform",
+  "connection_type",
+  "diameter",
+  "gingival_height",
+  "height",
+  "angle",
+  "length",
+  "compatibility",
+  "compatibility_raw",
+  "subcategory_name",
+] as const;
+
+export function cartSpecEntries(
+  spec: Record<string, unknown> | null | undefined,
+): Array<{ key: string; label: string; value: string }> {
+  if (!spec) return [];
+  const out: Array<{ key: string; label: string; value: string }> = [];
+  for (const key of CART_SPEC_KEYS) {
+    if (!Object.prototype.hasOwnProperty.call(spec, key)) continue;
+    const value = formatSpecValue(spec[key]).trim();
+    if (!value || value === "—") continue;
+    out.push({ key, label: PRODUCT_SPEC_LABELS_UK[key] ?? key, value });
+  }
+  return out;
+}

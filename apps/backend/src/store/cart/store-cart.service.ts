@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../prisma/prisma.service";
 import { ProductStore } from "../../products/product.store";
 import { SettingsService } from "../../settings/settings.service";
+import { publicStoreCharacteristics } from "../catalog/store-product-characteristics";
 
 const cartInclude = {
   items: { include: { product: true }, orderBy: { createdAt: "asc" as const } },
@@ -84,6 +85,10 @@ export class StoreCartService {
         sku: i.product.sku,
         name: i.product.name,
         unit: i.product.unit,
+        primaryImageId: i.product.primaryImageId ?? null,
+        characteristics: publicStoreCharacteristics(
+          (i.product.characteristics as Record<string, unknown> | null) ?? null,
+        ),
         qty: i.qty,
         price: i.price,
         lineTotal: i.price * i.qty,

@@ -1,8 +1,10 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { removeCartItem, updateCartItem } from "@/lib/api";
 import { getCartSessionId } from "@/lib/cart-session";
+import { cartSpecEntries } from "@/lib/product-spec-labels";
 import { useCart } from "@/context/CartContext";
 import { ButtonLink } from "@/components/Button";
 
@@ -68,16 +70,50 @@ export default function CartPage() {
               {cart.items.map((i) => {
                 const priceUah = Math.round(i.price * uah);
                 const lineUah = Math.round(i.lineTotal * uah);
+                const specs = cartSpecEntries(i.characteristics);
                 return (
                   <li
                     key={i.id}
                     className="flex flex-col gap-4 rounded-xl border border-[var(--border)] bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between"
                   >
-                    <div className="min-w-0 flex-1">
-                      <p className="font-medium text-zinc-900">{i.name}</p>
-                      <p className="mt-0.5 text-sm text-zinc-500">
-                        {priceUah} грн × {i.qty} = {lineUah} грн
-                      </p>
+                    <div className="flex min-w-0 flex-1 gap-3">
+                      {i.primaryImageId ? (
+                        <Link
+                          href={`/product/${i.productId}`}
+                          className="h-16 w-16 shrink-0 overflow-hidden rounded-lg bg-[var(--surface)]"
+                        >
+                          <img
+                            src={`/api/products/images/${i.primaryImageId}/source?v=3`}
+                            alt=""
+                            className="h-full w-full object-contain"
+                          />
+                        </Link>
+                      ) : null}
+                      <div className="min-w-0 flex-1">
+                        <Link
+                          href={`/product/${i.productId}`}
+                          className="font-medium text-zinc-900 hover:text-[var(--primary)]"
+                        >
+                          {i.name}
+                        </Link>
+                        <p className="mt-0.5 text-sm text-zinc-500">
+                          Артикул {i.sku}
+                          {i.unit ? ` · ${i.unit}` : ""}
+                        </p>
+                        {specs.length ? (
+                          <dl className="mt-2 space-y-0.5 text-sm text-zinc-700">
+                            {specs.map((spec) => (
+                              <div key={spec.key} className="flex gap-2">
+                                <dt className="shrink-0 text-zinc-500">{spec.label}:</dt>
+                                <dd className="min-w-0 font-medium">{spec.value}</dd>
+                              </div>
+                            ))}
+                          </dl>
+                        ) : null}
+                        <p className="mt-1.5 text-sm text-zinc-500">
+                          {priceUah} грн × {i.qty} = {lineUah} грн
+                        </p>
+                      </div>
                     </div>
                     <div className="flex items-center gap-2 sm:gap-1">
                       <button

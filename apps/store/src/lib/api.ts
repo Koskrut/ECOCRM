@@ -43,9 +43,20 @@ async function api<T>(
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ message: res.statusText }));
-    throw new Error((err as { message?: string }).message ?? "Request failed");
+    throw new Error(formatApiError(err, res.statusText));
   }
   return res.json() as Promise<T>;
+}
+
+function formatApiError(err: unknown, fallback: string): string {
+  if (!err || typeof err !== "object") return fallback || "Request failed";
+  const message = (err as { message?: unknown }).message;
+  if (typeof message === "string" && message.trim()) return message;
+  if (Array.isArray(message)) {
+    const text = message.filter((part) => typeof part === "string" && part.trim()).join(". ");
+    if (text) return text;
+  }
+  return fallback || "Request failed";
 }
 
 export type Product = {
@@ -67,6 +78,8 @@ export type CartItem = {
   sku: string;
   name: string;
   unit: string;
+  primaryImageId?: string | null;
+  characteristics?: Record<string, unknown> | null;
   qty: number;
   price: number;
   lineTotal: number;

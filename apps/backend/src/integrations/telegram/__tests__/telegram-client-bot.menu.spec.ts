@@ -1600,7 +1600,17 @@ describe("TelegramClientBotService menu / idle", () => {
 
   it("cart lines expose plus, minus and remove", async () => {
     const { service, sent } = makeBot({
-      cartItems: [{ id: "line1", name: "Абатмент", qty: 2, lineTotal: 10, price: 5 }],
+      cartItems: [
+        {
+          id: "line1",
+          name: "Титанова платформа AO",
+          sku: "AO-GH06",
+          qty: 2,
+          lineTotal: 10,
+          price: 5,
+          characteristics: { implant_system: "AO", gingival_height: "0.6" },
+        },
+      ],
     });
     await service.handleClientTurn({
       parsed: parsed({ text: "cart:show", isCallback: true, callbackQueryId: "cart1" }),
@@ -1613,6 +1623,52 @@ describe("TelegramClientBotService menu / idle", () => {
     assert.ok(buttons.some((b) => b === "−"));
     assert.ok(buttons.some((b) => b === "+"));
     assert.ok(buttons.some((b) => b === "✕"));
+    const body = sent.map((s) => s.text).join("\n");
+    assert.match(body, /Титанова платформа AO/);
+    assert.match(body, /Артикул: AO-GH06/);
+    assert.match(body, /Система: AO/);
+    assert.match(body, /GH: 0\.6/);
+  });
+
+  it("chk:go from the comment step creates the order", async () => {
+    const { service, sent, checkoutCalls, sessions } = makeBot({
+      sessionState: "checkout_comment",
+      sessionPayload: {
+        region: "Київська",
+        deliveryMethod: "PICKUP",
+        paymentType: "PREPAYMENT",
+        paymentMethod: "FOP",
+      },
+      cartItems: [{ id: "1" }],
+      account: { phone: "+380501112233", contactId: "c1", firstName: "Олена", lastName: "Коваленко" },
+    });
+    await service.handleClientTurn({
+      parsed: parsed({ text: "chk:go", isCallback: true, callbackQueryId: "go1" }),
+      conversationId: "conv1",
+      contactId: "c1",
+      leadId: null,
+      callbackQueryId: "go1",
+    });
+    assert.equal(checkoutCalls.length, 1);
+    assert.equal(sessions.state, "idle");
+    assert.ok(sent.some((s) => /Замовлення №1/.test(s.text)));
+  });
+
+  it("chk:go after idle still tells the client checkout closed", async () => {
+    const { service, sent, checkoutCalls } = makeBot({
+      sessionState: "idle",
+      sessionPayload: {},
+      account: { phone: "+380501112233", contactId: "c1" },
+    });
+    await service.handleClientTurn({
+      parsed: parsed({ text: "chk:go", isCallback: true, callbackQueryId: "go-idle" }),
+      conversationId: "conv1",
+      contactId: "c1",
+      leadId: null,
+      callbackQueryId: "go-idle",
+    });
+    assert.equal(checkoutCalls.length, 0);
+    assert.ok(sent.some((s) => /вже закрите/i.test(s.text)));
   });
 
   it("order pay button sends an https CRM pay url", async () => {

@@ -123,6 +123,33 @@ function catalogLabel(product: { name?: string | null; sku?: string | null }): {
   return { title: name, article: sku || null };
 }
 
+const CART_SPEC_LABELS: Record<string, string> = {
+  implant_system: "Система",
+  platform: "Платформа",
+  connection_type: "З’єднання",
+  diameter: "Ø",
+  gingival_height: "GH",
+  height: "AH",
+  angle: "Кут",
+  length: "L",
+  compatibility: "Сумісність",
+  compatibility_raw: "Сумісність",
+  subcategory_name: "Тип",
+};
+
+function cartSpecLine(spec: Record<string, unknown> | null | undefined): string | null {
+  if (!spec) return null;
+  const parts: string[] = [];
+  for (const key of Object.keys(CART_SPEC_LABELS)) {
+    const raw = spec[key];
+    if (raw == null || raw === "") continue;
+    const value = typeof raw === "boolean" ? (raw ? "так" : "ні") : String(raw).trim();
+    if (!value) continue;
+    parts.push(`${CART_SPEC_LABELS[key]}: ${value}`);
+  }
+  return parts.length ? parts.join(" · ") : null;
+}
+
 function stockLabel(stock: number): string {
   if (!Number.isFinite(stock) || stock <= 0) return "немає";
   return `в наявності, ${stock} шт`;
@@ -1346,9 +1373,16 @@ export class TelegramClientBotService {
       ]);
       return;
     }
-    const lines = cart.items.map(
-      (i) => `• ${i.name} × ${i.qty} = ${Math.round(i.lineTotal * cart.uahPerUsd)} грн`,
-    );
+    const lines = cart.items.map((i) => {
+      const label = catalogLabel(i);
+      const spec = cartSpecLine(i.characteristics);
+      const head = `• ${label.title} × ${i.qty} = ${Math.round(i.lineTotal * cart.uahPerUsd)} грн`;
+      const extra = [
+        label.article ? `  Артикул: ${label.article}` : null,
+        spec ? `  ${spec}` : null,
+      ].filter(Boolean);
+      return extra.length ? `${head}\n${extra.join("\n")}` : head;
+    });
     const totalUah = Math.round(cart.subtotal * cart.uahPerUsd);
     const qtyRows: InlineBtn[][] = cart.items.map((item) => [
       { text: "−", callback_data: `cart:dec:${item.id}` },
@@ -2496,8 +2530,23 @@ export class TelegramClientBotService {
     rest: string[],
   ): Promise<void> {
     const session = await this.sessions.get(parsed.userId);
-    // Ignore stale inline buttons after cancel / leave checkout.
-    if (!isCheckoutState(session.state)) return;
+    // Ignore stale inline buttons after cancel / leave checkout — except confirm:
+    // Telegram still shows «Оформити» after idle reset, and a silent no-op looks broken.
+    if (!isCheckoutState(session.state)) {
+      if (action === "go") {
+        const draft = pickCheckoutDraft(session.payload);
+        if (this.canFinishCheckout(draft)) {
+          await this.finishCheckout(parsed, conversationId, contactId, draft);
+          return;
+        }
+        await this.replyMenu(
+          parsed.chatId,
+          conversationId,
+          "Оформлення вже закрите. Відкрийте кошик і натисніть «Оформити» знову.",
+        );
+      }
+      return;
+    }
     let payload = { ...session.payload };
 
     if (action === "abort") {

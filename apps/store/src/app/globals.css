@@ -119,9 +119,16 @@ body {
   }
 }
 
-/* Telegram Mini App: keep catalog/cart/checkout, hide marketing chrome. */
+/* Telegram Mini App: keep catalog/cart/checkout, hide marketing chrome.
+   telegram-web-app.js sets color-scheme: dark from the chat theme — keep the store light. */
+html[data-tg-miniapp="1"] {
+  color-scheme: light;
+  background: var(--surface);
+}
+
 html[data-tg-miniapp="1"] body {
-  background: var(--tg-bg, var(--surface));
+  background: var(--surface);
+  color: var(--foreground);
 }
 
 html[data-tg-miniapp="1"] footer,
