@@ -32,6 +32,11 @@ export type BotSessionPayload = {
    * Commerce stays closed until onboarding completes. Distinct from gap-fill.
    */
   onboardingDraft?: boolean;
+  /**
+   * First /start already showed «Натисніть Старт». Android often sends /start
+   * again when the user taps 🏠 Старт — the next /start must ask for the phone.
+   */
+  startOffered?: boolean;
   /** Checkout draft */
   region?: string;
   deliveryMethod?: "PICKUP" | "NOVA_POSHTA";

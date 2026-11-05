@@ -138,7 +138,7 @@ describe("TelegramClientNotifyService", () => {
     assert.equal(sent.length, 0);
   });
 
-  it("order push keeps a signed catalog button", async () => {
+  it("order push keeps the commerce Catalog text button", async () => {
     process.env.JWT_SECRET = process.env.JWT_SECRET || "test-secret-for-catalog-handoff";
     let keyboard: unknown;
     const prisma = {
@@ -191,8 +191,8 @@ describe("TelegramClientNotifyService", () => {
       toStage: OrderStage.CONFIRMED,
     });
     const raw = JSON.stringify(keyboard ?? []);
-    assert.match(raw, /tgAuth=/);
-    assert.equal(raw.includes("380671112233"), false);
+    assert.match(raw, /Каталог/);
+    assert.equal(raw.includes("tgAuth="), false);
   });
 
   it("awaiting-payment push includes an https pay url", async () => {

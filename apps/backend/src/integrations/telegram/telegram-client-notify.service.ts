@@ -9,11 +9,9 @@ import {
   resolvePublicPayPageOrigin,
 } from "../../store/checkout/public-pay-url";
 import { signJwt } from "../../auth/jwt";
-import { appendCatalogHandoff, usableCatalogPhone } from "../../store/telegram/store-catalog-handoff";
 import {
   CLIENT_PUSH_STAGES,
   CLIENT_MENU_KEYBOARD,
-  buildClientMenuKeyboard,
   humanOrderStage,
 } from "./telegram-client.constants";
 import { TelegramService } from "./telegram.service";
@@ -191,53 +189,12 @@ export class TelegramClientNotifyService implements OnModuleInit {
   }
 
   /**
-   * Order pushes replace the reply keyboard. Catalog must keep the signed phone
-   * handoff, otherwise the next tap opens the store as a guest.
+   * Order pushes replace the reply keyboard. Catalog stays a text button;
+   * the Mini App URL is on the inline control after the user taps Каталог
+   * (Android does not open KeyboardButton.web_app).
    */
-  private async clientMenuKeyboard(chatId: string) {
-    try {
-      const store = await this.settings.getStoreConfig();
-      const url = (store.publicStoreUrl ?? "").trim().replace(/\/+$/, "");
-      if (!/^https:\/\//i.test(url)) return CLIENT_MENU_KEYBOARD;
-      const account = await this.prisma.telegramAccount
-        .findFirst({
-          where: { telegramChatId: chatId },
-          select: {
-            telegramUserId: true,
-            phone: true,
-            contactId: true,
-            firstName: true,
-            lastName: true,
-          },
-        })
-        .catch(() => null);
-      let phone = usableCatalogPhone(account?.phone);
-      let firstName = account?.firstName ?? null;
-      let lastName = account?.lastName ?? null;
-      if (!phone && account?.contactId) {
-        const contact = await this.prisma.contact
-          .findUnique({
-            where: { id: account.contactId },
-            select: { phone: true, firstName: true, lastName: true },
-          })
-          .catch(() => null);
-        phone = usableCatalogPhone(contact?.phone);
-        firstName = contact?.firstName?.trim() || firstName;
-        lastName = contact?.lastName?.trim() || lastName;
-      }
-      if (!phone || !account?.telegramUserId) return buildClientMenuKeyboard(url);
-      return buildClientMenuKeyboard(
-        appendCatalogHandoff(url, {
-          telegramUserId: account.telegramUserId,
-          phone,
-          contactId: account.contactId,
-          firstName,
-          lastName,
-        }),
-      );
-    } catch {
-      /* fall through */
-    }
+  private async clientMenuKeyboard(_chatId: string) {
+    void _chatId;
     return CLIENT_MENU_KEYBOARD;
   }
 

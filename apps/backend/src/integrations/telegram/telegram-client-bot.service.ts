@@ -41,14 +41,15 @@ import {
   CATALOG_SYSTEMS,
   CITY_RESULTS_LIMIT,
   CLIENT_MENU_KEYBOARD,
+  CLIENT_PHONE_KEYBOARD,
   CLIENT_START_KEYBOARD,
   buildClientMenuKeyboard,
+  isStartLabel,
   MENU_CART,
   MENU_CATALOG,
   MENU_CLIENT_CANCEL,
   MENU_MANAGER,
   MENU_ORDERS,
-  MENU_START,
   ORDERS_PAGE_SIZE,
   TELEGRAM_CANCELLED,
   TELEGRAM_CHECKOUT_IN_PROGRESS,
@@ -397,9 +398,9 @@ export class TelegramClientBotService {
       }
       return { handled: true, notifyManager: false };
     }
-    if (text === MENU_START || isSlashCommand(text, "start")) {
+    if (isStartLabel(text) || isSlashCommand(text, "start")) {
       await this.replyStart(parsed, conversationId, contactId, leadId, {
-        requestPhone: text === MENU_START,
+        requestPhone: isStartLabel(text),
       });
       return { handled: true, notifyManager: false };
     }
@@ -952,11 +953,12 @@ export class TelegramClientBotService {
       lastName: parsed.lastName,
     });
     if (storeUrl) {
+      await this.telegram.setClientWebAppMenuButton(parsed.chatId, storeUrl);
       // One message: Telegram allows a single reply_markup (inline wins).
       await this.replyInline(
         parsed.chatId,
         conversationId,
-        "Каталог відкривається в магазині Telegram.\n\nНатисніть кнопку нижче або «Каталог» у меню.",
+        "Каталог відкривається в магазині Telegram.\n\nНатисніть «Відкрити каталог» нижче — так надійніше на Android.",
         [
           [{ text: "🛍 Відкрити каталог", web_app: { url: storeUrl } }],
           [{ text: "🛒 Кошик у чаті", callback_data: "cart:show" }],
@@ -1690,16 +1692,16 @@ export class TelegramClientBotService {
       return;
     }
 
-    await this.sessions.resetIdle(parsed.userId);
-    // First open (/start) only shows «Старт». The phone request follows that tap.
-    if (!opts?.requestPhone) {
+    // First open (/start) only shows «Старт». Phone is the next step — including
+    // when Android re-sends /start for the 🏠 Старт tap (startOffered is set).
+    const startTapped = Boolean(opts?.requestPhone) || Boolean(session.payload.startOffered);
+    if (!startTapped) {
+      await this.sessions.set(parsed.userId, "idle", { startOffered: true });
       await this.replyStartOnly(parsed.chatId, conversationId, TELEGRAM_PRESS_START);
       return;
     }
-    await this.telegram.sendMessageToChat(parsed.chatId, TELEGRAM_WELCOME, {
-      requestContactButton: true,
-      menuKeyboard: await this.flowMenuKeyboard(parsed.userId),
-    });
+    await this.sessions.resetIdle(parsed.userId);
+    await this.replyRequestPhone(parsed.chatId, conversationId, TELEGRAM_WELCOME);
   }
 
   // ─── New-client onboarding ───────────────────────────────────────────────
@@ -1735,10 +1737,7 @@ export class TelegramClientBotService {
       return null;
     }
 
-    await this.telegram.sendMessageToChat(parsed.chatId, TELEGRAM_REQUEST_PHONE, {
-      requestContactButton: true,
-      menuKeyboard: await this.flowMenuKeyboard(parsed.userId),
-    });
+    await this.replyRequestPhone(parsed.chatId, conversationId, TELEGRAM_REQUEST_PHONE);
     return null;
   }
 
@@ -3420,7 +3419,7 @@ export class TelegramClientBotService {
 
   // ─── Send helpers (persist outbound in CRM) ──────────────────────────────
 
-  /** Reply keyboard for one client. Catalog opens the Mini App already carrying their phone. */
+  /** Reply keyboard for one client. Catalog is a text button (Android-safe). */
   async catalogMenuKeyboard(telegramUserId: string) {
     return this.clientMenuKeyboard(telegramUserId);
   }
@@ -3536,6 +3535,8 @@ export class TelegramClientBotService {
     text: string,
     telegramUserId?: string,
   ): Promise<void> {
+    const menuUserId = telegramUserId ?? chatId;
+    await this.syncChatCatalogMenuButton(chatId, menuUserId);
     await this.replyKeyboard(
       chatId,
       conversationId,
@@ -3586,10 +3587,34 @@ export class TelegramClientBotService {
     conversationId: string,
     text: string,
   ): Promise<void> {
+    await this.clearChatCatalogMenuButton(chatId);
     const { messageId } = await this.telegram.sendMessageToChat(chatId, text, {
       menuKeyboard: CLIENT_START_KEYBOARD,
     });
     await this.recordOutbound(conversationId, text, messageId);
+  }
+
+  /** Phone share is its own step: contact button + Cancel, no Catalog/Cart. */
+  private async replyRequestPhone(
+    chatId: string,
+    conversationId: string,
+    text: string,
+  ): Promise<void> {
+    await this.clearChatCatalogMenuButton(chatId);
+    const { messageId } = await this.telegram.sendMessageToChat(chatId, text, {
+      requestContactButton: true,
+      menuKeyboard: CLIENT_PHONE_KEYBOARD,
+    });
+    await this.recordOutbound(conversationId, text, messageId);
+  }
+
+  private async syncChatCatalogMenuButton(chatId: string, telegramUserId: string): Promise<void> {
+    const url = await this.catalogMiniAppUrl(telegramUserId, null, null);
+    await this.telegram.setClientWebAppMenuButton(chatId, url);
+  }
+
+  private async clearChatCatalogMenuButton(chatId: string): Promise<void> {
+    await this.telegram.setClientWebAppMenuButton(chatId, null);
   }
 
   private async replyCheckoutNotice(chatId: string, conversationId: string): Promise<void> {
@@ -3601,11 +3626,7 @@ export class TelegramClientBotService {
     conversationId: string,
     text: string,
   ): Promise<void> {
-    const { messageId } = await this.telegram.sendMessageToChat(chatId, text, {
-      requestContactButton: true,
-      menuKeyboard: await this.flowMenuKeyboard(chatId),
-    });
-    await this.recordOutbound(conversationId, text, messageId);
+    await this.replyRequestPhone(chatId, conversationId, text);
   }
 
   private async replyCheckoutText(

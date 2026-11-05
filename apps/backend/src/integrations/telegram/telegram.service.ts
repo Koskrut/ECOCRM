@@ -36,7 +36,7 @@ import {
   CLIENT_MENU_KEYBOARD,
   CLIENT_START_KEYBOARD,
   MENU_START,
-  buildClientMenuKeyboard,
+  isStartLabel,
   TELEGRAM_EXISTING_CLIENT,
   TELEGRAM_PRESS_START,
   TELEGRAM_REQUEST_PHONE,
@@ -45,7 +45,6 @@ import { ConversationsService } from "./conversations.service";
 import { TelegramClientBotService } from "./telegram-client-bot.service";
 import { TelegramInboxNotifierService } from "./telegram-inbox-notifier.service";
 import { TelegramManagerBotService } from "./telegram-manager-bot.service";
-import { appendCatalogHandoff } from "../../store/telegram/store-catalog-handoff";
 
 function normalizePhoneDigits(phone: string): string {
   return String(phone ?? "").replace(/\D/g, "");
@@ -372,6 +371,7 @@ export class TelegramService {
       const isCommandMessage =
         isHelpCommand ||
         isStartPlainCommand ||
+        isStartLabel(trimmedText) ||
         trimmedText.startsWith("/") ||
         parsed.isCallback ||
         isClientMenuAction;
@@ -1153,46 +1153,9 @@ export class TelegramService {
     return null;
   }
 
-  private async clientMenuKeyboard(telegramUserId?: string) {
-    try {
-      const config = await this.settings.getStoreConfig();
-      const url = (config.publicStoreUrl ?? "").trim().replace(/\/+$/, "");
-      if (/^https:\/\//i.test(url)) {
-        const signed = telegramUserId ? await this.catalogUrlWithPhone(url, telegramUserId) : url;
-        return buildClientMenuKeyboard(signed);
-      }
-    } catch {
-      /* fall through */
-    }
+  private async clientMenuKeyboard(_telegramUserId?: string) {
+    void _telegramUserId;
     return CLIENT_MENU_KEYBOARD;
-  }
-
-  /** Same handoff the client bot puts on «Каталог», for the rare path without that bot. */
-  private async catalogUrlWithPhone(storeUrl: string, telegramUserId: string): Promise<string> {
-    const account = await this.prisma.telegramAccount.findUnique({
-      where: { telegramUserId },
-      select: { phone: true, contactId: true, firstName: true, lastName: true },
-    });
-    let phone = account?.phone?.trim() || null;
-    let firstName = account?.firstName ?? null;
-    let lastName = account?.lastName ?? null;
-    if ((!phone || phone.replace(/\D/g, "").startsWith("0000")) && account?.contactId) {
-      const contact = await this.prisma.contact.findUnique({
-        where: { id: account.contactId },
-        select: { phone: true, firstName: true, lastName: true },
-      });
-      phone = contact?.phone?.trim() || null;
-      firstName = contact?.firstName?.trim() || firstName;
-      lastName = contact?.lastName?.trim() || lastName;
-    }
-    if (!phone || phone.replace(/\D/g, "").length < 10) return storeUrl;
-    return appendCatalogHandoff(storeUrl, {
-      telegramUserId,
-      phone,
-      contactId: account?.contactId,
-      firstName,
-      lastName,
-    });
   }
 
   private mapMenuButton(button: string | { text: string; webAppUrl?: string; requestContact?: boolean }) {
@@ -1246,6 +1209,34 @@ export class TelegramService {
       );
     }
     return token;
+  }
+
+  /**
+   * Chat Menu Button (next to the compose field). Android opens this Mini App
+   * reliably; KeyboardButton.web_app on the reply keyboard often does nothing.
+   */
+  async setClientWebAppMenuButton(chatId: string, webAppUrl?: string | null): Promise<void> {
+    try {
+      if (webAppUrl && /^https:\/\//i.test(webAppUrl)) {
+        await this.callBotApi("setChatMenuButton", {
+          chat_id: chatId,
+          menu_button: {
+            type: "web_app",
+            text: "Каталог",
+            web_app: { url: webAppUrl },
+          },
+        });
+        return;
+      }
+      await this.callBotApi("setChatMenuButton", {
+        chat_id: chatId,
+        menu_button: { type: "default" },
+      });
+    } catch (err) {
+      this.logger.debug(
+        `setChatMenuButton chat=${chatId}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
   }
 
   private async callBotApi<T>(method: string, body?: Record<string, unknown>): Promise<T> {

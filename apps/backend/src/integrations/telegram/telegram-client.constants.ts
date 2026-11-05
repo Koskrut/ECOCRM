@@ -82,21 +82,35 @@ export const CLIENT_MENU_KEYBOARD: string[][] = [
 /** One-shot keyboard before identity: only Старт. */
 export const CLIENT_START_KEYBOARD: string[][] = [[MENU_START]];
 
+/** After Старт, before CRM identity: share-phone row is added by requestContactButton. */
+export const CLIENT_PHONE_KEYBOARD: string[][] = [[MENU_CLIENT_CANCEL]];
+
 /** During onboarding / checkout — cancel without commerce shortcuts. */
 export const CLIENT_FLOW_KEYBOARD: string[][] = [[MENU_CLIENT_CANCEL]];
 
-/** When the public store URL is set, Catalog opens as a Mini App. */
+/**
+ * Reply-keyboard Catalog is always a text button.
+ * Android Telegram swallows KeyboardButton.web_app (tap opens nothing and sends
+ * no message). iOS opens the Mini App; that one-tap path is replaced by the
+ * inline «Відкрити каталог» after the user taps Каталог, plus the chat Menu Button.
+ */
 export function buildClientMenuKeyboard(
-  storeUrl?: string | null,
+  _storeUrl?: string | null,
 ): Array<Array<string | { text: string; webAppUrl?: string }>> {
-  const catalog =
-    storeUrl && /^https:\/\//i.test(storeUrl)
-      ? { text: MENU_CATALOG, webAppUrl: storeUrl }
-      : MENU_CATALOG;
+  void _storeUrl;
   return [
-    [catalog, MENU_CART],
+    [MENU_CATALOG, MENU_CART],
     [MENU_ORDERS, MENU_MANAGER],
   ];
+}
+
+/** 🏠 Старт, or the same label if Android strips the emoji. Not `/start`. */
+export function isStartLabel(text: string): boolean {
+  const raw = text.trim();
+  if (!raw) return false;
+  if (raw === MENU_START) return true;
+  const stripped = raw.replace(/^[^\p{L}\p{N}]+/u, "").trim();
+  return /^старт$/i.test(stripped);
 }
 
 export const TELEGRAM_WELCOME =

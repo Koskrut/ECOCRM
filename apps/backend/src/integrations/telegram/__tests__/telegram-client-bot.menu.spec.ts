@@ -109,6 +109,7 @@ function makeBot(opts: {
       return { messageId: sent.length };
     },
     sendPhotoToChat: async () => ({ messageId: 99 }),
+    setClientWebAppMenuButton: async () => undefined,
   };
   const prisma = {
     message: { create: async () => ({}) },
@@ -778,7 +779,7 @@ describe("TelegramClientBotService menu / idle", () => {
     );
   });
 
-  it("reply-keyboard Catalog carries the CRM phone handoff", async () => {
+  it("commerce Catalog is a text button; Mini App URL is on the inline control", async () => {
     process.env.JWT_SECRET = process.env.JWT_SECRET || "test-secret-for-catalog-handoff";
     const { service, sent } = makeBot({
       storeUrl: "https://shop.example.com",
@@ -799,12 +800,21 @@ describe("TelegramClientBotService menu / idle", () => {
     });
     const keyboard = sent.find((s) => /Раді бачити/i.test(s.text))?.keyboard;
     const raw = JSON.stringify(keyboard ?? []);
-    assert.match(raw, /tgAuth=/);
-    assert.equal(raw.includes("380501112233"), false);
-    const urlMatch = raw.match(/https:\/\/shop\.example\.com\/\?tgAuth=[^"\\]+/);
-    assert.ok(urlMatch?.[0]);
+    assert.match(raw, /Каталог/);
+    assert.equal(raw.includes("tgAuth="), false);
+    sent.length = 0;
+    await service.handleClientTurn({
+      parsed: parsed({ text: MENU_CATALOG }),
+      conversationId: "conv1",
+      contactId: "c1",
+      leadId: null,
+    });
+    const catalogUrl = sent.flatMap((item) => item.webAppUrls ?? [])[0] ?? "";
+    assert.ok(catalogUrl.startsWith("https://shop.example.com/"));
+    const token = new URL(catalogUrl).searchParams.get("tgAuth");
+    assert.ok(token);
     const handoff = verifyJwt<{ sub: string; phone: string; contactId: string | null }>(
-      new URL(urlMatch![0]).searchParams.get("tgAuth") ?? "",
+      token,
       process.env.JWT_SECRET!,
     );
     assert.equal(handoff.sub, "777");
@@ -1083,10 +1093,35 @@ describe("TelegramClientBotService menu / idle", () => {
       contactId: null,
       leadId: null,
     });
+    const phoneMsg = sent.find((s) => s.contact && /Вітаємо/i.test(s.text));
+    assert.ok(phoneMsg);
+    const keys = JSON.stringify(phoneMsg?.keyboard ?? []);
+    assert.equal(keys.includes("Каталог"), false, "phone step must not show Catalog");
+    assert.ok(keys.includes("Скасувати"));
+  });
+
+  it("second /start for a new client asks for the phone (Android remaps Старт)", async () => {
+    const { service, sent, sessions } = makeBot({});
+    await service.handleClientTurn({
+      parsed: parsed({ text: "/start" }),
+      conversationId: "conv1",
+      contactId: null,
+      leadId: null,
+    });
+    assert.equal(sessions.payload.startOffered, true);
+    assert.ok(sent.some((s) => /Натисніть «Старт»/i.test(s.text)));
+    sent.length = 0;
+    await service.handleClientTurn({
+      parsed: parsed({ text: "/start" }),
+      conversationId: "conv1",
+      contactId: null,
+      leadId: null,
+    });
     assert.equal(
-      sent.some((s) => s.contact && /Вітаємо/i.test(s.text)),
+      sent.some((s) => s.contact && /поділіться номером/i.test(s.text)),
       true,
     );
+    assert.equal(sent.some((s) => /Натисніть «Старт»/i.test(s.text)), false);
   });
 
   it("starts onboarding on /start when phone exists but CRM contact does not", async () => {
