@@ -8,6 +8,7 @@ export type StoreTelegramWebAppJwtPayload = {
   contactId?: string | null;
   firstName?: string | null;
   lastName?: string | null;
+  region?: string | null;
 };
 
 export type StoreTelegramWebAppSession = {
@@ -19,6 +20,7 @@ export type StoreTelegramWebAppSession = {
   phone: string | null;
   firstName: string | null;
   lastName: string | null;
+  region: string | null;
   contactId: string | null;
   customerId: string | null;
   loggedIn: boolean;
