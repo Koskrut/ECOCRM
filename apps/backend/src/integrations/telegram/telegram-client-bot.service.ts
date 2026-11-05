@@ -29,6 +29,10 @@ import { resolveAssignedManagerForRegion } from "../../settings/org-chart-region
 import { StoreCartService } from "../../store/cart/store-cart.service";
 import { appendCatalogHandoff, usableCatalogPhone } from "../../store/telegram/store-catalog-handoff";
 import { StoreCheckoutPaymentLinkService } from "../../store/checkout/store-checkout-payment-link.service";
+import {
+  absolutePayUrl,
+  resolvePublicPayPageOrigin,
+} from "../../store/checkout/public-pay-url";
 import { StoreCheckoutService } from "../../store/checkout/store-checkout.service";
 import type { StoreCheckoutDto } from "../../store/checkout/dto/store-checkout.dto";
 import {
@@ -1565,9 +1569,7 @@ export class TelegramClientBotService {
       );
       return;
     }
-    await this.replyInline(parsed.chatId, conversationId, "Оплата замовлення:", [
-      [{ text: "💳 Оплатити", url }],
-    ]);
+    await this.sendPayLink(parsed.chatId, conversationId, url);
   }
 
   private async repeatOrder(
@@ -3306,9 +3308,13 @@ export class TelegramClientBotService {
       text += "\n\nСтатус можна дивитись у «Замовлення».";
       await this.replyMenu(parsed.chatId, conversationId, text);
       if (payUrl && wantsPayLink && !payload.cod) {
-        await this.replyInline(parsed.chatId, conversationId, "Оплата замовлення:", [
-          [{ text: "💳 Оплатити", url: payUrl }],
-        ]);
+        try {
+          await this.sendPayLink(parsed.chatId, conversationId, payUrl);
+        } catch (payErr) {
+          this.logger.warn(
+            `pay link send after order ${result.orderId}: ${payErr instanceof Error ? payErr.message : String(payErr)}`,
+          );
+        }
       }
     } catch (err) {
       this.logger.warn(
@@ -3325,9 +3331,28 @@ export class TelegramClientBotService {
     }
   }
 
+  private async sendPayLink(chatId: string, conversationId: string, url: string): Promise<void> {
+    try {
+      await this.replyInline(chatId, conversationId, `Оплата замовлення:\n${url}`, [
+        [{ text: "💳 Оплатити", url }],
+      ]);
+    } catch (err) {
+      this.logger.warn(
+        `telegram pay url button: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      await this.replyMenu(chatId, conversationId, `Оплата замовлення:\n${url}`);
+    }
+  }
+
   private async buildPayUrl(orderId: string, contactId: string): Promise<string | null> {
     const secret = process.env.JWT_SECRET;
     if (!secret) return null;
+    const store = await this.settings.getStoreConfig().catch(() => null);
+    const origin = resolvePublicPayPageOrigin(store?.crmPayPageUrl);
+    if (!origin) {
+      this.logger.warn("pay url: crmPayPageUrl / CRM_WEB_URL is not an https origin");
+      return null;
+    }
     try {
       const orderPayToken = signJwt(
         { typ: "store_order_pay", orderId, contactId },
@@ -3335,11 +3360,11 @@ export class TelegramClientBotService {
         { expiresInSeconds: 60 * 60 * 24 * 14 },
       );
       const { payPath } = await this.paymentLinks.createPaymentLink(orderPayToken);
-      const store = await this.settings.getStoreConfig();
-      const base = (store.crmPayPageUrl ?? "").trim().replace(/\/+$/, "");
-      if (!base) return null;
-      return `${base}${payPath.startsWith("/") ? payPath : `/${payPath}`}`;
-    } catch {
+      return absolutePayUrl(payPath, origin);
+    } catch (err) {
+      this.logger.warn(
+        `pay url for order ${orderId}: ${err instanceof Error ? err.message : String(err)}`,
+      );
       return null;
     }
   }

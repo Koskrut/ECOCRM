@@ -42,6 +42,7 @@ function makeBot(opts: {
   cartItems?: Array<AnyRec>;
   tree?: Array<AnyRec>;
   storeUrl?: string | null;
+  payPageUrl?: string | null;
   /** Org-chart slot → regions; assignments map slot → manager user id. */
   orgChart?: {
     assignments?: Record<string, string | null>;
@@ -56,6 +57,7 @@ function makeBot(opts: {
     removeKeyboard?: boolean;
     buttons?: string[];
     webAppUrls?: string[];
+    urls?: string[];
   }> = [];
   const listCalls: unknown[][] = [];
   const pathCalls: unknown[][] = [];
@@ -86,7 +88,7 @@ function makeBot(opts: {
     answerCallbackQuery: async () => undefined,
     sendMessageToChat: async (_chat: string, text: string, options?: AnyRec) => {
       const inline = options?.inlineKeyboard as
-        | Array<Array<{ text?: string; web_app?: { url?: string } }>>
+        | Array<Array<{ text?: string; web_app?: { url?: string }; url?: string }>>
         | undefined;
       sent.push({
         text,
@@ -98,6 +100,10 @@ function makeBot(opts: {
         webAppUrls: inline
           ?.flat()
           .map((button) => button.web_app?.url ?? "")
+          .filter(Boolean),
+        urls: inline
+          ?.flat()
+          .map((button) => button.url ?? "")
           .filter(Boolean),
       });
       return { messageId: sent.length };
@@ -194,6 +200,7 @@ function makeBot(opts: {
     getExchangeRates: async () => ({ UAH_TO_USD: 1 / 41 }),
     getStoreConfig: async () => ({
       ...(opts.storeUrl ? { publicStoreUrl: opts.storeUrl } : {}),
+      ...(opts.payPageUrl ? { crmPayPageUrl: opts.payPageUrl } : {}),
     }),
     getOrgChartStructure: async () => ({
       assignments: opts.orgChart?.assignments ?? { "m1-1": "mgr-kyiv" },
@@ -1606,5 +1613,24 @@ describe("TelegramClientBotService menu / idle", () => {
     assert.ok(buttons.some((b) => b === "−"));
     assert.ok(buttons.some((b) => b === "+"));
     assert.ok(buttons.some((b) => b === "✕"));
+  });
+
+  it("order pay button sends an https CRM pay url", async () => {
+    process.env.JWT_SECRET = process.env.JWT_SECRET || "test-secret-for-pay-url";
+    const { service, sent } = makeBot({
+      payPageUrl: "https://crm.example.com/",
+      account: { phone: "+380501112233", contactId: "c1", leadId: null },
+    });
+    await service.handleClientTurn({
+      parsed: parsed({ text: "ord:pay:order-1", isCallback: true, callbackQueryId: "pay1" }),
+      conversationId: "conv1",
+      contactId: "c1",
+      leadId: null,
+      callbackQueryId: "pay1",
+    });
+    const pay = sent.find((s) => /Оплата замовлення/i.test(s.text));
+    assert.ok(pay);
+    assert.equal(pay?.urls?.[0], "https://crm.example.com/pay/t");
+    assert.match(pay?.text ?? "", /https:\/\/crm\.example\.com\/pay\/t/);
   });
 });

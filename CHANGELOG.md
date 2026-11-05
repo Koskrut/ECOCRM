@@ -4,7 +4,24 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.233**.)_
+_(планируемые изменения после **0.2.234**.)_
+
+## [0.2.234] — 2026-11-05
+
+### Summary
+
+Патч **0.2.234**: Mini App логіниться лише з підписаного `tgAuth`, коли Telegram не віддав `initData`; посилання на оплату в боті — стабільний HTTPS URL.
+
+### Changed
+
+- `webapp-session` приймає catalog handoff без initData (типово iOS / reply-keyboard). Store надсилає `tgAuth` окремо.
+- Pay URL збирається через `resolvePublicPayPageOrigin` (`crmPayPageUrl` / `CRM_WEB_URL`); кнопка «Оплатити» з текстом-посиланням і fallback у меню.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.234`**.
+- **Нових міграцій немає.** Для pay-кнопок потрібен **https** `crmPayPageUrl` або `CRM_WEB_URL`.
+- **Не використовувати `0.2.230`** і **`0.2.199`–`0.2.202`**.
 
 ## [0.2.233] — 2026-11-05
 

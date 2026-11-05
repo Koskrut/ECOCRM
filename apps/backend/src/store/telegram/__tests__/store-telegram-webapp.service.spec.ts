@@ -470,4 +470,61 @@ describe("StoreTelegramWebAppService.createSession", () => {
     assert.equal(session.phone, "+380671112233");
     assert.ok(session.storeToken);
   });
+
+  it("logs in from the catalog handoff when Telegram sends no initData", async () => {
+    process.env.JWT_SECRET = process.env.JWT_SECRET || "test-secret-for-store-tg";
+    const tgAuth = new URL(
+      appendCatalogHandoff("https://shop.example.com", {
+        telegramUserId: "777",
+        phone: "+380671112233",
+        contactId: "c-ios",
+        firstName: "Олена",
+        lastName: "Коваленко",
+      }),
+    ).searchParams.get("tgAuth");
+    const service = new StoreTelegramWebAppService(
+      {
+        telegramAccount: {
+          findUnique: async () => ({
+            id: "acc-ios",
+            telegramChatId: "777",
+            phone: "+380671112233",
+            contactId: "c-ios",
+            leadId: null,
+            firstName: "Олена",
+            lastName: "Коваленко",
+          }),
+          create: async () => {
+            throw new Error("should not create");
+          },
+          updateMany: async () => ({ count: 1 }),
+        },
+        conversation: { findUnique: async () => null },
+        lead: { findUnique: async () => null, findFirst: async () => null },
+        contact: {
+          findUnique: async () => ({
+            phone: "+380671112233",
+            firstName: "Олена",
+            lastName: "Коваленко",
+            region: "Київська",
+          }),
+        },
+        customer: {
+          findUnique: async () => ({ id: "cust-ios", contactId: "c-ios" }),
+          create: async () => ({ id: "cust-ios", contactId: "c-ios" }),
+        },
+      } as never,
+      { getTelegramSecrets: async () => ({ botToken: "" }) } as never,
+      { findContactByPhone: async () => ({ id: "c-ios" }) } as never,
+      { unifyTelegramCart: async () => undefined } as never,
+    );
+    const session = await service.createSession("", tgAuth);
+    assert.equal(session.loggedIn, true);
+    assert.equal(session.contactId, "c-ios");
+    assert.equal(session.phone, "+380671112233");
+    assert.equal(session.firstName, "Олена");
+    assert.equal(session.lastName, "Коваленко");
+    assert.equal(session.region, "Київська");
+    assert.ok(session.storeToken);
+  });
 });

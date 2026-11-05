@@ -21,6 +21,10 @@ import { ProductStore } from "../../products/product.store";
 import type { CreateOrderDto } from "../../orders/dto/create-order.dto";
 import type { StoreCheckoutDto } from "./dto/store-checkout.dto";
 import { StoreCheckoutPaymentLinkService } from "./store-checkout-payment-link.service";
+import {
+  absolutePayUrl,
+  resolvePublicPayPageOrigin,
+} from "./public-pay-url";
 
 /** Mirrors store auth lookup so checkout does not create duplicate contacts. */
 function getPhoneCandidatesForLookup(phoneNorm: string): string[] {
@@ -491,10 +495,9 @@ export class StoreCheckoutService {
       try {
         const { payPath } = await this.paymentLinks.createPaymentLink(params.orderPayToken);
         const store = await this.settings.getStoreConfig();
-        const base = (store.crmPayPageUrl ?? "").trim().replace(/\/+$/, "");
-        if (base) {
-          const path = payPath.startsWith("/") ? payPath : `/${payPath}`;
-          text += `\n\nОплата:\n${base}${path}`;
+        const origin = resolvePublicPayPageOrigin(store.crmPayPageUrl);
+        if (origin) {
+          text += `\n\nОплата:\n${absolutePayUrl(payPath, origin)}`;
         }
       } catch (err) {
         this.logger.debug(

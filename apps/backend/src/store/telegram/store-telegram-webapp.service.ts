@@ -41,54 +41,68 @@ export class StoreTelegramWebAppService {
 
   async createSession(initData: string, tgAuth?: string | null): Promise<StoreTelegramWebAppSession> {
     const raw = (initData ?? "").trim();
-    if (!raw) throw new BadRequestException("initData required");
+    const handoff = readCatalogHandoff(tgAuth);
+    let telegramUserId = "";
+    let telegramFirstName: string | null = null;
+    let telegramLastName: string | null = null;
+    let telegramUsername: string | null = null;
 
-    const secrets = await this.settings.getTelegramSecrets();
-    if (!secrets.botToken) throw new UnauthorizedException("Telegram bot is not configured");
-
-    if (!verifyTelegramWebAppInitData(raw, secrets.botToken)) {
-      throw new UnauthorizedException("Invalid Telegram initData");
+    if (raw) {
+      const secrets = await this.settings.getTelegramSecrets();
+      if (!secrets.botToken) throw new UnauthorizedException("Telegram bot is not configured");
+      if (!verifyTelegramWebAppInitData(raw, secrets.botToken)) {
+        throw new UnauthorizedException("Invalid Telegram initData");
+      }
+      const parsed = parseTelegramWebAppInitData(raw);
+      if (!parsed?.user?.id) throw new UnauthorizedException("Telegram user missing");
+      if (!isTelegramAuthDateValid(parsed.authDate, WEBAPP_INIT_MAX_AGE_SECONDS)) {
+        throw new UnauthorizedException("Telegram initData expired");
+      }
+      telegramUserId = String(parsed.user.id);
+      telegramFirstName = parsed.user.first_name ?? null;
+      telegramLastName = parsed.user.last_name ?? null;
+      telegramUsername = parsed.user.username ?? null;
+    } else if (handoff?.sub) {
+      // iOS / reply-keyboard Mini App often ships no initData. The bot-signed
+      // catalog URL is the login for that Telegram user.
+      telegramUserId = handoff.sub;
+      telegramFirstName = handoff.firstName ?? null;
+      telegramLastName = handoff.lastName ?? null;
+    } else {
+      throw new BadRequestException("initData required");
     }
 
-    const parsed = parseTelegramWebAppInitData(raw);
-    if (!parsed?.user?.id) throw new UnauthorizedException("Telegram user missing");
-    if (!isTelegramAuthDateValid(parsed.authDate, WEBAPP_INIT_MAX_AGE_SECONDS)) {
-      throw new UnauthorizedException("Telegram initData expired");
-    }
+    const accountSelect = {
+      id: true,
+      telegramChatId: true,
+      phone: true,
+      contactId: true,
+      leadId: true,
+      firstName: true,
+      lastName: true,
+    } as const;
 
-    const telegramUserId = String(parsed.user.id);
     let account = await this.prisma.telegramAccount.findUnique({
       where: { telegramUserId },
-      select: {
-        id: true,
-        telegramChatId: true,
-        phone: true,
-        contactId: true,
-        leadId: true,
-        firstName: true,
-        lastName: true,
-      },
+      select: accountSelect,
     });
 
     // First Mini App open before any bot inbound — still create a row so later links stick.
     if (!account) {
-      const accountSelect = {
-        id: true,
-        telegramChatId: true,
-        phone: true,
-        contactId: true,
-        leadId: true,
-        firstName: true,
-        lastName: true,
-      } as const;
       try {
         account = await this.prisma.telegramAccount.create({
           data: {
             telegramUserId,
             telegramChatId: telegramUserId,
-            firstName: parsed.user.first_name ?? null,
-            lastName: parsed.user.last_name ?? null,
-            username: parsed.user.username ?? null,
+            firstName: telegramFirstName,
+            lastName: telegramLastName,
+            username: telegramUsername,
+            ...(handoff?.sub === telegramUserId
+              ? {
+                  ...(usableCatalogPhone(handoff.phone) ? { phone: handoff.phone } : {}),
+                  ...(handoff.contactId ? { contactId: handoff.contactId, leadId: null } : {}),
+                }
+              : {}),
           },
           select: accountSelect,
         });
@@ -100,7 +114,6 @@ export class StoreTelegramWebAppService {
       }
     }
 
-    const handoff = readCatalogHandoff(tgAuth);
     if (handoff && handoff.sub === telegramUserId && account) {
       const patch: { phone?: string; contactId?: string; leadId?: null } = {};
       const handoffPhone = usableCatalogPhone(handoff.phone);
@@ -130,8 +143,8 @@ export class StoreTelegramWebAppService {
     const identity = await this.resolveStoreIdentity({
       telegramUserId,
       account,
-      telegramFirstName: parsed.user.first_name ?? null,
-      telegramLastName: parsed.user.last_name ?? null,
+      telegramFirstName,
+      telegramLastName,
     });
     const phone = identity.phone;
     const contactId = identity.contactId;

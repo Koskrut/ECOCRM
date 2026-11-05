@@ -59,13 +59,19 @@ export function useTelegramWebApp() {
   return useContext(TelegramWebAppContext);
 }
 
-async function exchangeInitData(initData: string) {
+async function exchangeTelegramSession(initData?: string) {
   const tgAuth = readCatalogAuthToken();
+  const body: { initData?: string; tgAuth?: string } = {};
+  if (initData?.trim()) body.initData = initData.trim();
+  if (tgAuth) body.tgAuth = tgAuth;
+  if (!body.initData && !body.tgAuth) {
+    throw new Error("Telegram session missing");
+  }
   const res = await fetch("/api/auth/store-telegram-session", {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(tgAuth ? { initData, tgAuth } : { initData }),
+    body: JSON.stringify(body),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ message: res.statusText }));
@@ -102,7 +108,7 @@ export function TelegramWebAppProvider({ children }: { children: React.ReactNode
   const exchangedRef = useRef(false);
 
   const applySession = useCallback(
-    (session: Awaited<ReturnType<typeof exchangeInitData>>) => {
+    (session: Awaited<ReturnType<typeof exchangeTelegramSession>>) => {
       setTelegramStoreSession({
         token: session.token,
         cartSessionId: session.cartSessionId,
@@ -149,9 +155,10 @@ export function TelegramWebAppProvider({ children }: { children: React.ReactNode
 
   const refreshSession = useCallback(async () => {
     const initData = resolveTelegramInitData();
-    if (!initData) return false;
+    const tgAuth = readCatalogAuthToken();
+    if (!initData && !tgAuth) return false;
     try {
-      const session = await exchangeInitData(initData);
+      const session = await exchangeTelegramSession(initData);
       applySession(session);
       return Boolean(session.loggedIn || session.contactId);
     } catch {
@@ -176,12 +183,13 @@ export function TelegramWebAppProvider({ children }: { children: React.ReactNode
       const app = await waitForTelegramWebApp({ timeoutMs: restored ? 1_500 : 2_500 });
       if (cancelled) return;
       let initData = resolveTelegramInitData(app);
+      const tgAuth = readCatalogAuthToken();
       const inTelegram =
         Boolean(initData) ||
+        Boolean(tgAuth) ||
         isTelegramUserAgent() ||
         isEmbeddedTelegramPlatform(app?.platform) ||
-        hasTelegramLaunchHint() ||
-        Boolean(app);
+        hasTelegramLaunchHint();
 
       if (!inTelegram) {
         clearTelegramStoreSession();
@@ -208,8 +216,8 @@ export function TelegramWebAppProvider({ children }: { children: React.ReactNode
       }
 
       // Desktop / some WebViews inject initData after ?tgAuth paints the catalog.
-      // Keep this short when a cart token is already on screen.
-      if (!initData) {
+      // A signed catalog button is enough to log in — do not wait on initData.
+      if (!initData && !tgAuth) {
         const started = Date.now();
         const budget = restored ? 1_500 : 3_000;
         while (!cancelled && Date.now() - started < budget) {
@@ -219,7 +227,7 @@ export function TelegramWebAppProvider({ children }: { children: React.ReactNode
         }
       }
 
-      if (!initData) {
+      if (!initData && !readCatalogAuthToken()) {
         const kept = restoreSavedSession();
         if (!kept) {
           setError(
@@ -232,7 +240,7 @@ export function TelegramWebAppProvider({ children }: { children: React.ReactNode
       }
 
       try {
-        const session = await exchangeInitData(initData);
+        const session = await exchangeTelegramSession(initData);
         if (cancelled) return;
         applySession(session);
       } catch (err) {
@@ -269,12 +277,13 @@ export function TelegramWebAppProvider({ children }: { children: React.ReactNode
         return;
       }
       const initData = resolveTelegramInitData(getTelegramWebApp());
-      if (!initData) {
+      const lateAuth = readCatalogAuthToken();
+      if (!initData && !lateAuth) {
         if (Date.now() - started > 20_000) window.clearInterval(timer);
         return;
       }
       window.clearInterval(timer);
-      void exchangeInitData(initData)
+      void exchangeTelegramSession(initData)
         .then((session) => {
           if (!stopped) applySession(session);
         })

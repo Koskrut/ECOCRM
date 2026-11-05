@@ -4,6 +4,10 @@ import { IntegrationPortsService } from "../../integration-ports/integration-por
 import { PrismaService } from "../../prisma/prisma.service";
 import { SettingsService } from "../../settings/settings.service";
 import { StoreCheckoutPaymentLinkService } from "../../store/checkout/store-checkout-payment-link.service";
+import {
+  absolutePayUrl,
+  resolvePublicPayPageOrigin,
+} from "../../store/checkout/public-pay-url";
 import { signJwt } from "../../auth/jwt";
 import { appendCatalogHandoff, usableCatalogPhone } from "../../store/telegram/store-catalog-handoff";
 import {
@@ -167,6 +171,9 @@ export class TelegramClientNotifyService implements OnModuleInit {
     if (!contactId) return null;
     const secret = process.env.JWT_SECRET;
     if (!secret) return null;
+    const store = await this.settings.getStoreConfig().catch(() => null);
+    const origin = resolvePublicPayPageOrigin(store?.crmPayPageUrl);
+    if (!origin) return null;
     try {
       const orderPayToken = signJwt(
         { typ: "store_order_pay", orderId, contactId },
@@ -174,13 +181,9 @@ export class TelegramClientNotifyService implements OnModuleInit {
         { expiresInSeconds: 60 * 60 * 24 * 14 },
       );
       const { payPath } = await this.paymentLinks.createPaymentLink(orderPayToken);
-      const store = await this.settings.getStoreConfig();
-      const base = (store.crmPayPageUrl ?? "").trim().replace(/\/+$/, "");
-      if (!base) return null;
-      const path = payPath.startsWith("/") ? payPath : `/${payPath}`;
-      return `${base}${path}`;
+      return absolutePayUrl(payPath, origin);
     } catch (err) {
-      this.logger.debug(
+      this.logger.warn(
         `pay url for order ${orderId}: ${err instanceof Error ? err.message : String(err)}`,
       );
       return null;

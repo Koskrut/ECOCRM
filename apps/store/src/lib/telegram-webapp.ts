@@ -110,15 +110,36 @@ export function readCapturedTelegramInitData(): string {
 }
 
 /** Phone handoff the bot puts on the catalog button. Empty outside that open. */
+function readTgAuthFromHref(href: string): string {
+  try {
+    const q = href.indexOf("?");
+    const h = href.indexOf("#");
+    const query = q >= 0 ? href.slice(q + 1, h >= 0 && h > q ? h : undefined) : "";
+    const fromQuery = new URLSearchParams(query).get("tgAuth")?.trim() ?? "";
+    if (fromQuery) return fromQuery;
+    if (h >= 0) {
+      return new URLSearchParams(href.slice(h + 1).replace(/^#/, "")).get("tgAuth")?.trim() ?? "";
+    }
+  } catch {
+    /* ignore */
+  }
+  return "";
+}
+
 export function readCatalogAuthToken(): string {
   if (typeof window === "undefined") return "";
   const snap = window.__SUPREX_TG_AUTH?.trim() ?? "";
   if (snap) return snap;
-  try {
-    const fromUrl = new URLSearchParams(window.location.search).get("tgAuth")?.trim() ?? "";
-    if (fromUrl) return fromUrl;
-  } catch {
-    /* ignore */
+  const fromUrl =
+    readTgAuthFromHref(window.location.href) || readTgAuthFromHref(readPerformanceLaunchUrl());
+  if (fromUrl) {
+    window.__SUPREX_TG_AUTH = fromUrl;
+    try {
+      sessionStorage.setItem(CATALOG_AUTH_STORAGE_KEY, fromUrl);
+    } catch {
+      /* WebView may block storage */
+    }
+    return fromUrl;
   }
   try {
     return sessionStorage.getItem(CATALOG_AUTH_STORAGE_KEY)?.trim() ?? "";

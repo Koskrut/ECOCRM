@@ -194,4 +194,58 @@ describe("TelegramClientNotifyService", () => {
     assert.match(raw, /tgAuth=/);
     assert.equal(raw.includes("380671112233"), false);
   });
+
+  it("awaiting-payment push includes an https pay url", async () => {
+    process.env.JWT_SECRET = process.env.JWT_SECRET || "test-secret-for-pay-url";
+    const sent: string[] = [];
+    const prisma = {
+      telegramClientNotifyLog: {
+        create: async () => ({ id: "n1" }),
+        deleteMany: async () => ({ count: 0 }),
+      },
+      order: {
+        findUnique: async () => ({
+          id: "o1",
+          orderNumber: "100",
+          clientId: "c1",
+          contactId: "c1",
+          debtAmount: 12.5,
+          currency: "USD",
+          ttns: [],
+        }),
+      },
+      telegramAccount: {
+        findMany: async () => [{ telegramChatId: "555" }],
+        findFirst: async () => null,
+      },
+      conversation: {
+        findUnique: async () => ({ id: "conv1" }),
+        update: async () => ({}),
+      },
+      message: { create: async () => ({}) },
+    };
+    const service = new TelegramClientNotifyService(
+      prisma as never,
+      {
+        getStoreConfig: async () => ({
+          publicStoreUrl: "https://shop.example.com",
+          crmPayPageUrl: "https://crm.example.com/",
+        }),
+      } as never,
+      { registerClientOrderNotify: () => undefined } as never,
+      { createPaymentLink: async () => ({ payPath: "/pay/x" }) } as never,
+      {
+        sendMessageToChat: async (_chat: string, text: string) => {
+          sent.push(text);
+          return { messageId: 1 };
+        },
+      } as never,
+    );
+    await service.notifyOrderStageChanged({
+      orderId: "o1",
+      fromStage: OrderStage.NEW,
+      toStage: OrderStage.AWAITING_PAYMENT,
+    });
+    assert.match(sent[0] ?? "", /https:\/\/crm\.example\.com\/pay\/x/);
+  });
 });
