@@ -4,7 +4,24 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.236**.)_
+_(планируемые изменения после **0.2.237**.)_
+
+## [0.2.237] — 2026-11-05
+
+### Summary
+
+Патч **0.2.237**: без другого «Старт» у боті — одразу телефон після Telegram Start; у Mini App на Android навігація через `location.assign` (без pushState crash).
+
+### Changed
+
+- Client bot: `/start` / Start одразу просить номер; прибрано зайву reply-кнопку «Старт» і дубль з TelegramService.
+- Store Mini App: внутрішні лінки через full reload у Telegram; history push/replace зберігає Telegram hash.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.237`**.
+- **Нових міграцій немає.**
+- **Не використовувати `0.2.230`** і **`0.2.199`–`0.2.202`**.
 
 ## [0.2.236] — 2026-11-05
 

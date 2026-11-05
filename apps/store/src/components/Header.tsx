@@ -7,6 +7,7 @@ import { getMe } from "@/lib/api";
 import { useCart } from "@/context/CartContext";
 import { useStoreConfig } from "@/context/StoreConfigContext";
 import { useTelegramWebApp } from "@/context/TelegramWebAppContext";
+import { navigateStorePath } from "@/lib/telegram-nav";
 
 const DEFAULT_COMPANY = "SUPREX";
 
@@ -99,16 +100,14 @@ export function Header() {
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
     const q = searchRef.current?.value?.trim();
-    if (q) router.push("/?search=" + encodeURIComponent(q));
-    else router.push("/");
+    navigateStorePath(q ? "/?search=" + encodeURIComponent(q) : "/", (path) => router.push(path));
     setMenuOpen(false);
   };
 
   const handleMobileSearch = (e: React.FormEvent) => {
     e.preventDefault();
     const q = mobileSearchRef.current?.value?.trim();
-    if (q) router.push("/?search=" + encodeURIComponent(q));
-    else router.push("/");
+    navigateStorePath(q ? "/?search=" + encodeURIComponent(q) : "/", (path) => router.push(path));
     setMenuOpen(false);
   };
 

@@ -42,7 +42,6 @@ import {
   CITY_RESULTS_LIMIT,
   CLIENT_MENU_KEYBOARD,
   CLIENT_PHONE_KEYBOARD,
-  CLIENT_START_KEYBOARD,
   buildClientMenuKeyboard,
   isStartLabel,
   MENU_CART,
@@ -65,7 +64,6 @@ import {
   TELEGRAM_ONBOARDING_DONE_NO_MANAGER,
   TELEGRAM_ONBOARDING_INTRO,
   TELEGRAM_ONBOARDING_PAUSED,
-  TELEGRAM_PRESS_START,
   TELEGRAM_PROFILE_REQUIRED,
   TELEGRAM_REQUEST_PHONE,
   TELEGRAM_WELCOME,
@@ -347,7 +345,7 @@ export class TelegramClientBotService {
         await this.replyStartOnly(parsed.chatId, conversationId, TELEGRAM_ONBOARDING_PAUSED);
       } else if (!known) {
         await this.sessions.resetIdle(parsed.userId);
-        await this.replyStartOnly(parsed.chatId, conversationId, TELEGRAM_PRESS_START);
+        await this.replyRequestPhone(parsed.chatId, conversationId, TELEGRAM_WELCOME);
       } else {
         await this.sessions.resetIdle(parsed.userId);
         await this.replyMenu(parsed.chatId, conversationId, TELEGRAM_CANCELLED);
@@ -399,9 +397,7 @@ export class TelegramClientBotService {
       return { handled: true, notifyManager: false };
     }
     if (isStartLabel(text) || isSlashCommand(text, "start")) {
-      await this.replyStart(parsed, conversationId, contactId, leadId, {
-        requestPhone: isStartLabel(text),
-      });
+      await this.replyStart(parsed, conversationId, contactId, leadId);
       return { handled: true, notifyManager: false };
     }
 
@@ -595,8 +591,11 @@ export class TelegramClientBotService {
       return { handled: true, notifyManager: false };
     }
 
-    // No CRM identity yet: beginning of dialog (Старт / phone) — do not ping managers.
+    // No CRM identity yet: Telegram Start already asked for the phone — do not ping managers.
     if (!(await this.identityKnown(parsed.userId, contactId, leadId))) {
+      if (!parsed.isCallback) {
+        await this.replyRequestPhone(parsed.chatId, conversationId, TELEGRAM_WELCOME);
+      }
       return { handled: true, notifyManager: false };
     }
 
@@ -1654,7 +1653,6 @@ export class TelegramClientBotService {
     conversationId: string,
     contactId: string | null,
     leadId: string | null,
-    opts?: { requestPhone?: boolean },
   ): Promise<void> {
     const session = await this.sessions.get(parsed.userId);
 
@@ -1692,14 +1690,7 @@ export class TelegramClientBotService {
       return;
     }
 
-    // First open (/start) only shows «Старт». Phone is the next step — including
-    // when Android re-sends /start for the 🏠 Старт tap (startOffered is set).
-    const startTapped = Boolean(opts?.requestPhone) || Boolean(session.payload.startOffered);
-    if (!startTapped) {
-      await this.sessions.set(parsed.userId, "idle", { startOffered: true });
-      await this.replyStartOnly(parsed.chatId, conversationId, TELEGRAM_PRESS_START);
-      return;
-    }
+    // Telegram's own Start sends /start — that is the only Start. Ask for the phone here.
     await this.sessions.resetIdle(parsed.userId);
     await this.replyRequestPhone(parsed.chatId, conversationId, TELEGRAM_WELCOME);
   }
@@ -3588,9 +3579,7 @@ export class TelegramClientBotService {
     text: string,
   ): Promise<void> {
     await this.clearChatCatalogMenuButton(chatId);
-    const { messageId } = await this.telegram.sendMessageToChat(chatId, text, {
-      menuKeyboard: CLIENT_START_KEYBOARD,
-    });
+    const { messageId } = await this.telegram.sendMessageToChat(chatId, text);
     await this.recordOutbound(conversationId, text, messageId);
   }
 

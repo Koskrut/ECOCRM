@@ -34,12 +34,8 @@ import type {
 import {
   CLIENT_MENU_BUTTONS,
   CLIENT_MENU_KEYBOARD,
-  CLIENT_START_KEYBOARD,
-  MENU_START,
   isStartLabel,
   TELEGRAM_EXISTING_CLIENT,
-  TELEGRAM_PRESS_START,
-  TELEGRAM_REQUEST_PHONE,
 } from "./telegram-client.constants";
 import { ConversationsService } from "./conversations.service";
 import { TelegramClientBotService } from "./telegram-client-bot.service";
@@ -359,7 +355,6 @@ export class TelegramService {
 
       const now = new Date();
       let shouldSendExistingClientMenu = false;
-      let botReplySent = false;
 
       const trimmedText = parsed.text?.trim() ?? "";
       const isHelpCommand = trimmedText.toLowerCase() === "/help";
@@ -529,19 +524,7 @@ export class TelegramService {
         }
       }
 
-      if (!contactId && !leadId) {
-        if (!parsed.phone && !isCommandMessage && !account.phone) {
-          // Beginning of dialog: ask to press Старт (not the working commerce menu).
-          if (trimmedText === MENU_START) {
-            /* handled by client bot replyStart */
-          } else {
-            await this.sendMessageToChat(parsed.chatId, TELEGRAM_PRESS_START, {
-              menuKeyboard: CLIENT_START_KEYBOARD,
-            });
-            botReplySent = true;
-          }
-        }
-      }
+      // First contact without a CRM identity is handled by the client bot (/start → phone).
 
       // Update Lead/Contact if phone is provided and they are missing it
       if (parsed.phone) {
@@ -702,14 +685,14 @@ export class TelegramService {
         });
         if (turn.handled) {
           notifyManager = turn.notifyManager;
-        } else if (shouldSendExistingClientMenu && !botReplySent && !parsed.phone) {
+        } else if (shouldSendExistingClientMenu && !parsed.phone) {
           // Fallback when client bot did not handle (should be rare).
           await this.sendMessageToChat(parsed.chatId, TELEGRAM_EXISTING_CLIENT, {
             menuKeyboard: await this.clientBot.catalogMenuKeyboard(parsed.userId),
           });
           notifyManager = false;
         }
-      } else if (shouldSendExistingClientMenu && !botReplySent) {
+      } else if (shouldSendExistingClientMenu) {
         await this.sendMessageToChat(parsed.chatId, TELEGRAM_EXISTING_CLIENT, {
           menuKeyboard: await this.clientMenuKeyboard(parsed.userId),
         });

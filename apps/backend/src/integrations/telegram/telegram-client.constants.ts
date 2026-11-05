@@ -79,10 +79,7 @@ export const CLIENT_MENU_KEYBOARD: string[][] = [
   [MENU_ORDERS, MENU_MANAGER],
 ];
 
-/** One-shot keyboard before identity: only Старт. */
-export const CLIENT_START_KEYBOARD: string[][] = [[MENU_START]];
-
-/** After Старт, before CRM identity: share-phone row is added by requestContactButton. */
+/** After Telegram Start, before CRM identity: share-phone row is added by requestContactButton. */
 export const CLIENT_PHONE_KEYBOARD: string[][] = [[MENU_CLIENT_CANCEL]];
 
 /** During onboarding / checkout — cancel without commerce shortcuts. */
@@ -115,8 +112,6 @@ export function isStartLabel(text: string): boolean {
 
 export const TELEGRAM_WELCOME =
   "Вітаємо! Це бот магазину SUPREX.\n\nЩоб відкрити каталог, кошик і кабінет — спочатку поділіться номером телефону кнопкою нижче.";
-export const TELEGRAM_PRESS_START =
-  "Вітаємо в SUPREX!\nНатисніть «Старт», щоб почати.";
 export const TELEGRAM_HELP =
   "Меню внизу екрана:\n" +
   "• 🛍 Каталог — товари\n" +
@@ -141,7 +136,7 @@ export const TELEGRAM_ONBOARDING_DONE =
 export const TELEGRAM_ONBOARDING_DONE_NO_MANAGER =
   "Готово! Профіль збережено в CRM.\n\nДля вашої області менеджер ще не закріплений у системі — напишіть нам у чат, і ми допоможемо вручну.";
 export const TELEGRAM_ONBOARDING_PAUSED =
-  "Профіль ще не завершено. Натисніть «Старт», щоб продовжити — без цього каталог і оформлення недоступні.";
+  "Профіль ще не завершено. Натисніть Start у Telegram, щоб продовжити — без цього каталог і оформлення недоступні.";
 
 export const TELEGRAM_CHECKOUT_IN_PROGRESS =
   "Оформлення триває. Продовжіть кроки вище або натисніть «Скасувати».";

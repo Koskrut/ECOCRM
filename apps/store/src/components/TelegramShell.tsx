@@ -1,10 +1,19 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useCart } from "@/context/CartContext";
 import { useTelegramWebApp } from "@/context/TelegramWebAppContext";
 import { getTelegramWebApp } from "@/lib/telegram-webapp";
+import { assignStorePath, isTelegramInternalHref } from "@/lib/telegram-nav";
+
+function safeMainButtonCall(run: () => void) {
+  try {
+    run();
+  } catch {
+    /* Android Telegram MainButton throws and kills the Mini App. */
+  }
+}
 
 /**
  * Mini App chrome: hide marketing chrome, wire Telegram MainButton to cart/checkout.
@@ -14,7 +23,6 @@ export function TelegramShell({ children }: { children: React.ReactNode }) {
   const telegram = useTelegramWebApp();
   const { count, sumUah } = useCart();
   const pathname = usePathname();
-  const router = useRouter();
   const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
@@ -24,6 +32,27 @@ export function TelegramShell({ children }: { children: React.ReactNode }) {
     }
     document.documentElement.setAttribute("data-tg-miniapp", "1");
     return () => document.documentElement.removeAttribute("data-tg-miniapp");
+  }, [telegram.isTelegram]);
+
+  // Next.js client navigation uses history.pushState; Android Telegram shows Oops+duck.
+  useEffect(() => {
+    if (!telegram.isTelegram) return;
+    const onClick = (event: MouseEvent) => {
+      if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+        return;
+      }
+      if (event.button !== 0) return;
+      const target = event.target as Element | null;
+      const anchor = target?.closest?.("a[href]") as HTMLAnchorElement | null;
+      if (!anchor || anchor.target === "_blank" || anchor.hasAttribute("download")) return;
+      const href = anchor.getAttribute("href");
+      if (!href || !isTelegramInternalHref(href)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      assignStorePath(href);
+    };
+    document.addEventListener("click", onClick, true);
+    return () => document.removeEventListener("click", onClick, true);
   }, [telegram.isTelegram]);
 
   useEffect(() => {
@@ -37,30 +66,32 @@ export function TelegramShell({ children }: { children: React.ReactNode }) {
         void telegram.refreshSession();
         return;
       }
-      if (pathname === "/cart") router.push("/checkout");
-      else if (pathname === "/checkout") return;
-      else router.push("/cart");
+      if (pathname === "/checkout") return;
+      assignStorePath(pathname === "/cart" ? "/checkout" : "/cart");
     };
 
-    main.onClick(onCart);
+    safeMainButtonCall(() => main.onClick(onCart));
     if (pathname === "/checkout" || pathname.startsWith("/thank-you")) {
-      main.hide();
+      safeMainButtonCall(() => main.hide());
     } else if (!telegram.loggedIn && !telegram.loading) {
-      // Only nudge when session exchange finished without a CRM contact.
-      main.setText(telegram.error ? "Оновити сесію" : "Оновити профіль");
-      main.show();
+      safeMainButtonCall(() => {
+        main.setText(telegram.error ? "Оновити сесію" : "Оновити профіль");
+        main.show();
+      });
     } else if (count > 0) {
-      main.setText(
-        pathname === "/cart" ? "Оформити" : `Кошик · ${sumUah} грн`,
-      );
-      main.show();
+      safeMainButtonCall(() => {
+        main.setText(pathname === "/cart" ? "Оформити" : `Кошик · ${sumUah} грн`);
+        main.show();
+      });
     } else {
-      main.hide();
+      safeMainButtonCall(() => main.hide());
     }
 
     return () => {
-      main.offClick(onCart);
-      main.hide();
+      safeMainButtonCall(() => {
+        main.offClick(onCart);
+        main.hide();
+      });
     };
   }, [
     telegram.isTelegram,
@@ -72,7 +103,6 @@ export function TelegramShell({ children }: { children: React.ReactNode }) {
     count,
     sumUah,
     pathname,
-    router,
   ]);
 
   const showProfileGate =

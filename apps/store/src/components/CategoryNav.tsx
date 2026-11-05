@@ -17,6 +17,7 @@ export function CategoryNav({ className, onNavigate }: CategoryNavProps) {
           <li key={cat.id}>
             <Link
               href={"/?category=" + encodeURIComponent(cat.id)}
+              prefetch={false}
               onClick={onNavigate}
               className="flex min-h-[44px] items-center rounded-lg py-2 px-3 text-sm text-zinc-700 hover:bg-[var(--surface)] hover:text-[var(--primary)] transition"
             >

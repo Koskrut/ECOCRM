@@ -920,10 +920,9 @@ describe("TelegramClientBotService menu / idle", () => {
     });
     assert.equal(sessions.state, "idle");
     assert.ok(sent.some((s) => /Профіль ще не завершено/i.test(s.text)));
-    assert.ok(sent.some((s) => /Старт/i.test(s.text)));
-    assert.ok(
-      sent.some((s) => JSON.stringify(s.keyboard ?? []).includes("Старт")),
-      "pause shows Старт, not commerce menu",
+    assert.equal(
+      sent.some((s) => JSON.stringify(s.keyboard ?? []).includes("Каталог")),
+      false,
     );
   });
 
@@ -1070,7 +1069,7 @@ describe("TelegramClientBotService menu / idle", () => {
     assert.equal(sent.some((s) => s.contact), false);
   });
 
-  it("first /start shows only the Старт button", async () => {
+  it("first /start asks for the phone (Telegram Start is the only Start)", async () => {
     const { service, sent } = makeBot({});
     await service.handleClientTurn({
       parsed: parsed({ text: "/start" }),
@@ -1078,11 +1077,12 @@ describe("TelegramClientBotService menu / idle", () => {
       contactId: null,
       leadId: null,
     });
-    assert.equal(sent.some((s) => s.contact), false);
-    assert.ok(sent.some((s) => /Натисніть «Старт»/i.test(s.text)));
-    assert.ok(
-      sent.some((s) => JSON.stringify(s.keyboard ?? []).includes("Старт")),
-    );
+    const phoneMsg = sent.find((s) => s.contact && /Вітаємо/i.test(s.text));
+    assert.ok(phoneMsg);
+    const keys = JSON.stringify(phoneMsg?.keyboard ?? []);
+    assert.equal(keys.includes("Старт"), false);
+    assert.equal(keys.includes("Каталог"), false);
+    assert.ok(keys.includes("Скасувати"));
   });
 
   it("Старт asks for a phone only when the chat is not a known client", async () => {
@@ -1100,16 +1100,14 @@ describe("TelegramClientBotService menu / idle", () => {
     assert.ok(keys.includes("Скасувати"));
   });
 
-  it("second /start for a new client asks for the phone (Android remaps Старт)", async () => {
-    const { service, sent, sessions } = makeBot({});
+  it("second /start for a new client still asks for the phone", async () => {
+    const { service, sent } = makeBot({});
     await service.handleClientTurn({
       parsed: parsed({ text: "/start" }),
       conversationId: "conv1",
       contactId: null,
       leadId: null,
     });
-    assert.equal(sessions.payload.startOffered, true);
-    assert.ok(sent.some((s) => /Натисніть «Старт»/i.test(s.text)));
     sent.length = 0;
     await service.handleClientTurn({
       parsed: parsed({ text: "/start" }),
@@ -1577,7 +1575,7 @@ describe("TelegramClientBotService menu / idle", () => {
     assert.ok(prompt?.buttons?.some((b) => /Скасувати/i.test(b)));
   });
 
-  it("Cancel before a profile returns to Старт instead of the commerce menu", async () => {
+  it("Cancel before a profile returns to phone share instead of the commerce menu", async () => {
     const { service, sent, sessions } = makeBot({ account: null });
     await service.handleClientTurn({
       parsed: parsed({ text: MENU_CLIENT_CANCEL }),
@@ -1586,9 +1584,13 @@ describe("TelegramClientBotService menu / idle", () => {
       leadId: null,
     });
     assert.equal(sessions.state, "idle");
-    assert.ok(sent.some((s) => /Старт/i.test(s.text)));
+    assert.ok(sent.some((s) => s.contact && /поділіться номером/i.test(s.text)));
     assert.equal(
       sent.some((s) => JSON.stringify(s.keyboard ?? []).includes("Каталог")),
+      false,
+    );
+    assert.equal(
+      sent.some((s) => JSON.stringify(s.keyboard ?? []).includes("Старт")),
       false,
     );
   });

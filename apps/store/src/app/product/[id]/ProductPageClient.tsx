@@ -6,6 +6,7 @@ import { addToCart } from "@/lib/api";
 import { getCartSessionId } from "@/lib/cart-session";
 import { useCart } from "@/context/CartContext";
 import { Button } from "@/components/Button";
+import { navigateStorePath } from "@/lib/telegram-nav";
 
 type Props = {
   productId: string;
@@ -26,7 +27,7 @@ export function ProductPageClient({ productId, inStock }: Props) {
       const sessionId = getCartSessionId();
       const next = await addToCart(productId, 1, sessionId);
       applyCart(next);
-      router.push("/cart");
+      navigateStorePath("/cart", (path) => router.push(path));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Не вдалося додати в кошик");
       setAdding(false);

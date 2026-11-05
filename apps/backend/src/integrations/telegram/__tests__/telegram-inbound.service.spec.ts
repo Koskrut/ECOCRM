@@ -247,9 +247,8 @@ describe("TelegramService.handleInboundUpdate", () => {
   it("does not stack request-phone and auto-reply on the first message", async () => {
     await harness.service.handleInboundUpdate(textUpdate("Хочу замовлення"));
 
-    // Exactly one reply: press Старт at the beginning of the dialog.
-    assert.equal(harness.sent.length, 1);
-    assert.match(harness.sent[0].text, /Старт/i);
+    // Client bot owns the first-contact reply. TelegramService must not add a second Start.
+    assert.equal(harness.sent.length, 0);
   });
 
   it("does not replace the menu with the share-phone button on catalog", async () => {
@@ -483,7 +482,7 @@ describe("TelegramService.handleInboundUpdate", () => {
     assert.equal(harness.upsertCalls[0]?.phone ?? null, null);
     const saved = mock.calls.messageCreate[0]?.data as AnyRec;
     assert.match(String(saved.text), /380501112233/);
-    assert.match(harness.sent[0]?.text ?? "", /Старт/i);
+    assert.equal(harness.sent.some((message) => /Раді бачити|Номер збережено/i.test(message.text)), false);
   });
 
   it("does not create a lead in whichever company happens to be first", async () => {
