@@ -35,20 +35,22 @@ export async function POST(req: NextRequest) {
     phone?: string | null;
     firstName?: string | null;
     lastName?: string | null;
+    region?: string | null;
     contactId?: string | null;
     customerId?: string | null;
     loggedIn?: boolean;
   };
 
-  const loggedIn = Boolean(payload.loggedIn && payload.storeToken);
+  const loggedIn = Boolean((payload.loggedIn && payload.storeToken) || payload.contactId);
   const response = NextResponse.json({
     token: payload.token,
     // Client stores this when cookie is unavailable inside Telegram WebView.
-    storeToken: loggedIn ? payload.storeToken ?? null : null,
+    storeToken: payload.storeToken ?? null,
     cartSessionId: payload.cartSessionId,
     phone: payload.phone ?? null,
     firstName: payload.firstName ?? null,
     lastName: payload.lastName ?? null,
+    region: payload.region ?? null,
     contactId: payload.contactId ?? null,
     customerId: payload.customerId ?? null,
     loggedIn,

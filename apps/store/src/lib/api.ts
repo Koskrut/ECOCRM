@@ -131,6 +131,14 @@ export async function getCart(sessionId?: string): Promise<Cart> {
   return api<Cart>("/cart" + q);
 }
 
+/** Move guest localStorage cart lines into the signed Telegram `tg:` cart. */
+export async function mergeGuestCartIntoTelegram(fromSessionId: string): Promise<Cart> {
+  return api<Cart>("/cart/merge-session", {
+    method: "POST",
+    body: { fromSessionId },
+  });
+}
+
 export async function addToCart(productId: string, qty: number, sessionId?: string) {
   return api<Cart>("/cart/items", {
     method: "POST",

@@ -193,6 +193,61 @@ export class StoreCartService {
     return this.getCart({ sessionId });
   }
 
+  /**
+   * Fold a browser guest cart into the Telegram `tg:{userId}` cart.
+   * Mini App often adds lines on a localStorage UUID before initData/login finishes.
+   */
+  async mergeSessionCart(fromSessionId: string, toSessionId: string) {
+    const from = (fromSessionId ?? "").trim();
+    const to = (toSessionId ?? "").trim();
+    if (!from || !to) {
+      throw new BadRequestException("fromSessionId and toSessionId required");
+    }
+    if (from === to) return this.getCart({ sessionId: to });
+
+    const guestCart = await this.prisma.cart.findFirst({
+      where: { sessionId: from },
+      include: { items: true },
+    });
+    if (!guestCart || guestCart.items.length === 0) {
+      return this.getCart({ sessionId: to });
+    }
+
+    const targetCart = await this.prisma.cart.upsert({
+      where: { sessionId: to },
+      create: { sessionId: to },
+      update: {},
+      include: { items: true },
+    });
+    const qtyByProduct = new Map(
+      targetCart.items.map((item) => [item.productId, { id: item.id, qty: item.qty }]),
+    );
+    for (const line of guestCart.items) {
+      const existing = qtyByProduct.get(line.productId);
+      if (existing) {
+        const qty = existing.qty + line.qty;
+        await this.prisma.cartItem.update({
+          where: { id: existing.id },
+          data: { qty },
+        });
+        existing.qty = qty;
+      } else {
+        const created = await this.prisma.cartItem.create({
+          data: {
+            cartId: targetCart.id,
+            productId: line.productId,
+            qty: line.qty,
+            price: line.price,
+          },
+        });
+        qtyByProduct.set(line.productId, { id: created.id, qty: line.qty });
+      }
+    }
+    await this.prisma.cartItem.deleteMany({ where: { cartId: guestCart.id } });
+    await this.prisma.cart.delete({ where: { id: guestCart.id } }).catch(() => undefined);
+    return this.getCart({ sessionId: to });
+  }
+
   /** Merge guest cart (sessionId) into customer cart and return customer cart. */
   async mergeCart(customerId: string, sessionId: string) {
     const guestCart = await this.prisma.cart.findFirst({

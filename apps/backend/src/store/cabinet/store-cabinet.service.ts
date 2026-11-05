@@ -1,4 +1,6 @@
 import { ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
+import { randomBytes } from "crypto";
+import { hashPassword } from "../../auth/password";
 import { PrismaService } from "../../prisma/prisma.service";
 
 @Injectable()
@@ -6,7 +8,7 @@ export class StoreCabinetService {
   constructor(private readonly prisma: PrismaService) {}
 
   async getMe(contactId: string) {
-    const contact = await this.prisma.contact.findUnique({
+    let contact = await this.prisma.contact.findUnique({
       where: { id: contactId },
       include: {
         customer: { select: { id: true, email: true, createdAt: true } },
@@ -14,6 +16,28 @@ export class StoreCabinetService {
       },
     });
     if (!contact) throw new NotFoundException("Contact not found");
+    // Mini App can resolve a CRM contact before the store Customer row exists.
+    if (!contact.customer) {
+      try {
+        await this.prisma.customer.create({
+          data: {
+            contactId,
+            email: null,
+            passwordHash: hashPassword(randomBytes(24).toString("hex")),
+          },
+        });
+      } catch {
+        /* concurrent create — re-read below */
+      }
+      contact = await this.prisma.contact.findUnique({
+        where: { id: contactId },
+        include: {
+          customer: { select: { id: true, email: true, createdAt: true } },
+          telegramAccounts: { select: { id: true, username: true } },
+        },
+      });
+      if (!contact) throw new NotFoundException("Contact not found");
+    }
     if (!contact.customer) throw new ForbiddenException("Customer account not found");
     return {
       contactId: contact.id,

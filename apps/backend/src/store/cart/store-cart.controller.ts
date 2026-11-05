@@ -96,4 +96,25 @@ export class StoreCartController {
     const identity = this.getIdentity(req);
     return this.cart.clearCart(identity);
   }
+
+  /** Pull guest (localStorage) lines into the signed Telegram cart after Mini App login. */
+  @Post("merge-session")
+  async mergeSession(
+    @Req() req: RequestWithStoreTg,
+    @Body() body: { fromSessionId?: string },
+  ) {
+    const identity = this.getIdentity(req);
+    const toSessionId = identity.sessionId;
+    if (!toSessionId) {
+      throw new BadRequestException("Telegram cart session required");
+    }
+    const fromSessionId = String(body?.fromSessionId ?? "").trim();
+    if (!fromSessionId) {
+      throw new BadRequestException("fromSessionId required");
+    }
+    if (isTelegramCartSessionId(fromSessionId)) {
+      throw new BadRequestException("Cannot merge another Telegram cart");
+    }
+    return this.cart.mergeSessionCart(fromSessionId, toSessionId);
+  }
 }

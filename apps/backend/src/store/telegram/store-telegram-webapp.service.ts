@@ -138,6 +138,7 @@ export class StoreTelegramWebAppService {
     const contactId = identity.contactId;
     const firstName = identity.firstName;
     const lastName = identity.lastName;
+    const region = identity.region;
 
     const chatId = account?.telegramChatId ?? telegramUserId;
     const sessionCartId = cartSessionId(telegramUserId);
@@ -153,6 +154,7 @@ export class StoreTelegramWebAppService {
       contactId,
       firstName,
       lastName,
+      region,
     };
 
     const token = signJwt(payload as unknown as Record<string, unknown>, secret, {
@@ -213,6 +215,7 @@ export class StoreTelegramWebAppService {
       phone,
       firstName,
       lastName,
+      region,
       contactId,
       customerId,
       loggedIn: Boolean(storeToken),
@@ -240,6 +243,7 @@ export class StoreTelegramWebAppService {
     contactId: string | null;
     firstName: string | null;
     lastName: string | null;
+    region: string | null;
   }> {
     const { telegramUserId, account } = params;
     let phone = account?.phone ?? null;
@@ -357,12 +361,13 @@ export class StoreTelegramWebAppService {
     if (contactId) {
       const contact = await this.prisma.contact.findUnique({
         where: { id: contactId },
-        select: { phone: true, firstName: true, lastName: true },
+        select: { phone: true, firstName: true, lastName: true, region: true },
       });
       if (contact) {
-        phone = contact.phone ?? phone;
+        phone = usableCatalogPhone(contact.phone) ?? usableCatalogPhone(phone) ?? contact.phone ?? phone;
         firstName = contact.firstName?.trim() || firstName;
         lastName = contact.lastName?.trim() || lastName;
+        region = contact.region?.trim() || region;
       } else {
         contactId = null;
       }
@@ -390,7 +395,7 @@ export class StoreTelegramWebAppService {
       });
     }
 
-    return { phone, contactId, firstName, lastName };
+    return { phone, contactId, firstName, lastName, region };
   }
 
   private async findContactIdByPhone(phone: string): Promise<string | null> {

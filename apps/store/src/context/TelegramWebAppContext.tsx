@@ -78,6 +78,7 @@ async function exchangeInitData(initData: string) {
     phone: string | null;
     firstName: string | null;
     lastName: string | null;
+    region?: string | null;
     contactId: string | null;
     customerId: string | null;
     loggedIn: boolean;
@@ -108,8 +109,9 @@ export function TelegramWebAppProvider({ children }: { children: React.ReactNode
         phone: session.phone,
         firstName: session.firstName,
         lastName: session.lastName,
+        region: session.region ?? null,
         contactId: session.contactId,
-        storeToken: session.storeToken ?? (session.loggedIn ? undefined : null),
+        storeToken: session.storeToken ?? (session.loggedIn || session.contactId ? undefined : null),
       });
       setToken(session.token);
       setCartSessionId(session.cartSessionId);
@@ -117,6 +119,7 @@ export function TelegramWebAppProvider({ children }: { children: React.ReactNode
         phone: session.phone,
         firstName: session.firstName,
         lastName: session.lastName,
+        region: session.region ?? null,
         contactId: session.contactId,
       });
       const nextLoggedIn = Boolean(session.loggedIn || session.contactId);

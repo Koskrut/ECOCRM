@@ -14,6 +14,7 @@ export type TelegramStoreProfile = {
   phone: string | null;
   firstName: string | null;
   lastName: string | null;
+  region?: string | null;
   contactId: string | null;
 };
 
@@ -55,6 +56,7 @@ export function setTelegramStoreSession(params: {
   phone: string | null;
   firstName: string | null;
   lastName: string | null;
+  region?: string | null;
   contactId: string | null;
   /** Optional cabinet JWT when Mini App exchange issued store_token. */
   storeToken?: string | null;
@@ -65,6 +67,7 @@ export function setTelegramStoreSession(params: {
     phone: params.phone,
     firstName: params.firstName,
     lastName: params.lastName,
+    region: params.region ?? null,
     contactId: params.contactId,
   };
   if (params.storeToken) memoryCabinetToken = params.storeToken;
@@ -79,6 +82,7 @@ export function setTelegramStoreSession(params: {
         phone: params.phone,
         firstName: params.firstName,
         lastName: params.lastName,
+        region: params.region ?? null,
         contactId: params.contactId,
       } satisfies TelegramStoreProfile),
     );

@@ -37,7 +37,8 @@ export default function CartPage() {
   const uah = cart.uahPerUsd ?? 41;
   const subtotalUah = Math.round(cart.subtotal * uah);
 
-  if (loading) {
+  // Keep the last cart on screen while Telegram session / merge revalidates.
+  if (loading && cart.items.length === 0) {
     return (
       <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6 sm:py-12">
         <div className="h-8 w-48 animate-pulse rounded bg-zinc-200" />

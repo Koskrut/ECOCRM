@@ -101,12 +101,6 @@ export default function CheckoutPage() {
       .catch(() => {
         if (cancelled) return;
         if (!telegram.loggedIn) setLoggedIn(false);
-        // Telegram session can still carry CRM phone/names before cabinet cookie sticks.
-        if (isTelegramCheckout && telegram.profile) {
-          if (telegram.profile.phone) setPhone(formatUaPhoneInput(telegram.profile.phone));
-          if (telegram.profile.firstName) setFirstName(telegram.profile.firstName);
-          if (telegram.profile.lastName) setLastName(telegram.profile.lastName);
-        }
       });
     return () => {
       cancelled = true;
@@ -117,10 +111,10 @@ export default function CheckoutPage() {
     telegram.loading,
     telegram.loggedIn,
     isTelegramCheckout,
-    telegram.profile,
+    telegram.token,
   ]);
 
-  // Session exchange often finishes after the first checkout paint — fill empty fields.
+  // Prefer CRM /me, then fall back to the Mini App session profile (incl. late exchange).
   useEffect(() => {
     if (!isTelegramCheckout || !telegram.profile) return;
     if (telegram.profile.phone) {
@@ -131,6 +125,9 @@ export default function CheckoutPage() {
     }
     if (telegram.profile.lastName) {
       setLastName((prev) => prev.trim() || telegram.profile!.lastName!);
+    }
+    if (telegram.profile.region?.trim()) {
+      setRegion((prev) => prev.trim() || telegram.profile!.region!.trim());
     }
     if (telegram.loggedIn) setLoggedIn(true);
   }, [isTelegramCheckout, telegram.loggedIn, telegram.profile]);
