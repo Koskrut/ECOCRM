@@ -82,21 +82,26 @@ export default function CheckoutPage() {
   const profileDropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    if (!telegram.ready || !telegram.isTelegram) return;
+    void telegram.refreshSession();
+  }, [telegram.ready, telegram.isTelegram, telegram.refreshSession]);
+
+  useEffect(() => {
     if (!telegram.ready) return;
     // Wait for Mini App initData → store_token before the first /me (matches Header).
-    if (telegram.isTelegram && telegram.loading) return;
+    if (telegram.isTelegram && telegram.loading && !telegram.token) return;
 
     let cancelled = false;
     getMe()
       .then((me) => {
         if (cancelled) return;
         setLoggedIn(true);
-        setFirstName(me.firstName ?? "");
-        setLastName(me.lastName ?? "");
-        setEmail(me.email ?? "");
-        setPhone(formatUaPhoneInput(me.phone ?? ""));
+        setFirstName((prev) => me.firstName?.trim() || prev);
+        setLastName((prev) => me.lastName?.trim() || prev);
+        setEmail((prev) => me.email?.trim() || prev);
+        if (me.phone?.trim()) setPhone(formatUaPhoneInput(me.phone));
         const savedRegion = me.region?.trim();
-        if (savedRegion) setRegion(savedRegion);
+        if (savedRegion) setRegion((prev) => prev.trim() || savedRegion);
       })
       .catch(() => {
         if (cancelled) return;
@@ -112,6 +117,7 @@ export default function CheckoutPage() {
     telegram.loggedIn,
     isTelegramCheckout,
     telegram.token,
+    telegram.profile,
   ]);
 
   // Prefer CRM /me, then fall back to the Mini App session profile (incl. late exchange).

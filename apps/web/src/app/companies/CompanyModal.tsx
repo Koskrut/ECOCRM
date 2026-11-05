@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { MoreHorizontal } from "lucide-react";
 import { EntityModalShell } from "@/components/modals/EntityModalShell";
 import { EntitySection } from "@/components/sections/EntitySection";
 import { SearchableSelectLite } from "@/components/inputs/SearchableSelectLite";
@@ -27,6 +28,12 @@ import { formatDateTime } from "@/lib/crmDatetime";
 import { visitsApi } from "@/lib/api";
 import { manualCallingApi } from "@/lib/api/resources/manual-calling";
 import { KyivstarDialButton } from "@/components/kyivstar/KyivstarDialButton";
+import {
+  FixedDropdownPortal,
+  useDismissOnOutsidePointerDown,
+} from "@/components/overlays/FixedDropdownPortal";
+import { useModules } from "@/lib/modules/useModules";
+import { ModuleIds } from "@/lib/modules/module-ids";
 import { EntityOrdersList } from "@/components/EntityOrdersList";
 import { CompanyTimeline } from "./CompanyTimeline";
 import { EntityCallRecordingsPanel } from "@/components/calls/EntityCallRecordingsPanel";
@@ -43,6 +50,80 @@ import {
 } from "@/lib/googlePlacesNew";
 import { strings } from "@/locales";
 import { useToast } from "@/components/feedback";
+
+const visitCopy = strings.contacts.card.visit;
+
+function PhoneActionsMenu({
+  phone,
+  disabled,
+  queueing,
+  onEnqueue,
+}: {
+  phone: string;
+  disabled?: boolean;
+  queueing: boolean;
+  onEnqueue: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const anchorRef = useRef<HTMLDivElement | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  useDismissOnOutsidePointerDown(open, () => setOpen(false), anchorRef, panelRef);
+  const tel = `tel:${phone.replace(/[^\d+]/g, "")}`;
+
+  return (
+    <div ref={anchorRef} className="relative shrink-0">
+      <button
+        type="button"
+        disabled={disabled}
+        aria-expanded={open}
+        aria-label="Дії з телефоном"
+        onClick={() => setOpen((value) => !value)}
+        className="rounded-md border border-zinc-200 p-1 text-zinc-500 hover:bg-zinc-50 disabled:opacity-50"
+      >
+        <MoreHorizontal className="h-4 w-4" />
+      </button>
+      <FixedDropdownPortal open={open} anchorRef={anchorRef} panelRef={panelRef} minWidth={196} maxHeight="8rem">
+        <div className="p-1">
+          <a
+            href={tel}
+            className="block rounded px-2 py-1.5 text-sm text-zinc-800 hover:bg-zinc-50"
+            onClick={() => setOpen(false)}
+          >
+            Звичайний дзвінок
+          </a>
+          <button
+            type="button"
+            disabled={queueing}
+            className="block w-full rounded px-2 py-1.5 text-left text-sm text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
+            onClick={() => {
+              setOpen(false);
+              onEnqueue();
+            }}
+          >
+            {queueing ? "Додаємо…" : "В чергу прозвону"}
+          </button>
+        </div>
+      </FixedDropdownPortal>
+    </div>
+  );
+}
+
+function HeaderCallButton({ phone }: { phone: string }) {
+  const { effective } = useModules();
+  const digits = phone.replace(/\D/g, "");
+  if (digits.length < 9) return null;
+  if (effective(ModuleIds.KyivstarFmc)) {
+    return <KyivstarDialButton phone={phone} size="md" label="Позвонити" />;
+  }
+  return (
+    <a
+      href={`tel:${phone.replace(/[^\d+]/g, "")}`}
+      className="inline-flex items-center rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-sm font-medium text-zinc-800 hover:bg-zinc-50"
+    >
+      Позвонити
+    </a>
+  );
+}
 
 type GoogleMapsPublicConfig = { mapsApiKey: string | null };
 
@@ -155,6 +236,7 @@ export function CompanyModal({
   const [visitDurationMin, setVisitDurationMin] = useState("60");
   const [visitPlanError, setVisitPlanError] = useState<string | null>(null);
   const [visitPlanSuccess, setVisitPlanSuccess] = useState<string | null>(null);
+  const [visitPlanOpen, setVisitPlanOpen] = useState(false);
   const [timelineRefreshKey, setTimelineRefreshKey] = useState(0);
   const [queueingDialer, setQueueingDialer] = useState(false);
   const { pushToast } = useToast();
@@ -172,7 +254,17 @@ export function CompanyModal({
 
   const canClose = !saving && !creatingOrder;
 
-  const title = useMemo(() => (isCreate ? "Нова компанія" : "Компанія"), [isCreate]);
+  const title = isCreate ? "Нова компанія" : company?.name?.trim() || "Компанія";
+  const ownerName = useMemo(() => {
+    if (!ownerId) return null;
+    const user = users.find((u) => String(u.id) === String(ownerId));
+    return user?.fullName || user?.email || null;
+  }, [ownerId, users]);
+  const headerPhone = (editPhone.trim() || company?.phone || "").trim();
+  const headerSubtitle =
+    !isCreate && company
+      ? [ownerName, headerPhone ? formatPhoneDisplay(headerPhone) : null].filter(Boolean).join(" · ") || undefined
+      : undefined;
 
   useEffect(() => {
     if (companyId) {
@@ -434,7 +526,7 @@ export function CompanyModal({
       return;
     }
     if (!visitPurpose.trim()) {
-      setVisitPlanError("Укажите цель встречи.");
+      setVisitPlanError("Вкажіть мету зустрічі.");
       setVisitPlanSuccess(null);
       return;
     }
@@ -462,7 +554,7 @@ export function CompanyModal({
         });
         setVisitPlanSuccess("Зустріч заплановано та додано в активність компанії.");
       } else {
-        setVisitPlanSuccess("Зустріч додано в backlog. Вкажіть час пізніше на сторінці візитів.");
+        setVisitPlanSuccess("Зустріч додано в чергу. Вкажіть час пізніше на сторінці візитів.");
       }
       setVisitPurpose("");
       setVisitStartsAt("");
@@ -483,17 +575,17 @@ export function CompanyModal({
     if (!company || isCreate) return;
     const phoneValue = (editPhone.trim() || company.phone || "").trim();
     if (!phoneValue) {
-      pushToast("Укажите телефон компании.", "error");
+      pushToast("Вкажіть телефон компанії.", "error");
       return;
     }
     setQueueingDialer(true);
     try {
       await manualCallingApi.enqueue({ companyId: company.id });
-      pushToast("Добавлено в очередь прозвона.", "success");
+      pushToast("Додано в чергу прозвону.", "success");
     } catch (e) {
       const msg =
         (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-        (e instanceof Error ? e.message : "Не удалось добавить в очередь");
+        (e instanceof Error ? e.message : "Не вдалося додати в чергу");
       pushToast(msg, "error");
     } finally {
       setQueueingDialer(false);
@@ -774,7 +866,6 @@ export function CompanyModal({
       return (
         <div className="space-y-4">
           <section className="space-y-3">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-400">Про компанію</h3>
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="flex flex-col gap-1">
                 <label className={labelClass}>Назва</label>
@@ -782,7 +873,7 @@ export function CompanyModal({
                   className={inputClass}
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder="Введіть назву компанії..."
+                  placeholder="—"
                   disabled={saving}
                 />
               </div>
@@ -792,7 +883,7 @@ export function CompanyModal({
                   className={inputClass}
                   value={edrpou}
                   onChange={(e) => setEdrpou(e.target.value)}
-                  placeholder="Введіть ЄДРПОУ..."
+                  placeholder="—"
                   disabled={saving}
                 />
               </div>
@@ -802,7 +893,7 @@ export function CompanyModal({
                   className={inputClass}
                   value={taxId}
                   onChange={(e) => setTaxId(e.target.value)}
-                  placeholder="Введіть ІПН..."
+                  placeholder="—"
                   disabled={saving}
                 />
               </div>
@@ -812,7 +903,7 @@ export function CompanyModal({
                   className={inputClass}
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
-                  placeholder="Введіть телефон..."
+                  placeholder="—"
                   disabled={saving}
                 />
               </div>
@@ -867,13 +958,12 @@ export function CompanyModal({
     return (
       <div className="space-y-6">
         <section className="space-y-3">
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-400">Про компанію</h3>
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="flex flex-col gap-1">
               <label className={labelClass}>Назва</label>
               <input
                 className={inputClass}
-                placeholder="Введіть назву..."
+                placeholder="—"
                 value={editName}
                 onChange={(e) => setEditName(e.target.value)}
                 onBlur={() => {
@@ -890,7 +980,7 @@ export function CompanyModal({
               <label className={labelClass}>ЄДРПОУ</label>
               <input
                 className={inputClass}
-                placeholder="Введіть ЄДРПОУ..."
+                placeholder="—"
                 value={editEdrpou}
                 onChange={(e) => setEditEdrpou(e.target.value)}
                 onBlur={() => {
@@ -907,7 +997,7 @@ export function CompanyModal({
               <label className={labelClass}>ІПН</label>
               <input
                 className={inputClass}
-                placeholder="Введіть ІПН..."
+                placeholder="—"
                 value={editTaxId}
                 onChange={(e) => setEditTaxId(e.target.value)}
                 onBlur={() => {
@@ -922,43 +1012,30 @@ export function CompanyModal({
             </div>
             <div className="flex flex-col gap-1">
               <label className={labelClass}>Телефон</label>
-              <input
-                className={inputClass}
-                placeholder="Введіть телефон..."
-                value={editPhone}
-                onChange={(e) => setEditPhone(e.target.value)}
-                onBlur={() => {
-                  const v = editPhone.trim() || null;
-                  if (v !== (company!.phone ?? null)) void patchCompany({ phone: v ?? undefined });
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") e.currentTarget.blur();
-                }}
-                disabled={saving}
-              />
-              {(editPhone.trim() || company!.phone) ? (
-                <div className="mt-1 flex flex-wrap items-center gap-2">
-                  <KyivstarDialButton
+              <div className="flex items-center gap-1">
+                <input
+                  className={`${inputClass} min-w-0 flex-1`}
+                  placeholder="—"
+                  value={editPhone}
+                  onChange={(e) => setEditPhone(e.target.value)}
+                  onBlur={() => {
+                    const v = editPhone.trim() || null;
+                    if (v !== (company!.phone ?? null)) void patchCompany({ phone: v ?? undefined });
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") e.currentTarget.blur();
+                  }}
+                  disabled={saving}
+                />
+                {(editPhone.trim() || company!.phone) ? (
+                  <PhoneActionsMenu
                     phone={(editPhone.trim() || company!.phone)!}
-                    size="md"
-                    label="Click2Dial Kyivstar"
+                    disabled={saving}
+                    queueing={queueingDialer}
+                    onEnqueue={() => void enqueueDialer()}
                   />
-                  <a
-                    href={`tel:${editPhone.trim() || company!.phone}`}
-                    className="text-xs text-zinc-500 underline underline-offset-2 hover:text-zinc-800"
-                  >
-                    або звичайний tel:
-                  </a>
-                  <button
-                    type="button"
-                    disabled={queueingDialer || saving}
-                    onClick={() => void enqueueDialer()}
-                    className="rounded-md border border-zinc-200 px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
-                  >
-                    {queueingDialer ? "Добавляем…" : "В очередь прозвона"}
-                  </button>
-                </div>
-              ) : null}
+                ) : null}
+              </div>
             </div>
             <div className="flex flex-col gap-1">
               <label className={labelClass}>Відповідальний</label>
@@ -992,34 +1069,24 @@ export function CompanyModal({
           </div>
         </section>
         <div className="flex items-center justify-between gap-4 border-t border-zinc-100 pt-3 text-sm">
-          <span className={labelClass}>Останній візит</span>
-          <div className="flex items-center gap-3">
-            <span className="text-zinc-900">
-              {company!.lastVisitAt
-                ? formatDateTime(company!.lastVisitAt)
-                : <span className="font-normal text-zinc-400">Немає візитів</span>}
-            </span>
+          <span className={labelClass}>{visitCopy.lastVisit}</span>
+          <span className="text-zinc-900">
+            {company!.lastVisitAt
+              ? formatDateTime(company!.lastVisitAt)
+              : <span className="font-normal text-zinc-400">{visitCopy.noVisits}</span>}
+          </span>
+        </div>
+        {visitPlanOpen ? (
+        <div id="company-visit-plan" className="scroll-mt-3 rounded-2xl border border-zinc-200 bg-zinc-50/70 p-4">
+          <div className="flex items-center justify-between gap-3">
+            <div className="text-sm font-semibold text-zinc-900">{visitCopy.title}</div>
             <button
               type="button"
-              onClick={() => void scheduleVisit()}
-              disabled={saving || planningVisit}
-              className="rounded-md border border-zinc-200 px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
+              onClick={() => setVisitPlanOpen(false)}
+              className="text-xs font-medium text-zinc-500 hover:text-zinc-800"
             >
-              Запланувати зустріч
+              Сховати
             </button>
-          </div>
-        </div>
-        <div id="company-visit-plan" className="rounded-2xl border border-zinc-200 bg-zinc-50/70 p-4">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <div className="text-sm font-semibold text-zinc-900">Планування зустрічі</div>
-              <p className="mt-1 text-xs text-zinc-500">
-                Плануйте зустріч прямо по компанії: мета обовʼязкова, час можна задати одразу.
-              </p>
-            </div>
-            <div className="rounded-full bg-white px-3 py-1 text-xs font-medium text-zinc-600">
-              {visitReadyAddresses.length > 0 ? "Координати готові" : "Потрібно додати адресу"}
-            </div>
           </div>
           <div className="mt-4">
             <VisitLocationPicker
@@ -1037,19 +1104,19 @@ export function CompanyModal({
           </div>
           <div className="mt-4 grid gap-3 md:grid-cols-2">
             <label className="flex flex-col gap-1">
-              <span className={labelClass}>Цель встречи</span>
+              <span className={labelClass}>{visitCopy.purpose}</span>
               <textarea
                 value={visitPurpose}
                 onChange={(e) => setVisitPurpose(e.target.value)}
                 rows={3}
                 disabled={saving || planningVisit}
-                placeholder="Наприклад: презентація, переговори, узгодження оплати"
+                placeholder={visitCopy.purposePlaceholder}
                 className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
               />
             </label>
             <div className="space-y-3">
               <label className="flex flex-col gap-1">
-                <span className={labelClass}>Дата и время</span>
+                <span className={labelClass}>{visitCopy.datetime}</span>
                 <input
                   type="datetime-local"
                   value={visitStartsAt}
@@ -1059,7 +1126,7 @@ export function CompanyModal({
                 />
               </label>
               <label className="flex flex-col gap-1">
-                <span className={labelClass}>Тривалість, хв</span>
+                <span className={labelClass}>{visitCopy.duration}</span>
                 <select
                   value={visitDurationMin}
                   onChange={(e) => setVisitDurationMin(e.target.value)}
@@ -1093,53 +1160,19 @@ export function CompanyModal({
               className="btn-primary"
             >
               {planningVisit
-                ? "Зберігаємо…"
+                ? "Збереження…"
                 : visitStartsAt
-                  ? "Запланувати на дату"
-                  : "Добавить в backlog"}
+                  ? visitCopy.scheduleDated
+                  : visitCopy.addToBacklog}
             </button>
-            <p className="text-xs text-zinc-500">
-              Якщо дату не вказувати, зустріч створиться без часу і зʼявиться в backlog візитів.
-            </p>
+            <p className="text-xs text-zinc-500">{visitCopy.backlogHint}</p>
           </div>
         </div>
-        <div className="border-t border-zinc-100 pt-3">
-          <div className="text-sm font-medium text-zinc-700 mb-2">Контакти</div>
-          {loadingContacts ? (
-            <p className="text-xs text-zinc-500">Завантаження…</p>
-          ) : companyContacts.length === 0 ? (
-            <p className="text-xs text-zinc-500">Немає привʼязаних контактів</p>
-          ) : (
-            <ul className="space-y-2">
-              {companyContacts.map((c) => (
-                <li key={c.id}>
-                  <button
-                    type="button"
-                    onClick={() => onOpenContact?.(c.id)}
-                    disabled={!onOpenContact}
-                    className="w-full rounded-lg border border-zinc-200 bg-white p-2.5 text-left text-sm transition-colors hover:border-zinc-300 hover:bg-zinc-50 disabled:cursor-default disabled:opacity-70 disabled:hover:bg-white disabled:hover:border-zinc-200"
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="min-w-0 flex-1 truncate font-medium text-zinc-900">
-                        {c.lastName} {c.firstName}
-                      </span>
-                      {onOpenContact ? (
-                        <span className="shrink-0 text-zinc-400" aria-hidden>→</span>
-                      ) : null}
-                    </div>
-                    {c.phone ? (
-                      <div className="mt-0.5 truncate text-xs text-zinc-500">{formatPhoneDisplay(c.phone)}</div>
-                    ) : null}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
+        ) : null}
         <div className="pt-2 text-xs text-zinc-500">
-          Created: {formatDateTime(company!.createdAt)}
+          Створено: {formatDateTime(company!.createdAt)}
           <br />
-          Updated: {formatDateTime(company!.updatedAt)}
+          Оновлено: {formatDateTime(company!.updatedAt)}
         </div>
       </div>
     );
@@ -1170,10 +1203,20 @@ export function CompanyModal({
     onClose,
     save,
     patchCompany,
-    loadingContacts,
-    companyContacts,
-    onOpenContact,
     scheduleVisit,
+    visitPlanOpen,
+    visitPurpose,
+    visitStartsAt,
+    visitDurationMin,
+    visitPlanError,
+    visitPlanSuccess,
+    planningVisit,
+    visitLocation,
+    ownerId,
+    userOptions,
+    loadingUsers,
+    region,
+    createOwnerId,
     addressRequiredForVisit,
     mapsApiKey,
     mapsConfigError,
@@ -1216,23 +1259,22 @@ export function CompanyModal({
   );
 
   const leftContent = (
-    <div className="min-h-0">
+    <div className="min-h-0 lg:h-full">
       {leftTab === "main" && (
         isCreate ? (
-          <div className="min-h-0 overflow-auto">
-            <EntitySection title="Про компанію">{aboutCompanySection}</EntitySection>
-          </div>
+          <EntitySection title="Про компанію">{aboutCompanySection}</EntitySection>
         ) : (
-          <div className="grid min-h-0 flex-1 grid-cols-1 gap-0 lg:grid-cols-2">
-            <div className="min-h-0 overflow-auto border-zinc-200 lg:border-r lg:pr-4">
+          <div className="grid grid-cols-1 gap-6 lg:h-full lg:min-h-0 lg:grid-cols-2 lg:gap-0">
+            <div className="min-w-0 lg:min-h-0 lg:overflow-y-auto lg:border-r lg:border-zinc-200 lg:pr-4">
               <EntitySection title="Про компанію">{aboutCompanySection}</EntitySection>
             </div>
-            <div className="min-h-0 overflow-auto pt-4 lg:pt-0 lg:pl-4 space-y-3">
-              <HelpRelated entityType="COMPANY" compact />
-              <EntityCallRecordingsPanel companyId={companyId} />
-              <EntitySection title="Активність">
-                <CompanyTimeline key={timelineRefreshKey} apiBaseUrl={apiBaseUrl} companyId={companyId} />
-              </EntitySection>
+            <div className="min-w-0 space-y-3 lg:min-h-0 lg:overflow-y-auto lg:pl-4">
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="text-sm font-semibold text-zinc-900">Активність</h3>
+                <HelpRelated entityType="COMPANY" variant="menu" />
+              </div>
+              <CompanyTimeline key={timelineRefreshKey} apiBaseUrl={apiBaseUrl} companyId={companyId} />
+              <EntityCallRecordingsPanel companyId={companyId} collapseWhenEmpty />
             </div>
           </div>
         )
@@ -1316,7 +1358,7 @@ export function CompanyModal({
                                 onClick={() => onOpenContact(c.id)}
                                 className="rounded border border-zinc-200 px-2 py-0.5 text-xs text-zinc-600 hover:bg-zinc-50"
                               >
-                                Open contact
+                                Відкрити
                               </button>
                             ) : null}
                             <button
@@ -1324,7 +1366,7 @@ export function CompanyModal({
                               onClick={() => void unlinkContactFromCompany(c.id)}
                               className="rounded p-1.5 text-zinc-500 hover:bg-red-50 hover:text-red-600"
                               title="Видалити з компанії"
-                              aria-label="Remove from company"
+                              aria-label="Прибрати з компанії"
                             >
                               <svg
                                 className="h-4 w-4"
@@ -1391,32 +1433,31 @@ export function CompanyModal({
       ) : null}
       <EntityModalShell
         title={title}
-        subtitle={company?.name}
+        subtitle={headerSubtitle}
         headerActions={
           !isCreate ? (
             <div className="flex items-center gap-2">
-              {(editPhone.trim() || company?.phone) ? (
-                <KyivstarDialButton
-                  phone={(editPhone.trim() || company?.phone)!}
-                  size="md"
-                  label="Позвонить"
-                />
-              ) : null}
+              {headerPhone ? <HeaderCallButton phone={headerPhone} /> : null}
               <button
                 type="button"
                 disabled={loading || !!err || planningVisit}
                 onClick={() => {
                   setLeftTab("main");
+                  setVisitPlanOpen(true);
                   window.setTimeout(() => {
                     document.getElementById("company-visit-plan")?.scrollIntoView({
                       behavior: "smooth",
                       block: "start",
                     });
-                  }, 50);
+                  }, 60);
                 }}
-                className="rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-sm font-medium text-zinc-800 hover:bg-zinc-50"
+                className={`rounded-md border px-2.5 py-1.5 text-sm font-medium ${
+                  visitPlanOpen
+                    ? "border-blue-200 bg-blue-50 text-blue-800"
+                    : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50"
+                }`}
               >
-                + Visit
+                Зустріч
               </button>
               <button
                 type="button"
@@ -1424,7 +1465,7 @@ export function CompanyModal({
                 onClick={() => void createOrder()}
                 className="btn-primary py-1.5"
               >
-                {creatingOrder ? "Creating…" : "+ Order"}
+                {creatingOrder ? "Створення…" : "Замовлення"}
               </button>
             </div>
           ) : null

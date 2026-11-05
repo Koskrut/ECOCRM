@@ -13,6 +13,21 @@ import {
 test("formatEntityAddressLine combines city and street", () => {
   assert.equal(formatEntityAddressLine("Київ", "вул. Хрещатик, 1"), "Київ, вул. Хрещатик, 1");
   assert.equal(formatEntityAddressLine(null, "вул. Хрещатик, 1"), "вул. Хрещатик, 1");
+  assert.equal(formatEntityAddressLine("Львів", "Львів, вул. A, 2"), "Львів, вул. A, 2");
+});
+
+test("formatEntityAddressLine drops a repeated city and the region tail", () => {
+  assert.equal(
+    formatEntityAddressLine(
+      "місто Одеса",
+      "Kuznechna St, 49, Одеса, Одеська область, 65000",
+    ),
+    "Одеса, Kuznechna St, 49",
+  );
+  assert.equal(
+    formatEntityAddressLine("Одеса", "Одеська область, 65000"),
+    "Одеса, Одеська область, 65000",
+  );
 });
 
 test("contactDenormalizedFromDefault copies default address to cache fields", () => {

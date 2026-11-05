@@ -2,6 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { GoogleMap, Marker, useLoadScript } from "@react-google-maps/api";
+import { MoreHorizontal } from "lucide-react";
+import {
+  FixedDropdownPortal,
+  useDismissOnOutsidePointerDown,
+} from "@/components/overlays/FixedDropdownPortal";
 import { AddressSuggestionsDropdown } from "@/components/inputs/AddressSuggestionsDropdown";
 import { NpCitySelect, cityNameOnly } from "@/components/inputs/NpDirectorySelects";
 import {
@@ -14,6 +19,7 @@ import {
 } from "@/lib/googlePlacesNew";
 import { resolveCityFromGoogleAddress } from "@/lib/contact-address.util";
 import { entityAddressesApi, type EntityAddress } from "@/lib/api/resources/entity-addresses";
+import { formatEntityAddressLine } from "@/lib/formatEntityAddressLine";
 import { apiHttp } from "@/lib/api/client";
 import { strings } from "@/locales";
 
@@ -66,6 +72,76 @@ function buildAddressLookupQuery(city: string, addressText: string): string {
     return addr;
   }
   return `${cityTrim}, ${addr}`;
+}
+
+function AddressRowMenu({
+  isDefault,
+  disabled,
+  onMakeDefault,
+  onEdit,
+  onDelete,
+}: {
+  isDefault: boolean;
+  disabled: boolean;
+  onMakeDefault: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const anchorRef = useRef<HTMLDivElement | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  useDismissOnOutsidePointerDown(open, () => setOpen(false), anchorRef, panelRef);
+
+  return (
+    <div ref={anchorRef} className="relative shrink-0">
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-label="Дії з адресою"
+        disabled={disabled}
+        onClick={() => setOpen((value) => !value)}
+        className="rounded-md p-1 text-zinc-500 hover:bg-white disabled:opacity-50"
+      >
+        <MoreHorizontal className="h-4 w-4" />
+      </button>
+      <FixedDropdownPortal open={open} anchorRef={anchorRef} panelRef={panelRef} minWidth={180} maxHeight="12rem">
+        <div className="p-1">
+          {!isDefault ? (
+            <button
+              type="button"
+              className="block w-full rounded px-2 py-1.5 text-left text-sm text-zinc-800 hover:bg-zinc-50"
+              onClick={() => {
+                setOpen(false);
+                onMakeDefault();
+              }}
+            >
+              Зробити основним
+            </button>
+          ) : null}
+          <button
+            type="button"
+            className="block w-full rounded px-2 py-1.5 text-left text-sm text-zinc-800 hover:bg-zinc-50"
+            onClick={() => {
+              setOpen(false);
+              onEdit();
+            }}
+          >
+            Редагувати
+          </button>
+          <button
+            type="button"
+            className="block w-full rounded px-2 py-1.5 text-left text-sm text-red-600 hover:bg-red-50"
+            onClick={() => {
+              setOpen(false);
+              onDelete();
+            }}
+          >
+            Видалити
+          </button>
+        </div>
+      </FixedDropdownPortal>
+    </div>
+  );
 }
 
 function EntityAddressGoogleScriptLoader({
@@ -398,47 +474,31 @@ export function EntityAddressesSection({
               >
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
-                    <div className="font-medium text-zinc-900">{row.displayLine}</div>
-                    <div className="mt-0.5 flex flex-wrap gap-2 text-xs text-zinc-500">
+                    <div className="font-medium text-zinc-900">
+                      {formatEntityAddressLine(row.city, row.addressText)}
+                    </div>
+                    <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
                       {row.label ? <span>{row.label}</span> : null}
                       {row.isDefault ? (
                         <span className="rounded bg-blue-100 px-1.5 py-0.5 text-blue-700">Основний</span>
                       ) : null}
                       {row.hasCoordinates ? (
-                        <span className="text-emerald-700">Є координати</span>
+                        <span className="inline-flex items-center gap-1 text-emerald-700">
+                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" aria-hidden />
+                          Є координати
+                        </span>
                       ) : (
                         <span className={highlight ? "text-red-600" : "text-amber-700"}>Без координат</span>
                       )}
                     </div>
                   </div>
-                  <div className="flex shrink-0 flex-col gap-1">
-                    {!row.isDefault ? (
-                      <button
-                        type="button"
-                        className="text-xs text-blue-600 hover:underline disabled:opacity-50"
-                        disabled={disabled || mutatingId === row.id}
-                        onClick={() => void handleSetDefault(row.id)}
-                      >
-                        Зробити основним
-                      </button>
-                    ) : null}
-                    <button
-                      type="button"
-                      className="text-xs text-zinc-600 hover:underline disabled:opacity-50"
-                      disabled={disabled || mutatingId === row.id}
-                      onClick={() => openEdit(row)}
-                    >
-                      Редагувати
-                    </button>
-                    <button
-                      type="button"
-                      className="text-xs text-red-600 hover:underline disabled:opacity-50"
-                      disabled={disabled || mutatingId === row.id}
-                      onClick={() => void handleDelete(row.id)}
-                    >
-                      Видалити
-                    </button>
-                  </div>
+                  <AddressRowMenu
+                    isDefault={row.isDefault}
+                    disabled={disabled || mutatingId === row.id}
+                    onMakeDefault={() => void handleSetDefault(row.id)}
+                    onEdit={() => openEdit(row)}
+                    onDelete={() => void handleDelete(row.id)}
+                  />
                 </div>
               </li>
             );

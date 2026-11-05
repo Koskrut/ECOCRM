@@ -108,8 +108,8 @@ export function EntityModalShell({
           </div>
         ) : null}
 
-        {/* Body: on narrow viewports single scroll column (left then right). On xl: grid 7+5 cols, columns scroll independently. */}
-        <div className="flex min-h-0 flex-1 flex-col overflow-auto xl:grid xl:grid-cols-12 xl:gap-0 xl:overflow-visible">
+        {/* Body: below xl one scroll column. On xl the row is height-bounded so each column scrolls instead of being clipped by the modal. */}
+        <div className="flex min-h-0 flex-1 flex-col overflow-auto xl:grid xl:grid-cols-12 xl:grid-rows-[minmax(0,1fr)] xl:gap-0 xl:overflow-hidden">
           <div
             className={`min-h-0 min-w-0 w-full shrink-0 p-3 sm:p-5 xl:min-h-0 xl:overflow-auto ${right != null ? "xl:col-span-7" : "xl:col-span-12"}`}
           >

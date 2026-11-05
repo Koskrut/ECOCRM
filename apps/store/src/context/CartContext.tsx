@@ -85,9 +85,9 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    if (!telegram.ready) return;
-    // Wait for Mini App session exchange so we do not load a guest cart then thrash.
-    if (telegram.isTelegram && telegram.loading) return;
+    // A saved Mini App token can load the cart while auth is still refreshing.
+    if (!telegram.ready && !telegram.token) return;
+    if (telegram.isTelegram && telegram.loading && !telegram.token) return;
 
     let cancelled = false;
     const run = async () => {

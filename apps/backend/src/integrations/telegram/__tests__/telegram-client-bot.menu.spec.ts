@@ -130,6 +130,7 @@ function makeBot(opts: {
               phone: "+380671112233",
             }
           : opts.contact,
+      create: async () => ({ id: "contact-draft" }),
     },
     telegramAccount: {
       findUnique: async () => opts.account ?? null,
@@ -1098,7 +1099,7 @@ describe("TelegramClientBotService menu / idle", () => {
   });
 
   it("onboarding collects name → role → region and creates CRM contact", async () => {
-    const { service, sent, sessions, contactCreates, accountUpdates, conversationUpdates } =
+    const { service, sent, sessions, contactCreates, contactUpdates, accountUpdates, conversationUpdates } =
       makeBot({
       account: { phone: "+380501112233", contactId: null, leadId: "lead-1" },
       lead: { companyId: "company-1" },
@@ -1115,6 +1116,16 @@ describe("TelegramClientBotService menu / idle", () => {
       leadId: "lead-1",
     });
     assert.equal(sessions.state, "onboarding_name");
+    assert.equal(sessions.payload.onboardingDraft, true);
+    assert.equal(sessions.payload.onboardingContactId, "contact-draft");
+
+    await service.handleClientTurn({
+      parsed: parsed({ text: MENU_CATALOG }),
+      conversationId: "conv1",
+      contactId: null,
+      leadId: "lead-1",
+    });
+    assert.equal(sessions.state, "onboarding_name", "catalog stays closed until onboarding ends");
 
     await service.handleClientTurn({
       parsed: parsed({ text: "Олена Коваленко" }),
@@ -1147,14 +1158,16 @@ describe("TelegramClientBotService menu / idle", () => {
       callbackQueryId: "cb-reg",
     });
     assert.equal(sessions.state, "idle");
-    assert.equal(contactCreates.length, 1);
-    assert.equal(contactCreates[0]?.firstName, "Олена");
-    assert.equal(contactCreates[0]?.lastName, "Коваленко");
-    assert.equal(contactCreates[0]?.clientType, "Врач");
-    assert.equal(contactCreates[0]?.region, "Київська");
-    assert.equal(contactCreates[0]?.ownerId, "mgr-kyiv");
-    assert.equal(contactCreates[0]?.companyId, "company-1");
-    assert.ok(accountUpdates.some((u) => u?.data?.contactId === "contact-new"));
+    assert.equal(contactCreates.length, 0);
+    const saved = contactUpdates.find((u) => u.id === "contact-draft" && u.firstName === "Олена");
+    assert.ok(saved, "onboarding fills the draft contact");
+    assert.equal(saved?.lastName, "Коваленко");
+    assert.equal(saved?.clientType, "Врач");
+    assert.equal(saved?.region, "Київська");
+    assert.equal(saved?.ownerId, "mgr-kyiv");
+    assert.equal(saved?.companyId, "company-1");
+    assert.equal(saved?.phone, "+380501112233");
+    assert.ok(accountUpdates.some((u) => u?.data?.contactId === "contact-draft"));
     assert.ok(
       conversationUpdates.some((u) => u?.data?.assignedToUserId === "mgr-kyiv"),
       "inbox thread auto-assigned to regional manager",

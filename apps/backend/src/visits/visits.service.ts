@@ -163,13 +163,13 @@ export class VisitsService {
     startsAt: Date,
     actor: AuthUser,
   ) {
-    const planBody = `Запланирована на ${startsAt.toLocaleString("uk-UA")}`;
+    const planBody = `Заплановано на ${startsAt.toLocaleString("uk-UA")}`;
     if (visit.contactId) {
       return this.activitiesService.createForContact(
         visit.contactId,
         {
           type: "MEETING",
-          title: "Встреча (план)",
+          title: "Зустріч (план)",
           body: planBody,
           occurredAt: startsAt.toISOString(),
         },
@@ -181,7 +181,7 @@ export class VisitsService {
         visit.companyId,
         {
           type: "MEETING",
-          title: "Встреча (план)",
+          title: "Зустріч (план)",
           body: planBody,
           occurredAt: startsAt.toISOString(),
         },
@@ -199,7 +199,7 @@ export class VisitsService {
     visitId: string,
   ) {
     const activityBody = body.resultNote.trim();
-    const activityTitle = `Встреча (${body.outcome})`;
+    const activityTitle = `Зустріч (${body.outcome})`;
     if (visit.activityId) {
       await this.prisma.activity.update({
         where: { id: visit.activityId },

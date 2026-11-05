@@ -17,6 +17,7 @@ import { signJwt } from "../../auth/jwt";
 import {
   getPhoneCandidatesForLookup,
   getPhoneNormalizedDigits,
+  normalizePhoneToE164,
 } from "../../common/phone.utils";
 import { ContactsService } from "../../contacts/contacts.service";
 import { IntegrationPortsService } from "../../integration-ports/integration-ports.service";
@@ -224,10 +225,15 @@ function withOnboardingFields(
       | "onboardingLastName"
       | "onboardingClientType"
       | "onboardingContactId"
+      | "onboardingDraft"
     >
   >,
 ): BotSessionPayload {
-  return { ...pickCheckoutDraft(draft), ...fields };
+  return {
+    ...pickCheckoutDraft(draft),
+    ...fields,
+    onboardingDraft: fields.onboardingDraft ?? draft.onboardingDraft,
+  };
 }
 
 function clientSafeCheckoutError(err: unknown): string {
@@ -430,7 +436,9 @@ export class TelegramClientBotService {
         isSlashCommand(text, "orders");
       // Gap-fill for an existing CRM contact must not trap Каталог/Замовлення.
       // New-client onboarding (no contact yet) still blocks commerce until name/role/region done.
-      const isGapFill = Boolean(earlySession.payload.onboardingContactId);
+      const isGapFill =
+        Boolean(earlySession.payload.onboardingContactId) &&
+        earlySession.payload.onboardingDraft !== true;
       if (isGapFill && wantsCommerce) {
         await this.sessions.resetIdle(parsed.userId);
         // Fall through to commerce handlers below.
@@ -735,7 +743,9 @@ export class TelegramClientBotService {
           onboardingContactId: payload.onboardingContactId,
         }),
       );
-      await this.askOnboardingRole(parsed, conversationId);
+      await this.askOnboardingRole(parsed, conversationId, {
+        back: payload.onboardingDraft === true || !payload.onboardingContactId,
+      });
       return;
     }
     if (state === "onboarding_role" || state === "onboarding_region") {
@@ -1770,13 +1780,80 @@ export class TelegramClientBotService {
     conversationId: string,
     preservePayload: BotSessionPayload = {},
   ): Promise<void> {
-    await this.sessions.set(parsed.userId, "onboarding_name", pickCheckoutDraft(preservePayload));
-    // Hide share-phone / commerce keyboard until the profile is complete.
+    let contactId = preservePayload.onboardingContactId;
+    if (!contactId) {
+      const phone =
+        usablePhone(parsed.phone) ??
+        (await this.resolveKnownPhone(parsed.userId, null, null));
+      if (phone) {
+        const created = await this.createDraftContact(parsed.userId, phone);
+        if (created) {
+          contactId = created;
+          await this.linkTelegramToContact(parsed.userId, parsed.chatId, created);
+        }
+      }
+    }
+    await this.sessions.set(
+      parsed.userId,
+      "onboarding_name",
+      withOnboardingFields(preservePayload, {
+        onboardingContactId: contactId,
+        onboardingDraft: true,
+      }),
+    );
     await this.replyOnboardingText(
       parsed.chatId,
       conversationId,
       `${TELEGRAM_ONBOARDING_INTRO}\n\n${TELEGRAM_ONBOARDING_ASK_NAME}`,
     );
+  }
+
+  /**
+   * Phone is not in CRM yet. Create the card now so onboarding fills the same row
+   * (name, role, region) and the store can open the cabinet afterwards.
+   */
+  private async createDraftContact(telegramUserId: string, phone: string): Promise<string | null> {
+    const phoneNormalized = getPhoneNormalizedDigits(phone);
+    if (!phoneNormalized) return null;
+    const existing = await this.findCrmContactIdByPhone(phone);
+    if (existing) return existing;
+    const canonical = normalizePhoneToE164(phone) ?? phone.trim();
+    let companyId: string | null = null;
+    try {
+      const account = await this.prisma.telegramAccount.findUnique({
+        where: { telegramUserId },
+        select: { leadId: true },
+      });
+      if (account?.leadId) {
+        const lead = await this.prisma.lead.findUnique({
+          where: { id: account.leadId },
+          select: { companyId: true },
+        });
+        companyId = lead?.companyId ?? null;
+      }
+    } catch {
+      /* company is optional on the draft */
+    }
+    try {
+      const created = await this.prisma.contact.create({
+        data: {
+          firstName: "Клієнт",
+          lastName: "Telegram",
+          phone: canonical,
+          phoneNormalized,
+          region: null,
+          clientType: null,
+          companyId,
+        },
+        select: { id: true },
+      });
+      return created.id;
+    } catch (err) {
+      this.logger.warn(
+        `draft contact: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return this.findCrmContactIdByPhone(phone);
+    }
   }
 
   private async askOnboardingRole(
@@ -1870,12 +1947,12 @@ export class TelegramClientBotService {
           }),
         );
         await this.askOnboardingRole(parsed, conversationId, {
-          back: !session.payload.onboardingContactId,
+          back: session.payload.onboardingDraft === true || !session.payload.onboardingContactId,
         });
         return;
       }
       if (session.state === "onboarding_role") {
-        if (session.payload.onboardingContactId) {
+        if (session.payload.onboardingContactId && session.payload.onboardingDraft !== true) {
           // Gap-fill started at role — back = abort to Start.
           await this.sessions.resetIdle(parsed.userId);
           await this.replyStartOnly(parsed.chatId, conversationId, TELEGRAM_ONBOARDING_PAUSED);
@@ -1921,9 +1998,9 @@ export class TelegramClientBotService {
         return;
       }
 
-      // Persist role immediately so Замовлення/Каталог never re-ask if region step is skipped.
+      // Gap-fill may already have a region. A new-phone draft must still pick one.
       const gapContactId = session.payload.onboardingContactId;
-      if (gapContactId) {
+      if (gapContactId && session.payload.onboardingDraft !== true) {
         try {
           await this.contacts.update(gapContactId, { clientType });
         } catch (err) {
@@ -2088,6 +2165,7 @@ export class TelegramClientBotService {
       try {
         await this.contacts.update(contactId, {
           ...profileData,
+          ...(companyId ? { companyId } : {}),
           ...(phone ? { phone } : {}),
         });
       } catch (updateErr) {

@@ -36,7 +36,9 @@ export function timelineTitle(item: TimelineItem): string {
     if (item.kind === "visit") return "Візит";
     return "Подія";
   }
-  return TITLE_ALIASES[raw] ?? raw;
+  const aliased = TITLE_ALIASES[raw] ?? raw;
+  if (aliased.startsWith("Встреча")) return `Зустріч${aliased.slice("Встреча".length)}`;
+  return aliased;
 }
 
 export function statusTransition(item: TimelineItem): { from: string; to: string } | null {
@@ -129,5 +131,5 @@ export function timelineBody(item: TimelineItem): string | null {
   if (item.kind === "status_change" && /^[A-Z0-9_]+(\s*→\s*[A-Z0-9_]+)?$/.test(trimmed)) {
     return null;
   }
-  return trimmed;
+  return trimmed.replace(/^Запланирована на(?=\s)/, "Заплановано на");
 }

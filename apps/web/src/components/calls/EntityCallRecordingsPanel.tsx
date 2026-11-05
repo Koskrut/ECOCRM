@@ -13,21 +13,24 @@ type Props = {
   /** Max recordings to show (default 8). */
   limit?: number;
   className?: string;
+  /** When there is nothing to play, show a single row instead of an empty panel. */
+  collapseWhenEmpty?: boolean;
 };
 
 function directionLabel(direction: string | null): string {
   const d = (direction ?? "").toUpperCase();
-  if (d === "INBOUND") return "Входящий";
-  if (d === "OUTBOUND") return "Исходящий";
-  return "Звонок";
+  if (d === "INBOUND") return "Вхідний";
+  if (d === "OUTBOUND") return "Вихідний";
+  return "Дзвінок";
 }
 
 function formatDuration(sec: number | null | undefined): string | null {
   if (sec == null || !Number.isFinite(sec) || sec <= 0) return null;
   const minutes = Math.floor(sec / 60);
   const seconds = sec % 60;
-  if (minutes === 0) return `${seconds}s`;
-  return `${minutes}m ${seconds.toString().padStart(2, "0")}s`;
+  if (minutes === 0) return `${seconds} с`;
+  if (seconds === 0) return `${minutes} хв`;
+  return `${minutes} хв ${seconds.toString().padStart(2, "0")} с`;
 }
 
 function hasPlayableRecording(item: CallsHistoryItem): boolean {
@@ -42,10 +45,14 @@ export function EntityCallRecordingsPanel({
   companyId,
   limit = 8,
   className = "",
+  collapseWhenEmpty = false,
 }: Props) {
   const [items, setItems] = useState<CallsHistoryItem[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(
+    Boolean(contactId?.trim() || leadId?.trim() || companyId?.trim()),
+  );
   const [error, setError] = useState<string | null>(null);
+  const [opened, setOpened] = useState(false);
 
   const load = useCallback(async () => {
     const cId = contactId?.trim() || undefined;
@@ -81,6 +88,22 @@ export function EntityCallRecordingsPanel({
 
   if (!contactId?.trim() && !leadId?.trim() && !companyId?.trim()) {
     return null;
+  }
+
+  if (collapseWhenEmpty && !opened && !error && items.length === 0) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpened(true)}
+        className={`flex w-full items-center justify-between gap-2 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-left text-sm text-zinc-700 hover:bg-zinc-50 ${className}`}
+      >
+        <span className="inline-flex items-center gap-2">
+          <Phone className="h-4 w-4 text-emerald-600" aria-hidden />
+          Записи розмов
+        </span>
+        <span className="text-xs text-zinc-400">{loading ? "Завантаження…" : "Немає"}</span>
+      </button>
+    );
   }
 
   return (

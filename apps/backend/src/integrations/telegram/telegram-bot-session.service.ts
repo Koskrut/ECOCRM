@@ -27,6 +27,11 @@ export type BotSessionPayload = {
   onboardingClientType?: string;
   /** Gap-fill for an existing CRM contact missing role/region. */
   onboardingContactId?: string;
+  /**
+   * Phone was new: a draft contact exists, but name/role/region are not finished.
+   * Commerce stays closed until onboarding completes. Distinct from gap-fill.
+   */
+  onboardingDraft?: boolean;
   /** Checkout draft */
   region?: string;
   deliveryMethod?: "PICKUP" | "NOVA_POSHTA";

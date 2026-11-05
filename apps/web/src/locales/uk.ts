@@ -2872,9 +2872,9 @@ export const uk = {
         lastVisit: "Останній візит",
         noVisits: "Немає візитів",
         scheduleDated: "Запланувати на дату",
-        addToBacklog: "Додати в backlog",
+        addToBacklog: "Додати без дати",
         backlogHint:
-          "Якщо дату не вказати, зустріч створиться без часу і з'явиться в backlog візитів.",
+          "Якщо дату не вказати, зустріч створиться без часу і з'явиться в черзі візитів.",
       },
       identity: {
         sectionTitle: "Контакт",

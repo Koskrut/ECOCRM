@@ -6,17 +6,41 @@ export type EntityAddressRecord = {
   googlePlaceId: string | null;
 };
 
+const CITY_KIND_PREFIX = /^(?:місто|м\.|город|г\.)\s+/iu;
+
+/** Drop a leading "місто" / "м." so the city name can be matched inside a Google line. */
+export function normalizeCityLabel(city: string): string {
+  return city.replace(CITY_KIND_PREFIX, "").trim();
+}
+
+function indexOfCityToken(text: string, city: string): number {
+  const escaped = city.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const re = new RegExp(`(?:^|[,\\s]+)(${escaped})(?=$|[,\\s])`, "iu");
+  const match = re.exec(text);
+  if (!match || match[1] == null) return -1;
+  return match.index + match[0].length - match[1].length;
+}
+
+/**
+ * One scannable line: "Одеса, Kuznechna St, 49".
+ * If the street text already contains the city, region and postal code after it are dropped.
+ */
 export function formatEntityAddressLine(
   city: string | null | undefined,
   addressText: string | null | undefined,
 ): string {
-  const cityTrim = city?.trim() ?? "";
+  const cityName = normalizeCityLabel(city?.trim() ?? "");
   const textTrim = addressText?.trim() ?? "";
-  if (cityTrim && textTrim) {
-    if (textTrim.toLowerCase().includes(cityTrim.toLowerCase())) return textTrim;
-    return `${cityTrim}, ${textTrim}`;
+  if (cityName && textTrim) {
+    const at = indexOfCityToken(textTrim, cityName);
+    if (at >= 0) {
+      const street = textTrim.slice(0, at).replace(/[,\s]+$/g, "");
+      if (street) return `${cityName}, ${street}`;
+      return textTrim;
+    }
+    return `${cityName}, ${textTrim}`;
   }
-  return textTrim || cityTrim;
+  return textTrim || cityName;
 }
 
 export function contactDenormalizedFromDefault(

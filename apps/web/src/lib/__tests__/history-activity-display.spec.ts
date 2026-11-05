@@ -179,4 +179,16 @@ describe("order activity display", () => {
     assert.equal(timelineTitle(item), "ТТН 20450123456789");
     assert.equal(timelineBody(item), null);
   });
+
+  it("shows a planned visit in Ukrainian", () => {
+    const item = timelineItem({
+      kind: "meeting",
+      title: "Встреча (план)",
+      body: "Запланирована на 26.10.2026, 14:00:00",
+      meta: { kind: "raw", data: {} },
+    });
+
+    assert.equal(timelineTitle(item), "Зустріч (план)");
+    assert.equal(timelineBody(item), "Заплановано на 26.10.2026, 14:00:00");
+  });
 });

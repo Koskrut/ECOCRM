@@ -187,7 +187,7 @@ describe("StoreTelegramWebAppService.createSession", () => {
     assert.ok(session.storeToken);
   });
 
-  it("creates a store contact from the telegram phone when CRM has none", async () => {
+  it("does not open the cabinet when the phone is not in CRM yet", async () => {
     process.env.JWT_SECRET = process.env.JWT_SECRET || "test-secret-for-store-tg";
     const botToken = "123456:ABC-DEF";
     const user = JSON.stringify({ id: 556, first_name: "Олег" });
@@ -196,7 +196,7 @@ describe("StoreTelegramWebAppService.createSession", () => {
       auth_date: String(Math.floor(Date.now() / 1000)),
       query_id: "q4",
     });
-    let createdPhone: string | null = null;
+    let created = false;
     const service = new StoreTelegramWebAppService(
       {
         telegramAccount: {
@@ -217,19 +217,17 @@ describe("StoreTelegramWebAppService.createSession", () => {
         conversation: { findUnique: async () => null },
         lead: { findUnique: async () => null, findFirst: async () => null },
         contact: {
-          findUnique: async () => ({
-            phone: "+380671234567",
-            firstName: "Олег",
-            lastName: "Мельник",
-          }),
-          create: async (args: { data: { phone: string } }) => {
-            createdPhone = args.data.phone;
+          findUnique: async () => null,
+          create: async () => {
+            created = true;
             return { id: "c-new" };
           },
         },
         customer: {
           findUnique: async () => null,
-          create: async () => ({ id: "cust4", contactId: "c-new" }),
+          create: async () => {
+            throw new Error("should not create customer");
+          },
         },
       } as never,
       { getTelegramSecrets: async () => ({ botToken }) } as never,
@@ -237,10 +235,69 @@ describe("StoreTelegramWebAppService.createSession", () => {
       { unifyTelegramCart: async () => undefined } as never,
     );
     const session = await service.createSession(initData);
-    assert.equal(createdPhone, "+380671234567");
-    assert.equal(session.contactId, "c-new");
-    assert.equal(session.loggedIn, true);
-    assert.ok(session.storeToken);
+    assert.equal(created, false);
+    assert.equal(session.contactId, null);
+    assert.equal(session.loggedIn, false);
+    assert.equal(session.storeToken, null);
+    assert.equal(session.phone, "+380671234567");
+  });
+
+  it("keeps a draft contact out of the cabinet until onboarding finishes", async () => {
+    process.env.JWT_SECRET = process.env.JWT_SECRET || "test-secret-for-store-tg";
+    const botToken = "123456:ABC-DEF";
+    const user = JSON.stringify({ id: 557, first_name: "Олег" });
+    const initData = signInitData(botToken, {
+      user,
+      auth_date: String(Math.floor(Date.now() / 1000)),
+      query_id: "q4b",
+    });
+    const service = new StoreTelegramWebAppService(
+      {
+        telegramAccount: {
+          findUnique: async () => ({
+            id: "acc4b",
+            telegramChatId: "557",
+            phone: "+380671234567",
+            contactId: "c-draft",
+            leadId: null,
+            firstName: "Олег",
+            lastName: null,
+          }),
+          create: async () => {
+            throw new Error("should not create account");
+          },
+          updateMany: async () => ({ count: 1 }),
+        },
+        conversation: { findUnique: async () => null },
+        lead: { findUnique: async () => null, findFirst: async () => null },
+        contact: {
+          findUnique: async () => ({
+            phone: "+380671234567",
+            firstName: "Клієнт",
+            lastName: "Telegram",
+            region: null,
+            clientType: "Врач",
+          }),
+        },
+        customer: {
+          findUnique: async () => null,
+          create: async () => {
+            throw new Error("should not create customer");
+          },
+        },
+      } as never,
+      { getTelegramSecrets: async () => ({ botToken }) } as never,
+      { findContactByPhone: async () => ({ id: "c-draft" }) } as never,
+      { unifyTelegramCart: async () => undefined } as never,
+    );
+    const session = await service.createSession(initData);
+    assert.equal(session.loggedIn, false);
+    assert.equal(session.contactId, null);
+    assert.equal(session.storeToken, null);
+    assert.equal(session.firstName, null);
+    assert.equal(session.lastName, null);
+    assert.equal(session.region, null);
+    assert.equal(session.phone, "+380671234567");
   });
 
   it("logs in from the catalog handoff phone when the telegram account has no contact", async () => {

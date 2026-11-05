@@ -11,7 +11,6 @@ import {
 import {
   getPhoneCandidatesForLookup,
   getPhoneNormalizedDigits,
-  normalizePhoneToE164,
 } from "../../common/phone.utils";
 import { ContactsService } from "../../contacts/contacts.service";
 import { cartSessionId } from "../../integrations/telegram/telegram-client.constants";
@@ -223,8 +222,9 @@ export class StoreTelegramWebAppService {
   }
 
   /**
-   * Cart already follows `tg:{userId}`. Cabinet login needs a CRM contact:
-   * the bot link, the shared phone, or a contact we create from that phone.
+   * Cart already follows `tg:{userId}`. Cabinet login needs a finished CRM contact
+   * (bot link or shared phone). A new phone stays a draft until onboarding writes
+   * the real name, role and region — the store does not create a second card.
    */
   private async resolveStoreIdentity(params: {
     telegramUserId: string;
@@ -251,7 +251,6 @@ export class StoreTelegramWebAppService {
     let firstName = account?.firstName ?? params.telegramFirstName;
     let lastName = account?.lastName ?? params.telegramLastName;
     let leadId = account?.leadId ?? null;
-    let companyId: string | null = null;
     let region: string | null = null;
 
     const chatIds = [account?.telegramChatId, telegramUserId].filter(
@@ -304,7 +303,6 @@ export class StoreTelegramWebAppService {
             firstName: true,
             lastName: true,
             region: true,
-            companyId: true,
           },
         });
         if (lead) {
@@ -313,7 +311,6 @@ export class StoreTelegramWebAppService {
           firstName = firstName || lead.firstName || null;
           lastName = lastName || lead.lastName || null;
           region = region ?? lead.region ?? null;
-          companyId = lead.companyId;
         }
       } catch {
         /* ignore */
@@ -339,7 +336,6 @@ export class StoreTelegramWebAppService {
               firstName: true,
               lastName: true,
               region: true,
-              companyId: true,
             },
             orderBy: { createdAt: "desc" },
           });
@@ -350,7 +346,6 @@ export class StoreTelegramWebAppService {
             firstName = firstName || lead.firstName || null;
             lastName = lastName || lead.lastName || null;
             region = region ?? lead.region ?? null;
-            companyId = companyId ?? lead.companyId;
           }
         }
       } catch {
@@ -373,20 +368,10 @@ export class StoreTelegramWebAppService {
       }
     }
 
-    if (!contactId && phone) {
-      contactId = await this.provisionContactFromTelegram({
-        phone,
-        firstName,
-        lastName,
-        region,
-        companyId,
-      });
-      if (contactId && leadId) {
-        await this.prisma.lead
-          .update({ where: { id: leadId }, data: { contactId } })
-          .catch(() => undefined);
-      }
-    }
+    // A new phone is a draft until the bot collects name, role and region.
+    // Role can be saved mid-wizard; placeholder name without a region still stays out.
+    const draftProfile = firstName === "Клієнт" && lastName === "Telegram" && !region?.trim();
+    const loginContactId = draftProfile ? null : contactId;
 
     if (contactId && contactId !== account?.contactId) {
       await this.prisma.telegramAccount.updateMany({
@@ -395,7 +380,13 @@ export class StoreTelegramWebAppService {
       });
     }
 
-    return { phone, contactId, firstName, lastName, region };
+    return {
+      phone,
+      contactId: loginContactId,
+      firstName: draftProfile ? null : firstName,
+      lastName: draftProfile ? null : lastName,
+      region: draftProfile ? null : region,
+    };
   }
 
   private async findContactIdByPhone(phone: string): Promise<string | null> {
@@ -445,35 +436,4 @@ export class StoreTelegramWebAppService {
     }
   }
 
-  /** Phone is already known from the bot, but CRM has no contact yet — open the cabinet anyway. */
-  private async provisionContactFromTelegram(params: {
-    phone: string;
-    firstName: string | null;
-    lastName: string | null;
-    region: string | null;
-    companyId: string | null;
-  }): Promise<string | null> {
-    const phoneNormalized = getPhoneNormalizedDigits(params.phone);
-    if (!phoneNormalized) return null;
-    const phone = normalizePhoneToE164(params.phone) ?? params.phone.trim();
-    try {
-      const created = await this.prisma.contact.create({
-        data: {
-          firstName: params.firstName?.trim() || "Клієнт",
-          lastName: params.lastName?.trim() || "Telegram",
-          phone,
-          phoneNormalized,
-          region: params.region,
-          companyId: params.companyId,
-        },
-        select: { id: true },
-      });
-      return created.id;
-    } catch (err) {
-      this.logger.warn(
-        `provision telegram contact: ${err instanceof Error ? err.message : String(err)}`,
-      );
-      return this.findContactIdByPhone(params.phone);
-    }
-  }
 }

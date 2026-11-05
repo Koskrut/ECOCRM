@@ -134,14 +134,17 @@ export function TelegramWebAppProvider({ children }: { children: React.ReactNode
   const restoreSavedSession = useCallback(() => {
     const savedProfile = getTelegramStoreProfile();
     const savedToken = getTelegramStoreToken();
-    const keepLogin = Boolean(getTelegramCabinetToken() && savedProfile?.contactId);
-    if (!savedToken && !keepLogin) return false;
+    const cabinetToken = getTelegramCabinetToken();
+    if (!savedToken && !cabinetToken) return false;
+    // contactId is stored only after a finished profile, so checkout can show it
+    // before the next initData exchange returns.
+    const keepLogin = Boolean(savedProfile?.contactId);
     setToken(savedToken);
     setCartSessionId(getTelegramCartSessionId());
     setProfile(savedProfile);
     loggedInRef.current = keepLogin;
     setLoggedIn(keepLogin);
-    return keepLogin;
+    return true;
   }, []);
 
   const refreshSession = useCallback(async () => {
@@ -164,10 +167,13 @@ export function TelegramWebAppProvider({ children }: { children: React.ReactNode
     let cancelled = false;
 
     const boot = async () => {
-      setLoading(true);
+      // Show the cart from the previous Mini App token immediately. Auth can refresh behind it.
+      const restored = restoreSavedSession();
+      if (restored) setReady(true);
+      else setLoading(true);
       // Catalog web_app can hydrate before telegram-web-app.js copies tgWebAppData.
       // A signed ?tgAuth= URL is still a Mini App open even when the UA looks like Safari.
-      const app = await waitForTelegramWebApp({ timeoutMs: 8_000 });
+      const app = await waitForTelegramWebApp({ timeoutMs: restored ? 2_000 : 8_000 });
       if (cancelled) return;
       let initData = resolveTelegramInitData(app);
       const inTelegram =
@@ -202,10 +208,11 @@ export function TelegramWebAppProvider({ children }: { children: React.ReactNode
       }
 
       // Desktop / some WebViews inject initData after ?tgAuth paints the catalog.
+      // Keep this short when a cart token is already on screen.
       if (!initData) {
-        restoreSavedSession();
         const started = Date.now();
-        while (!cancelled && Date.now() - started < 12_000) {
+        const budget = restored ? 2_000 : 8_000;
+        while (!cancelled && Date.now() - started < budget) {
           await sleep(200);
           initData = resolveTelegramInitData(getTelegramWebApp());
           if (initData) break;
@@ -267,7 +274,6 @@ export function TelegramWebAppProvider({ children }: { children: React.ReactNode
         return;
       }
       window.clearInterval(timer);
-      setLoading(true);
       void exchangeInitData(initData)
         .then((session) => {
           if (!stopped) applySession(session);
@@ -275,9 +281,6 @@ export function TelegramWebAppProvider({ children }: { children: React.ReactNode
         .catch((err: unknown) => {
           if (stopped || loggedInRef.current) return;
           setError(err instanceof Error ? err.message : "Не вдалося увійти через Telegram");
-        })
-        .finally(() => {
-          if (!stopped) setLoading(false);
         });
     }, 250);
 
