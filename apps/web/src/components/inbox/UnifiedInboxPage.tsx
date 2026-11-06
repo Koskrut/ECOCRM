@@ -15,7 +15,7 @@ import {
   type MetaMessageItem,
 } from "@/lib/api";
 import { apiHttp } from "@/lib/api/client";
-import { ApiError } from "@/lib/api/errors";
+import { ApiError, getUserFriendlyApiError } from "@/lib/api/errors";
 import { authApi } from "@/lib/api/resources/auth";
 import { MessageCircle, Settings, User } from "lucide-react";
 import { DateTime } from "luxon";
@@ -54,6 +54,8 @@ type UnifiedConversation = {
   pinnedAt: string | null;
   lastReadAt: string | null;
   unreadCount: number;
+  waitingForReply?: boolean;
+  noteHint?: string | null;
   lastMessageAt: string | null;
   lastMessage: {
     text: string | null;
@@ -75,6 +77,55 @@ type UnifiedMessage = {
   mediaType?: string | null;
   fileUrl?: string | null;
 };
+
+type QueueScope = "all" | "mine" | "unassigned";
+
+function inboxActionError(error: unknown, fallback: string): string {
+  if (error instanceof ApiError && error.message.trim()) return error.message;
+  return getUserFriendlyApiError(error, fallback);
+}
+
+function mergeMessages(prev: UnifiedMessage[], incoming: UnifiedMessage[]): UnifiedMessage[] {
+  const byId = new Map(prev.map((m) => [m.id, m]));
+  for (const message of incoming) byId.set(message.id, message);
+  return [...byId.values()].sort((a, b) => {
+    const delta = Date.parse(a.sentAt) - Date.parse(b.sentAt);
+    if (delta !== 0) return delta;
+    return a.id.localeCompare(b.id);
+  });
+}
+
+function MessageAttachment({ message }: { message: UnifiedMessage }) {
+  const kind = message.mediaType;
+  const url = message.fileUrl;
+  if (!kind || !url || kind === "sticker") return null;
+  if (kind === "photo") {
+    return (
+      <a href={url} target="_blank" rel="noopener noreferrer" className="mb-1 block overflow-hidden rounded-md">
+        {/* Proxied through CRM so the bot token never reaches the browser. */}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={url} alt={message.text || "фото"} className="max-h-64 max-w-full object-contain" />
+      </a>
+    );
+  }
+  if (kind === "voice" || kind === "audio") {
+    return <audio controls preload="none" src={url} className="mb-1 w-full max-w-xs" />;
+  }
+  if (kind === "video" || kind === "video_note") {
+    return <video controls preload="metadata" src={url} className="mb-1 max-h-64 max-w-full rounded-md" />;
+  }
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="mb-1 inline-block text-xs underline"
+    >
+      {strings.inboxPage.openFile}
+      {kind === "document" ? "" : ` (${kind})`}
+    </a>
+  );
+}
 
 function telegramInboxFileUrl(m: MessageItem): string | null {
   if (m.fileId) {
@@ -156,6 +207,8 @@ function fromTelegram(c: ConversationItem): UnifiedConversation {
     pinnedAt: c.pinnedAt,
     lastReadAt: c.lastReadAt,
     unreadCount: c.unreadCount,
+    waitingForReply: c.waitingForReply,
+    noteHint: c.noteHint,
     lastMessageAt: c.lastMessageAt,
     lastMessage: c.lastMessage
       ? { text: c.lastMessage.text, direction: c.lastMessage.direction }
@@ -248,6 +301,20 @@ function UnifiedInboxContent() {
     return "OPEN";
   });
   const [hideNoise, setHideNoise] = useState(true);
+  const [searchInput, setSearchInput] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [queueScope, setQueueScope] = useState<QueueScope>("all");
+  const [unreadOnly, setUnreadOnly] = useState(false);
+  const [waitingOnly, setWaitingOnly] = useState(false);
+  const [telegramTotal, setTelegramTotal] = useState(0);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [hasOlderMessages, setHasOlderMessages] = useState(false);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const telegramPagesRef = useRef(1);
+  const messagesPageRef = useRef(1);
+  const loadingOlderRef = useRef(false);
+  const preserveScrollRef = useRef<{ height: number; top: number } | null>(null);
   const messagesScrollRef = useRef<HTMLDivElement>(null);
   const messagesScrollKeyRef = useRef("");
   const listScrollRef = useRef<HTMLDivElement>(null);
@@ -301,6 +368,11 @@ function UnifiedInboxContent() {
   useEffect(() => {
     setHideNoise(readHideNoise());
   }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setSearchQuery(searchInput.trim()), 300);
+    return () => window.clearTimeout(timer);
+  }, [searchInput]);
 
   useEffect(() => {
     const html = document.documentElement;
@@ -365,35 +437,66 @@ function UnifiedInboxContent() {
     return [];
   }, [channelFilter, availableChannels]);
 
+  const telegramQueueActive = queueScope !== "all" || unreadOnly || waitingOnly;
+
   const loadConversations = useCallback(
-    async (opts?: { silent?: boolean }) => {
+    async (opts?: { silent?: boolean; append?: boolean }) => {
       if (modulesStatus !== "ready") return;
       if (channelsToLoad.length === 0) {
         setConversations([]);
         setConversationsLoading(false);
         setConversationsError(null);
+        setTelegramTotal(0);
         return;
       }
-      if (!opts?.silent) {
+      const pages = opts?.append
+        ? telegramPagesRef.current + 1
+        : opts?.silent
+          ? telegramPagesRef.current
+          : 1;
+      if (!opts?.silent && !opts?.append) {
         setConversationsLoading(true);
         setConversationsError(null);
       }
+      if (opts?.append) setLoadingMore(true);
       try {
         const tasks: Promise<UnifiedConversation[]>[] = [];
         if (channelsToLoad.includes("TELEGRAM")) {
           tasks.push(
-            conversationsApi
-              .list({
-                channel: "TELEGRAM",
-                status: statusFilter || undefined,
-                hideNoise,
-                page: 1,
-                pageSize: LIST_PAGE_SIZE,
-              })
-              .then((res) => res.items.map(fromTelegram)),
+            Promise.all(
+              Array.from({ length: pages }, (_, index) =>
+                conversationsApi.list({
+                  channel: "TELEGRAM",
+                  status: statusFilter || undefined,
+                  hideNoise,
+                  scope: queueScope,
+                  q: searchQuery || undefined,
+                  unread: unreadOnly || undefined,
+                  waiting: waitingOnly || undefined,
+                  page: index + 1,
+                  pageSize: LIST_PAGE_SIZE,
+                }),
+              ),
+            ).then((pagesRes) => {
+              setTelegramTotal(pagesRes[0]?.total ?? 0);
+              telegramPagesRef.current = pages;
+              const seen = new Set<string>();
+              const items: UnifiedConversation[] = [];
+              for (const res of pagesRes) {
+                for (const item of res.items.map(fromTelegram)) {
+                  if (seen.has(item.id)) continue;
+                  seen.add(item.id);
+                  items.push(item);
+                }
+              }
+              return items;
+            }),
           );
+        } else {
+          setTelegramTotal(0);
         }
-        if (channelsToLoad.includes("INSTAGRAM")) {
+        const loadMeta = !(telegramQueueActive && channelsToLoad.includes("TELEGRAM"));
+        if (loadMeta && channelsToLoad.includes("INSTAGRAM")) {
           tasks.push(
             metaConversationsApi
               .list({
@@ -406,7 +509,7 @@ function UnifiedInboxContent() {
               .then((res) => res.items.map(fromMeta)),
           );
         }
-        if (channelsToLoad.includes("FACEBOOK")) {
+        if (loadMeta && channelsToLoad.includes("FACEBOOK")) {
           tasks.push(
             metaConversationsApi
               .list({
@@ -432,7 +535,26 @@ function UnifiedInboxContent() {
             );
           }
         }
-        setConversations(sortConversations(merged));
+        const q = searchQuery.toLowerCase();
+        const visible = q
+          ? merged.filter((c) => {
+              if (c.source === "TELEGRAM") return true;
+              const hay = [conversationTitle(c), c.contact?.phone, c.lead?.phone]
+                .filter(Boolean)
+                .join(" ")
+                .toLowerCase();
+              return hay.includes(q) || hay.includes(q.replace(/^@/, ""));
+            })
+          : merged;
+        if (
+          opts?.append &&
+          errors.length > 0 &&
+          !merged.some((c) => c.source === "TELEGRAM")
+        ) {
+          setActionError(errors[0] ?? t.loadMore);
+          return;
+        }
+        setConversations(sortConversations(visible));
         if (merged.length === 0 && errors.length === settled.length && errors[0]) {
           setConversationsError(errors[0]);
         } else {
@@ -445,9 +567,10 @@ function UnifiedInboxContent() {
         }
       } finally {
         if (!opts?.silent) setConversationsLoading(false);
+        if (opts?.append) setLoadingMore(false);
       }
     },
-    [channelsToLoad, statusFilter, hideNoise, modulesStatus],
+    [channelsToLoad, statusFilter, hideNoise, modulesStatus, queueScope, unreadOnly, waitingOnly, searchQuery, telegramQueueActive, t.loadMore],
   );
 
   useEffect(() => {
@@ -477,62 +600,88 @@ function UnifiedInboxContent() {
     setMobilePanel("list");
   }, []);
 
+  const mapTelegramMessages = (items: MessageItem[]): UnifiedMessage[] =>
+    items.map((m) => ({
+      id: m.id,
+      conversationId: m.conversationId,
+      direction: m.direction,
+      text: m.text,
+      author: m.author,
+      sentAt: m.sentAt,
+      status: m.status,
+      mediaType: m.mediaType,
+      fileUrl: telegramInboxFileUrl(m),
+    }));
+
+  const mapMetaMessages = (items: MetaMessageItem[]): UnifiedMessage[] =>
+    items.map((m) => ({
+      id: m.id,
+      conversationId: m.conversationId,
+      direction: m.direction,
+      text: m.text,
+      author: m.author,
+      sentAt: m.sentAt,
+      mediaType: m.mediaType,
+      fileUrl: m.fileUrl,
+    }));
+
   const loadMessages = useCallback(
-    async (convId: string, source: InboxSource, opts?: { silent?: boolean }) => {
-      const requestId = ++messagesRequestRef.current;
-      if (!opts?.silent) {
+    async (convId: string, source: InboxSource, opts?: { silent?: boolean; older?: boolean }) => {
+      const requestId = opts?.older ? messagesRequestRef.current : ++messagesRequestRef.current;
+      const page = opts?.older ? messagesPageRef.current + 1 : 1;
+      if (!opts?.silent && !opts?.older) {
         setMessagesLoading(true);
         setMessages([]);
+        setHasOlderMessages(false);
+        messagesPageRef.current = 1;
+      }
+      if (opts?.older) {
+        if (loadingOlderRef.current) return;
+        loadingOlderRef.current = true;
+        setLoadingOlder(true);
       }
       try {
-        if (source === "TELEGRAM") {
-          const res = await conversationsApi.getMessages(convId, {
-            page: 1,
-            pageSize: PAGE_SIZE,
-          });
-          if (requestId !== messagesRequestRef.current) return;
-          setMessages(
-            res.items.map((m: MessageItem) => ({
-              id: m.id,
-              conversationId: m.conversationId,
-              direction: m.direction,
-              text: m.text,
-              author: m.author,
-              sentAt: m.sentAt,
-              status: m.status,
-              mediaType: m.mediaType,
-              fileUrl: telegramInboxFileUrl(m),
-            })),
-          );
+        const res =
+          source === "TELEGRAM"
+            ? await conversationsApi.getMessages(convId, { page, pageSize: PAGE_SIZE })
+            : await metaConversationsApi.getMessages(convId, { page, pageSize: PAGE_SIZE });
+        if (requestId !== messagesRequestRef.current) return;
+        const mapped =
+          source === "TELEGRAM"
+            ? mapTelegramMessages(res.items as MessageItem[])
+            : mapMetaMessages(res.items as MetaMessageItem[]);
+        const olderRemains = page * PAGE_SIZE < res.total;
+        if (!opts?.silent) setHasOlderMessages(olderRemains);
+        if (opts?.older) {
+          messagesPageRef.current = page;
+          const el = messagesScrollRef.current;
+          if (el) preserveScrollRef.current = { height: el.scrollHeight, top: el.scrollTop };
+          setMessages((prev) => mergeMessages(prev, mapped));
+        } else if (opts?.silent) {
+          setMessages((prev) => mergeMessages(prev, mapped));
         } else {
-          const res = await metaConversationsApi.getMessages(convId, {
-            page: 1,
-            pageSize: PAGE_SIZE,
-          });
-          if (requestId !== messagesRequestRef.current) return;
-          setMessages(
-            res.items.map((m: MetaMessageItem) => ({
-              id: m.id,
-              conversationId: m.conversationId,
-              direction: m.direction,
-              text: m.text,
-              author: m.author,
-              sentAt: m.sentAt,
-              mediaType: m.mediaType,
-              fileUrl: m.fileUrl,
-            })),
-          );
+          messagesPageRef.current = 1;
+          setMessages(mapped);
         }
       } catch (e) {
         if (requestId !== messagesRequestRef.current) return;
-        // Transfer / collaborator removal: stop showing a thread the manager can no longer access.
-        if (e instanceof ApiError && (e.code === "FORBIDDEN" || e.status === 403)) {
+        // Opening a thread the manager can no longer access (transferred away).
+        if (!opts?.older && e instanceof ApiError && (e.code === "FORBIDDEN" || e.status === 403)) {
           clearLostAccess();
           return;
         }
-        if (!opts?.silent) setMessages([]);
+        if (!opts?.silent && !opts?.older) setMessages([]);
+        if (opts?.older) {
+          setActionError(inboxActionError(e, strings.inboxPage.loadOlder));
+        }
       } finally {
-        if (requestId === messagesRequestRef.current && !opts?.silent) setMessagesLoading(false);
+        if (requestId === messagesRequestRef.current && !opts?.silent && !opts?.older) {
+          setMessagesLoading(false);
+        }
+        if (opts?.older) {
+          loadingOlderRef.current = false;
+          setLoadingOlder(false);
+        }
       }
     },
     [clearLostAccess],
@@ -579,6 +728,7 @@ function UnifiedInboxContent() {
   }, [conversations, selectedId, selectedSource]);
 
   const selectConversation = (c: UnifiedConversation) => {
+    setActionError(null);
     setSelectedId(c.id);
     setSelectedSource(c.source);
     setMobilePanel("chat");
@@ -633,6 +783,13 @@ function UnifiedInboxContent() {
   useEffect(() => {
     const el = messagesScrollRef.current;
     if (!el || messagesLoading) return;
+    const preserved = preserveScrollRef.current;
+    if (preserved) {
+      preserveScrollRef.current = null;
+      const delta = el.scrollHeight - preserved.height;
+      el.scrollTop = preserved.top + Math.max(0, delta);
+      return;
+    }
     const lastId = messages[messages.length - 1]?.id ?? "";
     const key = `${selectedId ?? ""}:${messages.length}:${lastId}`;
     if (key === messagesScrollKeyRef.current) return;
@@ -645,10 +802,27 @@ function UnifiedInboxContent() {
     }
   }, [messages, messagesLoading, selectedId]);
 
+  useEffect(() => {
+    if (!selectedId || effectiveSource !== "TELEGRAM") return;
+    if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+    const timer = window.setTimeout(() => {
+      void conversationsApi.markRead(selectedId).then(() => {
+        setConversations((prev) =>
+          prev.map((c) =>
+            c.id === selectedId && c.source === "TELEGRAM" ? { ...c, unreadCount: 0 } : c,
+          ),
+        );
+      });
+    }, 700);
+    return () => window.clearTimeout(timer);
+  }, [selectedId, effectiveSource, messages]);
+
   const handleSend = useCallback(async () => {
     const text = sendText.trim();
     if (!text || !selectedId || !effectiveSource || sending) return;
 
+    const draft = text;
+    setActionError(null);
     setSendText("");
     const optimistic: UnifiedMessage = {
       id: `opt-${Date.now()}`,
@@ -682,16 +856,15 @@ function UnifiedInboxContent() {
           },
         ];
       });
-      void loadConversations();
+      void loadConversations({ silent: true });
       // Refresh from server so the bubble survives the next poll (newest window).
       if (effectiveSource) {
         void loadMessages(selectedId, effectiveSource, { silent: true });
       }
     } catch (e) {
       setMessages((prev) => prev.filter((m) => m.id !== optimistic.id));
-      if (e instanceof ApiError && (e.code === "FORBIDDEN" || e.status === 403)) {
-        clearLostAccess();
-      }
+      setSendText((current) => (current.trim() ? current : draft));
+      setActionError(inboxActionError(e, t.sendFailed));
     } finally {
       setSending(false);
     }
@@ -702,12 +875,14 @@ function UnifiedInboxContent() {
     sending,
     loadConversations,
     loadMessages,
-    clearLostAccess,
+    t.sendFailed,
   ]);
 
   const handleSendNote = useCallback(async () => {
     const text = sendText.trim();
     if (!text || !selectedId || !effectiveSource || sending) return;
+    const draft = text;
+    setActionError(null);
     setSendText("");
     setSending(true);
     try {
@@ -726,14 +901,18 @@ function UnifiedInboxContent() {
           sentAt: created.sentAt,
         },
       ]);
-      void loadConversations();
+      void loadConversations({ silent: true });
+    } catch (e) {
+      setSendText((current) => (current.trim() ? current : draft));
+      setActionError(inboxActionError(e, t.noteFailed));
     } finally {
       setSending(false);
     }
-  }, [selectedId, effectiveSource, sendText, sending, loadConversations]);
+  }, [selectedId, effectiveSource, sendText, sending, loadConversations, t.noteFailed]);
 
   const handleStatusChange = useCallback(
     async (convId: string, source: InboxSource, status: "OPEN" | "PENDING" | "CLOSED") => {
+      setActionError(null);
       try {
         if (source === "TELEGRAM") await conversationsApi.updateStatus(convId, status);
         else await metaConversationsApi.updateStatus(convId, status);
@@ -743,15 +922,16 @@ function UnifiedInboxContent() {
           }
           return prev.map((c) => (c.id === convId && c.source === source ? { ...c, status } : c));
         });
-      } catch {
-        // keep UI
+      } catch (e) {
+        setActionError(inboxActionError(e, t.statusFailed));
       }
     },
-    [statusFilter],
+    [statusFilter, t.statusFailed],
   );
 
   const handleTogglePin = useCallback(
     async (convId: string, source: InboxSource, currentlyPinned: boolean) => {
+      setActionError(null);
       try {
         const res =
           source === "TELEGRAM"
@@ -764,16 +944,17 @@ function UnifiedInboxContent() {
             ),
           ),
         );
-      } catch {
-        // ignore
+      } catch (e) {
+        setActionError(inboxActionError(e, t.pinFailed));
       }
     },
-    [],
+    [t.pinFailed],
   );
 
   const handleAssign = useCallback(
     async (userId: string | null) => {
       if (!selectedId || effectiveSource !== "TELEGRAM" || assignLoading) return;
+      setActionError(null);
       setAssignLoading(true);
       try {
         const updated = await conversationsApi.assign(selectedId, userId);
@@ -799,16 +980,14 @@ function UnifiedInboxContent() {
         if (!stillHasAccess) {
           clearLostAccess();
         }
-        void loadConversations();
+        void loadConversations({ silent: true });
       } catch (e) {
-        if (e instanceof ApiError && (e.code === "FORBIDDEN" || e.status === 403)) {
-          clearLostAccess();
-        }
+        setActionError(inboxActionError(e, t.assignFailed));
       } finally {
         setAssignLoading(false);
       }
     },
-    [selectedId, effectiveSource, assignLoading, loadConversations, meId, meRole, clearLostAccess],
+    [selectedId, effectiveSource, assignLoading, loadConversations, meId, meRole, clearLostAccess, t.assignFailed],
   );
 
   const handleAddCollaborator = useCallback(
@@ -824,11 +1003,13 @@ function UnifiedInboxContent() {
               : c,
           ),
         );
+      } catch (e) {
+        setActionError(inboxActionError(e, t.assignFailed));
       } finally {
         setAssignLoading(false);
       }
     },
-    [selectedId, effectiveSource, assignLoading],
+    [selectedId, effectiveSource, assignLoading, t.assignFailed],
   );
 
   const handleRemoveCollaborator = useCallback(
@@ -853,14 +1034,12 @@ function UnifiedInboxContent() {
           clearLostAccess();
         }
       } catch (e) {
-        if (e instanceof ApiError && (e.code === "FORBIDDEN" || e.status === 403)) {
-          clearLostAccess();
-        }
+        setActionError(inboxActionError(e, t.assignFailed));
       } finally {
         setAssignLoading(false);
       }
     },
-    [selectedId, effectiveSource, assignLoading, meId, meRole, selected?.assignedTo?.id, clearLostAccess],
+    [selectedId, effectiveSource, assignLoading, meId, meRole, selected?.assignedTo?.id, clearLostAccess, t.assignFailed],
   );
 
   const handleSuggestReplies = useCallback(async () => {
@@ -882,14 +1061,27 @@ function UnifiedInboxContent() {
       setLinkContactLoading(true);
       try {
         if (effectiveSource === "TELEGRAM") {
-          await conversationsApi.linkContact(selectedId, contactId);
+          const linked = await conversationsApi.linkContact(selectedId, contactId);
+          setConversations((prev) =>
+            prev.map((c) =>
+              c.id === selectedId && c.source === "TELEGRAM"
+                ? {
+                    ...c,
+                    contactId: linked.contactId,
+                    leadId: linked.leadId ?? null,
+                    lead: linked.leadId ? c.lead : null,
+                    assignedTo: linked.assignedTo ?? c.assignedTo,
+                  }
+                : c,
+            ),
+          );
         } else {
           await metaConversationsApi.linkContact(selectedId, contactId);
         }
         setLinkModalOpen(false);
         setLinkSearch("");
         setLinkResults([]);
-        void loadConversations();
+        void loadConversations({ silent: true });
       } finally {
         setLinkContactLoading(false);
       }
@@ -1072,7 +1264,56 @@ function UnifiedInboxContent() {
                 ))}
               </div>
             ) : null}
-            <div className="mt-2">
+            <div className="mt-2 space-y-2">
+              <input
+                type="search"
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+                placeholder={t.searchPlaceholder}
+                className="w-full rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5 text-sm outline-none focus:border-zinc-400"
+              />
+              <div className="flex flex-wrap gap-1">
+                {(
+                  [
+                    ["all", t.scopeAll],
+                    ["mine", t.scopeMine],
+                    ["unassigned", t.scopeUnassigned],
+                  ] as const
+                ).map(([id, label]) => (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => setQueueScope(id)}
+                    className={`rounded px-2 py-1 text-xs font-medium ${
+                      queueScope === id
+                        ? "bg-accent-gradient text-white"
+                        : "bg-zinc-200/80 text-zinc-600 hover:bg-zinc-200"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <div className="flex flex-wrap gap-3 text-xs text-zinc-600">
+                <label className="flex cursor-pointer items-center gap-1.5">
+                  <input
+                    type="checkbox"
+                    checked={unreadOnly}
+                    onChange={(e) => setUnreadOnly(e.target.checked)}
+                    className="rounded border-zinc-300"
+                  />
+                  {t.unreadOnly}
+                </label>
+                <label className="flex cursor-pointer items-center gap-1.5">
+                  <input
+                    type="checkbox"
+                    checked={waitingOnly}
+                    onChange={(e) => setWaitingOnly(e.target.checked)}
+                    className="rounded border-zinc-300"
+                  />
+                  {t.waitingOnly}
+                </label>
+              </div>
               <InboxStatusFilter
                 value={statusFilter}
                 onChange={setStatusFilter}
@@ -1112,6 +1353,8 @@ function UnifiedInboxContent() {
                       lastMessageAt: c.lastMessageAt,
                       lastMessageText: c.lastMessage?.text ?? null,
                       lastMessageDirection: c.lastMessage?.direction ?? null,
+                      waitingForReply: c.waitingForReply,
+                      noteHint: c.noteHint,
                       channelLabel: channelLabel(c.source),
                     }}
                     selected={
@@ -1124,6 +1367,19 @@ function UnifiedInboxContent() {
                 ))}
               </ul>
             )}
+            {channelsToLoad.includes("TELEGRAM") &&
+            conversations.filter((c) => c.source === "TELEGRAM").length < telegramTotal ? (
+              <div className="border-t border-zinc-100 p-2">
+                <button
+                  type="button"
+                  disabled={loadingMore}
+                  onClick={() => void loadConversations({ silent: true, append: true })}
+                  className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+                >
+                  {loadingMore ? strings.common.loading : t.loadMore}
+                </button>
+              </div>
+            ) : null}
           </div>
         </aside>
 
@@ -1174,15 +1430,43 @@ function UnifiedInboxContent() {
                     onChange={(s) => void handleStatusChange(selected.id, selected.source, s)}
                   />
                 ) : null}
+                {actionError ? (
+                  <p className="mt-2 text-xs text-red-600" role="alert">
+                    {actionError}
+                  </p>
+                ) : null}
               </div>
 
               <div
                 ref={messagesScrollRef}
+                onScroll={() => {
+                  const el = messagesScrollRef.current;
+                  if (!el || loadingOlder || !hasOlderMessages || !selectedId || !effectiveSource) return;
+                  if (el.scrollTop < 48) {
+                    void loadMessages(selectedId, effectiveSource, { older: true });
+                  }
+                }}
                 className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 [overflow-anchor:none]"
               >
                 {messagesLoading ? (
                   <div className="absolute inset-0 z-10 flex items-center justify-center bg-white text-sm text-zinc-500">
                     {strings.common.loading}
+                  </div>
+                ) : null}
+                {hasOlderMessages ? (
+                  <div className="mb-3 text-center">
+                    <button
+                      type="button"
+                      disabled={loadingOlder || !selectedId || !effectiveSource}
+                      onClick={() => {
+                        if (selectedId && effectiveSource) {
+                          void loadMessages(selectedId, effectiveSource, { older: true });
+                        }
+                      }}
+                      className="rounded border border-zinc-200 px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-50 disabled:opacity-50"
+                    >
+                      {loadingOlder ? strings.common.loading : t.loadOlder}
+                    </button>
                   </div>
                 ) : null}
                 {messages.length > 0 ? (
@@ -1217,22 +1501,7 @@ function UnifiedInboxContent() {
                                 : "bg-zinc-100 text-zinc-900"
                             }`}
                           >
-                            {m.mediaType === "photo" && m.fileUrl ? (
-                              <a
-                                href={m.fileUrl}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="mb-1 block overflow-hidden rounded-md"
-                              >
-                                {/* Proxied through CRM so the bot token never reaches the browser. */}
-                                {/* eslint-disable-next-line @next/next/no-img-element */}
-                                <img
-                                  src={m.fileUrl}
-                                  alt={m.text || "фото"}
-                                  className="max-h-64 max-w-full object-contain"
-                                />
-                              </a>
-                            ) : null}
+                            <MessageAttachment message={m} />
                             <p className="whitespace-pre-wrap break-words">
                               {m.text || (m.mediaType ? `(${m.mediaType})` : "(вкладення)")}
                             </p>
@@ -1301,6 +1570,7 @@ function UnifiedInboxContent() {
                       collaborators: selected.collaborators,
                       staffOptions,
                       meId,
+                      meRole,
                       assignLoading,
                       onAssign: (uid) => void handleAssign(uid),
                       onAddCollaborator: (uid) => void handleAddCollaborator(uid),

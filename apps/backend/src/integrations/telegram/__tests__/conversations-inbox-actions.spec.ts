@@ -50,7 +50,7 @@ test("addInternalNote persists INTERNAL message and does not call Telegram API",
   assert.equal(messageCreate.calls[0][0].data.direction, MessageDirection.INTERNAL);
   assert.equal(messageCreate.calls[0][0].data.text, "handoff note");
   assert.equal(messageCreate.calls[0][0].data.status, MessageStatus.SENT);
-  assert.equal(conversationUpdate.calls.length, 1);
+  assert.equal(conversationUpdate.calls.length, 0);
   assert.ok(result);
 });
 
@@ -67,9 +67,9 @@ test("autoAssignByRegion assigns from contact.ownerId", async () => {
           contact: { id: "ct1", ownerId: "mgr-kyiv", region: "Київська" },
           lead: null,
         })),
-        update: mockFn(async (args: any) => {
+        updateMany: mockFn(async (args: any) => {
           updates.push(args);
-          return {};
+          return { count: 1 };
         }),
       },
       user: {
@@ -102,9 +102,9 @@ test("autoAssignByRegion resolves manager from org-chart region", async () => {
           contact: { id: "ct1", ownerId: null, region: "Київська" },
           lead: null,
         })),
-        update: mockFn(async (args: any) => {
+        updateMany: mockFn(async (args: any) => {
           updates.push(args);
-          return {};
+          return { count: 1 };
         }),
       },
       user: {
@@ -405,4 +405,208 @@ test("setPinned toggles pinnedAt", async () => {
   const unpinned = await service.setPinned("c1", false, { id: "u1", role: "ADMIN" } as any);
   assert.equal(update.calls[1][0].data.pinnedAt, null);
   assert.equal(unpinned.pinnedAt, null);
+});
+
+test("autoAssignByRegion stays unassigned when nobody can be resolved", async () => {
+  const updateMany = mockFn(async () => ({ count: 1 }));
+  const service = new ConversationsService(
+    {
+      conversation: {
+        findUnique: mockFn(async () => ({
+          id: "c1",
+          assignedToUserId: null,
+          contactId: "ct1",
+          leadId: null,
+          contact: { id: "ct1", ownerId: null, region: "" },
+          lead: null,
+        })),
+        updateMany,
+      },
+      user: { findFirst: mockFn(async () => null) },
+    } as any,
+    {} as any,
+    {} as any,
+    {} as any,
+    { getOrgChartStructure: async () => ({ assignments: {}, extraSlots: [], regions: {} }) } as any,
+  );
+
+  assert.equal(await service.autoAssignByRegion("c1"), null);
+  assert.equal(updateMany.calls.length, 0);
+});
+
+test("manager cannot read a chat assigned to another manager", async () => {
+  const service = new ConversationsService(
+    {
+      conversation: {
+        findUnique: mockFn(async () => ({
+          id: "c1",
+          assignedToUserId: "mgr-a",
+          collaborators: [],
+        })),
+      },
+    } as any,
+    {} as any,
+    {} as any,
+    {} as any,
+    {} as any,
+  );
+
+  await assert.rejects(
+    () => service.getMessages("c1", {}, { id: "mgr-b", role: "MANAGER" } as any),
+    (err: any) =>
+      (typeof err?.getStatus === "function" && err.getStatus() === 403) ||
+      /another manager/i.test(String(err?.message ?? err)),
+  );
+});
+
+test("manager can read own, collaborator, and unassigned chats", async () => {
+  const cases = [
+    { assignedToUserId: "mgr-b", collaborators: [] },
+    { assignedToUserId: "mgr-a", collaborators: [{ userId: "mgr-b" }] },
+    { assignedToUserId: null, collaborators: [] },
+  ];
+  for (const row of cases) {
+    const service = new ConversationsService(
+      {
+        conversation: {
+          findUnique: mockFn(async () => ({ id: "c1", ...row })),
+        },
+        message: {
+          count: mockFn(async () => 0),
+          findMany: mockFn(async () => []),
+        },
+      } as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+    );
+    const res = await service.getMessages("c1", {}, { id: "mgr-b", role: "MANAGER" } as any);
+    assert.equal(res.total, 0);
+  }
+});
+
+test("manager list is own chats, collaborator chats, and the unbound pool", async () => {
+  let where: any;
+  const service = new ConversationsService(
+    {
+      user: { findMany: mockFn(async () => [{ telegramChatId: "staff-dm" }]) },
+      conversation: {
+        findMany: mockFn(async (args: any) => {
+          where = args.where;
+          return [];
+        }),
+        count: mockFn(async () => 0),
+      },
+      telegramAccount: { findMany: mockFn(async () => []) },
+    } as any,
+    {} as any,
+    {} as any,
+    {} as any,
+    { getTelegramSecrets: async () => ({ staffGroupChatId: "-100group" }) } as any,
+  );
+
+  const res = await service.list({ channel: "TELEGRAM" } as any, {
+    id: "mgr-a",
+    role: "MANAGER",
+  } as any);
+  assert.equal(res.total, 0);
+
+  const visibility = (where.AND as any[]).find((part) => Array.isArray(part?.OR) && part.OR.some((row: any) => "assignedToUserId" in row && row.assignedToUserId === "mgr-a"));
+  assert.ok(visibility, "visibility OR is present");
+  assert.deepEqual(
+    visibility.OR.map((row: any) =>
+      row.assignedToUserId === undefined
+        ? "collaborator"
+        : row.assignedToUserId,
+    ),
+    ["mgr-a", null, "collaborator"],
+  );
+  const encoded = JSON.stringify(where);
+  assert.equal(encoded.includes("mgr-b"), false);
+  assert.equal(encoded.includes("staff-dm"), true);
+  assert.equal(encoded.includes("-100group"), true);
+});
+
+test("admin list is not restricted to one assignee", async () => {
+  let where: any;
+  const service = new ConversationsService(
+    {
+      user: { findMany: mockFn(async () => []) },
+      conversation: {
+        findMany: mockFn(async (args: any) => {
+          where = args.where;
+          return [];
+        }),
+        count: mockFn(async () => 0),
+      },
+    } as any,
+    {} as any,
+    {} as any,
+    {} as any,
+    { getTelegramSecrets: async () => ({ staffGroupChatId: null }) } as any,
+  );
+  await service.list({} as any, { id: "admin-1", role: "ADMIN" } as any);
+  const encoded = JSON.stringify(where);
+  assert.equal(encoded.includes("assignedToUserId"), false);
+});
+
+test("claiming an unbound chat does not overwrite an assignee won in between", async () => {
+  const updateMany = mockFn(async () => ({ count: 0 }));
+  const update = mockFn(async () => ({}));
+  const service = new ConversationsService(
+    {
+      conversation: {
+        findUnique: mockFn(async () => ({
+          id: "c1",
+          assignedToUserId: null,
+          collaborators: [],
+        })),
+        updateMany,
+        update,
+      },
+      user: { findFirst: mockFn(async () => ({ id: "mgr-b" })) },
+      conversationCollaborator: { deleteMany: mockFn(async () => ({ count: 0 })) },
+    } as any,
+    {} as any,
+    {} as any,
+    {} as any,
+    {} as any,
+  );
+
+  await assert.rejects(
+    () => service.assign("c1", "mgr-b", { id: "mgr-b", role: "MANAGER" } as any),
+    (err: any) =>
+      (typeof err?.getStatus === "function" && err.getStatus() === 409) ||
+      /вже призначено/i.test(String(err?.message ?? err)),
+  );
+  assert.equal(updateMany.calls[0][0].where.assignedToUserId, null);
+  assert.equal(update.calls.length, 0);
+});
+
+test("markRead writes the current user's cursor and does not move the shared lastReadAt", async () => {
+  const upsert = mockFn(async () => ({}));
+  const update = mockFn(async () => ({}));
+  const service = new ConversationsService(
+    {
+      conversation: {
+        findUnique: mockFn(async () => ({
+          id: "c1",
+          assignedToUserId: "mgr-a",
+          collaborators: [{ userId: "mgr-b" }],
+        })),
+        update,
+      },
+      conversationReadState: { upsert },
+    } as any,
+    {} as any,
+    {} as any,
+    {} as any,
+    {} as any,
+  );
+
+  const res = await service.markRead("c1", { id: "mgr-b", role: "MANAGER" } as any);
+  assert.equal(res.ok, true);
+  assert.equal(upsert.calls[0][0].where.conversationId_userId.userId, "mgr-b");
+  assert.equal(update.calls.length, 0);
 });

@@ -79,6 +79,19 @@ describe("TelegramInboxNotifierService", () => {
     assert.equal(creates[0]?.entityId, "conv1");
   });
 
+  it("does not notify anyone about the staff group", async () => {
+    const creates: Array<Record<string, unknown>> = [];
+    const service = new TelegramInboxNotifierService(makePrisma(), makeNotifications(creates), {
+      getTelegramSecrets: async () => ({ staffGroupChatId: "-100555" }),
+    } as never);
+    await service.notifyInboundMessage({
+      conversationId: "conv-staff",
+      telegramChatId: "-100555",
+      messageText: "Хто на зміні?",
+    });
+    assert.equal(creates.length, 0);
+  });
+
   it("notifies assignee and collaborators together", async () => {
     const creates: Array<Record<string, unknown>> = [];
     const prisma = makePrisma({

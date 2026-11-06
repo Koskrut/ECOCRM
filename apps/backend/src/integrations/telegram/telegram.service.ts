@@ -382,9 +382,15 @@ export class TelegramService {
         lastMessageAt: now,
       });
 
+      const conversationSnapshot = await this.prisma.conversation.findUnique({
+        where: { telegramChatId: parsed.chatId },
+        select: { contactId: true, leadId: true },
+      });
+      const snapshotContactId = conversationSnapshot?.contactId ?? null;
+      const snapshotLeadId = conversationSnapshot?.leadId ?? null;
+
       let contactId: string | null = account.contactId;
-      /** Deep-link / phone / chat repair just attached CRM — allow one auto-assign pass. */
-      let linkChangedThisTurn = false;
+      let leadId: string | null = account.leadId;
       if (parsed.text && parsed.text.startsWith("/start ")) {
         const token = parsed.text.slice(7).trim();
         if (token) {
@@ -406,12 +412,10 @@ export class TelegramService {
               .delete({ where: { id: linkRow.id } })
               .catch(() => {});
             contactId = linkRow.contactId;
-            linkChangedThisTurn = true;
+            leadId = null;
           }
         }
       }
-
-      let leadId: string | null = account.leadId;
 
       if (!contactId && !leadId) {
         const linkedChat = await this.prisma.conversation.findUnique({
@@ -425,22 +429,26 @@ export class TelegramService {
             where: { id: account.id },
             data: { contactId, leadId: null },
           });
-          linkChangedThisTurn = true;
         } else if (linkedChat?.leadId) {
           leadId = linkedChat.leadId;
           await this.prisma.telegramAccount.update({
             where: { id: account.id },
             data: { leadId },
           });
-          linkChangedThisTurn = true;
         }
       }
 
-      if (parsed.phone) {
+      // A phone shared earlier can sit on the account while the chat is still unlinked
+      // (the contact was created in CRM after the share). Retry that stored number.
+      // Creating a lead still requires an actual phone share on this turn.
+      const phoneToResolve =
+        parsed.phone ?? (!contactId && account.phone ? String(account.phone) : null);
+
+      if (phoneToResolve) {
         // Always resolve CRM contact by the shared phone — even if a lead/placeholder
         // was already linked. Role/region gap-fill must read THAT contact's fields.
         const digits =
-          getPhoneNormalizedDigits(parsed.phone) ?? normalizePhoneDigits(parsed.phone);
+          getPhoneNormalizedDigits(phoneToResolve) ?? normalizePhoneDigits(phoneToResolve);
         const candidates = digits ? getPhoneCandidatesForLookup(digits) : [];
 
         let phoneContactId: string | null = null;
@@ -453,16 +461,13 @@ export class TelegramService {
         }
 
         if (phoneContactId) {
-          const phoneLinkChanged =
-            phoneContactId !== account.contactId || account.leadId != null;
           contactId = phoneContactId;
           leadId = null;
           await this.prisma.telegramAccount.update({
             where: { id: account.id },
             data: { contactId, leadId: null },
           });
-          shouldSendExistingClientMenu = true;
-          if (phoneLinkChanged) linkChangedThisTurn = true;
+          if (parsed.phone) shouldSendExistingClientMenu = true;
         } else if (!contactId && !leadId) {
           const existingLead =
             candidates.length > 0
@@ -478,8 +483,8 @@ export class TelegramService {
               where: { id: account.id },
               data: { leadId },
             });
-            shouldSendExistingClientMenu = true;
-          } else {
+            if (parsed.phone) shouldSendExistingClientMenu = true;
+          } else if (parsed.phone) {
             const knownCompanyId =
               candidates.length > 0
                 ? await this.phoneEntityLookup.findCompanyIdByNormalizedKeys(candidates)
@@ -604,8 +609,18 @@ export class TelegramService {
         conversation?.status === ConversationStatus.CLOSED ||
         conversation?.status === ConversationStatus.PENDING;
 
-      // Auto-assign on first create or when contact/lead is newly linked — not on every
-      // inbound (manual «Зняти» must stick until someone claims the pool again).
+      // Auto-assign on first create, or when this turn newly links a contact/lead while the
+      // chat is still unassigned. Ordinary inbound must not undo a manual «Зняти».
+      // Compare against the snapshot taken before deep-link writes, not the row re-read below.
+      const nextContactId = conversation ? (contactId ?? conversation.contactId) : contactId;
+      const nextLeadId = conversation
+        ? contactId != null
+          ? leadId
+          : (leadId ?? conversation.leadId)
+        : leadId;
+      const linkChanged =
+        (nextContactId ?? null) !== snapshotContactId || (nextLeadId ?? null) !== snapshotLeadId;
+
       let shouldAutoAssign = false;
       if (!conversation) {
         conversation = await this.prisma.conversation.create({
@@ -620,12 +635,6 @@ export class TelegramService {
         });
         shouldAutoAssign = true;
       } else {
-        const prevContactId = conversation.contactId;
-        const prevLeadId = conversation.leadId;
-        // Phone→contact sets leadId=null locally; do not coalesce back to the old lead.
-        const nextContactId = contactId ?? conversation.contactId;
-        const nextLeadId = contactId != null ? leadId : (leadId ?? conversation.leadId);
-
         await this.prisma.conversation.update({
           where: { id: conversation.id },
           data: {
@@ -635,11 +644,7 @@ export class TelegramService {
             ...(reopen && !parsed.isCallback ? { status: ConversationStatus.OPEN } : {}),
           },
         });
-
-        const newlyLinked =
-          (contactId != null && contactId !== prevContactId) ||
-          (leadId != null && leadId !== prevLeadId);
-        shouldAutoAssign = newlyLinked || linkChangedThisTurn;
+        shouldAutoAssign = linkChanged;
       }
 
       if (shouldAutoAssign && this.conversations) {
@@ -768,8 +773,8 @@ export class TelegramService {
   }
 
   /**
-   * Internal staff group: keep messages in CRM Inbox, allow mgr callbacks,
-   * never run the client shop FSM. Skip inbox push alerts (managers already see the group).
+   * Internal staff group: keep the history, allow mgr callbacks, never run the client shop.
+   * The client inbox list and the manager unread badge exclude this chat.
    */
   private async handleStaffGroupInbound(parsed: ParsedInbound): Promise<void> {
     if (

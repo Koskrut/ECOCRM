@@ -1,12 +1,13 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   forwardRef,
   Inject,
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import {
   ConversationChannel,
   ConversationStatus,
@@ -24,8 +25,11 @@ import { TelegramAiService } from "./telegram-ai.service";
 import { TelegramService } from "./telegram.service";
 import {
   conversationListOrderBy,
-  countUnreadInbound,
-  hideNoiseWhere,
+  isHumanInboxMessage,
+  NOISE_COMMAND_PREFIXES,
+  TELEGRAM_CALLBACK_PREFIXES,
+  TELEGRAM_MENU_LABELS,
+  telegramHideNoiseWhere,
 } from "../shared/conversation-inbox.util";
 import { formatTelegramConversationLabel } from "./telegram-conversation-label.util";
 import type { ListConversationsQueryDto } from "./dto/list-conversations-query.dto";
@@ -87,6 +91,70 @@ export class ConversationsService {
     };
   }
 
+  /** Personal staff chats plus the configured internal group. History stays; the client inbox hides them. */
+  private async clientInboxExcludedChatIds(): Promise<string[]> {
+    const ids = new Set(await this.listStaffTelegramChatIds());
+    try {
+      const secrets = await this.settings.getTelegramSecrets();
+      const group = secrets.staffGroupChatId?.trim();
+      if (group) ids.add(group);
+    } catch {
+      // Settings unavailable: personal staff chats are still excluded.
+    }
+    return [...ids];
+  }
+
+  private scopeWhere(
+    scope: ListConversationsQueryDto["scope"],
+    actor: AuthUser,
+  ): Prisma.ConversationWhereInput | null {
+    if (!scope || scope === "all") return null;
+    if (scope === "unassigned") return { assignedToUserId: null };
+    return {
+      OR: [
+        { assignedToUserId: actor.id },
+        { collaborators: { some: { userId: actor.id } } },
+      ],
+    };
+  }
+
+  /** Cursor for this user, falling back to the legacy shared lastReadAt when they have no row yet. */
+  private readCursorSql(): Prisma.Sql {
+    return Prisma.sql`COALESCE(r."lastReadAt", c."lastReadAt", TIMESTAMP '1970-01-01')`;
+  }
+
+  private humanMessageSql(): Prisma.Sql {
+    const commands = [...NOISE_COMMAND_PREFIXES];
+    const labels = [...TELEGRAM_MENU_LABELS];
+    const callbacks = TELEGRAM_CALLBACK_PREFIXES.map(
+      (prefix) => Prisma.sql`lower(btrim(m."text")) LIKE ${`${prefix}%`}`,
+    );
+    return Prisma.sql`
+      m."direction" <> 'INTERNAL'
+      AND NOT (m."direction" = 'OUTBOUND' AND m."authorUserId" IS NULL)
+      AND NOT (
+        m."direction" = 'INBOUND'
+        AND m."mediaType" IS NULL
+        AND (
+          m."text" IS NULL
+          OR btrim(m."text") = ''
+          OR lower(split_part(btrim(m."text"), ' ', 1)) IN (${Prisma.join(commands)})
+          OR lower(split_part(btrim(m."text"), ' ', 1)) LIKE '/start@%'
+          OR btrim(m."text") IN (${Prisma.join(labels)})
+          OR ${Prisma.join(callbacks, " OR ")}
+        )
+      )
+    `;
+  }
+
+  private async markReadForUser(conversationId: string, userId: string, at: Date) {
+    await this.prisma.conversationReadState.upsert({
+      where: { conversationId_userId: { conversationId, userId } },
+      create: { conversationId, userId, lastReadAt: at },
+      update: { lastReadAt: at },
+    });
+  }
+
   async list(q: ListConversationsQueryDto, actor: AuthUser | undefined) {
     const safeActor = this.requireActor(actor);
     const { page, pageSize, offset, limit } = normalizePagination(
@@ -94,25 +162,78 @@ export class ConversationsService {
       { page: 1, pageSize: 20 },
     );
 
-    const staffChatIds = await this.listStaffTelegramChatIds();
-    const where: Prisma.ConversationWhereInput = {
-      ...this.buildVisibilityWhere(safeActor),
-    };
+    const excludedChatIds = await this.clientInboxExcludedChatIds();
+    const where: Prisma.ConversationWhereInput = {};
     if (q.channel) where.channel = q.channel;
     if (q.status) where.status = q.status;
-    if (q.assignedTo === "me" && safeActor.id) where.assignedToUserId = safeActor.id;
-    else if (q.assignedTo && q.assignedTo !== "me") where.assignedToUserId = q.assignedTo;
-    const andParts: Prisma.ConversationWhereInput[] = [
-      ...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []),
-    ];
-    // Linked CRM staff chats are not client inbox threads.
-    if (staffChatIds.length > 0) {
+    if (!q.scope) {
+      if (q.assignedTo === "me" && safeActor.id) where.assignedToUserId = safeActor.id;
+      else if (q.assignedTo && q.assignedTo !== "me") where.assignedToUserId = q.assignedTo;
+    }
+    const andParts: Prisma.ConversationWhereInput[] = [this.buildVisibilityWhere(safeActor)];
+    const scope = this.scopeWhere(q.scope, safeActor);
+    if (scope) andParts.push(scope);
+    // Linked CRM staff chats and the staff group are not client inbox threads.
+    if (excludedChatIds.length > 0) {
       andParts.push({
-        OR: [{ telegramChatId: null }, { telegramChatId: { notIn: staffChatIds } }],
+        OR: [{ telegramChatId: null }, { telegramChatId: { notIn: excludedChatIds } }],
       });
     }
-    if (q.hideNoise) andParts.push(hideNoiseWhere());
-    if (andParts.length > 0) where.AND = andParts;
+    if (q.hideNoise) andParts.push(telegramHideNoiseWhere());
+    const search = q.q?.trim();
+    if (search) {
+      const username = search.replace(/^@/, "");
+      const peers = await this.prisma.telegramAccount.findMany({
+        where: {
+          OR: [
+            { username: { contains: username, mode: "insensitive" } },
+            { firstName: { contains: search, mode: "insensitive" } },
+            { lastName: { contains: search, mode: "insensitive" } },
+            { phone: { contains: search, mode: "insensitive" } },
+          ],
+        },
+        select: { telegramChatId: true },
+        take: 100,
+      });
+      const chatIds = peers.map((row) => row.telegramChatId);
+      const textMatch = { contains: search, mode: "insensitive" as const };
+      andParts.push({
+        OR: [
+          {
+            contact: {
+              OR: [
+                { firstName: textMatch },
+                { lastName: textMatch },
+                { middleName: textMatch },
+                { phone: textMatch },
+                { documentDisplayName: textMatch },
+              ],
+            },
+          },
+          {
+            lead: {
+              OR: [
+                { firstName: textMatch },
+                { lastName: textMatch },
+                { fullName: textMatch },
+                { middleName: textMatch },
+                { phone: textMatch },
+              ],
+            },
+          },
+          ...(chatIds.length > 0 ? [{ telegramChatId: { in: chatIds } }] : []),
+          { telegramChatId: textMatch },
+        ],
+      });
+    }
+    if (q.unread || q.waiting) {
+      const ids = await this.conversationIdsForQueueFlags(safeActor, excludedChatIds, {
+        unread: Boolean(q.unread),
+        waiting: Boolean(q.waiting),
+      });
+      andParts.push(ids.length > 0 ? { id: { in: ids } } : { id: "__none__" });
+    }
+    where.AND = andParts;
 
     const [items, total] = await Promise.all([
       this.prisma.conversation.findMany({
@@ -153,8 +274,15 @@ export class ConversationsService {
           },
           messages: {
             orderBy: { sentAt: "desc" },
-            take: 1,
-            select: { id: true, text: true, sentAt: true, direction: true },
+            take: 20,
+            select: {
+              id: true,
+              text: true,
+              sentAt: true,
+              direction: true,
+              authorUserId: true,
+              mediaType: true,
+            },
           },
         },
       }),
@@ -162,7 +290,8 @@ export class ConversationsService {
     ]);
 
     const unreadById = await this.loadUnreadCounts(
-      items.map((c) => ({ id: c.id, lastReadAt: c.lastReadAt })),
+      items.map((c) => c.id),
+      safeActor.id,
     );
     const peerByChatId = await this.loadTelegramPeers(
       items.map((c) => c.telegramChatId).filter(Boolean) as string[],
@@ -191,6 +320,7 @@ export class ConversationsService {
               phone: c.lead.phone,
             }
           : null;
+        const summary = this.summarizeThread(c.messages);
         return {
           id: c.id,
           channel: c.channel,
@@ -216,15 +346,10 @@ export class ConversationsService {
           pinnedAt: c.pinnedAt,
           lastReadAt: c.lastReadAt,
           unreadCount: unreadById.get(c.id) ?? 0,
+          waitingForReply: summary.waitingForReply,
+          noteHint: summary.noteHint,
           lastMessageAt: c.lastMessageAt,
-          lastMessage: c.messages[0]
-            ? {
-                id: c.messages[0].id,
-                text: c.messages[0].text,
-                sentAt: c.messages[0].sentAt,
-                direction: c.messages[0].direction,
-              }
-            : null,
+          lastMessage: summary.lastMessage,
           createdAt: c.createdAt,
           updatedAt: c.updatedAt,
         };
@@ -278,56 +403,145 @@ export class ConversationsService {
     return map;
   }
 
-  private async loadUnreadCounts(
-    rows: Array<{ id: string; lastReadAt: Date | null }>,
-  ): Promise<Map<string, number>> {
+  private summarizeThread(
+    messages: Array<{
+      id: string;
+      text: string | null;
+      sentAt: Date;
+      direction: MessageDirection;
+      authorUserId: string | null;
+      mediaType: string | null;
+    }>,
+  ) {
+    const ordered = [...messages].sort((a, b) => b.sentAt.getTime() - a.sentAt.getTime());
+    const preview = ordered.find((m) => m.direction !== MessageDirection.INTERNAL) ?? null;
+    const note = ordered.find((m) => m.direction === MessageDirection.INTERNAL) ?? null;
+    const human = ordered.find((m) =>
+      isHumanInboxMessage({
+        direction: m.direction,
+        text: m.text,
+        authorUserId: m.authorUserId,
+        mediaType: m.mediaType,
+      }),
+    );
+    const noteIsNewer =
+      note && preview ? note.sentAt.getTime() > preview.sentAt.getTime() : Boolean(note && !preview);
+    return {
+      lastMessage: preview
+        ? {
+            id: preview.id,
+            text: preview.text,
+            sentAt: preview.sentAt,
+            direction: preview.direction,
+          }
+        : null,
+      noteHint: noteIsNewer ? (note?.text ?? null) : null,
+      waitingForReply: human?.direction === MessageDirection.INBOUND,
+    };
+  }
+
+  private async loadUnreadCounts(ids: string[], userId: string): Promise<Map<string, number>> {
     const result = new Map<string, number>();
-    if (rows.length === 0) return result;
-
-    const ids = rows.map((r) => r.id);
-    const inbound = await this.prisma.message.findMany({
-      where: {
-        conversationId: { in: ids },
-        direction: MessageDirection.INBOUND,
-      },
-      select: { conversationId: true, sentAt: true, direction: true },
-    });
-
-    const lastReadById = new Map(rows.map((r) => [r.id, r.lastReadAt]));
+    if (ids.length === 0) return result;
     for (const id of ids) result.set(id, 0);
-    for (const msg of inbound) {
-      const lastReadAt = lastReadById.get(msg.conversationId) ?? null;
-      const n = countUnreadInbound([msg], lastReadAt);
-      if (n > 0) result.set(msg.conversationId, (result.get(msg.conversationId) ?? 0) + n);
-    }
+
+    const rows = await this.prisma.$queryRaw<Array<{ conversationId: string; count: number }>>(
+      Prisma.sql`
+        SELECT m."conversationId" AS "conversationId", COUNT(*)::int AS "count"
+        FROM "Message" m
+        JOIN "Conversation" c ON c."id" = m."conversationId"
+        LEFT JOIN "ConversationReadState" r
+          ON r."conversationId" = m."conversationId" AND r."userId" = ${userId}
+        WHERE m."conversationId" IN (${Prisma.join(ids)})
+          AND m."direction" = 'INBOUND'
+          AND m."sentAt" > ${this.readCursorSql()}
+        GROUP BY m."conversationId"
+      `,
+    );
+    for (const row of rows) result.set(row.conversationId, Number(row.count) || 0);
     return result;
   }
 
+  private visibilitySql(actor: AuthUser): Prisma.Sql {
+    if (actor.role !== UserRole.MANAGER) return Prisma.empty;
+    return Prisma.sql`AND (
+      c."assignedToUserId" = ${actor.id}
+      OR c."assignedToUserId" IS NULL
+      OR EXISTS (
+        SELECT 1 FROM "ConversationCollaborator" cc
+        WHERE cc."conversationId" = c."id" AND cc."userId" = ${actor.id}
+      )
+    )`;
+  }
+
+  private excludedChatSql(excludedChatIds: string[]): Prisma.Sql {
+    if (excludedChatIds.length === 0) return Prisma.empty;
+    return Prisma.sql`AND (
+      c."telegramChatId" IS NULL
+      OR c."telegramChatId" NOT IN (${Prisma.join(excludedChatIds)})
+    )`;
+  }
+
+  private async conversationIdsForQueueFlags(
+    actor: AuthUser,
+    excludedChatIds: string[],
+    flags: { unread: boolean; waiting: boolean },
+  ): Promise<string[]> {
+    const unread = flags.unread
+      ? Prisma.sql`AND EXISTS (
+          SELECT 1 FROM "Message" m
+          LEFT JOIN "ConversationReadState" r
+            ON r."conversationId" = c."id" AND r."userId" = ${actor.id}
+          WHERE m."conversationId" = c."id"
+            AND m."direction" = 'INBOUND'
+            AND m."sentAt" > COALESCE(r."lastReadAt", c."lastReadAt", TIMESTAMP '1970-01-01')
+        )`
+      : Prisma.empty;
+    const waiting = flags.waiting
+      ? Prisma.sql`AND (
+          SELECT m."direction" FROM "Message" m
+          WHERE m."conversationId" = c."id" AND ${this.humanMessageSql()}
+          ORDER BY m."sentAt" DESC
+          LIMIT 1
+        ) = 'INBOUND'`
+      : Prisma.empty;
+    const rows = await this.prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+      SELECT c."id" AS "id"
+      FROM "Conversation" c
+      WHERE c."channel" = 'TELEGRAM'
+      ${this.visibilitySql(actor)}
+      ${this.excludedChatSql(excludedChatIds)}
+      ${unread}
+      ${waiting}
+      LIMIT 5000
+    `);
+    return rows.map((row) => row.id);
+  }
+
   /**
-   * Conversations with at least one unread inbound message (after lastReadAt).
+   * Open Telegram threads with at least one inbound after this user's read cursor.
+   * Staff private chats and the staff group are not counted.
    */
   async unreadCount(actor: AuthUser | undefined): Promise<{ count: number }> {
     const safeActor = this.requireActor(actor);
-    const where: Prisma.ConversationWhereInput = {
-      ...this.buildVisibilityWhere(safeActor),
-      status: ConversationStatus.OPEN,
-      channel: ConversationChannel.TELEGRAM,
-    };
-
-    const rows = await this.prisma.conversation.findMany({
-      where,
-      select: {
-        id: true,
-        lastReadAt: true,
-        messages: {
-          where: { direction: MessageDirection.INBOUND },
-          select: { direction: true, sentAt: true },
-        },
-      },
-    });
-
-    const count = rows.filter((row) => countUnreadInbound(row.messages, row.lastReadAt) > 0).length;
-    return { count };
+    const excludedChatIds = await this.clientInboxExcludedChatIds();
+    const rows = await this.prisma.$queryRaw<Array<{ count: number }>>(Prisma.sql`
+      SELECT COUNT(*)::int AS "count"
+      FROM "Conversation" c
+      WHERE c."channel" = 'TELEGRAM'
+        AND c."status" = 'OPEN'
+        ${this.visibilitySql(safeActor)}
+        ${this.excludedChatSql(excludedChatIds)}
+        AND EXISTS (
+          SELECT 1 FROM "Message" m
+          LEFT JOIN "ConversationReadState" r
+            ON r."conversationId" = c."id" AND r."userId" = ${safeActor.id}
+          WHERE m."conversationId" = c."id"
+            AND m."direction" = 'INBOUND'
+            AND m."sentAt" > COALESCE(r."lastReadAt", c."lastReadAt", TIMESTAMP '1970-01-01')
+        )
+    `);
+    return { count: Number(rows[0]?.count) || 0 };
   }
 
   async getMessages(conversationId: string, q: ListMessagesQueryDto, actor: AuthUser | undefined) {
@@ -505,10 +719,7 @@ export class ConversationsService {
     this.assertManagerCanAccessConversation(safeActor, conv);
 
     const lastReadAt = new Date();
-    await this.prisma.conversation.update({
-      where: { id: conversationId },
-      data: { lastReadAt },
-    });
+    await this.markReadForUser(conversationId, safeActor.id, lastReadAt);
     return { ok: true, lastReadAt };
   }
 
@@ -547,11 +758,6 @@ export class ConversationsService {
       include: {
         author: { select: { id: true, fullName: true, email: true } },
       },
-    });
-
-    await this.prisma.conversation.update({
-      where: { id: conv.id },
-      data: { lastMessageAt: sentAt },
     });
 
     return message;
@@ -597,10 +803,11 @@ export class ConversationsService {
 
     if (!managerId) return null;
 
-    await this.prisma.conversation.update({
-      where: { id: conv.id },
+    const claimed = await this.prisma.conversation.updateMany({
+      where: { id: conv.id, assignedToUserId: null },
       data: { assignedToUserId: managerId },
     });
+    if (claimed.count === 0) return conv.assignedToUserId;
 
     if (conv.contactId && !conv.contact?.ownerId) {
       await this.prisma.contact
@@ -627,6 +834,31 @@ export class ConversationsService {
       select: { id: true },
     });
     return user?.id ?? null;
+  }
+
+  private async assignmentView(conversationId: string) {
+    const updated = await this.prisma.conversation.findUnique({
+      where: { id: conversationId },
+      include: {
+        contact: { select: { id: true, firstName: true, lastName: true } },
+        lead: { select: { id: true, fullName: true } },
+        assignedTo: { select: { id: true, fullName: true, email: true } },
+        collaborators: {
+          select: {
+            user: { select: { id: true, fullName: true, email: true } },
+          },
+        },
+      },
+    });
+    if (!updated) throw new NotFoundException("Conversation not found");
+    return {
+      ...updated,
+      collaborators: updated.collaborators.map((row) => ({
+        id: row.user.id,
+        fullName: row.user.fullName,
+        email: row.user.email,
+      })),
+    };
   }
 
   async assign(conversationId: string, userId: string | null, actor: AuthUser | undefined) {
@@ -674,6 +906,21 @@ export class ConversationsService {
         select: { id: true },
       });
       if (!user) throw new NotFoundException("User not found");
+    }
+
+    // Claiming the unbound pool must not overwrite an assignee written between read and write.
+    if (userId && !conv.assignedToUserId) {
+      const claimed = await this.prisma.conversation.updateMany({
+        where: { id: conversationId, assignedToUserId: null },
+        data: { assignedToUserId: userId },
+      });
+      if (claimed.count === 0) {
+        throw new ConflictException("Чат уже призначено іншому менеджеру");
+      }
+      await this.prisma.conversationCollaborator
+        .deleteMany({ where: { conversationId, userId } })
+        .catch(() => {});
+      return this.assignmentView(conversationId);
     }
 
     // Transfer: drop new assignee from collaborators if they were joint.
@@ -886,9 +1133,10 @@ export class ConversationsService {
       },
     });
 
+    await this.markReadForUser(conv.id, safeActor.id, sentAt);
     await this.prisma.conversation.update({
       where: { id: conv.id },
-      data: { lastMessageAt: sentAt, lastReadAt: sentAt },
+      data: { lastMessageAt: sentAt },
     });
 
     return message;
@@ -951,7 +1199,19 @@ export class ConversationsService {
     ]);
 
     await this.autoAssignByRegion(conversationId);
-    return { ok: true, contactId };
+    const row = await this.prisma.conversation.findUnique({
+      where: { id: conversationId },
+      select: {
+        leadId: true,
+        assignedTo: { select: { id: true, fullName: true, email: true } },
+      },
+    });
+    return {
+      ok: true,
+      contactId,
+      leadId: row?.leadId ?? null,
+      assignedTo: row?.assignedTo ?? null,
+    };
   }
 
   async createContactFromLead(conversationId: string, actor: AuthUser | undefined) {
@@ -1024,7 +1284,13 @@ export class ConversationsService {
     ]);
 
     await this.autoAssignByRegion(conversationId);
-    return { contact };
+    const row = await this.prisma.conversation.findUnique({
+      where: { id: conversationId },
+      select: {
+        assignedTo: { select: { id: true, fullName: true, email: true } },
+      },
+    });
+    return { contact, assignedTo: row?.assignedTo ?? null };
   }
 
   async suggestReplies(conversationId: string, actor: AuthUser | undefined) {

@@ -3,6 +3,7 @@ import type { Prisma } from "@prisma/client";
 import { UserRole } from "@prisma/client";
 import { PrismaService } from "../../prisma/prisma.service";
 import { NotificationsService } from "../../notifications/notifications.service";
+import { SettingsService } from "../../settings/settings.service";
 import { formatTelegramConversationLabel } from "./telegram-conversation-label.util";
 
 const DEBOUNCE_MS = 2 * 60 * 1000;
@@ -20,6 +21,8 @@ export class TelegramInboxNotifierService {
     @Optional()
     @Inject(forwardRef(() => NotificationsService))
     private readonly notifications?: NotificationsService,
+    @Optional()
+    private readonly settings?: SettingsService,
   ) {}
 
   muteConversation(userId: string, conversationId: string, durationMs: number): void {
@@ -87,6 +90,7 @@ export class TelegramInboxNotifierService {
   }): Promise<void> {
     if (!this.notifications) return;
     if (this.shouldSkipNotification(params.messageText)) return;
+    if (await this.isStaffGroupChat(params.telegramChatId)) return;
 
     const conversation = await this.prisma.conversation.findUnique({
       where: { id: params.conversationId },
@@ -165,6 +169,17 @@ export class TelegramInboxNotifierService {
           `Telegram inbox notification failed for user ${userId}: ${err instanceof Error ? err.message : String(err)}`,
         );
       }
+    }
+  }
+
+  private async isStaffGroupChat(telegramChatId: string): Promise<boolean> {
+    if (!this.settings) return false;
+    try {
+      const secrets = await this.settings.getTelegramSecrets();
+      const group = secrets.staffGroupChatId?.trim();
+      return Boolean(group && group === telegramChatId);
+    } catch {
+      return false;
     }
   }
 

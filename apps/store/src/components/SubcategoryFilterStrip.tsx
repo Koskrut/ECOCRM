@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useLayoutEffect, useRef, useState, type MouseEventHandler, type WheelEventHandler } from "react";
+import { createPortal } from "react-dom";
 import { getSubcategoryFacets } from "@/lib/api";
 
 function easeOutCubic(t: number): number {
@@ -98,6 +99,7 @@ export function SubcategoryFilterStrip({ className, inline }: Props) {
 
   const [facets, setFacets] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const [hasOverflow, setHasOverflow] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -129,8 +131,21 @@ export function SubcategoryFilterStrip({ className, inline }: Props) {
     };
   }, [category, search]);
 
+  useEffect(() => {
+    setDrawerOpen(false);
+  }, [category, activeSub]);
+
+  useEffect(() => {
+    if (!drawerOpen) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setDrawerOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [drawerOpen]);
+
   useLayoutEffect(() => {
-    if (facets.length === 0 || loading) {
+    if (inline || facets.length === 0 || loading) {
       setHasOverflow(false);
       return;
     }
@@ -176,9 +191,10 @@ export function SubcategoryFilterStrip({ className, inline }: Props) {
       ro.disconnect();
       peekCleanup?.();
     };
-  }, [category, facets, loading]);
+  }, [category, facets, loading, inline]);
 
   useLayoutEffect(() => {
+    if (inline) return;
     const el = scrollRef.current;
     if (!el || !activeSub) return;
     const activeItem = el.querySelector<HTMLElement>('[data-active="true"]');
@@ -189,7 +205,7 @@ export function SubcategoryFilterStrip({ className, inline }: Props) {
       block: "nearest",
       behavior: "auto",
     });
-  }, [activeSub, facets]);
+  }, [activeSub, facets, inline]);
 
   if (!show) return null;
 
@@ -201,7 +217,7 @@ export function SubcategoryFilterStrip({ className, inline }: Props) {
         <div
           className={
             inline
-              ? "h-9 w-full min-w-[100px] max-w-full animate-pulse rounded-full bg-zinc-200/80"
+              ? "h-11 w-full min-w-[100px] max-w-full animate-pulse rounded-lg bg-zinc-200/80"
               : "h-9 max-w-xs animate-pulse rounded-full bg-zinc-200/80"
           }
           aria-hidden
@@ -211,6 +227,107 @@ export function SubcategoryFilterStrip({ className, inline }: Props) {
   }
 
   if (facets.length === 0) return null;
+
+  if (inline) {
+    const buttonLabel = activeSub || "Підкатегорії";
+    const itemClass = (isActive: boolean) =>
+      "flex min-h-[44px] items-center rounded-lg px-3 py-2 text-sm transition " +
+      (isActive
+        ? "bg-[var(--primary)] font-medium text-white"
+        : "text-zinc-700 hover:bg-[var(--surface)] hover:text-[var(--primary)]");
+
+    return (
+      <div className={rootClass}>
+        <button
+          type="button"
+          onClick={() => setDrawerOpen(true)}
+          aria-expanded={drawerOpen}
+          aria-haspopup="dialog"
+          className={
+            "inline-flex min-h-[44px] w-full min-w-0 items-center justify-between gap-2 rounded-lg border bg-white px-3 py-2 text-sm font-medium shadow-sm transition hover:bg-[var(--surface)] " +
+            (activeSub
+              ? "border-[var(--primary)] text-[var(--primary)]"
+              : "border-[var(--border)] text-zinc-700")
+          }
+        >
+          <span className="min-w-0 truncate">{buttonLabel}</span>
+          <svg
+            className="h-4 w-4 shrink-0 text-zinc-500"
+            viewBox="0 0 20 20"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+            aria-hidden
+          >
+            <path
+              d="M5 7.5L10 12.5L15 7.5"
+              stroke="currentColor"
+              strokeWidth="1.7"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </button>
+        {drawerOpen && typeof document !== "undefined"
+          ? createPortal(
+              <div
+                className="fixed inset-0 z-40 lg:hidden"
+                aria-modal="true"
+                role="dialog"
+                aria-label="Підкатегорії каталогу"
+              >
+                <button
+                  type="button"
+                  aria-label="Закрити підкатегорії"
+                  className="absolute inset-0 bg-black/40"
+                  onClick={() => setDrawerOpen(false)}
+                />
+                <aside className="absolute inset-y-0 right-0 flex w-[85vw] max-w-xs flex-col overflow-hidden bg-white shadow-xl">
+                  <div className="flex items-center justify-between border-b border-[var(--border)] p-4">
+                    <h3 className="font-heading text-base font-semibold text-zinc-900">Підкатегорії</h3>
+                    <button
+                      type="button"
+                      aria-label="Закрити"
+                      onClick={() => setDrawerOpen(false)}
+                      className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-[var(--border)] text-zinc-600 transition hover:bg-[var(--surface)]"
+                    >
+                      <span aria-hidden>✕</span>
+                    </button>
+                  </div>
+                  <ul className="flex-1 space-y-1 overflow-y-auto p-4">
+                    <li>
+                      <Link
+                        href={buildHref({ search, category, subcategory: null })}
+                        scroll={false}
+                        onClick={() => setDrawerOpen(false)}
+                        className={itemClass(!activeSub)}
+                      >
+                        Усі
+                      </Link>
+                    </li>
+                    {facets.map((label) => {
+                      const isActive = activeSub === label;
+                      return (
+                        <li key={label}>
+                          <Link
+                            href={buildHref({ search, category, subcategory: label })}
+                            scroll={false}
+                            onClick={() => setDrawerOpen(false)}
+                            className={itemClass(isActive)}
+                          >
+                            {label}
+                          </Link>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </aside>
+              </div>,
+              document.body,
+            )
+          : null}
+      </div>
+    );
+  }
 
   const handleWheel: WheelEventHandler<HTMLDivElement> = (event) => {
     const el = scrollRef.current;

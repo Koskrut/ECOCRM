@@ -47,6 +47,10 @@ export type ConversationItem = {
   pinnedAt: string | null;
   lastReadAt: string | null;
   unreadCount: number;
+  /** Last human message (not bot, not an internal note) is from the client. */
+  waitingForReply?: boolean;
+  /** Newest internal note when it is newer than the client preview. */
+  noteHint?: string | null;
   lastMessageAt: string | null;
   lastMessage: ConversationLastMessage | null;
   createdAt: string;
@@ -89,6 +93,10 @@ export type ListConversationsParams = {
   channel?: string;
   status?: string;
   assignedTo?: string;
+  scope?: "mine" | "unassigned" | "all";
+  q?: string;
+  unread?: boolean;
+  waiting?: boolean;
   hideNoise?: boolean;
 };
 
@@ -105,6 +113,10 @@ export const conversationsApi = {
     if (params?.channel) searchParams.set("channel", params.channel);
     if (params?.status) searchParams.set("status", params.status);
     if (params?.assignedTo) searchParams.set("assignedTo", params.assignedTo);
+    if (params?.scope) searchParams.set("scope", params.scope);
+    if (params?.q) searchParams.set("q", params.q);
+    if (params?.unread) searchParams.set("unread", "true");
+    if (params?.waiting) searchParams.set("waiting", "true");
     if (params?.hideNoise) searchParams.set("hideNoise", "true");
     const qs = searchParams.toString();
     const res = await apiHttp.get<ConversationsListResponse>(
@@ -208,11 +220,18 @@ export const conversationsApi = {
   linkContact: async (
     conversationId: string,
     contactId: string,
-  ): Promise<{ ok: boolean; contactId: string }> => {
-    const res = await apiHttp.post<{ ok: boolean; contactId: string }>(
-      `/conversations/${conversationId}/link-contact`,
-      { contactId },
-    );
+  ): Promise<{
+    ok: boolean;
+    contactId: string;
+    leadId?: string | null;
+    assignedTo?: { id: string; fullName: string; email: string } | null;
+  }> => {
+    const res = await apiHttp.post<{
+      ok: boolean;
+      contactId: string;
+      leadId?: string | null;
+      assignedTo?: { id: string; fullName: string; email: string } | null;
+    }>(`/conversations/${conversationId}/link-contact`, { contactId });
     return res.data;
   },
 

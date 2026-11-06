@@ -4,7 +4,24 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.240**.)_
+_(планируемые изменения после **0.2.241**.)_
+
+## [0.2.241] — 2026-11-06
+
+### Summary
+
+Патч **0.2.241**: unread у Telegram inbox — окремо на кожного менеджера; вітрина — зручніший вибір підкатегорій.
+
+### Changed
+
+- `ConversationReadState` (per-user `lastReadAt`); список/лічильники unread і mark-read у ConversationsService. Inbox UI: unread badge, фільтри, картка клієнта.
+- Store `SubcategoryFilterStrip`: drawer для повного списку підкатегорій.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.241`**.
+- **Міграція:** `20261106140000_conversation_read_state` (`prisma migrate deploy` / `backend-migrate` до `up`).
+- **Не використовувати `0.2.230`** і **`0.2.199`–`0.2.202`**.
 
 ## [0.2.240] — 2026-11-06
 

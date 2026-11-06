@@ -12,6 +12,8 @@ export type InboxListRowItem = {
   lastMessageAt: string | null;
   lastMessageText: string | null;
   lastMessageDirection?: "INBOUND" | "OUTBOUND" | "INTERNAL" | null;
+  waitingForReply?: boolean;
+  noteHint?: string | null;
   /** Short channel badge (Telegram / Instagram / Facebook). */
   channelLabel?: string | null;
 };
@@ -68,7 +70,15 @@ export function InboxConversationRow({ item, selected, timeLabel, onSelect, onTo
               {preview}
             </p>
           ) : null}
+          {item.noteHint ? (
+            <p className="mt-0.5 truncate text-[11px] text-amber-700">Нотатка: {item.noteHint}</p>
+          ) : null}
           <span className="mt-1 flex flex-wrap items-center gap-1">
+            {item.waitingForReply ? (
+              <span className="inline-block rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800">
+                Чекає відповіді
+              </span>
+            ) : null}
             {item.channelLabel ? (
               <span className="inline-block rounded bg-sky-100 px-1.5 py-0.5 text-[10px] font-medium text-sky-800">
                 {item.channelLabel}

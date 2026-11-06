@@ -40,7 +40,7 @@ export function InboxComposer({
   const [templatesOpen, setTemplatesOpen] = useState(false);
   const [templates, setTemplates] = useState<CannedResponseItem[]>([]);
   const [templatesLoaded, setTemplatesLoaded] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
 
   const loadTemplates = useCallback(async () => {
     if (templatesLoaded) return;
@@ -176,13 +176,19 @@ export function InboxComposer({
         >
           <StickyNote className="h-4 w-4" />
         </button>
-        <input
+        <textarea
           ref={inputRef}
-          type="text"
+          rows={2}
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          placeholder={noteMode ? "Нотатка для команди…" : "Повідомлення… (/ для шаблонів)"}
-          className={`min-w-0 flex-1 rounded-lg border px-3 py-2 text-sm outline-none focus:ring-1 ${
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              submit();
+            }
+          }}
+          placeholder={noteMode ? "Нотатка для команди…" : "Повідомлення… (/ для шаблонів, Shift+Enter — новий рядок)"}
+          className={`min-h-[2.5rem] min-w-0 flex-1 resize-none rounded-lg border px-3 py-2 text-sm outline-none focus:ring-1 ${
             noteMode
               ? "border-amber-300 focus:border-amber-400 focus:ring-amber-400"
               : "border-zinc-200 focus:border-zinc-400 focus:ring-zinc-400"

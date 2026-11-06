@@ -344,6 +344,83 @@ describe("TelegramService.handleInboundUpdate", () => {
     assert.match(harness.sent[0].text, /Раді бачити/);
   });
 
+  it("links a stored phone to an existing contact and auto-assigns once", async () => {
+    const updates: AnyRec[] = [];
+    const autoAssign: string[] = [];
+    mock = makePrisma({
+      conversation: {
+        findUnique: async () => ({
+          id: "conv1",
+          contactId: null,
+          leadId: null,
+          status: "OPEN",
+          assignedToUserId: null,
+        }),
+        create: async () => ({ id: "conv1" }),
+        update: async (args: AnyRec) => {
+          updates.push(args);
+          return {};
+        },
+        updateMany: async () => ({ count: 0 }),
+      },
+    });
+    harness = makeService(mock.prisma);
+    (harness.service as unknown as AnyRec).upsertTelegramAccount = async () => ({
+      id: "acc1",
+      contactId: null,
+      leadId: null,
+      phone: "+380501112233",
+    });
+    (harness.contactsService as AnyRec).findContactByPhone = async () => ({ id: "contact-9" });
+    (harness.service as unknown as AnyRec).conversations = {
+      autoAssignByRegion: async (id: string) => {
+        autoAssign.push(id);
+        return "mgr-1";
+      },
+    };
+
+    await harness.service.handleInboundUpdate(textUpdate("Привіт", 8));
+
+    assert.equal(updates[0]?.data?.contactId, "contact-9");
+    assert.equal(updates[0]?.data?.leadId, null);
+    assert.deepEqual(autoAssign, ["conv1"]);
+  });
+
+  it("does not auto-assign again on an ordinary inbound after a manual unassign", async () => {
+    const autoAssign: string[] = [];
+    mock = makePrisma({
+      conversation: {
+        findUnique: async () => ({
+          id: "conv1",
+          contactId: "contact-9",
+          leadId: null,
+          status: "OPEN",
+          assignedToUserId: null,
+        }),
+        create: async () => ({ id: "conv1" }),
+        update: async () => ({}),
+        updateMany: async () => ({ count: 0 }),
+      },
+    });
+    harness = makeService(mock.prisma);
+    (harness.service as unknown as AnyRec).upsertTelegramAccount = async () => ({
+      id: "acc1",
+      contactId: "contact-9",
+      leadId: null,
+      phone: "+380501112233",
+    });
+    (harness.service as unknown as AnyRec).conversations = {
+      autoAssignByRegion: async (id: string) => {
+        autoAssign.push(id);
+        return "mgr-1";
+      },
+    };
+
+    await harness.service.handleInboundUpdate(textUpdate("Ще одне питання", 9));
+
+    assert.deepEqual(autoAssign, []);
+  });
+
   it("rejects /link in a group, leaves the chat, and does not confirm the link", async () => {
     const update: TelegramUpdate = {
       update_id: 5,
