@@ -4,7 +4,24 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.239**.)_
+_(планируемые изменения после **0.2.240**.)_
+
+## [0.2.240] — 2026-11-06
+
+### Summary
+
+Патч **0.2.240**: Mini App на Android лишається в тому ж WebView — SPA-навігація замість `location.assign` (без Oops-спалаху).
+
+### Changed
+
+- Boot script + TelegramShell: черга кліків → `router.push`; history на Android no-op. `tgAuth` не чіпляється до кожного URL.
+- Checkout thank-you у Mini App йде через `assignStorePath`.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.240`**.
+- **Нових міграцій немає.**
+- **Не використовувати `0.2.230`** і **`0.2.199`–`0.2.202`**.
 
 ## [0.2.239] — 2026-11-06
 

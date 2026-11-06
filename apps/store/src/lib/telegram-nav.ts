@@ -1,12 +1,20 @@
-import { readCatalogAuthToken } from "@/lib/telegram-webapp";
-
 const NAV_STACK_KEY = "suprex_tg_nav_stack";
 const NAV_STACK_MAX = 24;
+
+let spaNavigate: ((path: string) => void) | null = null;
+let currentSpaPath = "";
 
 /** Mini App document (set by TelegramShell). */
 export function isTelegramMiniAppDocument(): boolean {
   if (typeof document === "undefined") return false;
   return document.documentElement.getAttribute("data-tg-miniapp") === "1";
+}
+
+export function isTelegramAndroid(): boolean {
+  if (typeof window === "undefined") return false;
+  const platform = window.Telegram?.WebApp?.platform;
+  if (platform === "android") return true;
+  return /Android/i.test(navigator.userAgent);
 }
 
 function readNavStack(): string[] {
@@ -36,17 +44,21 @@ function writeNavStack(stack: string[]): void {
   }
 }
 
-/** Path without `tgAuth` — that token is reattached on every Mini App load. */
+/** Path without `tgAuth` — login lives in storage, not on every Mini App URL. */
 export function storePathKey(path?: string): string {
   if (typeof window === "undefined") return path ?? "";
   try {
-    const url = new URL(path ?? window.location.href, window.location.origin);
+    const url = new URL(path ?? currentSpaPath ?? window.location.href, window.location.origin);
     url.searchParams.delete("tgAuth");
     url.hash = "";
     return `${url.pathname}${url.search}`;
   } catch {
-    return path ?? "";
+    return path ?? currentSpaPath;
   }
+}
+
+export function rememberTelegramSpaPath(path: string): void {
+  currentSpaPath = storePathKey(path);
 }
 
 export function peekTelegramNavStack(): string[] {
@@ -60,22 +72,8 @@ export function popTelegramNavPath(): string | null {
   return prev;
 }
 
-function withCatalogAuth(path: string): string {
-  if (typeof window === "undefined") return path;
-  try {
-    const url = new URL(path, window.location.origin);
-    if (url.origin !== window.location.origin) return path;
-    const token = readCatalogAuthToken();
-    if (token && !url.searchParams.get("tgAuth")) url.searchParams.set("tgAuth", token);
-    url.hash = "";
-    return `${url.pathname}${url.search}`;
-  } catch {
-    return path;
-  }
-}
-
 function pushCurrentPath(): void {
-  const here = storePathKey();
+  const here = currentSpaPath || storePathKey();
   if (!here) return;
   const stack = readNavStack();
   if (stack[stack.length - 1] === here) return;
@@ -83,31 +81,42 @@ function pushCurrentPath(): void {
   writeNavStack(stack);
 }
 
-/** Full load — Telegram Android crashes on Next.js history.pushState / replaceState.
- *  Keep `tgAuth` on the next URL so a WebView that drops storage still logs in. */
+/**
+ * In-Mini-App navigation. Full `location.assign` makes Android Telegram flash Oops
+ * (WebView unload). Use Next.js client navigation instead; Android history is a no-op.
+ */
 export function assignStorePath(path: string, opts?: { back?: boolean }): void {
   if (typeof window === "undefined") return;
-  let next = path;
-  try {
-    const url = new URL(path, window.location.origin);
-    if (url.origin === window.location.origin) {
-      next = `${url.pathname}${url.search}`;
-    }
-  } catch {
-    /* keep path */
+  const next = storePathKey(path);
+  if (!next) return;
+  if (!opts?.back && (currentSpaPath || storePathKey()) !== next) pushCurrentPath();
+  currentSpaPath = next;
+  if (spaNavigate) {
+    spaNavigate(next);
+    return;
   }
-  if (!opts?.back && storePathKey() !== storePathKey(next)) pushCurrentPath();
-  next = withCatalogAuth(next);
-  try {
-    window.location.assign(next);
-  } catch {
-    window.location.href = next;
+  window.__SUPREX_TG_QUEUE = window.__SUPREX_TG_QUEUE ?? [];
+  window.__SUPREX_TG_QUEUE.push(next);
+}
+
+export function registerTelegramSpaNavigate(fn: ((path: string) => void) | null): void {
+  spaNavigate = fn;
+  if (typeof window === "undefined") return;
+  if (!fn) {
+    window.__SUPREX_TG_GO = undefined;
+    return;
+  }
+  window.__SUPREX_TG_GO = (path: string) => assignStorePath(path);
+  const queued = window.__SUPREX_TG_QUEUE;
+  window.__SUPREX_TG_QUEUE = [];
+  if (Array.isArray(queued)) {
+    for (const pending of queued) assignStorePath(pending);
   }
 }
 
-export function navigateStorePath(path: string, spaNavigate: (path: string) => void): void {
+export function navigateStorePath(path: string, spaNavigateFn: (path: string) => void): void {
   if (isTelegramMiniAppDocument()) assignStorePath(path);
-  else spaNavigate(path);
+  else spaNavigateFn(path);
 }
 
 export function isTelegramInternalHref(href: string): boolean {

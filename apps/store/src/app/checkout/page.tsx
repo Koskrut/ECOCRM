@@ -20,6 +20,7 @@ import { formatPhoneDisplay, formatUaPhoneInput } from "@/lib/formatPhone";
 import { Button } from "@/components/Button";
 import { useCart } from "@/context/CartContext";
 import { useTelegramWebApp } from "@/context/TelegramWebAppContext";
+import { assignStorePath, isTelegramMiniAppDocument } from "@/lib/telegram-nav";
 
 const inputClass =
   "mt-1 w-full min-h-[48px] rounded-lg border border-[var(--border)] bg-white px-3 py-3 text-zinc-900 outline-none transition focus:border-[var(--primary)] focus:ring-1 focus:ring-[var(--primary)] sm:min-h-[44px] sm:py-2.5";
@@ -495,8 +496,8 @@ export default function CheckoutPage() {
       if (result.orderPayToken) q.set("orderPayToken", result.orderPayToken);
       const href = "/thank-you?" + q.toString();
       setPlacedOrder({ orderNumber: result.orderNumber, href });
-      // Telegram iOS WebView often ignores Next.js client navigation after POST.
-      window.location.assign(href);
+      if (isTelegramMiniAppDocument()) assignStorePath(href);
+      else window.location.assign(href);
       return;
     } catch (err) {
       showCheckoutError(err instanceof Error ? err.message : "Помилка оформлення");

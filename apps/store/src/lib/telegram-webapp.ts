@@ -42,6 +42,9 @@ declare global {
     __SUPREX_TG_INIT_DATA?: string;
     /** Signed catalog handoff (`tgAuth`) captured before the Mini App rewrites the URL. */
     __SUPREX_TG_AUTH?: string;
+    /** Mini App SPA navigation — Android must not `location.assign` (Oops flash). */
+    __SUPREX_TG_GO?: (path: string) => void;
+    __SUPREX_TG_QUEUE?: string[];
   }
 }
 

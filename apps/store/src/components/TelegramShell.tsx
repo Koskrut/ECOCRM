@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useCart } from "@/context/CartContext";
 import { useTelegramWebApp } from "@/context/TelegramWebAppContext";
 import { getTelegramWebApp } from "@/lib/telegram-webapp";
@@ -10,6 +10,8 @@ import {
   isTelegramInternalHref,
   peekTelegramNavStack,
   popTelegramNavPath,
+  registerTelegramSpaNavigate,
+  rememberTelegramSpaPath,
 } from "@/lib/telegram-nav";
 
 function safeTelegramCall(run: () => void) {
@@ -23,12 +25,22 @@ function safeTelegramCall(run: () => void) {
 /**
  * Mini App chrome: hide marketing chrome, in-page cart bar, Telegram BackButton.
  * Native MainButton is skipped — it crashes a subset of Android clients.
+ * Internal links stay in the same WebView document (no location.assign / Oops flash).
  */
 export function TelegramShell({ children }: { children: React.ReactNode }) {
   const telegram = useTelegramWebApp();
   const { count, sumUah } = useCart();
   const pathname = usePathname();
+  const router = useRouter();
   const [refreshing, setRefreshing] = useState(false);
+
+  useEffect(() => {
+    registerTelegramSpaNavigate((path) => {
+      rememberTelegramSpaPath(path);
+      router.push(path);
+    });
+    return () => registerTelegramSpaNavigate(null);
+  }, [router]);
 
   useEffect(() => {
     if (telegram.isTelegram) {
@@ -42,7 +54,6 @@ export function TelegramShell({ children }: { children: React.ReactNode }) {
     document.documentElement.removeAttribute("data-tg-bar");
   }, [telegram.isTelegram, telegram.ready]);
 
-  // Next.js client navigation uses history.pushState; Android Telegram shows Oops+duck.
   useEffect(() => {
     const intercept =
       telegram.isTelegram || document.documentElement.getAttribute("data-tg-miniapp") === "1";
