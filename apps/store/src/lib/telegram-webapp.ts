@@ -37,16 +37,34 @@ declare global {
   }
 }
 
+/** True when the string has Telegram's HMAC field — truncated Android hashes do not. */
+export function looksLikeTelegramInitData(value: string | null | undefined): boolean {
+  return /(?:^|&)hash=[a-f0-9]{64}(?:&|$)/i.test((value ?? "").trim());
+}
+
 /** `tgWebAppData` from the Mini App URL hash or query. */
 export function parseTgWebAppData(source: string): string {
   if (!source) return "";
-  const match = source.match(/(?:^|[?#&])tgWebAppData=([^&]*)/);
-  if (!match?.[1]) return "";
-  try {
-    return decodeURIComponent(match[1].replace(/\+/g, " ")).trim();
-  } catch {
-    return "";
+  const marker = "tgWebAppData=";
+  const idx = source.indexOf(marker);
+  if (idx < 0) return "";
+  let rest = source.slice(idx + marker.length);
+  const nextHash = rest.indexOf("#");
+  if (nextHash >= 0) rest = rest.slice(0, nextHash);
+
+  const stillEncoded = /%2[6cC]|%3[dD]/.test(rest) && !/hash=[a-f0-9]{64}/i.test(rest);
+  if (stillEncoded) {
+    rest = rest.split("&")[0] ?? "";
+    try {
+      rest = decodeURIComponent(rest.replace(/\+/g, " "));
+    } catch {
+      /* keep encoded slice */
+    }
   }
+
+  const hashMatch = rest.match(/hash=([a-f0-9]{64})/i);
+  if (!hashMatch || hashMatch.index == null) return "";
+  return rest.slice(0, hashMatch.index + hashMatch[0].length).trim();
 }
 
 /** Survives a Mini App URL rewrite that drops `?tgAuth` before React boots. */
@@ -57,6 +75,7 @@ export const TG_INIT_DATA_STORAGE_KEY = "suprex_tg_init_data";
 export function persistTelegramInitData(initData: string): void {
   const value = initData.trim();
   if (!value || typeof window === "undefined") return;
+  if (!looksLikeTelegramInitData(value)) return;
   window.__SUPREX_TG_INIT_DATA = value;
   try {
     sessionStorage.setItem(TG_INIT_DATA_STORAGE_KEY, value);
@@ -90,23 +109,24 @@ function readTelegramSdkInitData(): string {
 export function readCapturedTelegramInitData(): string {
   if (typeof window === "undefined") return "";
   const snap = window.__SUPREX_TG_INIT_DATA?.trim() ?? "";
-  if (snap) return snap;
+  if (looksLikeTelegramInitData(snap)) return snap;
   const fromUrl =
     parseTgWebAppData(window.location.hash) ||
     parseTgWebAppData(window.location.search) ||
     parseTgWebAppData(window.location.href) ||
     parseTgWebAppData(readPerformanceLaunchUrl());
-  if (fromUrl) {
+  if (looksLikeTelegramInitData(fromUrl)) {
     persistTelegramInitData(fromUrl);
     return fromUrl;
   }
   const fromSdk = readTelegramSdkInitData();
-  if (fromSdk) {
+  if (looksLikeTelegramInitData(fromSdk)) {
     persistTelegramInitData(fromSdk);
     return fromSdk;
   }
   try {
-    return sessionStorage.getItem(TG_INIT_DATA_STORAGE_KEY)?.trim() ?? "";
+    const stored = sessionStorage.getItem(TG_INIT_DATA_STORAGE_KEY)?.trim() ?? "";
+    return looksLikeTelegramInitData(stored) ? stored : "";
   } catch {
     return "";
   }
@@ -171,7 +191,7 @@ export function isEmbeddedTelegramPlatform(platform: string | undefined): boolea
 
 export function resolveTelegramInitData(app?: TelegramWebApp | null): string {
   const live = app?.initData?.trim() || getTelegramInitData();
-  if (live) {
+  if (looksLikeTelegramInitData(live)) {
     persistTelegramInitData(live);
     return live;
   }

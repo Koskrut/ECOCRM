@@ -527,4 +527,58 @@ describe("StoreTelegramWebAppService.createSession", () => {
     assert.equal(session.region, "Київська");
     assert.ok(session.storeToken);
   });
+
+  it("logs in from the catalog handoff when Android sends truncated initData", async () => {
+    process.env.JWT_SECRET = process.env.JWT_SECRET || "test-secret-for-store-tg";
+    const tgAuth = new URL(
+      appendCatalogHandoff("https://shop.example.com", {
+        telegramUserId: "777",
+        phone: "+380671112233",
+        contactId: "c-android",
+        firstName: "Костя",
+        lastName: "",
+      }),
+    ).searchParams.get("tgAuth");
+    const service = new StoreTelegramWebAppService(
+      {
+        telegramAccount: {
+          findUnique: async () => ({
+            id: "acc-android",
+            telegramChatId: "777",
+            phone: "+380671112233",
+            contactId: "c-android",
+            leadId: null,
+            firstName: "Костя",
+            lastName: "",
+          }),
+          create: async () => {
+            throw new Error("should not create");
+          },
+          updateMany: async () => ({ count: 1 }),
+        },
+        conversation: { findUnique: async () => null },
+        lead: { findUnique: async () => null, findFirst: async () => null },
+        contact: {
+          findUnique: async () => ({
+            phone: "+380671112233",
+            firstName: "Костя",
+            lastName: "",
+            region: "Київська",
+          }),
+        },
+        customer: {
+          findUnique: async () => ({ id: "cust-android", contactId: "c-android" }),
+          create: async () => ({ id: "cust-android", contactId: "c-android" }),
+        },
+      } as never,
+      { getTelegramSecrets: async () => ({ botToken: "dummy-bot-token" }) } as never,
+      { findContactByPhone: async () => ({ id: "c-android" }) } as never,
+      { unifyTelegramCart: async () => undefined } as never,
+    );
+    const session = await service.createSession("query_id=AAEAAA", tgAuth);
+    assert.equal(session.loggedIn, true);
+    assert.equal(session.contactId, "c-android");
+    assert.equal(session.phone, "+380671112233");
+    assert.ok(session.storeToken);
+  });
 });

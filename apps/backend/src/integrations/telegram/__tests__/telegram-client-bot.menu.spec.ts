@@ -608,9 +608,10 @@ describe("TelegramClientBotService menu / idle", () => {
       sent.some((s) => JSON.stringify(s.keyboard ?? []).includes("Скасувати")),
       "onboarding keeps Cancel",
     );
-    assert.ok(
+    assert.equal(
       sent.some((s) => JSON.stringify(s.keyboard ?? []).includes("Каталог")),
-      "commerce menu stays visible during onboarding",
+      false,
+      "commerce menu stays hidden until onboarding ends",
     );
   });
 
@@ -1213,6 +1214,10 @@ describe("TelegramClientBotService menu / idle", () => {
       "inbox thread auto-assigned to regional manager",
     );
     assert.ok(sent.some((s) => /Готово/i.test(s.text)));
+    assert.ok(
+      sent.some((s) => /Готово/i.test(s.text) && JSON.stringify(s.keyboard ?? []).includes("Каталог")),
+      "commerce menu appears only after onboarding",
+    );
   });
 
   it("uses the CRM contact phone and does not ask a linked client to share", async () => {

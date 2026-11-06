@@ -14,6 +14,7 @@ import {
   hasTelegramLaunchHint,
   isEmbeddedTelegramPlatform,
   isTelegramUserAgent,
+  looksLikeTelegramInitData,
   readCatalogAuthToken,
   resolveTelegramInitData,
   waitForTelegramWebApp,
@@ -59,10 +60,11 @@ export function useTelegramWebApp() {
   return useContext(TelegramWebAppContext);
 }
 
-async function exchangeTelegramSession(initData?: string) {
+async function exchangeTelegramSession(initData?: string, opts?: { allowInitData?: boolean }) {
   const tgAuth = readCatalogAuthToken();
+  const sendInitData = opts?.allowInitData !== false && looksLikeTelegramInitData(initData);
   const body: { initData?: string; tgAuth?: string } = {};
-  if (initData?.trim()) body.initData = initData.trim();
+  if (sendInitData) body.initData = initData!.trim();
   if (tgAuth) body.tgAuth = tgAuth;
   if (!body.initData && !body.tgAuth) {
     throw new Error("Telegram session missing");
@@ -75,7 +77,11 @@ async function exchangeTelegramSession(initData?: string) {
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ message: res.statusText }));
-    throw new Error((err as { message?: string }).message ?? "Telegram session failed");
+    const message = (err as { message?: string }).message ?? "Telegram session failed";
+    if (sendInitData && tgAuth && /initData/i.test(message)) {
+      return exchangeTelegramSession(initData, { allowInitData: false });
+    }
+    throw new Error(message);
   }
   return res.json() as Promise<{
     token: string;

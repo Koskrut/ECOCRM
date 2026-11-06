@@ -40,6 +40,7 @@ import {
   CATALOG_SEARCH_BUTTON,
   CATALOG_SYSTEMS,
   CITY_RESULTS_LIMIT,
+  CLIENT_FLOW_KEYBOARD,
   CLIENT_MENU_KEYBOARD,
   CLIENT_PHONE_KEYBOARD,
   buildClientMenuKeyboard,
@@ -3548,14 +3549,15 @@ export class TelegramClientBotService {
     await this.recordOutbound(conversationId, text, messageId);
   }
 
-  /** Onboarding steps keep the commerce menu, plus Cancel. */
+  /** New-client onboarding: Cancel only — commerce menu appears after the profile is done. */
   private async replyOnboardingText(
     chatId: string,
     conversationId: string,
     text: string,
   ): Promise<void> {
+    await this.clearChatCatalogMenuButton(chatId);
     const { messageId } = await this.telegram.sendMessageToChat(chatId, text, {
-      menuKeyboard: await this.flowMenuKeyboard(chatId),
+      menuKeyboard: CLIENT_FLOW_KEYBOARD,
     });
     await this.recordOutbound(conversationId, text, messageId);
   }

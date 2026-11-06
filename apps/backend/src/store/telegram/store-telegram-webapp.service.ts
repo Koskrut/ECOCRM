@@ -49,19 +49,30 @@ export class StoreTelegramWebAppService {
 
     if (raw) {
       const secrets = await this.settings.getTelegramSecrets();
-      if (!secrets.botToken) throw new UnauthorizedException("Telegram bot is not configured");
-      if (!verifyTelegramWebAppInitData(raw, secrets.botToken)) {
+      const botToken = secrets.botToken?.trim() || "";
+      const verified = Boolean(botToken) && verifyTelegramWebAppInitData(raw, botToken);
+      if (verified) {
+        const parsed = parseTelegramWebAppInitData(raw);
+        if (!parsed?.user?.id) throw new UnauthorizedException("Telegram user missing");
+        if (!isTelegramAuthDateValid(parsed.authDate, WEBAPP_INIT_MAX_AGE_SECONDS)) {
+          throw new UnauthorizedException("Telegram initData expired");
+        }
+        telegramUserId = String(parsed.user.id);
+        telegramFirstName = parsed.user.first_name ?? null;
+        telegramLastName = parsed.user.last_name ?? null;
+        telegramUsername = parsed.user.username ?? null;
+      } else if (handoff?.sub) {
+        // Android WebView often sends a truncated/decoded hash that fails HMAC.
+        // The bot-signed catalog URL is enough to identify that Telegram user.
+        this.logger.debug("initData rejected; using catalog handoff");
+        telegramUserId = handoff.sub;
+        telegramFirstName = handoff.firstName ?? null;
+        telegramLastName = handoff.lastName ?? null;
+      } else if (!botToken) {
+        throw new UnauthorizedException("Telegram bot is not configured");
+      } else {
         throw new UnauthorizedException("Invalid Telegram initData");
       }
-      const parsed = parseTelegramWebAppInitData(raw);
-      if (!parsed?.user?.id) throw new UnauthorizedException("Telegram user missing");
-      if (!isTelegramAuthDateValid(parsed.authDate, WEBAPP_INIT_MAX_AGE_SECONDS)) {
-        throw new UnauthorizedException("Telegram initData expired");
-      }
-      telegramUserId = String(parsed.user.id);
-      telegramFirstName = parsed.user.first_name ?? null;
-      telegramLastName = parsed.user.last_name ?? null;
-      telegramUsername = parsed.user.username ?? null;
     } else if (handoff?.sub) {
       // iOS / reply-keyboard Mini App often ships no initData. The bot-signed
       // catalog URL is the login for that Telegram user.
