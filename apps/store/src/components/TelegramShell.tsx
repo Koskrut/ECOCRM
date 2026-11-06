@@ -5,19 +5,24 @@ import { usePathname } from "next/navigation";
 import { useCart } from "@/context/CartContext";
 import { useTelegramWebApp } from "@/context/TelegramWebAppContext";
 import { getTelegramWebApp } from "@/lib/telegram-webapp";
-import { assignStorePath, isTelegramInternalHref } from "@/lib/telegram-nav";
+import {
+  assignStorePath,
+  isTelegramInternalHref,
+  peekTelegramNavStack,
+  popTelegramNavPath,
+} from "@/lib/telegram-nav";
 
-function safeMainButtonCall(run: () => void) {
+function safeTelegramCall(run: () => void) {
   try {
     run();
   } catch {
-    /* Android Telegram MainButton throws and kills the Mini App. */
+    /* Android Telegram chrome APIs throw and kill the Mini App. */
   }
 }
 
 /**
- * Mini App chrome: hide marketing chrome, wire Telegram MainButton to cart/checkout.
- * Children stay mounted; CSS hides site chrome when data-tg-miniapp is set.
+ * Mini App chrome: hide marketing chrome, in-page cart bar, Telegram BackButton.
+ * Native MainButton is skipped — it crashes a subset of Android clients.
  */
 export function TelegramShell({ children }: { children: React.ReactNode }) {
   const telegram = useTelegramWebApp();
@@ -26,17 +31,22 @@ export function TelegramShell({ children }: { children: React.ReactNode }) {
   const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
-    if (!telegram.isTelegram) {
-      document.documentElement.removeAttribute("data-tg-miniapp");
+    if (telegram.isTelegram) {
+      document.documentElement.setAttribute("data-tg-miniapp", "1");
       return;
     }
-    document.documentElement.setAttribute("data-tg-miniapp", "1");
-    return () => document.documentElement.removeAttribute("data-tg-miniapp");
-  }, [telegram.isTelegram]);
+    // Head script already flags a Telegram launch. Do not strip it before boot finishes —
+    // that window lets Next.js history.pushState crash Android (Oops + duck).
+    if (!telegram.ready) return;
+    document.documentElement.removeAttribute("data-tg-miniapp");
+    document.documentElement.removeAttribute("data-tg-bar");
+  }, [telegram.isTelegram, telegram.ready]);
 
   // Next.js client navigation uses history.pushState; Android Telegram shows Oops+duck.
   useEffect(() => {
-    if (!telegram.isTelegram) return;
+    const intercept =
+      telegram.isTelegram || document.documentElement.getAttribute("data-tg-miniapp") === "1";
+    if (!intercept) return;
     const onClick = (event: MouseEvent) => {
       if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
         return;
@@ -49,61 +59,56 @@ export function TelegramShell({ children }: { children: React.ReactNode }) {
       if (!href || !isTelegramInternalHref(href)) return;
       event.preventDefault();
       event.stopPropagation();
+      event.stopImmediatePropagation();
       assignStorePath(href);
     };
     document.addEventListener("click", onClick, true);
     return () => document.removeEventListener("click", onClick, true);
-  }, [telegram.isTelegram]);
+  }, [telegram.isTelegram, telegram.ready]);
 
   useEffect(() => {
     if (!telegram.isTelegram || !telegram.ready) return;
     const app = getTelegramWebApp();
-    const main = app?.MainButton;
-    if (!main) return;
+    const back = app?.BackButton;
+    if (!back) return;
 
-    const onCart = () => {
-      if (!telegram.loggedIn) {
-        void telegram.refreshSession();
-        return;
-      }
-      if (pathname === "/checkout") return;
-      assignStorePath(pathname === "/cart" ? "/checkout" : "/cart");
+    const onBack = () => {
+      const prev = popTelegramNavPath();
+      if (prev) assignStorePath(prev, { back: true });
+      else safeTelegramCall(() => app?.close?.());
     };
 
-    safeMainButtonCall(() => main.onClick(onCart));
-    if (pathname === "/checkout" || pathname.startsWith("/thank-you")) {
-      safeMainButtonCall(() => main.hide());
-    } else if (!telegram.loggedIn && !telegram.loading) {
-      safeMainButtonCall(() => {
-        main.setText(telegram.error ? "Оновити сесію" : "Оновити профіль");
-        main.show();
-      });
-    } else if (count > 0) {
-      safeMainButtonCall(() => {
-        main.setText(pathname === "/cart" ? "Оформити" : `Кошик · ${sumUah} грн`);
-        main.show();
-      });
-    } else {
-      safeMainButtonCall(() => main.hide());
-    }
+    safeTelegramCall(() => back.onClick(onBack));
+    if (peekTelegramNavStack().length > 0) safeTelegramCall(() => back.show());
+    else safeTelegramCall(() => back.hide());
 
     return () => {
-      safeMainButtonCall(() => {
-        main.offClick(onCart);
-        main.hide();
+      safeTelegramCall(() => {
+        back.offClick(onBack);
+        back.hide();
       });
     };
-  }, [
-    telegram.isTelegram,
-    telegram.ready,
-    telegram.loggedIn,
-    telegram.loading,
-    telegram.error,
-    telegram.refreshSession,
-    count,
-    sumUah,
-    pathname,
-  ]);
+  }, [telegram.isTelegram, telegram.ready, pathname]);
+
+  const hideBar = pathname === "/checkout" || pathname.startsWith("/thank-you");
+  let barLabel = "";
+  let barAction: (() => void) | null = null;
+  if (telegram.isTelegram && telegram.ready && !hideBar) {
+    if (!telegram.loggedIn && !telegram.loading) {
+      barLabel = telegram.error ? "Оновити сесію" : "Оновити профіль";
+      barAction = () => {
+        void telegram.refreshSession();
+      };
+    } else if (telegram.loggedIn && count > 0) {
+      barLabel = pathname === "/cart" ? "Оформити" : `Кошик · ${sumUah} грн`;
+      barAction = () => assignStorePath(pathname === "/cart" ? "/checkout" : "/cart");
+    }
+  }
+
+  useEffect(() => {
+    if (barLabel) document.documentElement.setAttribute("data-tg-bar", "1");
+    else document.documentElement.removeAttribute("data-tg-bar");
+  }, [barLabel]);
 
   const showProfileGate =
     telegram.isTelegram && telegram.ready && !telegram.loading && !telegram.loggedIn && !telegram.error;
@@ -136,6 +141,13 @@ export function TelegramShell({ children }: { children: React.ReactNode }) {
         </div>
       ) : null}
       {children}
+      {barLabel && barAction ? (
+        <div className="tg-miniapp-bar">
+          <button type="button" onClick={barAction}>
+            {barLabel}
+          </button>
+        </div>
+      ) : null}
     </>
   );
 }

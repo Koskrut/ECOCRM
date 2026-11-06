@@ -129,6 +129,37 @@ html[data-tg-miniapp="1"] {
 html[data-tg-miniapp="1"] body {
   background: var(--surface);
   color: var(--foreground);
+  padding-bottom: calc(
+    env(safe-area-inset-bottom) + var(--tg-keyboard, 0px) + var(--tg-miniapp-bar, 0px)
+  );
+}
+
+html[data-tg-miniapp="1"][data-tg-bar="1"] {
+  --tg-miniapp-bar: 4.75rem;
+}
+
+html[data-tg-miniapp="1"] .tg-miniapp-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 40;
+  padding: 0.75rem 1rem calc(0.75rem + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--border);
+  background: #ffffff;
+}
+
+html[data-tg-miniapp="1"] .tg-miniapp-bar button {
+  display: flex;
+  min-height: 48px;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.75rem;
+  background: var(--primary);
+  color: #ffffff;
+  font-size: 0.95rem;
+  font-weight: 600;
 }
 
 html[data-tg-miniapp="1"] footer,

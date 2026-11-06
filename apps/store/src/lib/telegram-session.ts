@@ -21,9 +21,41 @@ export type TelegramStoreProfile = {
 function readStorage(key: string): string {
   if (typeof window === "undefined") return "";
   try {
-    return sessionStorage.getItem(key) ?? "";
+    const session = sessionStorage.getItem(key) ?? "";
+    if (session) return session;
+  } catch {
+    /* WebView may block sessionStorage */
+  }
+  try {
+    return localStorage.getItem(key) ?? "";
   } catch {
     return "";
+  }
+}
+
+function writeStorage(key: string, value: string): void {
+  try {
+    sessionStorage.setItem(key, value);
+  } catch {
+    /* ignore */
+  }
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    /* ignore */
+  }
+}
+
+function removeStorage(key: string): void {
+  try {
+    sessionStorage.removeItem(key);
+  } catch {
+    /* ignore */
+  }
+  try {
+    localStorage.removeItem(key);
+  } catch {
+    /* ignore */
   }
 }
 
@@ -73,26 +105,22 @@ export function setTelegramStoreSession(params: {
   if (params.storeToken) memoryCabinetToken = params.storeToken;
   else if (params.storeToken === null) memoryCabinetToken = "";
   if (typeof window === "undefined") return;
-  try {
-    sessionStorage.setItem(TG_TOKEN_KEY, params.token);
-    sessionStorage.setItem(TG_CART_KEY, params.cartSessionId);
-    sessionStorage.setItem(
-      TG_PROFILE_KEY,
-      JSON.stringify({
-        phone: params.phone,
-        firstName: params.firstName,
-        lastName: params.lastName,
-        region: params.region ?? null,
-        contactId: params.contactId,
-      } satisfies TelegramStoreProfile),
-    );
-    if (params.storeToken) {
-      sessionStorage.setItem(TG_CABINET_TOKEN_KEY, params.storeToken);
-    } else if (params.storeToken === null) {
-      sessionStorage.removeItem(TG_CABINET_TOKEN_KEY);
-    }
-  } catch {
-    /* WebView may block sessionStorage; in-memory tokens still authorize this tab. */
+  writeStorage(TG_TOKEN_KEY, params.token);
+  writeStorage(TG_CART_KEY, params.cartSessionId);
+  writeStorage(
+    TG_PROFILE_KEY,
+    JSON.stringify({
+      phone: params.phone,
+      firstName: params.firstName,
+      lastName: params.lastName,
+      region: params.region ?? null,
+      contactId: params.contactId,
+    } satisfies TelegramStoreProfile),
+  );
+  if (params.storeToken) {
+    writeStorage(TG_CABINET_TOKEN_KEY, params.storeToken);
+  } else if (params.storeToken === null) {
+    removeStorage(TG_CABINET_TOKEN_KEY);
   }
 }
 
@@ -102,12 +130,8 @@ export function clearTelegramStoreSession(): void {
   memoryCartSessionId = "";
   memoryProfile = null;
   if (typeof window === "undefined") return;
-  try {
-    sessionStorage.removeItem(TG_TOKEN_KEY);
-    sessionStorage.removeItem(TG_CART_KEY);
-    sessionStorage.removeItem(TG_PROFILE_KEY);
-    sessionStorage.removeItem(TG_CABINET_TOKEN_KEY);
-  } catch {
-    /* ignore */
-  }
+  removeStorage(TG_TOKEN_KEY);
+  removeStorage(TG_CART_KEY);
+  removeStorage(TG_PROFILE_KEY);
+  removeStorage(TG_CABINET_TOKEN_KEY);
 }

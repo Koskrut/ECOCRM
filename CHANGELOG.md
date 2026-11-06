@@ -4,7 +4,24 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.238**.)_
+_(планируемые изменения после **0.2.239**.)_
+
+## [0.2.239] — 2026-11-06
+
+### Summary
+
+Патч **0.2.239**: Mini App на Android без нативного MainButton (crash); своя нижня панель + BackButton; checkout краще піднімає клавіатуру й збережені адреси НП.
+
+### Changed
+
+- TelegramShell: in-page cart/profile bar замість MainButton; nav stack + BackButton; click-intercept раніше за SPA; `tgAuth` тримається між переходами.
+- Checkout: auto Nova Poshta з default shipping profile; visualViewport keyboard inset. Bot checkout: один збережений профіль НП → одразу оплата.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.239`**.
+- **Нових міграцій немає.**
+- **Не використовувати `0.2.230`** і **`0.2.199`–`0.2.202`**.
 
 ## [0.2.238] — 2026-11-06
 

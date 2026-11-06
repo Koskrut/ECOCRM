@@ -16,6 +16,14 @@ export type TelegramWebApp = {
   setHeaderColor?: (color: string) => void;
   themeParams?: Record<string, string>;
   platform?: string;
+  openLink?: (url: string, options?: { try_instant_view?: boolean }) => void;
+  BackButton?: {
+    isVisible?: boolean;
+    show: () => void;
+    hide: () => void;
+    onClick: (cb: () => void) => void;
+    offClick: (cb: () => void) => void;
+  };
   MainButton?: {
     text: string;
     isVisible: boolean;
@@ -72,16 +80,39 @@ export const CATALOG_AUTH_STORAGE_KEY = "suprex_tg_auth";
 /** Same for initData — Desktop Telegram may wipe the hash before React reads it. */
 export const TG_INIT_DATA_STORAGE_KEY = "suprex_tg_init_data";
 
+function writeWebAppStorage(key: string, value: string): void {
+  try {
+    sessionStorage.setItem(key, value);
+  } catch {
+    /* WebView may block sessionStorage */
+  }
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    /* WebView may block localStorage */
+  }
+}
+
+function readWebAppStorage(key: string): string {
+  try {
+    const session = sessionStorage.getItem(key)?.trim() ?? "";
+    if (session) return session;
+  } catch {
+    /* ignore */
+  }
+  try {
+    return localStorage.getItem(key)?.trim() ?? "";
+  } catch {
+    return "";
+  }
+}
+
 export function persistTelegramInitData(initData: string): void {
   const value = initData.trim();
   if (!value || typeof window === "undefined") return;
   if (!looksLikeTelegramInitData(value)) return;
   window.__SUPREX_TG_INIT_DATA = value;
-  try {
-    sessionStorage.setItem(TG_INIT_DATA_STORAGE_KEY, value);
-  } catch {
-    /* WebView may block storage */
-  }
+  writeWebAppStorage(TG_INIT_DATA_STORAGE_KEY, value);
 }
 
 /** URL of the first document load. Next.js replaceState drops the Telegram hash; this entry keeps it. */
@@ -124,12 +155,8 @@ export function readCapturedTelegramInitData(): string {
     persistTelegramInitData(fromSdk);
     return fromSdk;
   }
-  try {
-    const stored = sessionStorage.getItem(TG_INIT_DATA_STORAGE_KEY)?.trim() ?? "";
-    return looksLikeTelegramInitData(stored) ? stored : "";
-  } catch {
-    return "";
-  }
+  const stored = readWebAppStorage(TG_INIT_DATA_STORAGE_KEY);
+  return looksLikeTelegramInitData(stored) ? stored : "";
 }
 
 /** Phone handoff the bot puts on the catalog button. Empty outside that open. */
@@ -157,18 +184,10 @@ export function readCatalogAuthToken(): string {
     readTgAuthFromHref(window.location.href) || readTgAuthFromHref(readPerformanceLaunchUrl());
   if (fromUrl) {
     window.__SUPREX_TG_AUTH = fromUrl;
-    try {
-      sessionStorage.setItem(CATALOG_AUTH_STORAGE_KEY, fromUrl);
-    } catch {
-      /* WebView may block storage */
-    }
+    writeWebAppStorage(CATALOG_AUTH_STORAGE_KEY, fromUrl);
     return fromUrl;
   }
-  try {
-    return sessionStorage.getItem(CATALOG_AUTH_STORAGE_KEY)?.trim() ?? "";
-  } catch {
-    return "";
-  }
+  return readWebAppStorage(CATALOG_AUTH_STORAGE_KEY);
 }
 
 /** This document was opened from the bot catalog button (query or Telegram hash). */

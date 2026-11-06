@@ -8,6 +8,7 @@ import { createCheckoutPaymentLink } from "@/lib/api";
 import { buildPublicPayUrl, getCrmPayPageOrigin } from "@/lib/crm-pay-url";
 import { useStoreConfig } from "@/context/StoreConfigContext";
 import { useTelegramWebApp } from "@/context/TelegramWebAppContext";
+import { openStoreExternalUrl } from "@/lib/telegram-nav";
 import { PUBLIC_SITE_URL } from "@/lib/public-site-url";
 
 function ThankYouContent() {
@@ -43,7 +44,7 @@ function ThankYouContent() {
         setPayErr(`Не налаштовано адресу сторінки оплати. ${payOriginHint}`);
         return;
       }
-      window.location.href = url;
+      openStoreExternalUrl(url);
     } catch (e) {
       setPayErr(e instanceof Error ? e.message : "Не вдалося підготувати оплату");
     } finally {

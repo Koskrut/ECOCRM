@@ -24,6 +24,18 @@ import { useTelegramWebApp } from "@/context/TelegramWebAppContext";
 const inputClass =
   "mt-1 w-full min-h-[48px] rounded-lg border border-[var(--border)] bg-white px-3 py-3 text-zinc-900 outline-none transition focus:border-[var(--primary)] focus:ring-1 focus:ring-[var(--primary)] sm:min-h-[44px] sm:py-2.5";
 
+function preferredShippingProfile(items: ShippingProfile[]): ShippingProfile | undefined {
+  return items.find((p) => p.isDefault) ?? items[0];
+}
+
+function revealCheckoutField(el: HTMLElement) {
+  try {
+    el.scrollIntoView({ block: "center", inline: "nearest", behavior: "smooth" });
+  } catch {
+    el.scrollIntoView();
+  }
+}
+
 export default function CheckoutPage() {
   const telegram = useTelegramWebApp();
   const { applyCart } = useCart();
@@ -85,6 +97,7 @@ export default function CheckoutPage() {
   const [npProfileLabel, setNpProfileLabel] = useState("");
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
   const profileDropdownRef = useRef<HTMLDivElement>(null);
+  const npPrefillRef = useRef(false);
 
   useEffect(() => {
     if (!telegram.ready || !telegram.isTelegram) return;
@@ -150,35 +163,54 @@ export default function CheckoutPage() {
   }, []);
 
   useEffect(() => {
-    if (!loggedIn) {
+    const canLoad =
+      loggedIn || (telegram.isTelegram && telegram.loggedIn && Boolean(telegram.token));
+    if (!canLoad) {
+      npPrefillRef.current = false;
       setProfilesLoaded(true);
       setShippingProfiles([]);
       return;
     }
+    let cancelled = false;
     setProfilesLoaded(false);
     getMyShippingProfiles()
       .then((r) => {
+        if (cancelled) return;
         const items = r.items ?? [];
         setShippingProfiles(items);
-        if (items.length === 0) {
+        const preferred = preferredShippingProfile(items);
+        if (!preferred) {
           setNpAddressMode("new");
           setNpProfileId("");
-        } else if (deliveryMethod === "NOVA_POSHTA") {
-          setNpAddressMode("profile");
-          setNpProfileId(items[0].id);
+          return;
+        }
+        setNpAddressMode("profile");
+        setNpProfileId(preferred.id);
+        if (!npPrefillRef.current) {
+          npPrefillRef.current = true;
+          setDeliveryMethod("NOVA_POSHTA");
         }
       })
       .catch(() => {
+        if (cancelled) return;
         setShippingProfiles([]);
       })
-      .finally(() => setProfilesLoaded(true));
-  }, [loggedIn]);
+      .finally(() => {
+        if (!cancelled) setProfilesLoaded(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [loggedIn, telegram.isTelegram, telegram.loggedIn, telegram.token]);
 
   useEffect(() => {
-    if (deliveryMethod !== "NOVA_POSHTA" || shippingProfiles.length === 0 || npAddressMode === "new") return;
+    if (deliveryMethod !== "NOVA_POSHTA" || shippingProfiles.length === 0) return;
+    if (npAddressMode === "new") return;
     if (!npProfileId || !shippingProfiles.some((p) => p.id === npProfileId)) {
+      const preferred = preferredShippingProfile(shippingProfiles);
+      if (!preferred) return;
       setNpAddressMode("profile");
-      setNpProfileId(shippingProfiles[0].id);
+      setNpProfileId(preferred.id);
     }
   }, [deliveryMethod, shippingProfiles, npProfileId, npAddressMode]);
 
@@ -308,6 +340,23 @@ export default function CheckoutPage() {
     if (!error) return;
     errorAnchorRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
   }, [error]);
+
+  useEffect(() => {
+    if (!isTelegramCheckout || typeof window === "undefined" || !window.visualViewport) return;
+    const viewport = window.visualViewport;
+    const apply = () => {
+      const gap = Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop);
+      document.documentElement.style.setProperty("--tg-keyboard", `${gap}px`);
+    };
+    viewport.addEventListener("resize", apply);
+    viewport.addEventListener("scroll", apply);
+    apply();
+    return () => {
+      viewport.removeEventListener("resize", apply);
+      viewport.removeEventListener("scroll", apply);
+      document.documentElement.style.removeProperty("--tg-keyboard");
+    };
+  }, [isTelegramCheckout]);
 
   const showCheckoutError = (message: string) => {
     setError(message);
@@ -629,7 +678,17 @@ export default function CheckoutPage() {
                   name="deliveryMethod"
                   value="NOVA_POSHTA"
                   checked={deliveryMethod === "NOVA_POSHTA"}
-                  onChange={() => setDeliveryMethod("NOVA_POSHTA")}
+                  onChange={() => {
+                    setDeliveryMethod("NOVA_POSHTA");
+                    const preferred = preferredShippingProfile(shippingProfiles);
+                    if (!preferred) return;
+                    setNpAddressMode("profile");
+                    setNpProfileId((current) =>
+                      current && shippingProfiles.some((p) => p.id === current)
+                        ? current
+                        : preferred.id,
+                    );
+                  }}
                   className="h-4 w-4 border-zinc-300 text-[var(--primary)] focus:ring-[var(--primary)]"
                 />
                 <span className="text-zinc-900">Нова пошта</span>
@@ -638,7 +697,17 @@ export default function CheckoutPage() {
           </div>
 
           {deliveryMethod === "NOVA_POSHTA" && (
-            <div className="space-y-4 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4">
+            <div
+              className="space-y-4 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4"
+              onFocusCapture={(event) => {
+                const target = event.target;
+                if (!(target instanceof HTMLElement)) return;
+                if (target.tagName !== "INPUT" && target.tagName !== "SELECT" && target.tagName !== "TEXTAREA") {
+                  return;
+                }
+                window.setTimeout(() => revealCheckoutField(target), 350);
+              }}
+            >
               <h3 className="text-sm font-medium text-zinc-800">Адреса доставки Нова пошта</h3>
               {profilesLoaded && shippingProfiles.length > 0 && (
                 <div className="space-y-2">

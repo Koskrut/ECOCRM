@@ -1368,6 +1368,7 @@ export class TelegramClientBotService {
   }
 
   private async showCart(parsed: ParsedInbound, conversationId: string): Promise<void> {
+    await this.syncChatCatalogMenuButton(parsed.chatId, parsed.userId);
     const cart = await this.cart.getCart(await this.syncChatCart(parsed.userId));
     if (!cart.items.length) {
       await this.replyInline(parsed.chatId, conversationId, "Кошик порожній.", [
@@ -1438,6 +1439,7 @@ export class TelegramClientBotService {
     leadId: string | null,
     page: number,
   ): Promise<void> {
+    await this.syncChatCatalogMenuButton(parsed.chatId, parsed.userId);
     const resolved = await this.resolveContactId(contactId, leadId);
     if (!resolved) {
       await this.replyWhenNoContact(
@@ -2605,10 +2607,34 @@ export class TelegramClientBotService {
           try {
             const profiles = await this.contacts.listShippingProfiles(resolvedContact);
             const items = profiles.items.filter((p) => p.recipientType !== "COMPANY");
+            const preferred = items.length === 1 ? items[0] : null;
+            if (preferred) {
+              payload = await this.sessions.patchPayload(parsed.userId, "checkout_flow", {
+                ...payload,
+                profileId: preferred.id,
+                deliveryMethod: "NOVA_POSHTA",
+              });
+              const where = [preferred.cityName, preferred.warehouseNumber || preferred.warehouseType]
+                .filter(Boolean)
+                .join(", ");
+              await this.replyCheckoutInline(
+                parsed.chatId,
+                conversationId,
+                where
+                  ? `Доставка Новою Поштою: ${where}.\n\nОплата:`
+                  : "Доставка збереженою адресою Нової Пошти.\n\nОплата:",
+                [
+                  [{ text: "💳 Передоплата", callback_data: "chk:pay:pre" }],
+                  [{ text: "📦 Накладений платіж", callback_data: "chk:pay:cod" }],
+                  [{ text: "Інша адреса", callback_data: "chk:prof:new" }],
+                ],
+              );
+              return;
+            }
             if (items.length > 0) {
               const rows: InlineBtn[][] = items.slice(0, 5).map((p) => [
                 {
-                  text: (p.label || p.cityName || "Адреса").slice(0, 40),
+                  text: `${p.isDefault ? "★ " : ""}${(p.label || p.cityName || "Адреса").slice(0, 40)}`,
                   callback_data: `chk:prof:${p.id}`,
                 },
               ]);

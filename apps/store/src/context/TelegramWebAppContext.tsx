@@ -209,7 +209,10 @@ export function TelegramWebAppProvider({ children }: { children: React.ReactNode
       try {
         app?.ready();
         // expand() on Android Telegram often crashes the Mini App (Oops + duck) on first tap.
-        if (app?.platform !== "android") app?.expand();
+        const android =
+          app?.platform === "android" ||
+          (typeof navigator !== "undefined" && /Android/i.test(navigator.userAgent));
+        if (!android) app?.expand();
       } catch {
         /* ignore */
       }
