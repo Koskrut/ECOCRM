@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import {
   conversationsApi,
@@ -316,7 +316,10 @@ function UnifiedInboxContent() {
   const loadingOlderRef = useRef(false);
   const preserveScrollRef = useRef<{ height: number; top: number } | null>(null);
   const messagesScrollRef = useRef<HTMLDivElement>(null);
-  const messagesScrollKeyRef = useRef("");
+  const messagesContentRef = useRef<HTMLDivElement>(null);
+  /** Stay on the latest message until the user scrolls up into history. */
+  const stickToBottomRef = useRef(true);
+  const openedConversationRef = useRef<string | null>(conversationIdFromUrl);
   const listScrollRef = useRef<HTMLDivElement>(null);
   const [linkModalOpen, setLinkModalOpen] = useState(false);
   const [linkSearch, setLinkSearch] = useState("");
@@ -714,6 +717,7 @@ function UnifiedInboxContent() {
 
   useEffect(() => {
     if (!conversationIdFromUrl || conversationIdFromUrl === selectedId) return;
+    stickToBottomRef.current = true;
     setSelectedId(conversationIdFromUrl);
     if (channelFromUrl !== "ALL") setSelectedSource(channelFromUrl);
     setMobilePanel("chat");
@@ -729,6 +733,7 @@ function UnifiedInboxContent() {
 
   const selectConversation = (c: UnifiedConversation) => {
     setActionError(null);
+    stickToBottomRef.current = true;
     setSelectedId(c.id);
     setSelectedSource(c.source);
     setMobilePanel("chat");
@@ -780,9 +785,20 @@ function UnifiedInboxContent() {
     listScrollRef.current?.scrollTo({ top: 0 });
   }, [channelFilter]);
 
-  useEffect(() => {
+  const pinMessagesToBottom = useCallback(() => {
     const el = messagesScrollRef.current;
-    if (!el || messagesLoading) return;
+    if (!el || !stickToBottomRef.current) return;
+    el.scrollTop = el.scrollHeight;
+  }, []);
+
+  useLayoutEffect(() => {
+    const el = messagesScrollRef.current;
+    if (!el) return;
+    if (openedConversationRef.current !== selectedId) {
+      openedConversationRef.current = selectedId;
+      stickToBottomRef.current = true;
+      preserveScrollRef.current = null;
+    }
     const preserved = preserveScrollRef.current;
     if (preserved) {
       preserveScrollRef.current = null;
@@ -790,17 +806,25 @@ function UnifiedInboxContent() {
       el.scrollTop = preserved.top + Math.max(0, delta);
       return;
     }
-    const lastId = messages[messages.length - 1]?.id ?? "";
-    const key = `${selectedId ?? ""}:${messages.length}:${lastId}`;
-    if (key === messagesScrollKeyRef.current) return;
-    const previousConversationId = messagesScrollKeyRef.current.split(":")[0] ?? "";
-    messagesScrollKeyRef.current = key;
-    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-    const switchedConversation = previousConversationId !== (selectedId ?? "");
-    if (switchedConversation || distanceFromBottom < 160) {
-      el.scrollTop = el.scrollHeight;
-    }
-  }, [messages, messagesLoading, selectedId]);
+    if (messagesLoading) return;
+    if (selectedId && messages.some((m) => m.conversationId !== selectedId)) return;
+    pinMessagesToBottom();
+    const frame = requestAnimationFrame(() => pinMessagesToBottom());
+    return () => cancelAnimationFrame(frame);
+  }, [messages, messagesLoading, selectedId, pinMessagesToBottom]);
+
+  useEffect(() => {
+    const content = messagesContentRef.current;
+    const scroller = messagesScrollRef.current;
+    if (!content || !scroller) return;
+    const observer = new ResizeObserver(() => {
+      if (!stickToBottomRef.current || preserveScrollRef.current) return;
+      scroller.scrollTop = scroller.scrollHeight;
+    });
+    observer.observe(content);
+    observer.observe(scroller);
+    return () => observer.disconnect();
+  }, [selectedId, messagesLoading, messages.length]);
 
   useEffect(() => {
     if (!selectedId || effectiveSource !== "TELEGRAM") return;
@@ -823,6 +847,7 @@ function UnifiedInboxContent() {
 
     const draft = text;
     setActionError(null);
+    stickToBottomRef.current = true;
     setSendText("");
     const optimistic: UnifiedMessage = {
       id: `opt-${Date.now()}`,
@@ -883,6 +908,7 @@ function UnifiedInboxContent() {
     if (!text || !selectedId || !effectiveSource || sending) return;
     const draft = text;
     setActionError(null);
+    stickToBottomRef.current = true;
     setSendText("");
     setSending(true);
     try {
@@ -1441,7 +1467,20 @@ function UnifiedInboxContent() {
                 ref={messagesScrollRef}
                 onScroll={() => {
                   const el = messagesScrollRef.current;
-                  if (!el || loadingOlder || !hasOlderMessages || !selectedId || !effectiveSource) return;
+                  if (!el) return;
+                  const overflows = el.scrollHeight > el.clientHeight + 48;
+                  const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+                  if (overflows) stickToBottomRef.current = distanceFromBottom < 160;
+                  if (
+                    !overflows ||
+                    loadingOlder ||
+                    !hasOlderMessages ||
+                    !selectedId ||
+                    !effectiveSource ||
+                    stickToBottomRef.current
+                  ) {
+                    return;
+                  }
                   if (el.scrollTop < 48) {
                     void loadMessages(selectedId, effectiveSource, { older: true });
                   }
@@ -1470,7 +1509,7 @@ function UnifiedInboxContent() {
                   </div>
                 ) : null}
                 {messages.length > 0 ? (
-                  <div className="space-y-3">
+                  <div ref={messagesContentRef} className="space-y-3">
                     {messages.map((m) => {
                       if (m.direction === "INTERNAL") {
                         return (
