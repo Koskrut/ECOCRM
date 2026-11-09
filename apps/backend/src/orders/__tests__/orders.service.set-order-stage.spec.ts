@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { BadRequestException } from "@nestjs/common";
+import { computeOrderExchangeRate } from "../../common/currency.util";
 import { OrdersService } from "../orders.service";
 
 type PrismaSvc = import("../../prisma/prisma.service").PrismaService;
@@ -282,5 +283,228 @@ describe("OrdersService.setOrderStage", () => {
 
     await svc.setOrderStage("o1", "CANCELED", undefined, "test cancel");
     assert.equal(recalcCalled, true);
+  });
+
+  it("snapshots the current exchange rate when confirming from awaiting stock", async () => {
+    const rates = {
+      UAH_TO_USD: 1 / 47,
+      EUR_TO_USD: 1.05,
+      baseCurrency: "USD" as const,
+    };
+    let updateData: Record<string, unknown> | undefined;
+    const prisma = {
+      order: {
+        findUnique: async () => ({
+          id: "o1",
+          ownerId: "u1",
+          contactId: "c1",
+          contact: { externalCode: "CODE-1C", ownerId: "u1" },
+          orderStage: "AWAITING_STOCK",
+          status: "AWAITING_STOCK",
+          paymentType: "POSTPAYMENT",
+          paidAmount: 0,
+          totalAmount: 100,
+          subtotalAmount: 100,
+          debtAmount: 100,
+          returnAdjustmentAmount: 0,
+          fxWriteOffAmount: 0,
+          paymentDueDate: null,
+          financialStatus: "AWAITING_PAYMENT",
+          deliveryMethod: "NP_WAREHOUSE",
+          deliveryData: null,
+          currency: "USD",
+          exchangeRate: 45.5,
+          ttns: [],
+          shipments: [],
+        }),
+        update: async ({ data }: { data: Record<string, unknown> }) => {
+          updateData = data;
+          return { id: "o1", orderNumber: "ORD-1", currency: "USD", ...data };
+        },
+      },
+      orderStatusHistory: { create: async () => ({}) },
+      $transaction: async <T>(cb: (tx: unknown) => Promise<T>) => cb(prisma),
+    } as unknown as PrismaSvc;
+    const svc = new OrdersService(
+      prisma,
+      {} as WarehousesSvc,
+      { getExchangeRates: async () => rates } as unknown as SettingsSvc,
+      {
+        notifyClientOrderStageChanged: async () => undefined,
+      } as never,
+      {
+        getEffectiveTransitionGraph: async () => ({
+          NEW: [],
+          CONFIRMED: [],
+          AWAITING_PAYMENT: [],
+          AWAITING_STOCK: ["CONFIRMED"],
+          READY_TO_SHIP: [],
+          SHIPPED: [],
+          AWAITING_RECEIPT: [],
+          RECEIVED: [],
+          COMPLETED: [],
+          CANCELED: [],
+          REFUSED: [],
+          RETURN_IN_PROGRESS: [],
+          FULLY_RETURNED: [],
+        }),
+      } as unknown as PipelineSvc,
+      {} as never,
+      { notifyStageChanged: async () => undefined } as never,
+      {} as never,
+      { applyReservationPolicy: async () => undefined } as never,
+    );
+
+    await svc.setOrderStage("o1", "CONFIRMED", undefined);
+    assert.equal(updateData?.orderStage, "CONFIRMED");
+    assert.equal(updateData?.exchangeRate, computeOrderExchangeRate("USD", rates));
+    assert.equal(updateData?.exchangeRate, 47);
+  });
+
+  it("keeps the locked rate when confirming again from ready to ship", async () => {
+    let ratesRead = false;
+    let updateData: Record<string, unknown> | undefined;
+    const prisma = {
+      order: {
+        findUnique: async () => ({
+          id: "o1",
+          ownerId: "u1",
+          contactId: "c1",
+          contact: { externalCode: "CODE-1C", ownerId: "u1" },
+          orderStage: "READY_TO_SHIP",
+          status: "READY_TO_SHIP",
+          paymentType: "POSTPAYMENT",
+          paidAmount: 0,
+          totalAmount: 100,
+          subtotalAmount: 100,
+          debtAmount: 100,
+          returnAdjustmentAmount: 0,
+          fxWriteOffAmount: 0,
+          paymentDueDate: null,
+          financialStatus: "AWAITING_PAYMENT",
+          deliveryMethod: "NP_WAREHOUSE",
+          deliveryData: null,
+          currency: "USD",
+          exchangeRate: 45.5,
+          ttns: [],
+          shipments: [],
+        }),
+        update: async ({ data }: { data: Record<string, unknown> }) => {
+          updateData = data;
+          return { id: "o1", orderNumber: "ORD-1", currency: "USD", exchangeRate: 45.5, ...data };
+        },
+      },
+      orderStatusHistory: { create: async () => ({}) },
+      $transaction: async <T>(cb: (tx: unknown) => Promise<T>) => cb(prisma),
+    } as unknown as PrismaSvc;
+    const svc = new OrdersService(
+      prisma,
+      {} as WarehousesSvc,
+      {
+        getExchangeRates: async () => {
+          ratesRead = true;
+          return { UAH_TO_USD: 1 / 47, EUR_TO_USD: 1.05, baseCurrency: "USD" };
+        },
+      } as unknown as SettingsSvc,
+      { notifyClientOrderStageChanged: async () => undefined } as never,
+      {
+        getEffectiveTransitionGraph: async () => ({
+          NEW: [],
+          CONFIRMED: [],
+          AWAITING_PAYMENT: [],
+          AWAITING_STOCK: [],
+          READY_TO_SHIP: ["CONFIRMED"],
+          SHIPPED: [],
+          AWAITING_RECEIPT: [],
+          RECEIVED: [],
+          COMPLETED: [],
+          CANCELED: [],
+          REFUSED: [],
+          RETURN_IN_PROGRESS: [],
+          FULLY_RETURNED: [],
+        }),
+      } as unknown as PipelineSvc,
+      {} as never,
+      { notifyStageChanged: async () => undefined } as never,
+      {} as never,
+      { applyReservationPolicy: async () => undefined } as never,
+    );
+
+    await svc.setOrderStage("o1", "CONFIRMED", undefined);
+    assert.equal(ratesRead, false);
+    assert.equal(updateData?.orderStage, "CONFIRMED");
+    assert.equal("exchangeRate" in (updateData ?? {}), false);
+  });
+
+  it("still confirms when the current rate cannot be loaded", async () => {
+    let updateData: Record<string, unknown> | undefined;
+    const prisma = {
+      order: {
+        findUnique: async () => ({
+          id: "o1",
+          ownerId: "u1",
+          contactId: "c1",
+          contact: { externalCode: "CODE-1C", ownerId: "u1" },
+          orderStage: "AWAITING_STOCK",
+          status: "AWAITING_STOCK",
+          paymentType: "POSTPAYMENT",
+          paidAmount: 0,
+          totalAmount: 100,
+          subtotalAmount: 100,
+          debtAmount: 100,
+          returnAdjustmentAmount: 0,
+          fxWriteOffAmount: 0,
+          paymentDueDate: null,
+          financialStatus: "AWAITING_PAYMENT",
+          deliveryMethod: "NP_WAREHOUSE",
+          deliveryData: null,
+          currency: "USD",
+          exchangeRate: 45.5,
+          ttns: [],
+          shipments: [],
+        }),
+        update: async ({ data }: { data: Record<string, unknown> }) => {
+          updateData = data;
+          return { id: "o1", orderNumber: "ORD-1", currency: "USD", exchangeRate: 45.5, ...data };
+        },
+      },
+      orderStatusHistory: { create: async () => ({}) },
+      $transaction: async <T>(cb: (tx: unknown) => Promise<T>) => cb(prisma),
+    } as unknown as PrismaSvc;
+    const svc = new OrdersService(
+      prisma,
+      {} as WarehousesSvc,
+      {
+        getExchangeRates: async () => {
+          throw new Error("settings down");
+        },
+      } as unknown as SettingsSvc,
+      { notifyClientOrderStageChanged: async () => undefined } as never,
+      {
+        getEffectiveTransitionGraph: async () => ({
+          NEW: [],
+          CONFIRMED: [],
+          AWAITING_PAYMENT: [],
+          AWAITING_STOCK: ["CONFIRMED"],
+          READY_TO_SHIP: [],
+          SHIPPED: [],
+          AWAITING_RECEIPT: [],
+          RECEIVED: [],
+          COMPLETED: [],
+          CANCELED: [],
+          REFUSED: [],
+          RETURN_IN_PROGRESS: [],
+          FULLY_RETURNED: [],
+        }),
+      } as unknown as PipelineSvc,
+      {} as never,
+      { notifyStageChanged: async () => undefined } as never,
+      {} as never,
+      { applyReservationPolicy: async () => undefined } as never,
+    );
+
+    await svc.setOrderStage("o1", "CONFIRMED", undefined);
+    assert.equal(updateData?.orderStage, "CONFIRMED");
+    assert.equal("exchangeRate" in (updateData ?? {}), false);
   });
 });

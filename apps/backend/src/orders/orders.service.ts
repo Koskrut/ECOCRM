@@ -37,6 +37,10 @@ import { CustomFieldsService } from "../custom-fields/custom-fields.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { SettingsService } from "../settings/settings.service";
 import { computeOrderExchangeRate, getBaseCurrency } from "../common/currency.util";
+import {
+  nextExchangeRateIfChanged,
+  shouldRefreshExchangeRateOnStageChange,
+} from "./order-exchange-rate";
 import { WarehousesService } from "../warehouses/warehouses.service";
 import type { AddOrderItemDto } from "./dto/add-order-item.dto";
 import type { CreateOrderDto } from "./dto/create-order.dto";
@@ -2074,6 +2078,39 @@ export class OrdersService {
   }
 
   /**
+   * Quote rate is replaced with the current CRM rate when the order is confirmed
+   * from NEW, awaiting payment, or awaiting stock. Later returns to CONFIRMED
+   * (for example from READY_TO_SHIP) keep the rate locked at confirmation.
+   */
+  private async freshExchangeRateOnConfirm(
+    orderId: string,
+    fromStage: OrderStage | null,
+    toStage: OrderStage,
+    currency: string,
+    currentRate: number | null,
+  ): Promise<number | undefined> {
+    if (!shouldRefreshExchangeRateOnStageChange(fromStage, toStage)) return undefined;
+    try {
+      const rates = await this.settings.getExchangeRates();
+      const next = nextExchangeRateIfChanged(
+        currentRate,
+        computeOrderExchangeRate(currency, rates),
+      );
+      if (next != null) {
+        this.logger.log(
+          `Order ${orderId}: exchange rate ${currentRate ?? "null"} → ${next} on confirm from ${fromStage ?? "NEW"}`,
+        );
+      }
+      return next;
+    } catch (e) {
+      this.logger.warn(
+        `getExchangeRates failed while confirming order ${orderId}, exchangeRate left unchanged: ${e}`,
+      );
+      return undefined;
+    }
+  }
+
+  /**
    * Phase 2: Single entry point for changing order stage. Validates transitions and business rules,
    * updates orderStage, deliveryStatus, financialStatus, and legacy status; writes history.
    */
@@ -2104,6 +2141,8 @@ export class OrdersService {
         fxWriteOffAmount: true,
         paymentDueDate: true,
         financialStatus: true,
+        currency: true,
+        exchangeRate: true,
         deliveryMethod: true,
         deliveryData: true,
         ttns: { take: 1, select: { id: true } },
@@ -2262,6 +2301,13 @@ export class OrdersService {
     const legacyStatus = orderStageToLegacyStatus(toStage, {
       debtAmount: current.debtAmount,
     });
+    const refreshedExchangeRate = await this.freshExchangeRateOnConfirm(
+      id,
+      current.orderStage,
+      toStage,
+      current.currency,
+      current.exchangeRate,
+    );
 
     const updated = await this.prisma.$transaction(async (tx) => {
       await tx.orderStatusHistory.create({
@@ -2282,6 +2328,7 @@ export class OrdersService {
           orderStage: toStage,
           deliveryStatus,
           financialStatus,
+          ...(refreshedExchangeRate != null ? { exchangeRate: refreshedExchangeRate } : {}),
         },
         include: ORDER_INCLUDE,
       });

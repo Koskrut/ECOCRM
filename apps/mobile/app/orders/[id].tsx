@@ -47,6 +47,14 @@ function itemLineTotal(item: OrderItem): number {
   return item.qty * item.price * (1 - (item.discountPercent ?? 0) / 100);
 }
 
+function itemUnitPrice(item: OrderItem): number {
+  const qty = Number(item.qty) || 0;
+  const price = Number(item.price) || 0;
+  const lineTotal = itemLineTotal(item);
+  if (qty > 0 && Math.abs(lineTotal - qty * price) >= 0.000001) return lineTotal / qty;
+  return price;
+}
+
 function itemPromoLabel(promoType: string | null | undefined): string {
   if (promoType === "BUY_100_GET_30") return t("orderCreate.promoBuy100Get30");
   if (promoType === "QTY_25_MINUS_2") return t("orderCreate.promoQty25Minus2");
@@ -404,7 +412,10 @@ export default function OrderDetailScreen() {
                     {item.productName ?? item.productNameSnapshot ?? t("orders.productFallback")}
                   </Text>
                   <Text style={[theme.typography.caption, { color: theme.colors.textMuted, marginTop: 4 }]}>
-                    {item.qty} × {formatBaseMoney(item.price, order.currency ?? "USD")}
+                    {item.qty} × {formatBaseMoney(itemUnitPrice(item), order.currency ?? "USD")}
+                    {Math.abs(itemUnitPrice(item) - item.price) > 0.0005
+                      ? ` (було ${formatBaseMoney(item.price, order.currency ?? "USD")})`
+                      : ""}
                     {item.discountPercent ? ` (−${item.discountPercent}%)` : ""}
                     {item.promoType ? ` · ${itemPromoLabel(item.promoType)}` : ""} ={" "}
                     {formatBaseMoney(itemLineTotal(item), order.currency ?? "USD")}

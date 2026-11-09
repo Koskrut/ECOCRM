@@ -3096,6 +3096,8 @@ export function OrderModal({
                         order.exchangeRate != null &&
                         order.exchangeRate > 0;
                       const gross = displayQty * displayPrice;
+                      const unitPrice = preview.effectiveUnitPrice;
+                      const priceChanged = Math.abs(unitPrice - displayPrice) > 0.0005;
                       const hasDiscountLook =
                         (it.discountPercent ?? 0) > 0 || Boolean(it.promoType);
 
@@ -3320,10 +3322,15 @@ export function OrderModal({
                                 }
                                 className="rounded-md px-1.5 py-1 text-sm tabular-nums text-zinc-700 hover:bg-zinc-50 hover:underline"
                               >
-                                {it.price.toFixed(2)}
+                                {priceChanged ? (
+                                  <span className="mr-1 text-zinc-400 line-through">
+                                    {displayPrice.toFixed(2)}
+                                  </span>
+                                ) : null}
+                                {unitPrice.toFixed(2)}
                                 {showUah ? (
                                   <span className="ml-1 text-xs font-normal text-zinc-500">
-                                    ({Math.round(it.price * order.exchangeRate!)} ₴)
+                                    ({Math.round(unitPrice * order.exchangeRate!)} ₴)
                                   </span>
                                 ) : null}
                               </button>
@@ -3403,11 +3410,6 @@ export function OrderModal({
                                   </span>
                                 ) : null}
                               </div>
-                              {it.promoType ? (
-                                <div className="text-[11px] text-emerald-700">
-                                  {t.promoEffectiveUnit}: {preview.effectiveUnitPrice.toFixed(2)}
-                                </div>
-                              ) : null}
                               {showUah ? (
                                 <div className="text-[11px] tabular-nums text-zinc-500">
                                   ≈ {Math.round(preview.lineTotal * order.exchangeRate!)} ₴

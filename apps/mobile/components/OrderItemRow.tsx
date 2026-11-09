@@ -279,7 +279,7 @@ export function OrderItemRow({
           </Text>
         ) : null}
       </Text>
-      {activePromo ? (
+      {activePromo || item.discountPercent > 0 ? (
         <Text style={[styles.effective, { color: theme.colors.textMuted }]}>
           {t("orderCreate.promoEffectiveUnit")}: {(total / Math.max(1, item.qty)).toFixed(2)}{" "}
           {currencySym}
