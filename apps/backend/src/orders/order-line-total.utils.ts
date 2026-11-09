@@ -1,3 +1,24 @@
+/**
+ * Unit price for 1C sheet and printed documents.
+ * Catalog `price` stays the list price in the order. When a line discount or promo
+ * reduced `lineTotal`, the exported unit is `lineTotal / qty` so price matches the sum.
+ */
+export function exportUnitPrice(item: {
+  qty: number;
+  price: number;
+  lineTotal?: number | null;
+}): number {
+  const price = Number(item.price) || 0;
+  const qty = Number(item.qty) || 0;
+  if (!(qty > 0) || item.lineTotal == null || !Number.isFinite(Number(item.lineTotal))) {
+    return price;
+  }
+  const lineTotal = Number(item.lineTotal);
+  const gross = qty * price;
+  if (Math.abs(lineTotal - gross) < 0.000001) return price;
+  return lineTotal / qty;
+}
+
 /** Gross line amount before discount. */
 export function computeLineGross(qty: number, price: number): number {
   return qty * price;

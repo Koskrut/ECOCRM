@@ -7,6 +7,7 @@ import { PaymentRequestsService } from "../payment-requests/payment-requests.ser
 import { buildNbuPaymentDeeplink } from "../payment-requests/nbu-qr";
 import { PrismaService } from "../prisma/prisma.service";
 import { SettingsService } from "../settings/settings.service";
+import { exportUnitPrice } from "./order-line-total.utils";
 import { resolveDocumentFontPaths } from "./orders-documents-fonts";
 
 const ORDER_DOCUMENTS_INCLUDE = {
@@ -799,7 +800,12 @@ export class OrdersDocumentsService {
       const name = item.product?.name ?? item.productNameSnapshot ?? "—";
       const unit = item.product?.unit?.trim() || "шт";
       const qty = Number(item.qty) || 0;
-      const priceUah = amountToUah(Number(item.price) || 0, order);
+      const unitPrice = exportUnitPrice({
+        qty,
+        price: Number(item.price) || 0,
+        lineTotal: item.lineTotal,
+      });
+      const priceUah = amountToUah(unitPrice, order);
       const sumUah = amountToUah(Number(item.lineTotal) || 0, order);
 
       doc.font(fonts.regular).fontSize(7.5);

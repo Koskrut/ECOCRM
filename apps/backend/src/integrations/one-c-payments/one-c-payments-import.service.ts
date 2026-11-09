@@ -13,6 +13,7 @@ import type { AuthUser } from "../../auth/auth.types";
 import { PrismaService } from "../../prisma/prisma.service";
 import { PaymentsService } from "../../payments/payments.service";
 import {
+  normalizeOneCCode,
   parseOneCPaymentsExcel,
   type OneCPaymentExcelRow,
 } from "./one-c-payments-excel.parser";
@@ -409,21 +410,14 @@ export class OneCPaymentsImportService {
     body: { enterpriseCode: string; enterpriseName: string },
   ) {
     await this.loadJob(jobId, actor);
-    if (!body.enterpriseCode?.trim()) {
+    const enterpriseCode = normalizeOneCCode(body.enterpriseCode);
+    if (!enterpriseCode) {
       throw new BadRequestException("enterpriseCode is required");
     }
 
-    const existing = await this.prisma.contact.findFirst({
-      where: {
-        OR: [
-          { externalCode: body.enterpriseCode },
-          { externalCode: body.enterpriseCode.padStart(9, "0") },
-        ],
-      },
-      select: { id: true, firstName: true, lastName: true, externalCode: true },
-    });
-    if (existing) {
-      return { created: false, contactId: existing.id, message: "Contact already exists" };
+    const existing = await this.matcher.findContactsByEnterpriseCodes([enterpriseCode]);
+    if (existing.length) {
+      return { created: false, contactId: existing[0]!.id, message: "Contact already exists" };
     }
 
     const nameParts = body.enterpriseName.trim().split(/\s+/);
@@ -433,7 +427,7 @@ export class OneCPaymentsImportService {
         lastName: nameParts[0] ?? "",
         phone: "",
         region: "",
-        externalCode: body.enterpriseCode,
+        externalCode: enterpriseCode,
         documentDisplayName: body.enterpriseName.trim(),
       },
       select: { id: true, firstName: true, lastName: true, externalCode: true, documentDisplayName: true },

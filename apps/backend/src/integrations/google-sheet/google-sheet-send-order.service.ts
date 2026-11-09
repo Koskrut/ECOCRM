@@ -1,5 +1,6 @@
 import { Injectable, Logger } from "@nestjs/common";
 import type { PaymentMethod } from "@prisma/client";
+import { exportUnitPrice } from "../../orders/order-line-total.utils";
 import { PrismaService } from "../../prisma/prisma.service";
 import { SettingsService } from "../../settings/settings.service";
 
@@ -16,7 +17,7 @@ import { SettingsService } from "../../settings/settings.service";
  * 8. Склад (warehouseCode)
  * 9. продукция (Артикул) (item.sku)
  * 10. продукция (кол-во) (item.qty)
- * 11. продукция (цена) (item.price)
+ * 11. продукция (цена) — цена за единицу со скидкой/акцией (lineTotal / qty), иначе catalog price
  * 12. курс (exchangeRate)
  * 13. Статус (status)
  * 13–16. Номер РН, Дата РН, Номер Счета, Дата Счета — пусто (заполняет 1С).
@@ -93,15 +94,23 @@ export class GoogleSheetSendOrderService {
       ? (order.warehouse as { externalCode?: string | null }).externalCode ?? null
       : null;
 
-    const items = order.items.map((it: { product: { sku?: string } | null; productNameSnapshot?: string | null; qty: number; price: number }) => {
-      const product = it.product;
-      const sku = product?.sku ?? it.productNameSnapshot ?? "";
-      return {
-        sku,
-        qty: it.qty,
-        price: it.price,
-      };
-    });
+    const items = order.items.map(
+      (it: {
+        product: { sku?: string } | null;
+        productNameSnapshot?: string | null;
+        qty: number;
+        price: number;
+        lineTotal?: number | null;
+      }) => {
+        const product = it.product;
+        const sku = product?.sku ?? it.productNameSnapshot ?? "";
+        return {
+          sku,
+          qty: it.qty,
+          price: exportUnitPrice(it),
+        };
+      },
+    );
 
     const dateSource = options?.exportDate ?? (order.createdAt as Date);
     return {

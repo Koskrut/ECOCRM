@@ -1,4 +1,5 @@
 import { Injectable } from "@nestjs/common";
+import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../prisma/prisma.service";
 import { resolveUniqueDocumentOrder } from "../../bank/document-match.utils";
 import { extractOneCDocumentRefs } from "./one-c-document-refs";
@@ -42,6 +43,14 @@ export type OneCMatchResult = {
 
 const DEBT_TOLERANCE = 1;
 
+type OneCContactRow = {
+  id: string;
+  firstName: string;
+  lastName: string;
+  documentDisplayName: string | null;
+  externalCode: string | null;
+};
+
 function contactLabel(c: {
   firstName: string;
   lastName: string;
@@ -55,6 +64,22 @@ function contactLabel(c: {
 @Injectable()
 export class OneCPaymentsMatcherService {
   constructor(private readonly prisma: PrismaService) {}
+
+  /**
+   * Contacts whose 1C code equals the «Предприятие» value after stripping leading zeros on both sides.
+   * `000455`, `455` and `000000455` are the same code. Oldest contact wins when several share it.
+   */
+  async findContactsByEnterpriseCodes(codes: string[]): Promise<OneCContactRow[]> {
+    const normalized = [...new Set(codes.map((code) => normalizeOneCCode(code)).filter(Boolean))];
+    if (!normalized.length) return [];
+    return this.prisma.$queryRaw<OneCContactRow[]>(Prisma.sql`
+      SELECT id, "firstName", "lastName", "documentDisplayName", "externalCode"
+      FROM "Contact"
+      WHERE "externalCode" IS NOT NULL
+        AND COALESCE(NULLIF(ltrim(btrim("externalCode"), '0'), ''), '0') = ANY(${normalized}::text[])
+      ORDER BY "createdAt" ASC
+    `);
+  }
 
   async matchRows(rows: OneCPaymentExcelRow[]): Promise<OneCMatchResult[]> {
     const importKeys = rows.map((r) => r.importKey);
@@ -77,28 +102,15 @@ export class OneCPaymentsMatcherService {
     const enterpriseCodes = [
       ...new Set(rows.map((r) => r.enterpriseCode).filter(Boolean)),
     ];
-    const contacts = enterpriseCodes.length
-      ? await this.prisma.contact.findMany({
-          where: {
-            OR: enterpriseCodes.flatMap((code) => [
-              { externalCode: code },
-              { externalCode: code.padStart(9, "0") },
-            ]),
-          },
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            documentDisplayName: true,
-            externalCode: true,
-          },
-        })
-      : [];
+    const contacts = await this.findContactsByEnterpriseCodes(enterpriseCodes);
 
-    const contactByNormCode = new Map<string, (typeof contacts)[0]>();
+    const contactsByNormCode = new Map<string, OneCContactRow[]>();
     for (const c of contacts) {
       const norm = normalizeOneCCode(c.externalCode);
-      if (norm && !contactByNormCode.has(norm)) contactByNormCode.set(norm, c);
+      if (!norm) continue;
+      const list = contactsByNormCode.get(norm) ?? [];
+      list.push(c);
+      contactsByNormCode.set(norm, list);
     }
 
     // Pre-load orders with debt for each resolved contact
@@ -159,7 +171,7 @@ export class OneCPaymentsMatcherService {
     // Track which orders have already been assigned to avoid double-matching
     const usedOrderIds = new Set<string>();
     for (const row of rows) {
-      const result = await this.matchOne(row, existingKeys, contactByNormCode, contactOrdersMap, usedOrderIds);
+      const result = await this.matchOne(row, existingKeys, contactsByNormCode, contactOrdersMap, usedOrderIds);
       if (result.order) usedOrderIds.add(result.order.orderId);
       results.push(result);
     }
@@ -169,21 +181,18 @@ export class OneCPaymentsMatcherService {
   private async matchOne(
     row: OneCPaymentExcelRow,
     existingKeys: Set<string>,
-    contactByNormCode: Map<
-      string,
-      {
-        id: string;
-        firstName: string;
-        lastName: string;
-        documentDisplayName: string | null;
-        externalCode: string | null;
-      }
-    >,
+    contactsByNormCode: Map<string, OneCContactRow[]>,
     contactOrdersMap: Map<string, OneCMatchedOrder[]>,
     usedOrderIds: Set<string>,
   ): Promise<OneCMatchResult> {
     const warnings: string[] = [];
-    const contact = row.enterpriseCode ? contactByNormCode.get(row.enterpriseCode) ?? null : null;
+    const contacts = row.enterpriseCode ? contactsByNormCode.get(row.enterpriseCode) ?? [] : [];
+    const contact = contacts[0] ?? null;
+    if (contacts.length > 1) {
+      warnings.push(
+        `Кілька контактів з кодом 1С «${row.enterpriseCode}». Для зіставлення взято найстаріший.`,
+      );
+    }
     const contactByCode = contact
       ? {
           contactId: contact.id,

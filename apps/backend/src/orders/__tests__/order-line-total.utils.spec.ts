@@ -4,6 +4,7 @@ import {
   computeLineGross,
   computeLinePricing,
   computeLineTotal,
+  exportUnitPrice,
   ORDER_PROMO_BUY_100_GET_30,
   ORDER_PROMO_QTY_25_MINUS_2,
   parsePromoType,
@@ -13,6 +14,26 @@ import {
 test("computeLineTotal without discount equals gross", () => {
   assert.equal(computeLineTotal(2, 50, 0), 100);
   assert.equal(computeLineGross(2, 50), 100);
+});
+
+test("exportUnitPrice keeps catalog price when the line is not discounted", () => {
+  assert.equal(exportUnitPrice({ qty: 2, price: 16, lineTotal: 32 }), 16);
+  assert.equal(exportUnitPrice({ qty: 0, price: 16, lineTotal: 0 }), 16);
+});
+
+test("exportUnitPrice uses line total per unit after percent discount", () => {
+  const lineTotal = computeLineTotal(2, 100, 10);
+  assert.equal(exportUnitPrice({ qty: 2, price: 100, lineTotal }), 90);
+});
+
+test("exportUnitPrice uses promo unit for 100+30 and −2$", () => {
+  const buy = computeLinePricing(130, 16, 0, ORDER_PROMO_BUY_100_GET_30);
+  assert.equal(
+    exportUnitPrice({ qty: 130, price: 16, lineTotal: buy.lineTotal }),
+    1600 / 130,
+  );
+  const minus = computeLinePricing(25, 16, 0, ORDER_PROMO_QTY_25_MINUS_2);
+  assert.equal(exportUnitPrice({ qty: 25, price: 16, lineTotal: minus.lineTotal }), 14);
 });
 
 test("computeLineTotal applies percent discount", () => {

@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { extractOneCDocumentRefs } from "../one-c-document-refs";
+import { OneCPaymentsMatcherService } from "../one-c-payments-matcher.service";
+import type { OneCPaymentExcelRow } from "../one-c-payments-excel.parser";
 
 /**
  * Cases mirror real rows from «ОПЛАТЫ В СРМ.xlsb».
@@ -44,6 +46,81 @@ import { extractOneCDocumentRefs } from "../one-c-document-refs";
   );
   assert.equal(refs.invoices.length, 0);
   assert.equal(refs.waybills.length, 0);
+}
+
+function paymentRow(enterpriseCode: string): OneCPaymentExcelRow {
+  return {
+    rowIndex: 0,
+    paidAt: new Date("2026-08-01T12:00:00.000Z"),
+    documentNumber: "",
+    enterpriseCode,
+    enterpriseName: "ФОП Шабельник",
+    currency: "UAH",
+    amountLv: 100,
+    rateOv: null,
+    amountOv: null,
+    purpose: "",
+    attribute1Code: null,
+    attribute1Name: null,
+    attribute2Code: null,
+    attribute2Name: null,
+    attribute3Code: null,
+    attribute3Name: null,
+    managerCode: null,
+    managerName: null,
+    isNovaPay: false,
+    importKey: `key-${enterpriseCode}`,
+  };
+}
+
+{
+  const contacts = [
+    {
+      id: "c-old",
+      firstName: "Валерий",
+      lastName: "Шабельник",
+      documentDisplayName: null,
+      externalCode: "000000455",
+    },
+    {
+      id: "c-new",
+      firstName: "Другой",
+      lastName: "Контакт",
+      documentDisplayName: null,
+      externalCode: "455",
+    },
+  ];
+  const prisma = {
+    payment: { findMany: async () => [] },
+    order: { findMany: async () => [] },
+    $queryRaw: async () => contacts,
+  };
+  const svc = new OneCPaymentsMatcherService(prisma as never);
+  const [row] = await svc.matchRows([paymentRow("455")]);
+  assert.equal(row!.contactByCode?.contactId, "c-old");
+  assert.equal(row!.contactByCode?.externalCode, "455");
+  assert.ok(row!.warnings.some((w) => w.includes("Кілька контактів")));
+}
+
+{
+  const prisma = {
+    payment: { findMany: async () => [] },
+    order: { findMany: async () => [] },
+    $queryRaw: async () => [
+      {
+        id: "c1",
+        firstName: "Вадим",
+        lastName: "Подрядчиков",
+        documentDisplayName: null,
+        externalCode: "000268",
+      },
+    ],
+  };
+  const svc = new OneCPaymentsMatcherService(prisma as never);
+  const [row] = await svc.matchRows([paymentRow("268")]);
+  assert.equal(row!.status, "UNMATCHED");
+  assert.equal(row!.contactByCode?.contactId, "c1");
+  assert.equal(row!.contactByCode?.externalCode, "268");
 }
 
 console.log("one-c-payments-matcher.spec: ok");

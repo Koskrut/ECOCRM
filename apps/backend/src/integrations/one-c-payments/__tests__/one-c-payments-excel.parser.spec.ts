@@ -3,6 +3,7 @@ import * as XLSX from "xlsx";
 import {
   buildOneCImportKey,
   excelSerialToDate,
+  findEnterpriseCodeColumn,
   mapCurrencyCode,
   normalizeOneCCode,
   parseOneCPaymentsExcel,
@@ -162,6 +163,42 @@ assert.equal(mapCurrencyCode("840"), "USD");
     threw = true;
   }
   assert.equal(threw, true);
+}
+
+{
+  assert.equal(
+    findEnterpriseCodeColumn(["имя предприятия", "предприятие"]),
+    1,
+  );
+  assert.equal(findEnterpriseCodeColumn(["ім'я підприємства", "підприємство"]), 1);
+  assert.equal(findEnterpriseCodeColumn(["имя предприятия"]), -1);
+}
+
+{
+  // Name column contains the word «предприятие» and comes first. Code must stay the numeric column.
+  const buf = buildBuffer([
+    ["Дата", "Номер", "Имя предприятия", "Предприятие", "Сумма ЛВ"],
+    [46235, 5884, "ФОП Шабельник Валерий Николаевич", "000000455", 2587.5],
+  ]);
+  const parsed = parseOneCPaymentsExcel(buf);
+  assert.equal(parsed.length, 1);
+  assert.equal(parsed[0]!.enterpriseCode, "455");
+  assert.equal(parsed[0]!.enterpriseName, "ФОП Шабельник Валерий Николаевич");
+}
+
+{
+  let message = "";
+  try {
+    parseOneCPaymentsExcel(
+      buildBuffer([
+        ["Дата", "Номер", "Имя предприятия", "Сумма ЛВ"],
+        [46235, 5884, "ФОП Шабельник", 100],
+      ]),
+    );
+  } catch (e) {
+    message = e instanceof Error ? e.message : String(e);
+  }
+  assert.match(message, /Предприятие/);
 }
 
 console.log("one-c-payments-excel.parser.spec: ok");

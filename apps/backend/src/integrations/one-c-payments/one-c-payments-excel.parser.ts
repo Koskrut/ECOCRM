@@ -30,11 +30,18 @@ export type OneCPaymentExcelRow = {
 
 const HEADER_ALIASES: Record<keyof Omit<
   OneCPaymentExcelRow,
-  "rowIndex" | "isNovaPay" | "importKey" | "paidAt" | "currency" | "amountLv" | "rateOv" | "amountOv"
+  | "rowIndex"
+  | "isNovaPay"
+  | "importKey"
+  | "paidAt"
+  | "currency"
+  | "amountLv"
+  | "rateOv"
+  | "amountOv"
+  | "enterpriseCode"
 > | "paidAt" | "currency" | "amountLv" | "rateOv" | "amountOv", string[]> = {
   paidAt: ["дата", "date"],
   documentNumber: ["номер", "number", "№", "no"],
-  enterpriseCode: ["предприятие", "підприємство", "enterprise", "код контрагента"],
   enterpriseName: [
     "имя предприятия",
     "ім'я підприємства",
@@ -59,9 +66,43 @@ const HEADER_ALIASES: Record<keyof Omit<
 
 function normalizeHeader(v: unknown): string {
   return String(v ?? "")
+    .replace(/\u00a0/g, " ")
     .trim()
     .toLowerCase()
     .replace(/\s+/g, " ");
+}
+
+/** Exact headers for the 1C counterparty code. «Имя предприятия» is the name, not the code. */
+const ENTERPRISE_CODE_HEADERS = new Set([
+  "предприятие",
+  "підприємство",
+  "enterprise",
+  "код контрагента",
+  "код предприятия",
+  "код підприємства",
+  "код 1с",
+  "код 1c",
+]);
+
+function isEnterpriseNameHeader(header: string): boolean {
+  return (
+    header.startsWith("имя ") ||
+    header.startsWith("ім'я ") ||
+    header.startsWith("ім’я ") ||
+    header.startsWith("назва ") ||
+    header === "enterprise name" ||
+    header.endsWith(" name")
+  );
+}
+
+/** Only an exact code header. A name column that merely contains «предприятие» is never the code. */
+export function findEnterpriseCodeColumn(headers: string[]): number {
+  for (let i = 0; i < headers.length; i++) {
+    const header = headers[i]!;
+    if (isEnterpriseNameHeader(header)) continue;
+    if (ENTERPRISE_CODE_HEADERS.has(header)) return i;
+  }
+  return -1;
 }
 
 function parseAmount(v: unknown): number | null {
@@ -200,7 +241,7 @@ export function parseOneCPaymentsExcel(buffer: Buffer): OneCPaymentExcelRow[] {
   const idx = {
     paidAt: findColumnIndex(headers, HEADER_ALIASES.paidAt),
     documentNumber: findColumnIndex(headers, HEADER_ALIASES.documentNumber),
-    enterpriseCode: findColumnIndex(headers, HEADER_ALIASES.enterpriseCode),
+    enterpriseCode: findEnterpriseCodeColumn(headers),
     enterpriseName: findColumnIndex(headers, HEADER_ALIASES.enterpriseName),
     currency: findColumnIndex(headers, HEADER_ALIASES.currency),
     amountLv: findColumnIndex(headers, HEADER_ALIASES.amountLv),
@@ -219,6 +260,11 @@ export function parseOneCPaymentsExcel(buffer: Buffer): OneCPaymentExcelRow[] {
 
   if (idx.paidAt < 0 || idx.documentNumber < 0 || idx.amountLv < 0) {
     throw new BadRequestException("Required columns missing: Дата, Номер, Сумма ЛВ");
+  }
+  if (idx.enterpriseCode < 0) {
+    throw new BadRequestException(
+      "Required column missing: Предприятие (код 1С). «Имя предприятия» is the name, not the code",
+    );
   }
 
   const out: OneCPaymentExcelRow[] = [];
