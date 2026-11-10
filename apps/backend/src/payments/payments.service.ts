@@ -41,7 +41,7 @@ import type { ExchangeRates } from "../settings/settings.service";
 import { SettingsService } from "../settings/settings.service";
 import { toUsd } from "../common/currency.util";
 import { buildPaymentSearchWhere } from "./payment-search.util";
-import { roundMoney } from "./order-finance.utils";
+import { fixedAmountUsd, isHryvniaPostedAsUsd, roundMoney } from "./order-finance.utils";
 import { cashPaymentConfirmDedupWindow } from "./cash-payment-dedup.util";
 import { paymentAuditSnapshot, writePaymentChangeAudit } from "./payment-audit.util";
 import { recalcOrderFinance } from "./order-finance.recalc";
@@ -51,6 +51,59 @@ export type AllocateMatchMeta = AllocateMatchMetaDto;
 
 function convertToUsd(amount: number, currency: string, rates: ExchangeRates): number {
   return toUsd(amount, currency, rates);
+}
+
+function moneyOrNull(value: unknown): number | null {
+  if (value == null) return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * Dollar written onto a payment. UAH on a USD order uses that order's rate once.
+ * Cash rejects a hryvnia invoice amount posted with currency USD.
+ */
+function amountUsdForDebt(
+  amount: number,
+  paymentCurrency: string,
+  order: {
+    currency?: string | null;
+    exchangeRate?: unknown;
+    totalAmount?: unknown;
+    debtAmount?: unknown;
+  } | null,
+  rates: ExchangeRates,
+  rejectHryvniaAsUsd = false,
+): number {
+  const exchangeRate = moneyOrNull(order?.exchangeRate);
+  const targetsUsd = [moneyOrNull(order?.totalAmount), moneyOrNull(order?.debtAmount)];
+  if (
+    rejectHryvniaAsUsd &&
+    isHryvniaPostedAsUsd({
+      amount,
+      paymentCurrency,
+      orderCurrency: order?.currency,
+      exchangeRate,
+      targetsUsd,
+    })
+  ) {
+    throw new BadRequestException(
+      "Amount looks like hryvnia entered as USD. Record it as UAH so the dollar is calculated once as amount / order exchange rate",
+    );
+  }
+  const amountUsd = fixedAmountUsd({
+    amount,
+    paymentCurrency,
+    orderCurrency: order?.currency,
+    exchangeRate,
+    rates,
+  });
+  if (amountUsd == null) {
+    throw new BadRequestException(
+      "Order exchange rate is required to convert UAH. The dollar is amount / order exchange rate, not the payment amount",
+    );
+  }
+  return amountUsd;
 }
 
 type OrderPartyRef = {
@@ -529,7 +582,7 @@ export class PaymentsService {
         throw new BadRequestException("Transaction amount would be exceeded");
       }
 
-      const amountUsd = convertToUsd(amount, lockedTx.currency, rates);
+      const amountUsd = amountUsdForDebt(amount, lockedTx.currency, order, rates);
       const payment = await db.payment.create({
         data: {
           orderId: dto.orderId,
@@ -624,6 +677,10 @@ export class PaymentsService {
       );
     }
 
+    const ordersById = new Map<
+      string,
+      { currency: string | null; exchangeRate: unknown; totalAmount: unknown; debtAmount: unknown }
+    >();
     for (const a of input.allocations) {
       const amount = Number(a.amount);
       if (!Number.isFinite(amount) || amount <= 0) {
@@ -634,9 +691,19 @@ export class PaymentsService {
       if (input.actor?.role === UserRole.MANAGER && order.ownerId !== input.actor.id) {
         throw new ForbiddenException("You can only assign to orders assigned to you");
       }
+      ordersById.set(order.id, order);
     }
 
     const rates = await this.settings.getExchangeRates();
+    const prepared = input.allocations.map((a) => {
+      const amt = Number(a.amount);
+      const order = ordersById.get(a.orderId) ?? null;
+      return {
+        orderId: a.orderId,
+        amount: amt,
+        amountUsd: amountUsdForDebt(amt, tx.currency, order, rates),
+      };
+    });
     const paymentIds: string[] = [];
 
     await this.prisma.$transaction(async (db) => {
@@ -655,16 +722,14 @@ export class PaymentsService {
         throw new BadRequestException("Transaction amount would be exceeded");
       }
 
-      for (const a of input.allocations) {
-        const amt = Number(a.amount);
-        const amountUsd = convertToUsd(amt, lockedTx.currency, rates);
+      for (const a of prepared) {
         const payment = await db.payment.create({
           data: {
             orderId: a.orderId,
             sourceType: PaymentSourceType.BANK,
-            amount: amt,
+            amount: a.amount,
             currency: lockedTx.currency,
-            amountUsd,
+            amountUsd: a.amountUsd,
             paidAt: lockedTx.bookedAt,
             status: PaymentStatus.COMPLETED,
             bankTransactionId: lockedTx.id,
@@ -692,7 +757,16 @@ export class PaymentsService {
   async createCash(dto: CreateCashPaymentDto, actor?: AuthUser) {
     const order = await this.prisma.order.findUnique({
       where: { id: dto.orderId },
-      select: { id: true, ownerId: true, currency: true, clientId: true, contactId: true },
+      select: {
+        id: true,
+        ownerId: true,
+        currency: true,
+        exchangeRate: true,
+        totalAmount: true,
+        debtAmount: true,
+        clientId: true,
+        contactId: true,
+      },
     });
     if (!order) throw new NotFoundException("Order not found");
     if (actor?.role === UserRole.MANAGER && order.ownerId !== actor.id) {
@@ -731,10 +805,20 @@ export class PaymentsService {
     const anchorClientId = order.clientId;
     const anchorContactId = order.contactId;
     const orderIds = new Set<string>();
+    const targets = new Map<string, typeof order>();
     for (const a of allocations) {
       const target = await this.prisma.order.findUnique({
         where: { id: a.orderId },
-        select: { id: true, ownerId: true, clientId: true, contactId: true },
+        select: {
+          id: true,
+          ownerId: true,
+          currency: true,
+          exchangeRate: true,
+          totalAmount: true,
+          debtAmount: true,
+          clientId: true,
+          contactId: true,
+        },
       });
       if (!target) throw new NotFoundException(`Order not found: ${a.orderId}`);
       if (actor?.role === UserRole.MANAGER && target.ownerId !== actor.id) {
@@ -750,6 +834,7 @@ export class PaymentsService {
         throw new BadRequestException("All allocations must belong to the same client");
       }
       orderIds.add(a.orderId);
+      targets.set(target.id, target);
     }
 
     if (!dto.confirmDuplicate) {
@@ -761,11 +846,30 @@ export class PaymentsService {
     }
 
     const rates = await this.settings.getExchangeRates();
+    const ordersForGuard = [order, ...targets.values()];
+    for (const target of ordersForGuard) {
+      if (
+        isHryvniaPostedAsUsd({
+          amount,
+          paymentCurrency: currency,
+          orderCurrency: target.currency,
+          exchangeRate: moneyOrNull(target.exchangeRate),
+          targetsUsd: [moneyOrNull(target.totalAmount), moneyOrNull(target.debtAmount)],
+        })
+      ) {
+        throw new BadRequestException(
+          "Amount looks like hryvnia entered as USD. Record it as UAH so the dollar is calculated once as amount / order exchange rate",
+        );
+      }
+    }
+    const prepared = allocations.map((a) => ({
+      ...a,
+      amountUsd: amountUsdForDebt(a.amount, currency, targets.get(a.orderId) ?? order, rates, true),
+    }));
     const createdOrderIds: string[] = [];
 
     try {
-      for (const a of allocations) {
-        const amountUsd = convertToUsd(a.amount, currency, rates);
+      for (const a of prepared) {
         await this.prisma.payment.create({
           data: {
             orderId: a.orderId,
@@ -774,7 +878,7 @@ export class PaymentsService {
             sourceType: PaymentSourceType.CASH,
             amount: a.amount,
             currency,
-            amountUsd,
+            amountUsd: a.amountUsd,
             paidAt,
             status: PaymentStatus.COMPLETED,
             createdByUserId: actor?.id ?? null,
@@ -838,7 +942,19 @@ export class PaymentsService {
   async update(id: string, dto: UpdatePaymentDto, actor?: AuthUser) {
     const payment = await this.prisma.payment.findUnique({
       where: { id },
-      include: { order: { select: { id: true, ownerId: true, orderNumber: true } } },
+      include: {
+        order: {
+          select: {
+            id: true,
+            ownerId: true,
+            orderNumber: true,
+            currency: true,
+            exchangeRate: true,
+            totalAmount: true,
+            debtAmount: true,
+          },
+        },
+      },
     });
     if (!payment) throw new NotFoundException("Payment not found");
     if (actor?.role === UserRole.MANAGER && payment.order?.ownerId !== actor.id) {
@@ -884,7 +1000,7 @@ export class PaymentsService {
         // Keep USD equivalent in sync unless ADMIN explicitly overrides amountUsd.
         if (dto.amountUsd === undefined) {
           const rates = await this.settings.getExchangeRates();
-          data.amountUsd = convertToUsd(amount, currency, rates);
+          data.amountUsd = amountUsdForDebt(amount, currency, payment.order, rates, true);
         }
       }
       if (dto.paidAt != null) {
@@ -1254,6 +1370,10 @@ export class PaymentsService {
       fromOrder: fromAfter,
       toOrder: toAfter,
     };
+  }
+
+  loadExchangeRates(): Promise<ExchangeRates> {
+    return this.settings.getExchangeRates();
   }
 
   async recalcOrder(orderId: string): Promise<void> {

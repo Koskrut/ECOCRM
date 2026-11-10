@@ -14,6 +14,7 @@ type CatalogProductCardProps = {
   qtyAtWarehouse: (p: ProductCatalogItem, name: string) => number;
   stockTitleAtWarehouse?: (p: ProductCatalogItem, name: string) => string | undefined;
   readOnly?: boolean;
+  onCharacteristicsSaved?: () => void;
   deleteButton?: ReactNode;
   editButton?: ReactNode;
   activateButton?: ReactNode;
@@ -29,6 +30,7 @@ export function CatalogProductCard({
   qtyAtWarehouse,
   stockTitleAtWarehouse,
   readOnly = false,
+  onCharacteristicsSaved,
   deleteButton,
   editButton,
   activateButton,
@@ -148,7 +150,11 @@ export function CatalogProductCard({
 
       {expanded ? (
         <div className="border-t border-zinc-200 bg-zinc-50/95 px-3 py-3">
-          <ProductCharacteristicsPanel product={p} />
+          <ProductCharacteristicsPanel
+            product={p}
+            readOnly={readOnly}
+            onSaved={onCharacteristicsSaved}
+          />
         </div>
       ) : null}
     </article>

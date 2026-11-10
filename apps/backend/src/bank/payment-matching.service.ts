@@ -27,6 +27,7 @@ import {
 } from "./document-match.utils";
 import { MatchSuggestionService } from "./match-suggestion.service";
 import { PayerAliasService } from "./payer-alias.service";
+import { fixedAmountUsd } from "../payments/order-finance.utils";
 
 export type MatchCandidate = {
   orderId: string;
@@ -724,6 +725,7 @@ export class PaymentMatchingService {
     orderId: string,
     matchReason = "order-number",
   ): Promise<void> {
+    const rates = await this.paymentsService.loadExchangeRates();
     const created = await this.prisma.$transaction(async (tx) => {
       await lockBankTransactionForUpdate(tx, bankTransactionId);
 
@@ -755,12 +757,27 @@ export class PaymentMatchingService {
       const amount = remaining;
       if (allocationExceedsTransaction(allocated, amount, txAmount)) return false;
 
+      const amountUsd = fixedAmountUsd({
+        amount,
+        paymentCurrency: bankTx.currency,
+        orderCurrency: order.currency,
+        exchangeRate: order.exchangeRate != null ? Number(order.exchangeRate) : null,
+        rates,
+      });
+      if (amountUsd == null) {
+        this.logger.warn(
+          `Skip bank allocation ${bankTransactionId} → ${orderId}: no order exchange rate to convert ${bankTx.currency} into USD`,
+        );
+        return false;
+      }
+
       const payment = await tx.payment.create({
         data: {
           orderId,
           sourceType: "BANK",
           amount,
           currency: bankTx.currency,
+          amountUsd,
           paidAt: bankTx.bookedAt,
           status: "COMPLETED",
           bankTransactionId: bankTx.id,

@@ -35,7 +35,15 @@ describe("PaymentsService.update cash", () => {
           amount: 1000,
           currency: "USD",
           amountUsd: 1000,
-          order: { id: "o1", ownerId, orderNumber: "7001" },
+          order: {
+            id: "o1",
+            ownerId,
+            orderNumber: "7001",
+            currency: "USD",
+            exchangeRate: 45,
+            totalAmount: 1000,
+            debtAmount: 1000,
+          },
         })),
         update: paymentUpdate,
         findMany: mockFn(async () => [
@@ -77,7 +85,7 @@ describe("PaymentsService.update cash", () => {
     const data = paymentUpdate.calls[0][0].data;
     assert.equal(data.amount, 1000);
     assert.equal(data.currency, "UAH");
-    assert.equal(data.amountUsd, 24);
+    assert.equal(data.amountUsd, 22.22);
   });
 
   it("rejects manager editing another manager's order", async () => {

@@ -24,15 +24,23 @@ import { HelpHint } from "@/components/help/HelpHint";
 function CatalogExpandedCharacteristics({
   product,
   tableColspan,
+  readOnly,
+  onSaved,
 }: {
   product: ProductCatalogItem;
   tableColspan: number;
+  readOnly?: boolean;
+  onSaved?: () => void;
 }) {
   return (
     <tr className="border-t border-zinc-200 bg-zinc-50/95">
       <td colSpan={tableColspan} className="p-0">
         <div className="animate-in fade-in slide-in-from-top-1 duration-200 motion-reduce:animate-none border-t border-zinc-200/80 px-4 py-3">
-          <ProductCharacteristicsPanel product={product} />
+          <ProductCharacteristicsPanel
+            product={product}
+            readOnly={readOnly}
+            onSaved={onSaved}
+          />
         </div>
       </td>
     </tr>
@@ -1696,6 +1704,8 @@ function CatalogPageContent() {
                           <CatalogExpandedCharacteristics
                             product={p}
                             tableColspan={tableColspan}
+                            readOnly={catalogReadOnly}
+                            onSaved={loadCatalog}
                           />
                         ) : null}
                         </Fragment>
@@ -1743,6 +1753,7 @@ function CatalogPageContent() {
                         key={p.id}
                         product={p}
                         readOnly={catalogReadOnly}
+                        onCharacteristicsSaved={loadCatalog}
                         expanded={expandedSpecsProductId === p.id}
                         onToggleExpand={() =>
                           setExpandedSpecsProductId((id) => (id === p.id ? null : p.id))

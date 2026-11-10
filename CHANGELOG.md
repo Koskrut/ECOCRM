@@ -4,7 +4,26 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.244**.)_
+_(планируемые изменения после **0.2.245**.)_
+
+## [0.2.245] — 2026-11-10
+
+### Summary
+
+Патч **0.2.245**: гривня на USD-замовленні фіксується раз як `amount / курс замовлення` (не live settings); cash за замовчуванням UAH; каталог дозволяє редагувати характеристики товару.
+
+### Changed
+
+- `fixedAmountUsd` / bank+cash allocate: UAH→USD лише за `order.exchangeRate`; порожній `amountUsd` не переоцінюється; відхилення «гривні як USD».
+- Debt/credit обнуляється також для `REFUSED` / `FULLY_RETURNED`.
+- Cash modal: дефолт UAH для USD/EUR + прев’ю долара за курсом замовлення.
+- Catalog: editable characteristics panel (add/remove/save specs).
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.245`**.
+- **Нових міграцій немає.**
+- **Не використовувати `0.2.230`** і **`0.2.199`–`0.2.202`**.
 
 ## [0.2.244] — 2026-11-09
 

@@ -18,11 +18,7 @@ import {
   suggestedRowAmount,
   type SplitRow,
 } from "@/lib/payment-split-rows";
-import {
-  convertPaymentToUsd,
-  paymentUsdVarianceExceedsTolerance,
-  type ExchangeRates,
-} from "@/lib/payment-usd";
+import { convertPaymentToUsd, type ExchangeRates } from "@/lib/payment-usd";
 import { ordersApi, type FxVarianceQueueItem } from "@/lib/api/resources/orders";
 import { FxWriteOffModal } from "./FxWriteOffModal";
 import {
@@ -530,22 +526,37 @@ function PaymentsContent() {
       .catch(() => setExchangeRates(null));
   }, []);
 
+  const editOrderForUsd = useMemo(() => {
+    if (!editOrderId) return null;
+    return (
+      editContactOrders.find((o) => o.id === editOrderId) ??
+      editOrderCandidates.find((o) => o.id === editOrderId) ??
+      null
+    );
+  }, [editContactOrders, editOrderCandidates, editOrderId]);
+
   const editPreviewUsd = useMemo(() => {
-    if (!exchangeRates || editPayment?.sourceType !== "CASH") return null;
+    if (editPayment?.sourceType !== "CASH") return null;
     const num = parseFloat(editAmount.replace(/,/g, "."));
     if (!Number.isFinite(num) || num <= 0) return null;
     const cur = (editCurrency || editPayment.currency || "UAH").trim().toUpperCase();
+    if (cur === "USD") return num;
+    const orderCur = (editOrderForUsd?.currency || "").trim().toUpperCase();
+    const rate = Number(editOrderForUsd?.exchangeRate);
+    if (cur === "UAH" && orderCur === "USD" && rate > 1) {
+      return Math.round((num / rate) * 100) / 100;
+    }
+    if (cur === "UAH" && !editOrderForUsd) return null;
+    if (!exchangeRates) return null;
     return convertPaymentToUsd(num, cur, exchangeRates);
-  }, [editAmount, editCurrency, editPayment, exchangeRates]);
+  }, [editAmount, editCurrency, editOrderForUsd, editPayment, exchangeRates]);
 
   const editUsdFxWarning = useMemo(() => {
-    if (!exchangeRates || editPayment?.sourceType !== "CASH" || !editAmountUsdTouched) return false;
-    const num = parseFloat(editAmount.replace(/,/g, "."));
+    if (editPayment?.sourceType !== "CASH" || !editAmountUsdTouched || editPreviewUsd == null) return false;
     const usd = parseFloat(editAmountUsd.replace(/,/g, "."));
-    if (!Number.isFinite(num) || num <= 0 || !Number.isFinite(usd)) return false;
-    const cur = (editCurrency || editPayment.currency || "UAH").trim().toUpperCase();
-    return paymentUsdVarianceExceedsTolerance(num, cur, usd, exchangeRates);
-  }, [editAmount, editAmountUsd, editAmountUsdTouched, editCurrency, editPayment, exchangeRates]);
+    if (!Number.isFinite(usd) || !(editPreviewUsd > 0)) return false;
+    return Math.abs(usd - editPreviewUsd) / editPreviewUsd > 0.01;
+  }, [editAmountUsd, editAmountUsdTouched, editPayment, editPreviewUsd]);
 
   const fetchAccounts = useCallback(async () => {
     try {

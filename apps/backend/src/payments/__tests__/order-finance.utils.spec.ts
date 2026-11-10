@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { computeOrderDebtAndCredit, paymentAmountInOrderCurrency, roundMoney } from "../order-finance.utils";
+import {
+  computeOrderDebtAndCredit,
+  fixedAmountUsd,
+  isHryvniaPostedAsUsd,
+  paymentAmountInOrderCurrency,
+  roundMoney,
+} from "../order-finance.utils";
 
 describe("computeOrderDebtAndCredit", () => {
   it("sets credit after partial return on fully paid order (Oksana case)", () => {
@@ -69,6 +75,25 @@ describe("computeOrderDebtAndCredit", () => {
     assert.equal(r.debtAmount, 0);
     assert.equal(r.creditAmount, 300);
   });
+
+  it("zeros debt on refused and fully returned orders", () => {
+    for (const orderStage of ["REFUSED", "FULLY_RETURNED"] as const) {
+      const open = computeOrderDebtAndCredit({
+        totalAmount: 2687,
+        paidAmount: 0,
+        orderStage: "RECEIVED",
+      });
+      assert.equal(open.debtAmount, 2687);
+      const closed = computeOrderDebtAndCredit({
+        totalAmount: 2687,
+        paidAmount: 0,
+        orderStage,
+      });
+      assert.equal(closed.debtAmount, 0);
+      assert.equal(closed.creditAmount, 0);
+      assert.equal(closed.effectiveTotal, 0);
+    }
+  });
 });
 
 describe("paymentAmountInOrderCurrency", () => {
@@ -96,6 +121,29 @@ describe("paymentAmountInOrderCurrency", () => {
     );
   });
 
+  it("does not revalue a hryvnia payment when amountUsd is empty", () => {
+    const payment = { amount: 40040, currency: "UAH", amountUsd: null };
+    const at47 = paymentAmountInOrderCurrency(payment, "USD", {
+      UAH_TO_USD: 1 / 47,
+      EUR_TO_USD: 1.1,
+      baseCurrency: "USD",
+    });
+    const at45 = paymentAmountInOrderCurrency(payment, "USD", {
+      UAH_TO_USD: 1 / 45,
+      EUR_TO_USD: 1.1,
+      baseCurrency: "USD",
+    });
+    assert.equal(at47, 0);
+    assert.equal(at45, 0);
+  });
+
+  it("keeps a USD payment without amountUsd as that dollar amount", () => {
+    assert.equal(
+      paymentAmountInOrderCurrency({ amount: 120, currency: "USD", amountUsd: null }, "USD", rates),
+      120,
+    );
+  });
+
   it("converts a USD equivalent into EUR instead of subtracting USD from EUR", () => {
     const paid = paymentAmountInOrderCurrency(
       { amount: 4000, currency: "UAH", amountUsd: 100 },
@@ -109,6 +157,70 @@ describe("paymentAmountInOrderCurrency", () => {
     });
     assert.equal(finance.debtAmount, 0);
     assert.equal(finance.creditAmount, 0);
+  });
+});
+
+describe("fixedAmountUsd", () => {
+  const settingsRate = { UAH_TO_USD: 1 / 47, EUR_TO_USD: 1.1, baseCurrency: "USD" as const };
+
+  it("divides hryvnia by the order rate once, not by the settings rate", () => {
+    assert.equal(
+      fixedAmountUsd({
+        amount: 40040,
+        paymentCurrency: "UAH",
+        orderCurrency: "USD",
+        exchangeRate: 45,
+        rates: settingsRate,
+      }),
+      889.78,
+    );
+    assert.notEqual(roundMoney(40040 / 47), 889.78);
+  });
+
+  it("refuses to store raw hryvnia as dollars when the order rate is missing", () => {
+    assert.equal(
+      fixedAmountUsd({
+        amount: 40040,
+        paymentCurrency: "UAH",
+        orderCurrency: "USD",
+        exchangeRate: null,
+        rates: settingsRate,
+      }),
+      null,
+    );
+  });
+
+  it("detects 40040 hryvnia posted as USD on the order", () => {
+    assert.equal(
+      isHryvniaPostedAsUsd({
+        amount: 40040,
+        paymentCurrency: "USD",
+        orderCurrency: "USD",
+        exchangeRate: 45,
+        targetsUsd: [889.78],
+      }),
+      true,
+    );
+    assert.equal(
+      isHryvniaPostedAsUsd({
+        amount: 100,
+        paymentCurrency: "USD",
+        orderCurrency: "USD",
+        exchangeRate: 45,
+        targetsUsd: [889.78],
+      }),
+      false,
+    );
+    assert.equal(
+      isHryvniaPostedAsUsd({
+        amount: 40040,
+        paymentCurrency: "UAH",
+        orderCurrency: "USD",
+        exchangeRate: 45,
+        targetsUsd: [889.78],
+      }),
+      false,
+    );
   });
 });
 

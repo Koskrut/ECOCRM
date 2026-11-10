@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { ConflictException } from "@nestjs/common";
+import { BadRequestException, ConflictException } from "@nestjs/common";
 import { PaymentSourceType, PaymentStatus, UserRole } from "@prisma/client";
 import { PaymentsService } from "../payments.service";
 import type { AuthUser } from "../../auth/auth.types";
@@ -284,5 +284,111 @@ describe("PaymentsService.createCash dedup 409", () => {
 
     await svc.createCash({ ...dto, confirmDuplicate: true }, manager());
     assert.equal(paymentCreate.calls.length, 1);
+  });
+});
+
+describe("PaymentsService.createCash order exchange rate", () => {
+  const paidAt = new Date("2026-06-01T12:00:00.000Z");
+  const settingsRate = { UAH_TO_USD: 1 / 47, EUR_TO_USD: 1.1 };
+
+  function usdOrder(overrides: Record<string, unknown> = {}) {
+    return {
+      id: "o1",
+      ownerId: "m1",
+      currency: "USD",
+      exchangeRate: 45,
+      totalAmount: 889.78,
+      debtAmount: 889.78,
+      clientId: "c1",
+      contactId: null,
+      ...overrides,
+    };
+  }
+
+  function serviceWith(order: Record<string, unknown>) {
+    const paymentCreate = mockFn(async () => ({ id: "p-new" }));
+    const prisma = {
+      order: {
+        findUnique: mockFn(async () => order),
+        update: mockFn(async () => ({})),
+      },
+      payment: {
+        findFirst: mockFn(async () => null),
+        create: paymentCreate,
+        findMany: mockFn(async () => []),
+      },
+    };
+    const settings = { getExchangeRates: async () => settingsRate };
+    const svc = new PaymentsService(prisma as any, settings as any, {} as any, mockAudit() as any);
+    (svc as any).recalcOrder = mockFn(async () => {});
+    return { svc, paymentCreate };
+  }
+
+  it("records hryvnia once as amount / order exchange rate", async () => {
+    const { svc, paymentCreate } = serviceWith(usdOrder());
+    await svc.createCash(
+      {
+        orderId: "o1",
+        amount: 40040,
+        currency: "UAH",
+        paidAt: paidAt.toISOString(),
+      },
+      manager(),
+    );
+    assert.equal(paymentCreate.calls.length, 1);
+    const data = paymentCreate.calls[0][0].data;
+    assert.equal(data.currency, "UAH");
+    assert.equal(data.amount, 40040);
+    assert.equal(data.amountUsd, 889.78);
+  });
+
+  it("rejects 40040 hryvnia posted as USD", async () => {
+    const { svc, paymentCreate } = serviceWith(usdOrder());
+    await assert.rejects(
+      () =>
+        svc.createCash(
+          {
+            orderId: "o1",
+            amount: 40040,
+            currency: "USD",
+            paidAt: paidAt.toISOString(),
+          },
+          manager(),
+        ),
+      (err: unknown) => err instanceof BadRequestException && /hryvnia entered as USD/.test(String(err)),
+    );
+    assert.equal(paymentCreate.calls.length, 0);
+  });
+
+  it("rejects UAH cash when the order has no exchange rate", async () => {
+    const { svc, paymentCreate } = serviceWith(usdOrder({ exchangeRate: null }));
+    await assert.rejects(
+      () =>
+        svc.createCash(
+          {
+            orderId: "o1",
+            amount: 4500,
+            currency: "UAH",
+            paidAt: paidAt.toISOString(),
+          },
+          manager(),
+        ),
+      /exchange rate is required/,
+    );
+    assert.equal(paymentCreate.calls.length, 0);
+  });
+
+  it("keeps a real USD cash amount as dollars", async () => {
+    const { svc, paymentCreate } = serviceWith(usdOrder());
+    await svc.createCash(
+      {
+        orderId: "o1",
+        amount: 100,
+        currency: "USD",
+        paidAt: paidAt.toISOString(),
+      },
+      manager(),
+    );
+    assert.equal(paymentCreate.calls[0][0].data.amountUsd, 100);
   });
 });

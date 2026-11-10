@@ -198,4 +198,116 @@ describe("PaymentsService.allocateSplit", () => {
       /must equal remaining amount 100/,
     );
   });
+
+  it("writes amountUsd from the order rate, not the settings rate", async () => {
+    const txId = "tx1";
+    const paymentCreate = mockFn(async () => ({ id: "p-new" }));
+    const tx = {
+      id: txId,
+      bankAccountId: "ba1",
+      amount: 4500,
+      currency: "UAH",
+      bookedAt: new Date("2026-06-01T00:00:00.000Z"),
+      payments: [] as unknown[],
+      matchStatus: "UNMATCHED",
+    };
+    const prisma = {
+      bankTransaction: {
+        findUnique: mockFn(async () => tx),
+      },
+      order: {
+        findUnique: mockFn(async (args: { where: { id: string } }) => ({
+          id: args.where.id,
+          ownerId: "m1",
+          currency: "USD",
+          exchangeRate: args.where.id === "o2" ? 50 : 45,
+          totalAmount: 100,
+          debtAmount: 100,
+        })),
+      },
+      $transaction: mockFn(async (fn: (db: any) => Promise<void>) =>
+        fn({
+          $queryRaw: async () => [],
+          bankTransaction: { findUnique: async () => tx },
+          payment: { create: paymentCreate },
+        }),
+      ),
+    };
+    const settings = { getExchangeRates: async () => ({ UAH_TO_USD: 1 / 47, EUR_TO_USD: 1.1 }) };
+    const svc = new PaymentsService(
+      prisma as any,
+      settings as any,
+      { getVisibleBankAccountIds: mockFn(async () => ["ba1"]) } as any,
+      mockAudit() as any,
+    );
+    (svc as any).recalcOrder = mockFn(async () => {});
+    (svc as any).syncBankTransactionMatchStatus = mockFn(async () => {});
+
+    await svc.allocateSplitInternal({
+      transactionId: txId,
+      allocations: [
+        { orderId: "o1", amount: 2700 },
+        { orderId: "o2", amount: 1800 },
+      ],
+      actor: admin(),
+    });
+
+    assert.deepEqual(
+      paymentCreate.calls.map((c) => c[0].data.amountUsd),
+      [60, 36],
+    );
+  });
+});
+
+describe("PaymentsService.allocate order exchange rate", () => {
+  it("stores UAH at the order rate in amountUsd", async () => {
+    const txId = "tx1";
+    const orderId = "o1";
+    const paymentCreate = mockFn(async () => ({ id: "p-new" }));
+    const tx = {
+      id: txId,
+      bankAccountId: "ba1",
+      amount: 40040,
+      currency: "UAH",
+      bookedAt: new Date("2026-06-01T00:00:00.000Z"),
+      payments: [] as unknown[],
+      matchStatus: "UNMATCHED",
+    };
+    const prisma = {
+      bankTransaction: { findUnique: mockFn(async () => tx) },
+      order: {
+        findUnique: mockFn(async () => ({
+          id: orderId,
+          ownerId: "a1",
+          currency: "USD",
+          exchangeRate: 45,
+          totalAmount: 889.78,
+          debtAmount: 889.78,
+        })),
+      },
+      payment: { findMany: mockFn(async () => []) },
+      $transaction: mockFn(async (fn: (db: any) => Promise<void>) =>
+        fn({
+          $queryRaw: async () => [],
+          bankTransaction: { findUnique: async () => tx },
+          payment: { create: paymentCreate },
+        }),
+      ),
+    };
+    const settings = { getExchangeRates: async () => ({ UAH_TO_USD: 1 / 47, EUR_TO_USD: 1.1 }) };
+    const svc = new PaymentsService(
+      prisma as any,
+      settings as any,
+      { getVisibleBankAccountIds: async () => ["ba1"] } as any,
+      mockAudit() as any,
+    );
+    (svc as any).recalcOrder = mockFn(async () => {});
+    (svc as any).syncBankTransactionMatchStatus = mockFn(async () => {});
+    (svc as any).listByOrderId = mockFn(async () => []);
+
+    await svc.allocate({ transactionId: txId, orderId }, admin());
+    assert.equal(paymentCreate.calls[0][0].data.amountUsd, 889.78);
+    assert.equal(paymentCreate.calls[0][0].data.amount, 40040);
+    assert.equal(paymentCreate.calls[0][0].data.currency, "UAH");
+  });
 });
