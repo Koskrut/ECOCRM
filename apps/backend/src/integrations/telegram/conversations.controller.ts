@@ -160,6 +160,20 @@ export class ConversationsController {
     return this.conversations.linkContact(id, dto.contactId, req.user);
   }
 
+  @Get(":id/telegram-accounts")
+  listTelegramAccounts(@Param("id") id: string, @Req() req: Request & { user?: AuthUser }) {
+    return this.conversations.listLinkedTelegramAccounts(id, req.user);
+  }
+
+  @Delete(":id/telegram-accounts/:accountId")
+  unlinkTelegramAccount(
+    @Param("id") id: string,
+    @Param("accountId") accountId: string,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.conversations.unlinkTelegramAccount(id, accountId, req.user);
+  }
+
   @Post(":id/create-contact")
   createContactFromLead(@Param("id") id: string, @Req() req: Request & { user?: AuthUser }) {
     return this.conversations.createContactFromLead(id, req.user);

@@ -4,7 +4,25 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.246**.)_
+_(планируемые изменения после **0.2.247**.)_
+
+## [0.2.247] — 2026-11-11
+
+### Summary
+
+Патч **0.2.247**: можна бачити й відв’язувати Telegram-акаунти клієнта в контакті/inbox; checkout з уже прив’язаного логіну лишає замовлення на цьому контакті (телефон доставки не створює нового клієнта).
+
+### Changed
+
+- Contacts / Conversations API: list + unlink personal Telegram accounts (групи виключені).
+- Web: `ContactTelegramAccounts` у ContactModal і InboxClientCard.
+- Store/Telegram checkout: `forContactId` — order на linked contact; notify/docs не беруть group-акаунти.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.247`**.
+- **Нових міграцій немає.**
+- **Не використовувати `0.2.230`** і **`0.2.199`–`0.2.202`**.
 
 ## [0.2.246] — 2026-11-11
 

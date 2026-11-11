@@ -162,6 +162,82 @@ export class ContactsService {
     }
   }
 
+  /** Personal Telegram logins linked to a contact. Group rows are not client accounts. */
+  async listLinkedTelegramAccounts(contactId: string, actor?: AuthUser) {
+    const contact = await this.prisma.contact.findUnique({
+      where: { id: contactId },
+      select: { id: true, ownerId: true },
+    });
+    if (!contact) throw new NotFoundException("contact not found");
+    if (actor) this.assertContactAccess(contact, actor);
+    return { items: await this.loadLinkedTelegramAccounts(contactId) };
+  }
+
+  async loadLinkedTelegramAccounts(contactId: string) {
+    const rows = await this.prisma.telegramAccount.findMany({
+      where: {
+        contactId,
+        NOT: [
+          { telegramUserId: { startsWith: "group:" } },
+          { telegramChatId: { startsWith: "-" } },
+        ],
+      },
+      orderBy: [{ lastMessageAt: "desc" }, { linkedAt: "desc" }],
+      select: {
+        id: true,
+        telegramChatId: true,
+        username: true,
+        firstName: true,
+        lastName: true,
+        phone: true,
+        lastMessageAt: true,
+        linkedAt: true,
+      },
+    });
+    return rows;
+  }
+
+  async unlinkTelegramAccount(contactId: string, accountId: string, actor?: AuthUser) {
+    const contact = await this.prisma.contact.findUnique({
+      where: { id: contactId },
+      select: { id: true, ownerId: true },
+    });
+    if (!contact) throw new NotFoundException("contact not found");
+    if (actor) this.assertContactAccess(contact, actor);
+    await this.detachLinkedTelegramAccount(contactId, accountId);
+    return { ok: true };
+  }
+
+  /**
+   * Drop one Telegram login from a contact. The chat and its messages stay.
+   * Orders already placed on the contact stay on the contact.
+   */
+  async detachLinkedTelegramAccount(contactId: string, accountId: string) {
+    const account = await this.prisma.telegramAccount.findFirst({
+      where: {
+        id: accountId,
+        contactId,
+        NOT: [
+          { telegramUserId: { startsWith: "group:" } },
+          { telegramChatId: { startsWith: "-" } },
+        ],
+      },
+      select: { id: true, telegramChatId: true, contactId: true },
+    });
+    if (!account) throw new NotFoundException("Telegram account is not linked to this contact");
+
+    await this.prisma.$transaction([
+      this.prisma.telegramAccount.update({
+        where: { id: account.id },
+        data: { contactId: null },
+      }),
+      this.prisma.conversation.updateMany({
+        where: { telegramChatId: account.telegramChatId, contactId },
+        data: { contactId: null },
+      }),
+    ]);
+  }
+
   async getCardSummary(id: string, actor?: AuthUser): Promise<ContactCardSummaryResponse> {
     const contact = await this.prisma.contact.findUnique({
       where: { id },

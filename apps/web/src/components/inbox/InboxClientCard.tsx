@@ -6,6 +6,7 @@ import {
   useContactCardSummary,
   type ContactCardSummary,
 } from "@/app/contacts/card/useContactCardSummary";
+import { ContactTelegramAccounts } from "@/components/contacts/ContactTelegramAccounts";
 
 function formatMoney(n: number): string {
   return new Intl.NumberFormat("uk-UA", {
@@ -74,6 +75,9 @@ type LinkBlock = {
 type Props = {
   contact: ContactBrief | null;
   lead: LeadBrief | null;
+  conversationId?: string | null;
+  telegramChatId?: string | null;
+  onTelegramLinksChanged?: () => void;
   assign?: AssignBlock | null;
   link?: LinkBlock | null;
   onCreateTask: () => void;
@@ -210,6 +214,9 @@ function LinkContactPanel({ link }: { link: LinkBlock }) {
 export function InboxClientCard({
   contact,
   lead,
+  conversationId,
+  telegramChatId,
+  onTelegramLinksChanged,
   assign,
   link,
   onCreateTask,
@@ -377,6 +384,12 @@ export function InboxClientCard({
           >
             Відкрити контакт →
           </a>
+          <ContactTelegramAccounts
+            contactId={contact.id}
+            conversationId={conversationId}
+            currentChatId={telegramChatId}
+            onChanged={onTelegramLinksChanged}
+          />
         </div>
       ) : null}
 

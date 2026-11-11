@@ -1602,6 +1602,9 @@ function UnifiedInboxContent() {
             <InboxClientCard
               contact={selected.contact}
               lead={selected.lead}
+              conversationId={selected.source === "TELEGRAM" ? selected.id : null}
+              telegramChatId={selected.telegramChatId}
+              onTelegramLinksChanged={() => void loadConversations()}
               assign={
                 selected.source === "TELEGRAM"
                   ? {

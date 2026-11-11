@@ -312,6 +312,20 @@ export class ContactsController {
     return this.contactsService.getCardSummary(id, req.user);
   }
 
+  @Get(":id/telegram-accounts")
+  async listTelegramAccounts(@Param("id") id: string, @Req() req: Request & { user?: AuthUser }) {
+    return this.contactsService.listLinkedTelegramAccounts(id, req.user);
+  }
+
+  @Delete(":id/telegram-accounts/:accountId")
+  async unlinkTelegramAccount(
+    @Param("id") id: string,
+    @Param("accountId") accountId: string,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.contactsService.unlinkTelegramAccount(id, accountId, req.user);
+  }
+
   @Get(":id/orders-movement")
   async getOrdersMovement(
     @Param("id") id: string,

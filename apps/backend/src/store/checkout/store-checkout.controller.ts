@@ -54,7 +54,11 @@ export class StoreCheckoutController {
           undefined,
         lastName: (dto.lastName ?? "").trim() || storeTg.lastName || undefined,
       };
-      const result = await this.storeCheckout.checkout(dto, { autoCreateCustomer: true });
+      const linkedContactId = await this.storeCheckout.linkedContactIdForTelegramUser(storeTg.sub);
+      const result = await this.storeCheckout.checkout(dto, {
+        autoCreateCustomer: true,
+        forContactId: linkedContactId,
+      });
       void this.storeCheckout.notifyTelegramWebAppOrder({
         orderId: result.orderId,
         orderNumber: result.orderNumber,

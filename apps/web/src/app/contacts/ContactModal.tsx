@@ -40,6 +40,7 @@ import {
   badgesFromSummary,
   useContactCardShellHeader,
 } from "./card/ContactCardShellHeader";
+import { ContactTelegramAccounts } from "@/components/contacts/ContactTelegramAccounts";
 import { ContactWorkPanel } from "./card/ContactWorkPanel";
 import { ContactVisitPlanner } from "./card/ContactVisitPlanner";
 import { ContactIdentityFields } from "./card/ContactIdentityFields";
@@ -1030,6 +1031,9 @@ export function ContactModal({
         nextActionSuccess={nextActionSuccess}
         onSaveNextAction={() => void saveNextAction()}
       />
+      {!isCreate && effectiveContactId && effectiveContactId !== "new" ? (
+        <ContactTelegramAccounts contactId={effectiveContactId} />
+      ) : null}
       {contact ? (
         <ContactVisitPlanner
           addresses={contact.addresses ?? []}

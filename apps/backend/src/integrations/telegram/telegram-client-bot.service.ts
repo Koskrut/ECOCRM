@@ -3337,7 +3337,10 @@ export class TelegramClientBotService {
     }
 
     try {
-      const result = await this.checkout.checkout(dto, { autoCreateCustomer: true });
+      const result = await this.checkout.checkout(dto, {
+        autoCreateCustomer: true,
+        forContactId: crmContactId,
+      });
       // Persist region on Telegram lead (new clients) and link to the store contact.
       if (account?.leadId && payload.region) {
         await this.prisma.lead

@@ -157,7 +157,10 @@ export class TelegramClientNotifyService implements OnModuleInit {
     const ids = [clientId, contactId].filter(Boolean) as string[];
     if (ids.length === 0) return null;
     const account = await this.prisma.telegramAccount.findMany({
-      where: { contactId: { in: ids } },
+      where: {
+        contactId: { in: ids },
+        NOT: { telegramUserId: { startsWith: "group:" } },
+      },
       orderBy: { lastMessageAt: "desc" },
       select: { telegramChatId: true },
     });

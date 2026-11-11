@@ -60,8 +60,13 @@ export class StoreCheckoutService {
   /**
    * @param options.autoCreateCustomer — for Telegram bot: create Customer with a
    * random password when missing (client resets via store “forgot password”).
+   * @param options.forContactId — Telegram login already linked to a CRM contact.
+   * The order stays on that contact even when this login uses another phone.
    */
-  async checkout(dto: StoreCheckoutDto, options?: { autoCreateCustomer?: boolean }) {
+  async checkout(
+    dto: StoreCheckoutDto,
+    options?: { autoCreateCustomer?: boolean; forContactId?: string | null },
+  ) {
     const sessionId = dto.sessionId?.trim();
     if (!sessionId) throw new BadRequestException("sessionId required for cart");
     const cart = await this.cartService.getCart({ sessionId });
@@ -106,10 +111,19 @@ export class StoreCheckoutService {
     if (!region) throw new BadRequestException("Оберіть область");
 
     const phoneCandidates = getPhoneCandidatesForLookup(phoneNorm);
+    const forcedContactId = options?.forContactId?.trim() || null;
     let contact: { id: string } | null = null;
-    for (const candidate of phoneCandidates) {
-      contact = await this.contactsService.findContactByPhone(candidate);
-      if (contact) break;
+    if (forcedContactId) {
+      contact = await this.prisma.contact.findUnique({
+        where: { id: forcedContactId },
+        select: { id: true },
+      });
+      if (!contact) throw new BadRequestException("Прив’язаний контакт не знайдено");
+    } else {
+      for (const candidate of phoneCandidates) {
+        contact = await this.contactsService.findContactByPhone(candidate);
+        if (contact) break;
+      }
     }
 
     const org = await this.settings.getOrgChartStructure();
@@ -123,35 +137,40 @@ export class StoreCheckoutService {
 
     const lastName = (dto.lastName ?? "").trim() || "—";
     const email = (dto.email ?? "").trim() || null;
-    if (!contact) {
-      contact = await this.contactsService.create(
-        {
-          firstName,
-          lastName,
-          phone: normalizePhoneToE164(rawPhone) ?? (rawPhone || phoneNorm),
-          email,
-          region,
-          ownerId,
-        },
-        undefined,
-      ) as { id: string };
-    } else {
-      const existingOwner = await this.prisma.contact.findUnique({
-        where: { id: contact.id },
-        select: { ownerId: true },
-      });
-      await this.contactsService.update(
-        contact.id,
-        {
-          firstName,
-          lastName,
-          email,
-          region,
-          ...(!existingOwner?.ownerId ? { ownerId } : {}),
-        },
-        undefined,
-      );
+    // A linked Telegram login keeps the contact card as-is. Its phone is
+    // delivery data, not a new client and not a rewrite of the primary phone.
+    if (!forcedContactId) {
+      if (!contact) {
+        contact = await this.contactsService.create(
+          {
+            firstName,
+            lastName,
+            phone: normalizePhoneToE164(rawPhone) ?? (rawPhone || phoneNorm),
+            email,
+            region,
+            ownerId,
+          },
+          undefined,
+        ) as { id: string };
+      } else {
+        const existingOwner = await this.prisma.contact.findUnique({
+          where: { id: contact.id },
+          select: { ownerId: true },
+        });
+        await this.contactsService.update(
+          contact.id,
+          {
+            firstName,
+            lastName,
+            email,
+            region,
+            ...(!existingOwner?.ownerId ? { ownerId } : {}),
+          },
+          undefined,
+        );
+      }
     }
+    if (!contact) throw new BadRequestException("Контакт для замовлення не знайдено");
     let orderDeliveryData: Record<string, unknown> | undefined;
     if (deliveryMethod === "NOVA_POSHTA") {
       const dd = dto.deliveryData as
@@ -464,6 +483,14 @@ export class StoreCheckoutService {
       alreadyHadAccount,
       orderPayToken,
     };
+  }
+
+  async linkedContactIdForTelegramUser(telegramUserId: string): Promise<string | null> {
+    const row = await this.prisma.telegramAccount.findUnique({
+      where: { telegramUserId },
+      select: { contactId: true },
+    });
+    return row?.contactId ?? null;
   }
 
   /** After Mini App checkout: link account and tell the client in chat. */

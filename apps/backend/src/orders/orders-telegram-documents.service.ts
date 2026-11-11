@@ -108,7 +108,14 @@ export class OrdersTelegramDocumentsService {
     if (ids.length === 0) return null;
 
     const account = await this.prisma.telegramAccount.findFirst({
-      where: { contactId: { in: ids } },
+      where: {
+        contactId: { in: ids },
+        NOT: [
+          { telegramUserId: { startsWith: "group:" } },
+          { telegramChatId: { startsWith: "-" } },
+        ],
+      },
+      orderBy: [{ lastMessageAt: "desc" }, { linkedAt: "desc" }],
       select: { telegramChatId: true },
     });
     if (account?.telegramChatId) return account.telegramChatId;

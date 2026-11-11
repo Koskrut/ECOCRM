@@ -1214,6 +1214,55 @@ export class ConversationsService {
     };
   }
 
+  /** Other Telegram logins of the contact linked to this chat. */
+  async listLinkedTelegramAccounts(conversationId: string, actor: AuthUser | undefined) {
+    const conv = await this.requireTelegramConversation(conversationId, actor);
+    if (!conv.contactId) return { items: [] };
+    const items = await this.contactsService.loadLinkedTelegramAccounts(conv.contactId);
+    return { items };
+  }
+
+  /**
+   * Unlink one Telegram login from the contact of this chat.
+   * Allowed for anyone who can work the thread, including a sibling account.
+   */
+  async unlinkTelegramAccount(
+    conversationId: string,
+    accountId: string,
+    actor: AuthUser | undefined,
+  ) {
+    const conv = await this.requireTelegramConversation(conversationId, actor);
+    if (!conv.contactId) {
+      throw new BadRequestException("Conversation is not linked to a contact");
+    }
+    await this.contactsService.detachLinkedTelegramAccount(conv.contactId, accountId);
+    return { ok: true, contactId: conv.contactId };
+  }
+
+  private async requireTelegramConversation(conversationId: string, actor: AuthUser | undefined) {
+    const safeActor = this.requireActor(actor);
+    const conv = await this.prisma.conversation.findUnique({
+      where: { id: conversationId },
+      select: {
+        id: true,
+        contactId: true,
+        telegramChatId: true,
+        assignedToUserId: true,
+        collaborators: {
+          where: { userId: safeActor.id },
+          select: { userId: true },
+          take: 1,
+        },
+      },
+    });
+    if (!conv) throw new NotFoundException("Conversation not found");
+    this.assertManagerCanAccessConversation(safeActor, conv);
+    if (!conv.telegramChatId) {
+      throw new BadRequestException("Conversation has no Telegram chat");
+    }
+    return conv;
+  }
+
   async createContactFromLead(conversationId: string, actor: AuthUser | undefined) {
     const safeActor = this.requireActor(actor);
 
