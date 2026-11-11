@@ -468,7 +468,6 @@ export function OrderPaymentBlock({
           apiBaseUrl={apiBaseUrl}
           orderId={orderId}
           currency={currency}
-          exchangeRate={exchangeRate}
           onClose={() => setShowAddCash(false)}
           onSaved={async () => {
             setShowAddCash(false);
@@ -751,7 +750,6 @@ type AddCashPaymentModalProps = {
   apiBaseUrl: string;
   orderId: string;
   currency: string;
-  exchangeRate?: number | null;
   onClose: () => void;
   onSaved: () => void;
 };
@@ -969,18 +967,35 @@ function AddCashPaymentModal({
   apiBaseUrl,
   orderId,
   currency,
-  exchangeRate,
   onClose,
   onSaved,
 }: AddCashPaymentModalProps) {
   const [amount, setAmount] = useState("");
   const [paymentCurrency, setPaymentCurrency] = useState(() => initialCashCurrency(currency));
+  const [uahPerUsd, setUahPerUsd] = useState<number | null>(null);
   const [paidAt, setPaidAt] = useState(() => new Date().toISOString().slice(0, 16));
   const [note, setNote] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const idempotencyKeyRef = useRef<string | null>(null);
   const lastSubmitAtRef = useRef(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`${apiBaseUrl}/settings/exchange-rates`, { credentials: "include", cache: "no-store" })
+      .then(async (r) => (r.ok ? ((await r.json()) as { UAH_TO_USD?: number }) : null))
+      .then((data) => {
+        if (cancelled) return;
+        const perUah = Number(data?.UAH_TO_USD);
+        setUahPerUsd(perUah > 0 ? 1 / perUah : null);
+      })
+      .catch(() => {
+        if (!cancelled) setUahPerUsd(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [apiBaseUrl]);
 
   const submit = async (confirmDuplicate = false) => {
     if (submitting) return;
@@ -1077,13 +1092,13 @@ function AddCashPaymentModal({
 
   const parsedAmount = parseFloat(amount.replace(/,/g, "."));
   const uahOnUsdOrder = paymentCurrency === "UAH" && (currency || "").trim().toUpperCase() === "USD";
-  const usdAtOrderRate =
+  const usdAtPaymentRate =
     uahOnUsdOrder &&
-    exchangeRate != null &&
-    exchangeRate > 1 &&
+    uahPerUsd != null &&
+    uahPerUsd > 1 &&
     Number.isFinite(parsedAmount) &&
     parsedAmount > 0
-      ? parsedAmount / exchangeRate
+      ? parsedAmount / uahPerUsd
       : null;
 
   return (
@@ -1119,9 +1134,9 @@ function AddCashPaymentModal({
             </div>
             {uahOnUsdOrder ? (
               <p className="mt-1 text-[11px] text-zinc-500">
-                {usdAtOrderRate != null
-                  ? `У долари замовлення: ${usdAtOrderRate.toFixed(2)} $ за курсом ${exchangeRate}. Курс фіксується один раз.`
-                  : "Гривня переводиться один раз: долар = сума / курс замовлення."}
+                {usdAtPaymentRate != null
+                  ? `У долари за курсом на момент оплати (${uahPerUsd!.toFixed(2)}): ${usdAtPaymentRate.toFixed(2)} $. Цей долар фіксується в оплаті.`
+                  : "Гривня переводиться за курсом на момент оплати, і цей долар фіксується в оплаті."}
               </p>
             ) : null}
           </div>

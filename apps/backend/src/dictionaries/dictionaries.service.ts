@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Injectable, Logger, NotFoundException, OnModuleInit } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import {
@@ -11,6 +11,12 @@ import {
   type UpsertDictionaryDto,
   type UpsertDictionaryItemDto,
 } from "./dto/dictionaries.dto";
+import {
+  PRODUCT_CHARACTERISTICS_DICTIONARY_DESCRIPTION,
+  PRODUCT_CHARACTERISTICS_DICTIONARY_KEY,
+  PRODUCT_CHARACTERISTICS_DICTIONARY_NAME,
+  PRODUCT_CHARACTERISTICS_SEED,
+} from "./product-characteristics.dictionary";
 
 const DICTIONARY_SELECT = {
   id: true,
@@ -33,8 +39,90 @@ const DICTIONARY_WITH_ITEMS_INCLUDE = {
 } satisfies Prisma.DictionaryInclude;
 
 @Injectable()
-export class DictionariesService {
+export class DictionariesService implements OnModuleInit {
+  private readonly logger = new Logger(DictionariesService.name);
+
   constructor(private readonly prisma: PrismaService) {}
+
+  async onModuleInit(): Promise<void> {
+    try {
+      await this.ensureProductCharacteristicsDictionary();
+    } catch (err) {
+      this.logger.warn(
+        `Failed to ensure ${PRODUCT_CHARACTERISTICS_DICTIONARY_KEY}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+  }
+
+  /** Create system dictionary + missing items; never overwrite existing labels. */
+  async ensureProductCharacteristicsDictionary(): Promise<void> {
+    const existing = await this.prisma.dictionary.findFirst({
+      where: { key: PRODUCT_CHARACTERISTICS_DICTIONARY_KEY },
+      select: { id: true, deletedAt: true },
+    });
+
+    let dictionaryId: string;
+    if (!existing) {
+      const created = await this.prisma.dictionary.create({
+        data: {
+          key: PRODUCT_CHARACTERISTICS_DICTIONARY_KEY,
+          name: PRODUCT_CHARACTERISTICS_DICTIONARY_NAME,
+          description: PRODUCT_CHARACTERISTICS_DICTIONARY_DESCRIPTION,
+          system: true,
+          isActive: true,
+        },
+        select: { id: true },
+      });
+      dictionaryId = created.id;
+    } else {
+      dictionaryId = existing.id;
+      if (existing.deletedAt) {
+        await this.prisma.dictionary.update({
+          where: { id: dictionaryId },
+          data: {
+            deletedAt: null,
+            isActive: true,
+            system: true,
+            name: PRODUCT_CHARACTERISTICS_DICTIONARY_NAME,
+            description: PRODUCT_CHARACTERISTICS_DICTIONARY_DESCRIPTION,
+          },
+        });
+      } else {
+        await this.prisma.dictionary.update({
+          where: { id: dictionaryId },
+          data: {
+            system: true,
+            name: PRODUCT_CHARACTERISTICS_DICTIONARY_NAME,
+            description: PRODUCT_CHARACTERISTICS_DICTIONARY_DESCRIPTION,
+          },
+        });
+      }
+    }
+
+    const existingItems = await this.prisma.dictionaryItem.findMany({
+      where: { dictionaryId },
+      select: { key: true },
+    });
+    const byKey = new Map(existingItems.map((i) => [i.key, i]));
+
+    for (const seed of PRODUCT_CHARACTERISTICS_SEED) {
+      const found = byKey.get(seed.key);
+      // Do not resurrect soft-deleted items — admin removals must stick across restarts.
+      if (found) continue;
+      await this.prisma.dictionaryItem.create({
+        data: {
+          dictionaryId,
+          key: seed.key,
+          label: seed.label,
+          sortOrder: seed.sortOrder,
+          isActive: true,
+          metadata: seed.internal ? { internal: true } : undefined,
+        },
+      });
+    }
+  }
 
   async list(query: DictionaryListQuery = {}) {
     const where: Prisma.DictionaryWhereInput = {};
@@ -91,7 +179,12 @@ export class DictionariesService {
   async update(idOrKey: string, body: UpsertDictionaryDto) {
     const current = await this.findDictionaryForMutation(idOrKey);
     const data: Prisma.DictionaryUpdateInput = {};
-    if (body.key !== undefined) data.key = normalizeDictionaryKey(body.key);
+    if (body.key !== undefined) {
+      if (current.system) {
+        throw new BadRequestException("System dictionary key cannot be changed");
+      }
+      data.key = normalizeDictionaryKey(body.key);
+    }
     if (body.name !== undefined) {
       const name = optionalTrimmedString(body.name);
       if (!name) throw new BadRequestException("name cannot be empty");
@@ -111,6 +204,9 @@ export class DictionariesService {
 
   async softDelete(idOrKey: string) {
     const current = await this.findDictionaryForMutation(idOrKey);
+    if (current.system) {
+      throw new BadRequestException("System dictionaries cannot be deleted");
+    }
     const dictionary = await this.prisma.dictionary.update({
       where: { id: current.id },
       data: {
@@ -183,7 +279,7 @@ export class DictionariesService {
   private async findDictionaryForMutation(idOrKey: string) {
     const dictionary = await this.prisma.dictionary.findFirst({
       where: { OR: [{ id: idOrKey }, { key: idOrKey }], deletedAt: null },
-      select: { id: true, key: true },
+      select: { id: true, key: true, system: true },
     });
     if (!dictionary) throw new NotFoundException("Dictionary not found");
     return dictionary;

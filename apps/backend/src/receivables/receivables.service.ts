@@ -43,7 +43,11 @@ import {
   parseReceivablesExcel,
 } from "./receivables-excel.parser";
 import { financialOverdueWhere, isDebtOverdueByDueDate } from "../orders/order-status-sync.mapper";
-import { aggregateClientFinance } from "../finance/client-finance";
+import {
+  aggregateClientFinance,
+  applyCreditToOverdueOrders,
+  clientDebtAfterOrderCredit,
+} from "../finance/client-finance";
 import { DateTime } from "luxon";
 import { CRM_TIME_ZONE } from "../crm-timezone";
 import {
@@ -413,7 +417,8 @@ export class ReceivablesService {
       const primary = matched[0] ?? null;
       let amountCRM = 0;
       for (const c of matched) {
-        amountCRM += contactDebt.get(c.id)?.debtBase ?? 0;
+        const row = contactDebt.get(c.id);
+        amountCRM += row ? clientDebtAfterOrderCredit(row.debtBase, row.creditBase).debt : 0;
       }
       totalCRM += amountCRM;
 
@@ -441,7 +446,7 @@ export class ReceivablesService {
     const codesIn1C = new Set(amount1CByCode.keys());
     for (const [contactId, row] of contactDebt) {
       if (row.externalCode && codesIn1C.has(row.externalCode)) continue;
-      const amountCRM = row.debtBase;
+      const amountCRM = clientDebtAfterOrderCredit(row.debtBase, row.creditBase).debt;
       if (amountCRM <= tolerance) continue;
       totalCRM += amountCRM;
       const status: ReceivablesReconcileStatus = "ONLY_CRM";
@@ -838,9 +843,10 @@ export class ReceivablesService {
     let overdueDebt = 0;
     let clientsWithDebtCount = 0;
     for (const row of contactDebt.values()) {
-      debtTotal += row.debtBase;
-      overdueDebt += row.overdueBase;
-      if (row.debtBase > 0.009) clientsWithDebtCount += 1;
+      const position = clientDebtAfterOrderCredit(row.debtBase, row.creditBase, row.overdueBase);
+      debtTotal += position.debt;
+      overdueDebt += position.overdue;
+      if (position.debt > 0.009) clientsWithDebtCount += 1;
     }
 
     const [ordersWithDebtCount, bitrixLegacyOrdersCount, bitrixLegacyDebt] = await Promise.all([
@@ -883,7 +889,8 @@ export class ReceivablesService {
       const parsed = parseDebtCommentTitle(last?.title ?? null);
       if (isPromiseForYmd(parsed.promiseDate, todayYmd)) {
         promisedTodayCount += 1;
-        promisedTodayAmount += parsed.promiseAmount ?? row.debtBase;
+        promisedTodayAmount +=
+          parsed.promiseAmount ?? clientDebtAfterOrderCredit(row.debtBase, row.creditBase).debt;
       }
     }
 
@@ -970,21 +977,26 @@ export class ReceivablesService {
     const sort = parseWorkClientsSort(query.sort, query.dir);
 
     const contactDebt = await this.loadContactDebtMap(scope, rates);
-    let items = [...contactDebt.values()].map((row) => ({
-      contactId: row.contactId,
-      clientName: [row.firstName, row.lastName].filter(Boolean).join(" "),
-      externalCode: row.externalCode || null,
-      debtAmount: Math.round(row.debtBase * 100) / 100,
-      overdueAmount: Math.round(row.overdueBase * 100) / 100,
-      overpaymentAmount: Math.round(row.creditBase * 100) / 100,
-      orderCount: row.orderCount,
-      ownerId: row.ownerId,
-      lastPaymentAt: row.lastPaymentAt?.toISOString() ?? null,
-      phone: row.phone,
-      overdueDays: row.overdueDays,
-      agingBucket: row.overdueDays > 0 ? agingBucketLabel(row.overdueDays) : null,
-      primaryOrderId: row.primaryOrderId,
-    }));
+    let items = [...contactDebt.values()].map((row) => {
+      const position = clientDebtAfterOrderCredit(row.debtBase, row.creditBase, row.overdueBase);
+      const openOverdue = applyCreditToOverdueOrders(row.overdueOrders, row.creditBase);
+      const overdueDays = openOverdue.reduce((max, order) => Math.max(max, order.days), 0);
+      return {
+        contactId: row.contactId,
+        clientName: [row.firstName, row.lastName].filter(Boolean).join(" "),
+        externalCode: row.externalCode || null,
+        debtAmount: position.debt,
+        overdueAmount: position.overdue,
+        overpaymentAmount: Math.round(row.creditBase * 100) / 100,
+        orderCount: row.orderCount,
+        ownerId: row.ownerId,
+        lastPaymentAt: row.lastPaymentAt?.toISOString() ?? null,
+        phone: row.phone,
+        overdueDays,
+        agingBucket: overdueDays > 0 ? agingBucketLabel(overdueDays) : null,
+        primaryOrderId: row.primaryOrderId,
+      };
+    });
 
     if (query.overdue) {
       items = items.filter((i) => i.overdueAmount > 0);
@@ -1204,7 +1216,15 @@ export class ReceivablesService {
     }
 
     const contactDebt = await this.loadContactDebtMap(scope, rates);
-    return { currency, buckets: buildAgingBuckets(contactDebt.values()) };
+    return {
+      currency,
+      buckets: buildAgingBuckets(
+        [...contactDebt.values()].map((row) => ({
+          contactId: row.contactId,
+          overdueOrders: applyCreditToOverdueOrders(row.overdueOrders, row.creditBase),
+        })),
+      ),
+    };
   }
 
   async batchActions(
@@ -1694,8 +1714,9 @@ export class ReceivablesService {
   }
 
   /**
-   * Create or reuse a PENDING payment request covering the contact's full operational debt
-   * (order-currency debt × UAH rate). Attached to the primary/anchor debt order; public /pay/[token] unchanged.
+   * Create or reuse a PENDING payment request for the contact's operational debt
+   * minus order overpayments (each amount × the order UAH rate).
+   * Attached to the primary/anchor debt order; public /pay/[token] unchanged.
    */
   async ensureContactFullDebtPaymentLink(actor: AuthUser, contactId: string) {
     const contact = await this.prisma.contact.findUnique({
@@ -1712,12 +1733,13 @@ export class ReceivablesService {
 
     const orders = await this.prisma.order.findMany({
       where: {
-        AND: [buildReceivablesDebtOrderWhere(scope), { clientId: contactId, debtAmount: { gt: 0 } }],
+        AND: [buildReceivablesDebtOrderWhere(scope), { clientId: contactId }],
       },
       select: {
         id: true,
         orderNumber: true,
         debtAmount: true,
+        creditAmount: true,
         exchangeRate: true,
         paymentDueDate: true,
         bankAccountId: true,
@@ -1726,32 +1748,49 @@ export class ReceivablesService {
     });
 
     const rates = await this.settings.getExchangeRates();
-    const debtOrders = orders
-      .map((o) => {
-        const storedRate = o.exchangeRate != null ? Number(o.exchangeRate) : null;
-        return {
-          id: o.id,
-          orderNumber: o.orderNumber,
-          debtAmount: orderStoredAmount(o.debtAmount),
-          exchangeRate:
-            storedRate != null && storedRate > 0
-              ? storedRate
-              : computeOrderExchangeRate(o.currency, rates),
-          paymentDueDate: o.paymentDueDate,
-          bankAccountId: o.bankAccountId,
-          currency: o.currency,
-        };
-      })
-      .filter((o) => o.debtAmount > 0);
+    const moneyOrders = orders.map((o) => {
+      const storedRate = o.exchangeRate != null ? Number(o.exchangeRate) : null;
+      return {
+        id: o.id,
+        orderNumber: o.orderNumber,
+        debtAmount: orderStoredAmount(o.debtAmount),
+        creditAmount: orderStoredAmount(o.creditAmount),
+        exchangeRate:
+          storedRate != null && storedRate > 0
+            ? storedRate
+            : computeOrderExchangeRate(o.currency, rates),
+        paymentDueDate: o.paymentDueDate,
+        bankAccountId: o.bankAccountId,
+        currency: o.currency,
+      };
+    });
+    const debtOrders = moneyOrders.filter((o) => o.debtAmount > 0);
+    const creditOrders = moneyOrders.filter((o) => o.creditAmount > 0);
 
     if (debtOrders.length === 0) {
       throw new BadRequestException("No operational debt for this client");
     }
 
     const fallbackUahPerUsd = rates.UAH_TO_USD > 0 ? 1 / rates.UAH_TO_USD : 41;
-    const amountUah = computeFullDebtPayAmountUah(debtOrders, fallbackUahPerUsd);
-    if (!(amountUah > 0)) {
+    const debtUah = computeFullDebtPayAmountUah(debtOrders, fallbackUahPerUsd);
+    const creditUah = computeFullDebtPayAmountUah(
+      creditOrders.map((o) => ({ debtAmount: o.creditAmount, exchangeRate: o.exchangeRate })),
+      fallbackUahPerUsd,
+    );
+    const amountUah = Math.max(0, Math.round((debtUah - creditUah) * 100) / 100);
+    const debtAmountUsd = Math.max(
+      0,
+      Math.round(
+        (debtOrders.reduce((s, o) => s + toUsd(o.debtAmount, o.currency, rates), 0) -
+          creditOrders.reduce((s, o) => s + toUsd(o.creditAmount, o.currency, rates), 0)) *
+          100,
+      ) / 100,
+    );
+    if (!(debtUah > 0)) {
       throw new BadRequestException("Could not convert debt to UAH — check exchange rates on orders");
+    }
+    if (!(amountUah > 0)) {
+      throw new BadRequestException("No operational debt for this client");
     }
 
     const now = new Date();
@@ -1780,9 +1819,7 @@ export class ReceivablesService {
         currency: row.currency,
         orderId: row.orderId,
         debtOrderCount: debtOrders.length,
-        debtAmountUsd: Math.round(
-          debtOrders.reduce((s, o) => s + toUsd(o.debtAmount, o.currency, rates), 0) * 100,
-        ) / 100,
+        debtAmountUsd,
         reused: true,
       };
     }
@@ -1813,9 +1850,7 @@ export class ReceivablesService {
       currency: created.currency,
       orderId: created.orderId,
       debtOrderCount: debtOrders.length,
-      debtAmountUsd: Math.round(
-        debtOrders.reduce((s, o) => s + toUsd(o.debtAmount, o.currency, rates), 0) * 100,
-      ) / 100,
+      debtAmountUsd,
       reused: false,
     };
   }

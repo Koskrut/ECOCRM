@@ -14,11 +14,10 @@ function parseBoolean(value: unknown): boolean | undefined {
 }
 
 @Controller("dictionaries")
-@Roles(UserRole.ADMIN)
-@RequirePermission(PermissionKeys.DictionariesManage)
 export class DictionariesController {
   constructor(private readonly dictionaries: DictionariesService) {}
 
+  /** Catalog and other modules need labels; any authenticated user may read. */
   @Get()
   list(@Query() query: Record<string, unknown>) {
     const parsed: DictionaryListQuery = {
@@ -30,32 +29,42 @@ export class DictionariesController {
     return this.dictionaries.list(parsed);
   }
 
-  @Post()
-  create(@Body() body: UpsertDictionaryDto) {
-    return this.dictionaries.create(body);
-  }
-
   @Get(":idOrKey")
   get(@Param("idOrKey") idOrKey: string, @Query("includeDeleted") includeDeleted?: string) {
     return this.dictionaries.get(idOrKey, { includeDeleted: parseBoolean(includeDeleted) });
   }
 
+  @Post()
+  @Roles(UserRole.ADMIN)
+  @RequirePermission(PermissionKeys.DictionariesManage)
+  create(@Body() body: UpsertDictionaryDto) {
+    return this.dictionaries.create(body);
+  }
+
   @Patch(":idOrKey")
+  @Roles(UserRole.ADMIN)
+  @RequirePermission(PermissionKeys.DictionariesManage)
   update(@Param("idOrKey") idOrKey: string, @Body() body: UpsertDictionaryDto) {
     return this.dictionaries.update(idOrKey, body);
   }
 
   @Delete(":idOrKey")
+  @Roles(UserRole.ADMIN)
+  @RequirePermission(PermissionKeys.DictionariesManage)
   remove(@Param("idOrKey") idOrKey: string) {
     return this.dictionaries.softDelete(idOrKey);
   }
 
   @Post(":idOrKey/items")
+  @Roles(UserRole.ADMIN)
+  @RequirePermission(PermissionKeys.DictionariesManage)
   createItem(@Param("idOrKey") idOrKey: string, @Body() body: UpsertDictionaryItemDto) {
     return this.dictionaries.createItem(idOrKey, body);
   }
 
   @Patch(":idOrKey/items/:itemIdOrKey")
+  @Roles(UserRole.ADMIN)
+  @RequirePermission(PermissionKeys.DictionariesManage)
   updateItem(
     @Param("idOrKey") idOrKey: string,
     @Param("itemIdOrKey") itemIdOrKey: string,
@@ -65,6 +74,8 @@ export class DictionariesController {
   }
 
   @Delete(":idOrKey/items/:itemIdOrKey")
+  @Roles(UserRole.ADMIN)
+  @RequirePermission(PermissionKeys.DictionariesManage)
   removeItem(@Param("idOrKey") idOrKey: string, @Param("itemIdOrKey") itemIdOrKey: string) {
     return this.dictionaries.softDeleteItem(idOrKey, itemIdOrKey);
   }

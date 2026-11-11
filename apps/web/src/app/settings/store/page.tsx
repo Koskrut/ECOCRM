@@ -170,6 +170,15 @@ export default function StoreSettingsPage() {
           <p className="mt-1 text-sm text-zinc-500">
             Тема, баннери, контакти, оплата в CRM і URL вітрини для Telegram Mini App
           </p>
+          <p className="mt-2 text-sm text-zinc-600">
+            Властивості товарів каталогу:{" "}
+            <Link
+              href="/settings/catalog/characteristics"
+              className="font-medium text-zinc-900 underline hover:text-zinc-700"
+            >
+              Характеристики товару
+            </Link>
+          </p>
         </div>
 
         {error ? <ErrorPanel variant="inline" message={error} /> : null}

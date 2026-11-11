@@ -449,7 +449,7 @@ export const uk = {
       },
       metadata: {
         title: "Метадані та автоматизація",
-        desc: "Поля, словники, макети, workflow, RBAC, custom entities",
+        desc: "Каталог товарів окремо; далі CRM-поля, макети, workflow, RBAC",
       },
       dataImport: {
         title: "Імпорт даних",
@@ -514,6 +514,10 @@ export const uk = {
       store: {
         title: "Інтернет-магазин",
         desc: "Тема, банери, оплата в CRM і публічна URL вітрини для Mini App",
+      },
+      productCharacteristics: {
+        title: "Характеристики товару",
+        desc: "Коди й підписи властивостей каталогу (діаметр, система, матеріал…)",
       },
     },
     metaMessagingPage: {

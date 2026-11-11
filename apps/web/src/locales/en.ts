@@ -448,7 +448,7 @@ export const en = {
       },
       metadata: {
         title: "Metadata & automation",
-        desc: "Custom fields, dictionaries, layouts, workflows, RBAC, custom entities",
+        desc: "Product catalog first; then CRM fields, layouts, workflows, RBAC",
       },
       dataImport: {
         title: "Data import",
@@ -513,6 +513,10 @@ export const en = {
       store: {
         title: "Online store",
         desc: "Theme, banners, CRM pay URL and public storefront URL for Mini App",
+      },
+      productCharacteristics: {
+        title: "Product characteristics",
+        desc: "Codes and labels for catalog specs (diameter, system, material…)",
       },
     },
     metaMessagingPage: {

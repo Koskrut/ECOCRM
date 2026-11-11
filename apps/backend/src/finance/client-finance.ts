@@ -30,7 +30,7 @@ export type ClientFinanceSnapshot = {
   revenue: number;
   /** Operational debt, before order credit and wallet balance. */
   grossDebt: number;
-  /** Gross debt whose due date is before today in Europe/Kyiv. Includes prepayment. */
+  /** Overdue operational debt after order overpayments. Wallet balance is not applied here. */
   overdue: number;
   /** Overpayment still sitting on operational orders (not yet moved to the wallet). */
   orderCredit: number;
@@ -45,6 +45,49 @@ export type ClientFinanceSnapshot = {
 
 function money(n: number): number {
   return Math.round(n * 100) / 100;
+}
+
+function finite(n: number): number {
+  return Number.isFinite(n) ? n : 0;
+}
+
+/**
+ * Client receivables after overpayments sitting on orders.
+ * Credit pays the overdue part first, then the rest of the debt.
+ */
+export function clientDebtAfterOrderCredit(
+  debtBase: number,
+  creditBase: number,
+  overdueBase = 0,
+): { debt: number; overdue: number } {
+  const debtRaw = finite(debtBase);
+  const credit = Math.max(0, finite(creditBase));
+  const overdueRaw = Math.min(Math.max(0, finite(overdueBase)), Math.max(0, debtRaw));
+  const debt = Math.max(0, money(debtRaw - credit));
+  const overdue = Math.min(debt, Math.max(0, money(overdueRaw - credit)));
+  return { debt, overdue };
+}
+
+/** Take order overpayment off the oldest overdue invoices first. */
+export function applyCreditToOverdueOrders<T extends { days: number; amount: number }>(
+  orders: T[],
+  creditBase: number,
+): T[] {
+  let left = Math.max(0, finite(creditBase));
+  const ranked = [...orders].sort((a, b) => b.days - a.days);
+  const out: T[] = [];
+  for (const order of ranked) {
+    if (!(order.amount > 0)) continue;
+    if (left <= 0.0000001) {
+      out.push(order);
+      continue;
+    }
+    const cut = Math.min(order.amount, left);
+    left = money(left - cut);
+    const amount = money(order.amount - cut);
+    if (amount > 0.009) out.push({ ...order, amount });
+  }
+  return out;
 }
 
 function num(value: MoneyLike): number {
@@ -116,15 +159,16 @@ export function aggregateClientFinance(
   const gross = money(grossDebt);
   const credit = money(orderCredit);
   const balance = money(clientBalance);
+  const position = clientDebtAfterOrderCredit(gross, credit, money(overdue));
 
   return {
     currency,
     revenue: money(revenue),
     grossDebt: gross,
-    overdue: money(overdue),
+    overdue: position.overdue,
     orderCredit: credit,
     clientBalance: balance,
-    netDebt: money(Math.max(0, gross - credit - balance)),
+    netDebt: money(Math.max(0, position.debt - balance)),
     ordersWithDebtCount,
     bitrixDebt: money(bitrixDebt),
   };

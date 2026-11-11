@@ -49,30 +49,25 @@ export function paymentAmountInOrderCurrency(
 }
 
 /**
- * Dollar snapshot stored on the payment.
- * UAH paid onto a USD order is divided once by that order's exchange rate
- * (hryvnia per 1 USD). Returns null when that rate is missing — the raw
- * hryvnia must not be stored as dollars and must not use the settings rate.
- * USD is already dollars. Any other pair keeps the settings-rate snapshot.
+ * Dollar snapshot stored on the payment at the rate in effect when it is recorded.
+ * UAH and EUR use the settings rate from that moment. The order's own exchange
+ * rate stays on the invoice, so a later payment can leave a real FX difference.
+ * Returns null when that payment rate is missing — the raw hryvnia must not be
+ * stored as dollars. USD is already dollars.
  */
 export function fixedAmountUsd(input: {
   amount: number;
   paymentCurrency: string | null | undefined;
-  orderCurrency: string | null | undefined;
-  exchangeRate?: number | null;
   rates?: ExchangeRates;
 }): number | null {
   const amount = Number(input.amount);
   if (!Number.isFinite(amount)) return 0;
   const pay = normalizeCurrencyCode(input.paymentCurrency);
-  const orderCur = normalizeCurrencyCode(input.orderCurrency);
-  const rate = Number(input.exchangeRate);
-  if (pay === "UAH" && orderCur === "USD") {
-    if (!(rate > 1)) return null;
-    return roundMoney(amount / rate);
-  }
   if (pay === "USD") return roundMoney(amount);
   if (!input.rates) return null;
+  const perUnit =
+    pay === "UAH" ? Number(input.rates.UAH_TO_USD) : pay === "EUR" ? Number(input.rates.EUR_TO_USD) : 0;
+  if (!(perUnit > 0)) return null;
   return roundMoney(toUsd(amount, pay, input.rates));
 }
 

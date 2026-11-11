@@ -760,13 +760,11 @@ export class PaymentMatchingService {
       const amountUsd = fixedAmountUsd({
         amount,
         paymentCurrency: bankTx.currency,
-        orderCurrency: order.currency,
-        exchangeRate: order.exchangeRate != null ? Number(order.exchangeRate) : null,
         rates,
       });
       if (amountUsd == null) {
         this.logger.warn(
-          `Skip bank allocation ${bankTransactionId} → ${orderId}: no order exchange rate to convert ${bankTx.currency} into USD`,
+          `Skip bank allocation ${bankTransactionId} → ${orderId}: no exchange rate to convert ${bankTx.currency} into USD`,
         );
         return false;
       }

@@ -4,7 +4,26 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.245**.)_
+_(планируемые изменения после **0.2.246**.)_
+
+## [0.2.246] — 2026-11-11
+
+### Summary
+
+Патч **0.2.246**: гривня в оплаті фіксується за курсом CRM на момент платежу (різниця з курсом замовлення лишається як FX); дебіторка неттить overpayment; словник характеристик каталогу + settings UI.
+
+### Changed
+
+- `fixedAmountUsd`: UAH/EUR → USD за settings rate на момент запису (не `order.exchangeRate`), щоб лишався FX variance.
+- Client finance / receivables: `clientDebtAfterOrderCredit` + credit на найстаріші overdue; full-debt pay link мінус overpayment.
+- Dictionaries: read для authenticated; seed `product_characteristics`; Settings → Catalog characteristics editor.
+- Catalog panel бере labels зі словника.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.246`**.
+- **Нових міграцій немає** (seed словника на старті backend).
+- **Не використовувати `0.2.230`** і **`0.2.199`–`0.2.202`**.
 
 ## [0.2.245] — 2026-11-10
 

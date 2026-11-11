@@ -25,6 +25,7 @@ import {
   Database,
   Upload,
   BadgeDollarSign,
+  Tags,
 } from "lucide-react";
 import { strings } from "@/locales";
 
@@ -96,6 +97,13 @@ export function allCards(): CardDescriptor[] {
       leadAccess: true,
     },
     { href: "/settings/store", icon: ShoppingBag, ...t.store, group: "integrations" },
+    {
+      href: "/settings/catalog/characteristics",
+      icon: Tags,
+      ...t.productCharacteristics,
+      group: "salesProcesses",
+      adminOnly: true,
+    },
     { href: "/settings/health", icon: Activity, ...t.health, group: "system", adminOnly: true },
     { href: "/settings/metadata", icon: Database, ...t.metadata, group: "advanced", adminOnly: true, accent: true },
     { href: "/settings/data-import", icon: Upload, ...t.dataImport, group: "advanced", adminOnly: true },

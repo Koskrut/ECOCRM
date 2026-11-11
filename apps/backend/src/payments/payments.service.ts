@@ -60,7 +60,7 @@ function moneyOrNull(value: unknown): number | null {
 }
 
 /**
- * Dollar written onto a payment. UAH on a USD order uses that order's rate once.
+ * Dollar written onto a payment at the settings rate in effect right now.
  * Cash rejects a hryvnia invoice amount posted with currency USD.
  */
 function amountUsdForDebt(
@@ -88,19 +88,17 @@ function amountUsdForDebt(
     })
   ) {
     throw new BadRequestException(
-      "Amount looks like hryvnia entered as USD. Record it as UAH so the dollar is calculated once as amount / order exchange rate",
+      "Amount looks like hryvnia entered as USD. Record it as UAH so the dollar is fixed once at the rate on the payment date",
     );
   }
   const amountUsd = fixedAmountUsd({
     amount,
     paymentCurrency,
-    orderCurrency: order?.currency,
-    exchangeRate,
     rates,
   });
   if (amountUsd == null) {
     throw new BadRequestException(
-      "Order exchange rate is required to convert UAH. The dollar is amount / order exchange rate, not the payment amount",
+      "Exchange rate is required to convert this payment. The dollar is fixed once at the rate on the payment date, not taken from the raw amount",
     );
   }
   return amountUsd;
@@ -858,7 +856,7 @@ export class PaymentsService {
         })
       ) {
         throw new BadRequestException(
-          "Amount looks like hryvnia entered as USD. Record it as UAH so the dollar is calculated once as amount / order exchange rate",
+          "Amount looks like hryvnia entered as USD. Record it as UAH so the dollar is fixed once at the rate on the payment date",
         );
       }
     }

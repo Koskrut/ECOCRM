@@ -1,4 +1,7 @@
-/** Ukrainian labels for workbook `attribute_code` keys (CRM catalog). */
+/** System dictionary in Settings → Довідники (source of truth when seeded). */
+export const PRODUCT_CHARACTERISTICS_DICTIONARY_KEY = "product.characteristics";
+
+/** Ukrainian labels for workbook `attribute_code` keys (CRM catalog fallback). */
 export const PRODUCT_SPEC_LABELS_UK: Record<string, string> = {
   category_name: "Категорія",
   subcategory_name: "Підкатегорія",
@@ -63,10 +66,13 @@ export const PRODUCT_SPEC_ORDER: string[] = [
   "review_note",
 ];
 
-export function orderedSpecEntries(spec: Record<string, unknown>): [string, unknown][] {
+export function orderedSpecEntries(
+  spec: Record<string, unknown>,
+  order: readonly string[] = PRODUCT_SPEC_ORDER,
+): [string, unknown][] {
   const seen = new Set<string>();
   const out: [string, unknown][] = [];
-  for (const k of PRODUCT_SPEC_ORDER) {
+  for (const k of order) {
     if (Object.prototype.hasOwnProperty.call(spec, k)) {
       out.push([k, spec[k]]);
       seen.add(k);

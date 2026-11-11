@@ -1,11 +1,14 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import type { ProductCatalogItem } from "@/lib/api";
 import { productsApi } from "@/lib/api";
+import { apiHttp } from "@/lib/api/client";
 import {
   formatSpecValue,
   orderedSpecEntries,
+  PRODUCT_CHARACTERISTICS_DICTIONARY_KEY,
   PRODUCT_SPEC_LABELS_UK,
   PRODUCT_SPEC_ORDER,
 } from "@/lib/product-spec-labels";
@@ -25,9 +28,20 @@ const NUMBER_SPEC_KEYS = new Set([
 
 const INTEGER_SPEC_KEYS = new Set(["packaging_qty"]);
 
-const ADDABLE_SPEC_CODES = PRODUCT_SPEC_ORDER.filter((code) => !INTERNAL_SPEC_KEYS.has(code));
-
 const CUSTOM_CODE_RE = /^[a-z][a-z0-9_]*$/;
+
+type SpecDictItem = {
+  key: string;
+  label: string;
+  sortOrder: number;
+  isActive?: boolean;
+  metadata?: { internal?: boolean } | null;
+};
+
+function isInternalItem(item: SpecDictItem): boolean {
+  if (INTERNAL_SPEC_KEYS.has(item.key)) return true;
+  return Boolean(item.metadata && typeof item.metadata === "object" && item.metadata.internal);
+}
 
 function asRecord(raw: ProductCatalogItem["characteristics"]): Record<string, unknown> {
   if (raw && typeof raw === "object" && !Array.isArray(raw)) {
@@ -40,10 +54,7 @@ function cloneDraft(raw: ProductCatalogItem["characteristics"]): Record<string, 
   return asRecord(raw);
 }
 
-function draftEquals(
-  a: Record<string, unknown>,
-  b: Record<string, unknown>,
-): boolean {
+function draftEquals(a: Record<string, unknown>, b: Record<string, unknown>): boolean {
   const keysA = Object.keys(a).sort();
   const keysB = Object.keys(b).sort();
   if (keysA.length !== keysB.length) return false;
@@ -84,9 +95,11 @@ function buildPayload(draft: Record<string, unknown>): Record<string, unknown> |
   return Object.keys(out).length > 0 ? out : null;
 }
 
-/** Keys present in the draft (including empty strings just added for editing). */
-function editableEntries(draft: Record<string, unknown>): [string, unknown][] {
-  return orderedSpecEntries(draft).filter(([, v]) => v !== null && v !== undefined);
+function editableEntries(
+  draft: Record<string, unknown>,
+  order: readonly string[],
+): [string, unknown][] {
+  return orderedSpecEntries(draft, order).filter(([, v]) => v !== null && v !== undefined);
 }
 
 export function ProductCharacteristicsPanel({
@@ -106,6 +119,54 @@ export function ProductCharacteristicsPanel({
   const [customCode, setCustomCode] = useState("");
   const [customValue, setCustomValue] = useState("");
   const [addError, setAddError] = useState<string | null>(null);
+  const [dictItems, setDictItems] = useState<SpecDictItem[] | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void apiHttp
+      .get<{ dictionary: { items?: SpecDictItem[] } }>(
+        `/dictionaries/${PRODUCT_CHARACTERISTICS_DICTIONARY_KEY}`,
+      )
+      .then((r) => {
+        if (cancelled) return;
+        const items = (r.data?.dictionary?.items ?? []).filter((i) => i.isActive !== false);
+        setDictItems(items);
+      })
+      .catch(() => {
+        if (!cancelled) setDictItems(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const labels = useMemo(() => {
+    const map: Record<string, string> = { ...PRODUCT_SPEC_LABELS_UK };
+    if (dictItems) {
+      for (const item of dictItems) {
+        map[item.key] = item.label;
+      }
+    }
+    return map;
+  }, [dictItems]);
+
+  const specOrder = useMemo(() => {
+    if (dictItems && dictItems.length > 0) {
+      return [...dictItems]
+        .sort((a, b) => a.sortOrder - b.sortOrder || a.key.localeCompare(b.key))
+        .map((i) => i.key);
+    }
+    return PRODUCT_SPEC_ORDER;
+  }, [dictItems]);
+
+  const addableCodes = useMemo(() => {
+    if (dictItems && dictItems.length > 0) {
+      return dictItems.filter((i) => !isInternalItem(i)).map((i) => i.key);
+    }
+    return PRODUCT_SPEC_ORDER.filter((code) => !INTERNAL_SPEC_KEYS.has(code));
+  }, [dictItems]);
+
+  const labelOf = (code: string) => labels[code] ?? code;
 
   useEffect(() => {
     setDraft(cloneDraft(product.characteristics));
@@ -119,8 +180,8 @@ export function ProductCharacteristicsPanel({
 
   const baseline = useMemo(() => cloneDraft(product.characteristics), [product.characteristics]);
   const dirty = !draftEquals(draft, baseline);
-  const entries = editableEntries(draft);
-  const availableCodes = ADDABLE_SPEC_CODES.filter((code) => !(code in draft));
+  const entries = editableEntries(draft, specOrder);
+  const availableCodes = addableCodes.filter((code) => !(code in draft));
 
   const setValue = (code: string, value: unknown) => {
     setDraft((prev) => ({ ...prev, [code]: value }));
@@ -213,9 +274,7 @@ export function ProductCharacteristicsPanel({
                 key={code}
                 className="flex flex-col gap-0.5 border-b border-zinc-200/70 py-2 last:border-0 sm:flex-row sm:items-baseline sm:gap-3"
               >
-                <dt className="shrink-0 text-xs text-zinc-500 sm:w-[42%]">
-                  {PRODUCT_SPEC_LABELS_UK[code] ?? code}
-                </dt>
+                <dt className="shrink-0 text-xs text-zinc-500 sm:w-[42%]">{labelOf(code)}</dt>
                 <dd className="text-sm font-medium text-zinc-900">{formatSpecValue(val)}</dd>
               </div>
             ))}
@@ -247,7 +306,7 @@ export function ProductCharacteristicsPanel({
                   htmlFor={`spec-${product.id}-${code}`}
                   className="text-xs font-medium text-zinc-600"
                 >
-                  {PRODUCT_SPEC_LABELS_UK[code] ?? code}
+                  {labelOf(code)}
                   {INTERNAL_SPEC_KEYS.has(code) ? (
                     <span className="ml-1 font-normal text-zinc-400">(службове)</span>
                   ) : null}
@@ -257,7 +316,7 @@ export function ProductCharacteristicsPanel({
                   onClick={() => removeKey(code)}
                   className="shrink-0 rounded p-1 text-zinc-400 hover:bg-red-50 hover:text-red-600"
                   title="Прибрати"
-                  aria-label={`Прибрати ${PRODUCT_SPEC_LABELS_UK[code] ?? code}`}
+                  aria-label={`Прибрати ${labelOf(code)}`}
                 >
                   <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path
@@ -321,7 +380,7 @@ export function ProductCharacteristicsPanel({
                 <option value="">— оберіть —</option>
                 {availableCodes.map((code) => (
                   <option key={code} value={code}>
-                    {PRODUCT_SPEC_LABELS_UK[code] ?? code}
+                    {labelOf(code)}
                   </option>
                 ))}
               </select>
@@ -336,9 +395,20 @@ export function ProductCharacteristicsPanel({
             </button>
           </div>
 
+          <p className="text-xs text-zinc-500">
+            Новий код з підписом:{" "}
+            <Link
+              href="/settings/catalog/characteristics"
+              className="underline hover:text-zinc-800"
+            >
+              Налаштування → Характеристики товару
+            </Link>
+            . Нижче — разово, без підпису в довіднику.
+          </p>
+
           <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
             <label className="flex min-w-0 flex-1 flex-col gap-1">
-              <span className="text-xs text-zinc-600">Свій код</span>
+              <span className="text-xs text-zinc-600">Свій код (разово)</span>
               <input
                 value={customCode}
                 onChange={(e) => setCustomCode(e.target.value)}

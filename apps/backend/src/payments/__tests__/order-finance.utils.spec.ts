@@ -163,28 +163,22 @@ describe("paymentAmountInOrderCurrency", () => {
 describe("fixedAmountUsd", () => {
   const settingsRate = { UAH_TO_USD: 1 / 47, EUR_TO_USD: 1.1, baseCurrency: "USD" as const };
 
-  it("divides hryvnia by the order rate once, not by the settings rate", () => {
+  it("converts hryvnia once at the settings rate from the payment moment", () => {
     assert.equal(
       fixedAmountUsd({
         amount: 40040,
         paymentCurrency: "UAH",
-        orderCurrency: "USD",
-        exchangeRate: 45,
         rates: settingsRate,
       }),
-      889.78,
+      roundMoney(40040 / 47),
     );
-    assert.notEqual(roundMoney(40040 / 47), 889.78);
   });
 
-  it("refuses to store raw hryvnia as dollars when the order rate is missing", () => {
+  it("does not turn raw hryvnia into dollars when the payment rate is missing", () => {
     assert.equal(
       fixedAmountUsd({
         amount: 40040,
         paymentCurrency: "UAH",
-        orderCurrency: "USD",
-        exchangeRate: null,
-        rates: settingsRate,
       }),
       null,
     );

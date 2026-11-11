@@ -324,7 +324,7 @@ describe("PaymentsService.createCash order exchange rate", () => {
     return { svc, paymentCreate };
   }
 
-  it("records hryvnia once as amount / order exchange rate", async () => {
+  it("records hryvnia once at the settings rate from the payment moment", async () => {
     const { svc, paymentCreate } = serviceWith(usdOrder());
     await svc.createCash(
       {
@@ -339,7 +339,7 @@ describe("PaymentsService.createCash order exchange rate", () => {
     const data = paymentCreate.calls[0][0].data;
     assert.equal(data.currency, "UAH");
     assert.equal(data.amount, 40040);
-    assert.equal(data.amountUsd, 889.78);
+    assert.equal(data.amountUsd, 851.91);
   });
 
   it("rejects 40040 hryvnia posted as USD", async () => {
@@ -360,22 +360,18 @@ describe("PaymentsService.createCash order exchange rate", () => {
     assert.equal(paymentCreate.calls.length, 0);
   });
 
-  it("rejects UAH cash when the order has no exchange rate", async () => {
+  it("converts UAH cash at the payment rate when the order rate is missing", async () => {
     const { svc, paymentCreate } = serviceWith(usdOrder({ exchangeRate: null }));
-    await assert.rejects(
-      () =>
-        svc.createCash(
-          {
-            orderId: "o1",
-            amount: 4500,
-            currency: "UAH",
-            paidAt: paidAt.toISOString(),
-          },
-          manager(),
-        ),
-      /exchange rate is required/,
+    await svc.createCash(
+      {
+        orderId: "o1",
+        amount: 4700,
+        currency: "UAH",
+        paidAt: paidAt.toISOString(),
+      },
+      manager(),
     );
-    assert.equal(paymentCreate.calls.length, 0);
+    assert.equal(paymentCreate.calls[0][0].data.amountUsd, 100);
   });
 
   it("keeps a real USD cash amount as dollars", async () => {

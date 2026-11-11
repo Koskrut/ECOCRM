@@ -199,7 +199,7 @@ describe("PaymentsService.allocateSplit", () => {
     );
   });
 
-  it("writes amountUsd from the order rate, not the settings rate", async () => {
+  it("writes amountUsd from the settings rate at payment time", async () => {
     const txId = "tx1";
     const paymentCreate = mockFn(async () => ({ id: "p-new" }));
     const tx = {
@@ -254,13 +254,13 @@ describe("PaymentsService.allocateSplit", () => {
 
     assert.deepEqual(
       paymentCreate.calls.map((c) => c[0].data.amountUsd),
-      [60, 36],
+      [57.45, 38.3],
     );
   });
 });
 
 describe("PaymentsService.allocate order exchange rate", () => {
-  it("stores UAH at the order rate in amountUsd", async () => {
+  it("stores UAH at the settings rate from the payment moment", async () => {
     const txId = "tx1";
     const orderId = "o1";
     const paymentCreate = mockFn(async () => ({ id: "p-new" }));
@@ -306,7 +306,7 @@ describe("PaymentsService.allocate order exchange rate", () => {
     (svc as any).listByOrderId = mockFn(async () => []);
 
     await svc.allocate({ transactionId: txId, orderId }, admin());
-    assert.equal(paymentCreate.calls[0][0].data.amountUsd, 889.78);
+    assert.equal(paymentCreate.calls[0][0].data.amountUsd, 851.91);
     assert.equal(paymentCreate.calls[0][0].data.amount, 40040);
     assert.equal(paymentCreate.calls[0][0].data.currency, "UAH");
   });
