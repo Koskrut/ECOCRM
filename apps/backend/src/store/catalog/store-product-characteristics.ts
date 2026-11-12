@@ -1,5 +1,10 @@
-/** Keys from the Excel workflow that must not appear on the public storefront. */
-const INTERNAL_SPEC_KEYS = new Set(["fill_status", "review_note", "source_fragment"]);
+/** Keys that must not appear on the public storefront product card. */
+const INTERNAL_SPEC_KEYS = new Set([
+  "fill_status",
+  "review_note",
+  "source_fragment",
+  "code_1c",
+]);
 
 /**
  * Strip internal bookkeeping fields and empty values for the store API.

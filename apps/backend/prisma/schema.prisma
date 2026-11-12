@@ -93,6 +93,7 @@ enum NotificationType {
   PLANNING_PACKING_DUE
   CLIENT_ORDER_ACCEPTED
   RISK_ALERT
+  DAILY_WORK_REPORT
 }
 
 enum AuditAction {

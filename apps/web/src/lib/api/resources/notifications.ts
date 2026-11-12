@@ -15,7 +15,8 @@ export type NotificationType =
   | "PLANNING_FACTORY_DUE"
   | "PLANNING_PACKING_DUE"
   | "CLIENT_ORDER_ACCEPTED"
-  | "RISK_ALERT";
+  | "RISK_ALERT"
+  | "DAILY_WORK_REPORT";
 
 export type UserNotification = {
   id: string;

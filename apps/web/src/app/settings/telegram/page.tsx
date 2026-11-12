@@ -7,6 +7,13 @@ import { getUserFriendlyApiError } from "@/lib/api/errors";
 import { SettingsPageShell } from "@/components/SettingsPageShell";
 import { ErrorPanel, PageLoading } from "@/components/feedback";
 
+type TelegramDailyWorkReportConfig = {
+  enabled: boolean;
+  time: string;
+  weekdaysOnly: boolean;
+  teamSummary: boolean;
+};
+
 type TelegramConfig = {
   botTokenMasked?: string;
   webhookSecretMasked?: string;
@@ -16,6 +23,14 @@ type TelegramConfig = {
   aiEnabled?: boolean;
   aiOpenaiApiKeyMasked?: string;
   aiModel?: string;
+  dailyWorkReport?: TelegramDailyWorkReportConfig;
+};
+
+const DEFAULT_DAILY_WORK_REPORT: TelegramDailyWorkReportConfig = {
+  enabled: true,
+  time: "18:00",
+  weekdaysOnly: true,
+  teamSummary: true,
 };
 
 type WebhookInfo = {
@@ -40,6 +55,8 @@ export default function TelegramSettingsPage() {
   const [aiEnabled, setAiEnabled] = useState(false);
   const [aiOpenaiApiKey, setAiOpenaiApiKey] = useState("");
   const [aiModel, setAiModel] = useState("");
+  const [dailyWorkReport, setDailyWorkReport] =
+    useState<TelegramDailyWorkReportConfig>(DEFAULT_DAILY_WORK_REPORT);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -74,6 +91,10 @@ export default function TelegramSettingsPage() {
       setAiEnabled(data.aiEnabled ?? false);
       setAiOpenaiApiKey("");
       setAiModel(data.aiModel ?? "");
+      setDailyWorkReport({
+        ...DEFAULT_DAILY_WORK_REPORT,
+        ...(data.dailyWorkReport ?? {}),
+      });
       setPublicStoreUrl(
         typeof storeRes.data?.publicStoreUrl === "string" ? storeRes.data.publicStoreUrl : "",
       );
@@ -92,12 +113,18 @@ export default function TelegramSettingsPage() {
     setSaving(true);
     setError(null);
     try {
-      const body: Record<string, string | boolean> = {
+      const body: Record<string, unknown> = {
         publicBaseUrl: publicBaseUrl.trim(),
         leadCompanyId: leadCompanyId.trim(),
         staffGroupChatId: staffGroupChatId.trim(),
         aiEnabled,
         aiModel: aiModel.trim(),
+        dailyWorkReport: {
+          enabled: dailyWorkReport.enabled,
+          time: dailyWorkReport.time.trim() || DEFAULT_DAILY_WORK_REPORT.time,
+          weekdaysOnly: dailyWorkReport.weekdaysOnly,
+          teamSummary: dailyWorkReport.teamSummary,
+        },
       };
       if (botToken !== "") body.botToken = botToken;
       if (webhookSecret !== "") body.webhookSecret = webhookSecret;
@@ -118,6 +145,10 @@ export default function TelegramSettingsPage() {
       setStaffGroupChatId(data.staffGroupChatId ?? staffGroupChatId);
       setAiEnabled(data.aiEnabled ?? aiEnabled);
       setAiModel(data.aiModel ?? aiModel);
+      setDailyWorkReport({
+        ...DEFAULT_DAILY_WORK_REPORT,
+        ...(data.dailyWorkReport ?? dailyWorkReport),
+      });
       setPublicStoreUrl(
         typeof storeRes.data?.publicStoreUrl === "string"
           ? storeRes.data.publicStoreUrl
@@ -184,7 +215,7 @@ export default function TelegramSettingsPage() {
     <SettingsPageShell
       maxWidthClassName="max-w-xl"
       title="Telegram"
-      subtitle="Бот, webhook, компанія для лідів і каталог Mini App. Усе налаштовується тут у CRM."
+      subtitle="Бот, webhook, щоденний підсумок менеджерам, компанія для лідів і каталог Mini App."
     >
       {error ? <ErrorPanel variant="inline" message={error} /> : null}
       {loading ? (
@@ -349,6 +380,82 @@ export default function TelegramSettingsPage() {
                 placeholder="https://shop.example.com"
                 className="mt-2 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
               />
+            </div>
+          </div>
+
+          <div className="mt-6 border-t border-zinc-200 pt-5">
+            <h3 className="text-sm font-semibold text-zinc-800">
+              Щоденний підсумок роботи менеджерам
+            </h3>
+            <p className="mt-0.5 text-xs text-zinc-500">
+              Особисте повідомлення в Telegram менеджерам і керівникам з привʼязаним чатом
+              (Europe/Kyiv). Керівникам — ще блок команди. Особисте вимкнення каналу — у{" "}
+              <Link
+                href="/settings/notifications"
+                className="text-zinc-800 underline underline-offset-2"
+              >
+                Налаштування → Сповіщення
+              </Link>
+              .
+            </p>
+            <div className="mt-3 space-y-3">
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={dailyWorkReport.enabled}
+                  onChange={(e) =>
+                    setDailyWorkReport((prev) => ({ ...prev, enabled: e.target.checked }))
+                  }
+                  className="rounded border-zinc-300"
+                />
+                <span className="text-sm text-zinc-700">Увімкнути щоденний підсумок</span>
+              </label>
+              <div>
+                <label className="block text-sm font-medium text-zinc-700">
+                  Час відправки (Київ)
+                </label>
+                <input
+                  type="time"
+                  value={dailyWorkReport.time}
+                  onChange={(e) =>
+                    setDailyWorkReport((prev) => ({
+                      ...prev,
+                      time: e.target.value || DEFAULT_DAILY_WORK_REPORT.time,
+                    }))
+                  }
+                  className="mt-1 w-40 rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900"
+                />
+              </div>
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={dailyWorkReport.weekdaysOnly}
+                  onChange={(e) =>
+                    setDailyWorkReport((prev) => ({
+                      ...prev,
+                      weekdaysOnly: e.target.checked,
+                    }))
+                  }
+                  className="rounded border-zinc-300"
+                />
+                <span className="text-sm text-zinc-700">Лише будні (пн–пт)</span>
+              </label>
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={dailyWorkReport.teamSummary}
+                  onChange={(e) =>
+                    setDailyWorkReport((prev) => ({
+                      ...prev,
+                      teamSummary: e.target.checked,
+                    }))
+                  }
+                  className="rounded border-zinc-300"
+                />
+                <span className="text-sm text-zinc-700">
+                  Керівникам додавати підсумок команди
+                </span>
+              </label>
             </div>
           </div>
 

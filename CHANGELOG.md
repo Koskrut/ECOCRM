@@ -4,7 +4,25 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.247**.)_
+_(планируемые изменения после **0.2.248**.)_
+
+## [0.2.248] — 2026-11-12
+
+### Summary
+
+Патч **0.2.248**: щоденний Telegram-дайджест роботи менеджера/ліда (час у settings); `DAILY_WORK_REPORT` не дзеркалиться в staff group; store ховає `code_1c` з характеристик.
+
+### Changed
+
+- Manager daily work report cron + `NotificationsType.DAILY_WORK_REPORT`; налаштування в Telegram settings (`enabled` / `time` / `weekdaysOnly` / `teamSummary`).
+- Delivery: personal DM only for digests (skip staff group).
+- Store catalog: strip `code_1c` from public characteristics.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.248`**.
+- **Міграція:** `20261112180000_daily_work_report_notification` (`DAILY_WORK_REPORT` enum).
+- **Не використовувати `0.2.230`** і **`0.2.199`–`0.2.202`**.
 
 ## [0.2.247] — 2026-11-11
 

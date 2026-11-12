@@ -235,6 +235,43 @@ describe("NotificationsDeliveryService mobile opt-out", () => {
     assert.ok(chats.includes("-100999"));
   });
 
+  it("does not mirror DAILY_WORK_REPORT into the staff group", async () => {
+    const telegramCalls: AnyRec[] = [];
+    const prisma = {
+      userNotificationPreference: { findUnique: async () => null },
+      userPushDevice: { findMany: async () => [] },
+      user: {
+        findUnique: async () => ({ telegramChatId: "tg-mgr-1", fullName: "Mgr" }),
+      },
+      userNotification: { findFirst: async () => ({ id: "n-digest" }) },
+    };
+    const telegram = baseTelegram(telegramCalls, "-100999");
+    const svc = new NotificationsDeliveryService(
+      prisma as never,
+      { send: async () => [] } as never,
+      { getStoreConfig: async () => ({}) } as never,
+      telegram as never,
+    );
+
+    await svc.afterCreate({
+      id: "n-digest",
+      userId: "u1",
+      type: "DAILY_WORK_REPORT",
+      title: "Підсумок 12.11",
+      body: "Дзвінки: 0 вих. / 0 вх.",
+      entityType: "CALENDAR_DAY",
+      entityId: "2026-11-12",
+      meta: null,
+      readAt: null,
+      createdAt: new Date(),
+    } as never);
+
+    assert.deepEqual(
+      telegramCalls.map((c) => c.chatId),
+      ["tg-mgr-1"],
+    );
+  });
+
   it("does not mirror staff-group-origin alerts back into the staff group", async () => {
     const telegramCalls: AnyRec[] = [];
     const prisma = {

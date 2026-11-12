@@ -5,7 +5,10 @@ import type { TelegramInlineButton } from "../integrations/telegram/telegram.typ
 import { PrismaService } from "../prisma/prisma.service";
 import { SettingsService } from "../settings/settings.service";
 import { ExpoPushService } from "./expo-push.service";
-import { defaultChannelsForType } from "./notification-type-defaults";
+import {
+  defaultChannelsForType,
+  TELEGRAM_STAFF_GROUP_SKIP_TYPES,
+} from "./notification-type-defaults";
 
 const MOBILE_PUSH_CHANNEL_ID = "crm-alerts-v2";
 
@@ -68,6 +71,7 @@ export class NotificationsDeliveryService {
    * originated from that same group to avoid loops.
    */
   private async deliverTelegramStaffGroup(notification: UserNotification): Promise<void> {
+    if (TELEGRAM_STAFF_GROUP_SKIP_TYPES.has(notification.type)) return;
     if (!defaultChannelsForType(notification.type).telegram) return;
 
     const staffGroupChatId = await this.telegram.getStaffGroupChatId();

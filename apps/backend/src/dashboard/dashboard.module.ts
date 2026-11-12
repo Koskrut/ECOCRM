@@ -3,6 +3,7 @@ import { AnalyticsModule } from "../analytics/analytics.module";
 import { ContactsModule } from "../contacts/contacts.module";
 import { DailyAgendaModule } from "../daily-agenda/daily-agenda.module";
 import { DayPlanModule } from "../day-plan/day-plan.module";
+import { NotificationsModule } from "../notifications/notifications.module";
 import { PrismaModule } from "../prisma/prisma.module";
 import { SettingsModule } from "../settings/settings.module";
 import { EmployeeDailyActivityService } from "./employee-daily-activity.service";
@@ -10,6 +11,8 @@ import { DashboardController } from "./dashboard.controller";
 import { DashboardService } from "./dashboard.service";
 import { DashboardV2Service } from "./dashboard-v2.service";
 import { ManagerDashboardService } from "./manager-dashboard.service";
+import { ManagerDailyReportCron } from "./manager-daily-report.cron";
+import { ManagerDailyReportService } from "./manager-daily-report.service";
 
 @Module({
   imports: [
@@ -19,6 +22,7 @@ import { ManagerDashboardService } from "./manager-dashboard.service";
     DailyAgendaModule,
     AnalyticsModule,
     ContactsModule,
+    NotificationsModule,
   ],
   controllers: [DashboardController],
   providers: [
@@ -26,6 +30,8 @@ import { ManagerDashboardService } from "./manager-dashboard.service";
     DashboardV2Service,
     ManagerDashboardService,
     EmployeeDailyActivityService,
+    ManagerDailyReportService,
+    ManagerDailyReportCron,
   ],
 })
 export class DashboardModule {}

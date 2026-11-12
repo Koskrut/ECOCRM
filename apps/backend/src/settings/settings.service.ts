@@ -109,6 +109,17 @@ export type GoogleSheetConfig = {
 
 const GOOGLE_SHEET_KEY = "google_sheet";
 
+export type TelegramDailyWorkReportConfig = {
+  /** Master switch for the 18:00-style manager digest. */
+  enabled: boolean;
+  /** Local Europe/Kyiv wall time `HH:mm`. */
+  time: string;
+  /** When true, skip Saturday and Sunday. */
+  weekdaysOnly: boolean;
+  /** When true, LEAD digests include the vertical team block. */
+  teamSummary: boolean;
+};
+
 export type TelegramConfig = {
   botToken?: string;
   webhookSecret?: string;
@@ -123,7 +134,45 @@ export type TelegramConfig = {
   aiEnabled?: boolean;
   aiOpenaiApiKey?: string;
   aiModel?: string;
+  /** End-of-day manager work report via Telegram DM. */
+  dailyWorkReport?: TelegramDailyWorkReportConfig;
 };
+
+export const DEFAULT_TELEGRAM_DAILY_WORK_REPORT: TelegramDailyWorkReportConfig = {
+  enabled: true,
+  time: "18:00",
+  weekdaysOnly: true,
+  teamSummary: true,
+};
+
+const DAILY_WORK_REPORT_TIME_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
+
+export function normalizeTelegramDailyWorkReportConfig(
+  raw: unknown,
+): TelegramDailyWorkReportConfig {
+  const src =
+    raw && typeof raw === "object" && !Array.isArray(raw)
+      ? (raw as Record<string, unknown>)
+      : {};
+  const timeRaw = typeof src.time === "string" ? src.time.trim() : "";
+  return {
+    enabled:
+      typeof src.enabled === "boolean"
+        ? src.enabled
+        : DEFAULT_TELEGRAM_DAILY_WORK_REPORT.enabled,
+    time: DAILY_WORK_REPORT_TIME_RE.test(timeRaw)
+      ? timeRaw
+      : DEFAULT_TELEGRAM_DAILY_WORK_REPORT.time,
+    weekdaysOnly:
+      typeof src.weekdaysOnly === "boolean"
+        ? src.weekdaysOnly
+        : DEFAULT_TELEGRAM_DAILY_WORK_REPORT.weekdaysOnly,
+    teamSummary:
+      typeof src.teamSummary === "boolean"
+        ? src.teamSummary
+        : DEFAULT_TELEGRAM_DAILY_WORK_REPORT.teamSummary,
+  };
+}
 
 const TELEGRAM_KEY = "telegram_inbox";
 
@@ -955,7 +1004,9 @@ export class SettingsService {
       where: { id: TELEGRAM_KEY },
     });
     if (!row || !row.value || typeof row.value !== "object") {
-      return {};
+      return {
+        dailyWorkReport: { ...DEFAULT_TELEGRAM_DAILY_WORK_REPORT },
+      };
     }
     const v = row.value as Record<string, unknown>;
     const botToken = typeof v.botToken === "string" ? v.botToken : undefined;
@@ -974,7 +1025,13 @@ export class SettingsService {
       aiEnabled: typeof v.aiEnabled === "boolean" ? v.aiEnabled : undefined,
       aiOpenaiApiKeyMasked: maskToken(aiOpenaiApiKey),
       aiModel: typeof v.aiModel === "string" ? v.aiModel : undefined,
+      dailyWorkReport: normalizeTelegramDailyWorkReportConfig(v.dailyWorkReport),
     };
+  }
+
+  async getTelegramDailyWorkReportConfig(): Promise<TelegramDailyWorkReportConfig> {
+    const cfg = await this.getTelegramConfig();
+    return cfg.dailyWorkReport ?? { ...DEFAULT_TELEGRAM_DAILY_WORK_REPORT };
   }
 
   async setTelegramConfig(
@@ -1017,6 +1074,14 @@ export class SettingsService {
           : (current.aiOpenaiApiKey as string) ?? undefined,
       aiModel:
         typeof config.aiModel === "string" ? config.aiModel : (current.aiModel as string) ?? undefined,
+      dailyWorkReport: normalizeTelegramDailyWorkReportConfig(
+        config.dailyWorkReport !== undefined
+          ? {
+              ...normalizeTelegramDailyWorkReportConfig(current.dailyWorkReport),
+              ...config.dailyWorkReport,
+            }
+          : current.dailyWorkReport,
+      ),
     };
     if (config.botToken === "") next.botToken = undefined;
     if (config.webhookSecret === "") next.webhookSecret = undefined;
@@ -1045,6 +1110,7 @@ export class SettingsService {
       aiEnabled: next.aiEnabled as boolean | undefined,
       aiOpenaiApiKeyMasked: maskToken(next.aiOpenaiApiKey as string | undefined),
       aiModel: next.aiModel as string | undefined,
+      dailyWorkReport: next.dailyWorkReport as TelegramDailyWorkReportConfig,
     };
   }
 

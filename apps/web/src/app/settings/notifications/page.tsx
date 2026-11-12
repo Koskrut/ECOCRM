@@ -26,6 +26,7 @@ const NOTIFICATION_TYPE_LABELS: Record<NotificationType, string> = {
   PLANNING_PACKING_DUE: "Пакування: термін циклу",
   CLIENT_ORDER_ACCEPTED: "Замовлення оформлено на вас",
   RISK_ALERT: "Ризик-сповіщення",
+  DAILY_WORK_REPORT: "Щоденний підсумок роботи",
 };
 
 const ALL_TYPES: NotificationType[] = [
@@ -44,6 +45,7 @@ const ALL_TYPES: NotificationType[] = [
   "PLANNING_FACTORY_DUE",
   "PLANNING_PACKING_DUE",
   "RISK_ALERT",
+  "DAILY_WORK_REPORT",
 ];
 
 function prefFor(

@@ -16,6 +16,7 @@ export const ALL_NOTIFICATION_TYPES: NotificationType[] = [
   "PLANNING_PACKING_DUE",
   "CLIENT_ORDER_ACCEPTED",
   "RISK_ALERT",
+  "DAILY_WORK_REPORT",
 ];
 
 const DEFAULT_MOBILE_TYPES = new Set<NotificationType>([
@@ -31,6 +32,12 @@ const DEFAULT_TELEGRAM_TYPES = new Set<NotificationType>([
   "TELEGRAM_MESSAGE",
   "NEW_LEAD",
   "CLIENT_ORDER_ACCEPTED",
+  "DAILY_WORK_REPORT",
+]);
+
+/** Personal digests must not mirror into the shared staff group. */
+export const TELEGRAM_STAFF_GROUP_SKIP_TYPES = new Set<NotificationType>([
+  "DAILY_WORK_REPORT",
 ]);
 
 export function defaultChannelsForType(type: NotificationType): {
