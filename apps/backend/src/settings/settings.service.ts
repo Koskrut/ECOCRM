@@ -222,6 +222,7 @@ export type StoreConfig = {
 const STORE_CONFIG_KEY = "store_config";
 const ORG_CHART_STRUCTURE_KEY = "org_chart_structure";
 const ORDER_LINE_DISCOUNTS_KEY = "order_line_discounts";
+const ORDER_SERIAL_NUMBERS_KEY = "order_serial_numbers";
 
 export const ORDER_PROMO_SETTING_IDS = ["BUY_100_GET_30", "QTY_25_MINUS_2"] as const;
 export type OrderPromoSettingId = (typeof ORDER_PROMO_SETTING_IDS)[number];
@@ -235,6 +236,11 @@ export type OrderLineDiscountsConfig = {
 const DEFAULT_ORDER_LINE_DISCOUNTS: OrderLineDiscountsConfig = {
   percents: [5, 10, 15, 20, 25, 30],
   promos: [...ORDER_PROMO_SETTING_IDS],
+};
+
+export type OrderSerialNumbersConfig = {
+  /** When false, orders do not collect or require per-unit serial numbers. */
+  enabled: boolean;
 };
 
 export function normalizeOrderLineDiscountPercents(raw: unknown): number[] {
@@ -556,6 +562,28 @@ export class SettingsService {
     await this.prisma.systemSetting.upsert({
       where: { id: ORDER_LINE_DISCOUNTS_KEY },
       create: { id: ORDER_LINE_DISCOUNTS_KEY, value: next },
+      update: { value: next },
+    });
+    return next;
+  }
+
+  async getOrderSerialNumbers(): Promise<OrderSerialNumbersConfig> {
+    const row = await this.prisma.systemSetting.findUnique({
+      where: { id: ORDER_SERIAL_NUMBERS_KEY },
+    });
+    if (!row?.value || typeof row.value !== "object") return { enabled: false };
+    const v = row.value as Record<string, unknown>;
+    return { enabled: v.enabled === true };
+  }
+
+  async setOrderSerialNumbers(body: Partial<OrderSerialNumbersConfig>): Promise<OrderSerialNumbersConfig> {
+    const current = await this.getOrderSerialNumbers();
+    const next: OrderSerialNumbersConfig = {
+      enabled: typeof body.enabled === "boolean" ? body.enabled : current.enabled,
+    };
+    await this.prisma.systemSetting.upsert({
+      where: { id: ORDER_SERIAL_NUMBERS_KEY },
+      create: { id: ORDER_SERIAL_NUMBERS_KEY, value: next },
       update: { value: next },
     });
     return next;

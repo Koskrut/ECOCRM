@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Inject,
   Injectable,
@@ -96,6 +97,15 @@ import { kyivInstantRangeFromQuery } from "../crm-timezone";
 import { ModuleIds } from "../modules/module-ids";
 import { ModuleStateService } from "../modules/module-state.service";
 import { RiskPolicyService } from "../risk/risk-policy.service";
+import {
+  SerialNormalizeError,
+  enteringShipmentRequiresSerials,
+  normalizeSerial,
+  serialKey,
+  serialNormalizeMessage,
+  serialQtyGapMessage,
+  serialsEditableAtStage,
+} from "./order-item-serials";
 
 const ORDER_INCLUDE = {
   company: true,
@@ -103,7 +113,15 @@ const ORDER_INCLUDE = {
   contact: true,
   bankAccount: { select: { id: true, name: true } },
   warehouse: { select: { id: true, name: true } },
-  items: { include: { product: true } },
+  items: {
+    include: {
+      product: true,
+      serials: {
+        select: { id: true, serial: true },
+        orderBy: { createdAt: "asc" as const },
+      },
+    },
+  },
   ttns: { orderBy: { createdAt: "desc" as const } },
   shipments: {
     orderBy: { createdAt: "desc" as const },
@@ -746,16 +764,29 @@ export class OrdersService {
     const sortDir: Prisma.SortOrder = q?.sortDir === "asc" ? "asc" : "desc";
 
     const withRelations = q?.withCompanyClient === true;
-    const include: Prisma.OrderInclude = {
-      items: true,
+    const include = {
+      items: {
+        include: {
+          serials: {
+            select: { id: true, serial: true },
+            orderBy: { createdAt: "asc" as const },
+          },
+        },
+      },
       warehouse: { select: { id: true, name: true } },
       _count: { select: { ttns: true, shipments: true } },
+      ...(withRelations
+        ? {
+            company: true as const,
+            client: {
+              select: { id: true, firstName: true, lastName: true, externalCode: true },
+            },
+            contact: {
+              select: { id: true, firstName: true, lastName: true, externalCode: true },
+            },
+          }
+        : {}),
     };
-    if (withRelations) {
-      include.company = true;
-      include.client = { select: { id: true, firstName: true, lastName: true, externalCode: true } };
-      include.contact = { select: { id: true, firstName: true, lastName: true, externalCode: true } };
-    }
 
     const [fetchedItems, total] = await Promise.all([
       this.prisma.order.findMany({
@@ -905,6 +936,7 @@ export class OrdersService {
             productId: item.productId ?? null,
             productNameSnapshot: item.productNameSnapshot ?? null,
             qty: item.qty,
+            serials: item.serials.map((s) => ({ id: s.id, serial: s.serial })),
             product: item.productId
               ? (() => {
                   const p = productById.get(item.productId!);
@@ -1181,7 +1213,15 @@ export class OrdersService {
         company: true,
         client: true,
         contact: true,
-        items: { include: { product: true } },
+        items: {
+          include: {
+            product: true,
+            serials: {
+              select: { id: true, serial: true },
+              orderBy: { createdAt: "asc" as const },
+            },
+          },
+        },
         ttns: true,
       },
     });
@@ -1533,6 +1573,16 @@ export class OrdersService {
     const prevPrice = item.price;
     const nextQty = dto.qty != null ? Math.max(1, Math.trunc(dto.qty)) : item.qty;
     const nextPrice = dto.price != null ? dto.price : item.price;
+    if (dto.qty != null && nextQty < item.qty) {
+      const serialsOn = (await this.settings.getOrderSerialNumbers()).enabled;
+      if (serialsOn) {
+        const serialCount = await this.prisma.orderItemSerial.count({
+          where: { orderItemId: itemId },
+        });
+        const gap = serialQtyGapMessage(nextQty, serialCount);
+        if (gap) throw new BadRequestException(gap);
+      }
+    }
 
     let nextPromo: OrderPromoType | null;
     try {
@@ -1878,6 +1928,7 @@ export class OrdersService {
 
     const childStage: OrderStage = hasPicks ? "AWAITING_STOCK" : "NEW";
     const changedBy = actor?.id ?? "system";
+    await this.assertSplitKeepsSerials(plans);
 
     const childId = await this.prisma.$transaction(async (tx) => {
       const rows = await tx.$queryRaw<[{ assigned: number }]>`
@@ -2228,6 +2279,8 @@ export class OrdersService {
       });
     }
 
+    await this.assertSerialsReadyForStage(id, current.orderStage, toStage);
+
     if (toStage === "RETURN_IN_PROGRESS") {
       const openReturnsCount = await this.prisma.orderReturn.count({
         where: { orderId: id, status: { not: "CLOSED" } },
@@ -2520,6 +2573,161 @@ export class OrdersService {
     return this.mapToEntity(updated);
   }
 
+  async addItemSerial(orderId: string, itemId: string, rawSerial: unknown, actor?: AuthUser) {
+    const enabled = (await this.settings.getOrderSerialNumbers()).enabled;
+    if (!enabled) {
+      throw new BadRequestException("Облік серійних номерів вимкнено в налаштуваннях CRM.");
+    }
+
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      select: { id: true, ownerId: true, orderStage: true },
+    });
+    if (!order) throw new NotFoundException("Order not found");
+    if (actor) await this.assertOrderAccess(order, actor);
+    this.assertSerialsEditable(order.orderStage);
+
+    const item = await this.prisma.orderItem.findFirst({
+      where: { id: itemId, orderId },
+      select: { id: true, qty: true },
+    });
+    if (!item) throw new NotFoundException("Order item not found");
+
+    let serial: string;
+    try {
+      serial = normalizeSerial(rawSerial);
+    } catch (e) {
+      if (e instanceof SerialNormalizeError) {
+        throw new BadRequestException(serialNormalizeMessage(e.reason));
+      }
+      throw e;
+    }
+
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        const count = await tx.orderItemSerial.count({ where: { orderItemId: itemId } });
+        if (count >= item.qty) {
+          throw new BadRequestException(
+            `Для цієї позиції вже відскановано ${item.qty} серійних номерів.`,
+          );
+        }
+        const created = await tx.orderItemSerial.create({
+          data: {
+            orderItemId: itemId,
+            serial,
+            serialKey: serialKey(serial),
+            createdById: actor?.id ?? null,
+          },
+        });
+        const after = await tx.orderItemSerial.count({ where: { orderItemId: itemId } });
+        if (after > item.qty) {
+          await tx.orderItemSerial.delete({ where: { id: created.id } });
+          throw new BadRequestException(
+            `Для цієї позиції вже відскановано ${item.qty} серійних номерів.`,
+          );
+        }
+      });
+    } catch (e) {
+      if (e instanceof BadRequestException) throw e;
+      if (isUniqueConstraintError(e)) {
+        throw new ConflictException("Цей серійний номер уже записаний.");
+      }
+      throw e;
+    }
+
+    return this.listItemSerials(itemId);
+  }
+
+  async removeItemSerial(orderId: string, itemId: string, serialId: string, actor?: AuthUser) {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      select: { id: true, ownerId: true, orderStage: true },
+    });
+    if (!order) throw new NotFoundException("Order not found");
+    if (actor) await this.assertOrderAccess(order, actor);
+    this.assertSerialsEditable(order.orderStage);
+
+    const item = await this.prisma.orderItem.findFirst({
+      where: { id: itemId, orderId },
+      select: { id: true },
+    });
+    if (!item) throw new NotFoundException("Order item not found");
+
+    const existing = await this.prisma.orderItemSerial.findFirst({
+      where: { id: serialId, orderItemId: itemId },
+      select: { id: true },
+    });
+    if (!existing) throw new NotFoundException("Серійний номер не знайдено");
+
+    await this.prisma.orderItemSerial.delete({ where: { id: serialId } });
+    return this.listItemSerials(itemId);
+  }
+
+  private assertSerialsEditable(stage: OrderStage | null) {
+    if (serialsEditableAtStage(stage)) return;
+    throw new BadRequestException(
+      "Серійні номери можна змінювати лише до стадії «Готово до відправки».",
+    );
+  }
+
+  private async listItemSerials(itemId: string) {
+    const serials = await this.prisma.orderItemSerial.findMany({
+      where: { orderItemId: itemId },
+      select: { id: true, serial: true },
+      orderBy: { createdAt: "asc" },
+    });
+    return { orderItemId: itemId, serials };
+  }
+
+  private async assertSerialsReadyForStage(
+    orderId: string,
+    from: OrderStage | null,
+    to: OrderStage,
+  ) {
+    if (!enteringShipmentRequiresSerials(from, to)) return;
+    const enabled = (await this.settings.getOrderSerialNumbers()).enabled;
+    if (!enabled) return;
+
+    const items = await this.prisma.orderItem.findMany({
+      where: { orderId },
+      select: { qty: true, _count: { select: { serials: true } } },
+    });
+    const gaps = items.filter((it) => it._count.serials !== it.qty);
+    if (gaps.length === 0) return;
+    throw new BadRequestException(
+      `Не можна перевести замовлення далі: серійний номер потрібен на кожну штуку (${gaps.length} поз. не заповнені).`,
+    );
+  }
+
+  private async assertSplitKeepsSerials(
+    plans: Array<{ itemId: string; keepQty: number; moveQty: number }>,
+  ) {
+    const moving = plans.filter((p) => p.moveQty > 0);
+    if (moving.length === 0) return;
+    const enabled = (await this.settings.getOrderSerialNumbers()).enabled;
+    if (!enabled) return;
+
+    const counts = await this.prisma.orderItemSerial.groupBy({
+      by: ["orderItemId"],
+      where: { orderItemId: { in: moving.map((p) => p.itemId) } },
+      _count: { _all: true },
+    });
+    const byId = new Map(counts.map((c) => [c.orderItemId, c._count._all]));
+    for (const plan of moving) {
+      const serialCount = byId.get(plan.itemId) ?? 0;
+      if (plan.keepQty === 0 && serialCount > 0) {
+        throw new BadRequestException(
+          "Приберіть серійні номери з позиції, яку знімаєте зі збірки.",
+        );
+      }
+      if (plan.keepQty > 0 && serialCount !== plan.keepQty) {
+        throw new BadRequestException(
+          `Відскануйте серійний номер на кожну зібрану штуку (потрібно ${plan.keepQty}, є ${serialCount}).`,
+        );
+      }
+    }
+  }
+
   private mapToEntity(o: Record<string, unknown>) {
     const items = (o.items as Array<Record<string, unknown>> | undefined) ?? [];
     const paidAmount = Number(o.paidAmount) ?? 0;
@@ -2602,9 +2810,24 @@ export class OrdersService {
         promoType: it.promoType ?? null,
         lineTotal: it.lineTotal,
         product: it.product ?? null,
+        serials: Array.isArray(it.serials)
+          ? (it.serials as Array<{ id: string; serial: string }>).map((s) => ({
+              id: s.id,
+              serial: s.serial,
+            }))
+          : [],
       })),
       ttns: o.ttns ?? [],
       shipments: o.shipments ?? [],
     };
   }
+}
+
+function isUniqueConstraintError(e: unknown): boolean {
+  return (
+    typeof e === "object" &&
+    e !== null &&
+    "code" in e &&
+    (e as { code?: string }).code === "P2002"
+  );
 }

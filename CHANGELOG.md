@@ -4,7 +4,25 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.248**.)_
+_(планируемые изменения после **0.2.249**.)_
+
+## [0.2.249] — 2026-11-16
+
+### Summary
+
+Патч **0.2.249**: серійні номери на позиціях замовлення (скан на складі / в картці); обов’язкові при вході в READY_TO_SHIP+; settings toggle.
+
+### Changed
+
+- `OrderItemSerial` + API add/remove; unique `serialKey` (case-insensitive).
+- Stage guard: entering ship stages requires qty == serial count; qty cannot drop below scanned serials.
+- Web: OrderModal + warehouse queue serial UI; Settings → Order serials.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.249`**.
+- **Міграція:** `20261113160000_order_item_serials` (`OrderItemSerial`).
+- **Не використовувати `0.2.230`** і **`0.2.199`–`0.2.202`**.
 
 ## [0.2.248] — 2026-11-12
 

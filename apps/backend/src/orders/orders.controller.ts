@@ -38,6 +38,7 @@ import type { UpdateOrderStageDto } from "./dto/update-order-stage.dto";
 import type { UpdateOrderStatusDto } from "./dto/update-order-status.dto";
 import { SendOrderDocumentTelegramDto } from "./dto/send-order-document-telegram.dto";
 import { SplitByStockDto } from "./dto/split-by-stock.dto";
+import { AddOrderItemSerialDto } from "./dto/add-order-item-serial.dto";
 
 @Controller("orders")
 export class OrdersController {
@@ -360,6 +361,27 @@ export class OrdersController {
       merged.promoType = promoRaw === null ? null : String(promoRaw);
     }
     return this.orders.updateItem(id, itemId, merged, req.user);
+  }
+
+  @Post(":id/items/:itemId/serials")
+  addItemSerial(
+    @Param("id") id: string,
+    @Param("itemId") itemId: string,
+    @Body() body: AddOrderItemSerialDto,
+    @Req() req: Request & { user?: AuthUser; body?: { serial?: unknown } },
+  ) {
+    const serial = body?.serial ?? req.body?.serial;
+    return this.orders.addItemSerial(id, itemId, serial, req.user);
+  }
+
+  @Delete(":id/items/:itemId/serials/:serialId")
+  removeItemSerial(
+    @Param("id") id: string,
+    @Param("itemId") itemId: string,
+    @Param("serialId") serialId: string,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.orders.removeItemSerial(id, itemId, serialId, req.user);
   }
 
   @Delete(":id/items/:itemId")

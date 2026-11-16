@@ -2076,11 +2076,28 @@ model OrderItem {
   ttnItems      OrderTtnItem[]
   shipmentItems ShipmentItem[]
   returnItems   OrderReturnItem[]
+  serials       OrderItemSerial[]
 
   @@unique([orderId, productId], name: "orderId_productId")
   @@unique([legacySource, legacyId])
   @@index([orderId])
   @@index([productId])
+}
+
+/// One physical unit on an order line. qty 5 → five rows.
+model OrderItemSerial {
+  id          String   @id @default(cuid())
+  orderItemId String
+  /// Trimmed value as scanned.
+  serial      String
+  /// Uppercase key so the same code cannot be stored twice with different case.
+  serialKey   String   @unique
+  createdAt   DateTime @default(now())
+  createdById String?
+
+  orderItem OrderItem @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+
+  @@index([orderItemId])
 }
 
 model OrderStatusHistory {

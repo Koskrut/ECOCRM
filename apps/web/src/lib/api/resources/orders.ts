@@ -42,7 +42,13 @@ export type FulfillmentQueueOrder = {
     qty: number;
     productNameSnapshot?: string | null;
     product?: { sku: string; name: string } | null;
+    serials?: OrderItemSerial[];
   }>;
+};
+
+export type OrderItemSerial = {
+  id: string;
+  serial: string;
 };
 
 export type FulfillmentQueueResponse = {
@@ -119,6 +125,23 @@ export const ordersApi = {
 
   updateItem(orderId: string, itemId: string, payload: { qty?: number; price?: number; discountPercent?: number }) {
     return apiHttp.patch(`/orders/${orderId}/items/${itemId}`, payload);
+  },
+
+  addItemSerial(orderId: string, itemId: string, serial: string) {
+    return apiHttp
+      .post<{ orderItemId: string; serials: OrderItemSerial[] }>(
+        `/orders/${orderId}/items/${itemId}/serials`,
+        { serial },
+      )
+      .then((r) => r.data.serials);
+  },
+
+  removeItemSerial(orderId: string, itemId: string, serialId: string) {
+    return apiHttp
+      .delete<{ orderItemId: string; serials: OrderItemSerial[] }>(
+        `/orders/${orderId}/items/${itemId}/serials/${serialId}`,
+      )
+      .then((r) => r.data.serials);
   },
 
   splitByStock(orderId: string, payload?: { picks: SplitByStockPick[] }) {

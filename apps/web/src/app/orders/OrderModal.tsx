@@ -34,7 +34,8 @@ import {
   promoEligibilityQty,
   type OrderPromoType,
 } from "@/lib/order-line-total";
-import type { FxVarianceSnapshot } from "@/lib/api/resources/orders";
+import type { FxVarianceSnapshot, OrderItemSerial } from "@/lib/api/resources/orders";
+import { OrderItemSerials, orderSerialsEditable } from "@/components/orders/OrderItemSerials";
 import { FxWriteOffModal } from "@/app/payments/FxWriteOffModal";
 import { riskApi, type RiskGateResult } from "@/lib/api/resources/risk";
 import { strings } from "@/locales";
@@ -127,6 +128,7 @@ type OrderItem = {
   discountPercent?: number;
   promoType?: string | null;
   lineTotal: number;
+  serials?: Array<{ id: string; serial: string }>;
 };
 
 type ReturnStatus =
@@ -853,6 +855,7 @@ export function OrderModal({
   const [discountAmount, setDiscountAmount] = useState<number>(0);
   const [showDiscounts, setShowDiscounts] = useState(false);
   const [discountOptions, setDiscountOptions] = useState<number[]>([5, 10, 15, 20, 25, 30]);
+  const [serialsEnabled, setSerialsEnabled] = useState(false);
   const [promoOptions, setPromoOptions] = useState<OrderPromoType[]>([
     ORDER_PROMO_BUY_100_GET_30,
     ORDER_PROMO_QTY_25_MINUS_2,
@@ -1660,6 +1663,10 @@ export function OrderModal({
       .catch(() => {
         /* keep defaults */
       });
+    apiHttp
+      .get<{ enabled?: boolean }>("/settings/order-serials")
+      .then((res) => setSerialsEnabled(res.data?.enabled === true))
+      .catch(() => setSerialsEnabled(false));
   }, [isCreate, orderId]);
 
   const handleEscape = useCallback(() => {
@@ -3129,11 +3136,11 @@ export function OrderModal({
                         </button>
                       );
 
+                      const serialsEditable =
+                        serialsEnabled && orderSerialsEditable(order.orderStage);
                       return (
-                        <li
-                          key={it.id}
-                          className="flex flex-col gap-2 py-3 first:pt-1 last:pb-1 sm:flex-row sm:items-center sm:gap-3"
-                        >
+                        <li key={it.id} className="py-3 first:pt-1 last:pb-1">
+                          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
                           <div className="flex min-w-0 flex-1 items-start gap-2">
                             <span className="w-5 shrink-0 pt-0.5 text-xs tabular-nums text-zinc-400">
                               {index + 1}.
@@ -3418,6 +3425,30 @@ export function OrderModal({
                             </div>
                             {deleteBtn("hidden sm:inline-flex")}
                           </div>
+                          </div>
+                          {serialsEnabled ? (
+                            <div className="pl-7">
+                              <OrderItemSerials
+                                orderId={order.id}
+                                itemId={it.id}
+                                requiredQty={it.qty}
+                                serials={it.serials ?? []}
+                                editable={serialsEditable}
+                                onChange={(serials) => {
+                                  setOrder((prev) =>
+                                    prev
+                                      ? {
+                                          ...prev,
+                                          items: prev.items.map((row) =>
+                                            row.id === it.id ? { ...row, serials } : row,
+                                          ),
+                                        }
+                                      : prev,
+                                  );
+                                }}
+                              />
+                            </div>
+                          ) : null}
                         </li>
                       );
                     })

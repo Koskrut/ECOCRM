@@ -12,6 +12,7 @@ import type {
   MetaMessagingConfig,
   NovaPoshtaIntegrationConfig,
   OrderLineDiscountsConfig,
+  OrderSerialNumbersConfig,
   StoreConfig,
   TelegramConfig,
 } from "./settings.service";
@@ -48,6 +49,17 @@ export class SettingsController {
   @Roles(UserRole.ADMIN)
   setOrderLineDiscounts(@Body() body: Partial<OrderLineDiscountsConfig>) {
     return this.settings.setOrderLineDiscounts(body);
+  }
+
+  @Get("order-serials")
+  getOrderSerialNumbers() {
+    return this.settings.getOrderSerialNumbers();
+  }
+
+  @Patch("order-serials")
+  @Roles(UserRole.ADMIN)
+  setOrderSerialNumbers(@Body() body: Partial<OrderSerialNumbersConfig>) {
+    return this.settings.setOrderSerialNumbers(body);
   }
 
   @Get("meta-lead-ads")

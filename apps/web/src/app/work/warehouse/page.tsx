@@ -1,11 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { AlertTriangle, X } from "lucide-react";
 import { OrderModal } from "@/app/orders/OrderModal";
-import { ordersApi, type FulfillmentQueueOrder } from "@/lib/api/resources/orders";
+import { OrderItemSerials } from "@/components/orders/OrderItemSerials";
+import { getUserFriendlyApiError } from "@/lib/api/errors";
+import { ordersApi, type FulfillmentQueueOrder, type OrderItemSerial } from "@/lib/api/resources/orders";
 import { listWarehouses, type WarehouseItem } from "@/lib/api/resources/warehouses";
 import { apiHttp } from "@/lib/api/client";
 import { formatOrderAmount } from "@/lib/formatOrderAmount";
@@ -104,6 +106,12 @@ function WarehouseWorkPageContent() {
   const [missingByItemId, setMissingByItemId] = useState<Record<string, boolean>>({});
   const [userRole, setUserRole] = useState<string | null>(null);
   const [orderModalOpen, setOrderModalOpen] = useState(false);
+  const [serialsEnabled, setSerialsEnabled] = useState(false);
+  const [scanValue, setScanValue] = useState("");
+  const [scanError, setScanError] = useState<string | null>(null);
+  const [scanBusy, setScanBusy] = useState(false);
+  const [activeSerialItemId, setActiveSerialItemId] = useState<string | null>(null);
+  const scanInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     void listWarehouses()
@@ -182,6 +190,10 @@ function WarehouseWorkPageContent() {
       .get<{ user?: { role?: string } }>("/auth/me")
       .then((r) => setUserRole(r.data?.user?.role ?? null))
       .catch(() => setUserRole(null));
+    apiHttp
+      .get<{ enabled?: boolean }>("/settings/order-serials")
+      .then((r) => setSerialsEnabled(r.data?.enabled === true))
+      .catch(() => setSerialsEnabled(false));
   }, []);
 
   const pickOrder = useMemo(
@@ -190,20 +202,30 @@ function WarehouseWorkPageContent() {
   );
 
   useEffect(() => {
-    if (!pickOrder) {
+    if (!pickModalOrderId) {
       setFoundQtyDrafts({});
       setMissingByItemId({});
+      setScanValue("");
+      setScanError(null);
+      setActiveSerialItemId(null);
       return;
     }
+    const order = items.find((o) => o.id === pickModalOrderId);
+    if (!order) return;
     const drafts: Record<string, string> = {};
     const missing: Record<string, boolean> = {};
-    for (const it of pickOrder.items ?? []) {
+    for (const it of order.items ?? []) {
       drafts[it.id] = String(it.qty);
       missing[it.id] = false;
     }
     setFoundQtyDrafts(drafts);
     setMissingByItemId(missing);
-  }, [pickOrder]);
+    setScanValue("");
+    setScanError(null);
+    setActiveSerialItemId(null);
+    // Reset drafts only when another order is opened. Serial updates must not wipe found qty.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pickModalOrderId]);
 
   const pickShortage = useMemo(() => {
     if (!pickOrder?.items?.length) {
@@ -245,8 +267,83 @@ function WarehouseWorkPageContent() {
     scheduleModalClose(closePickModal);
   };
 
+  const foundQtyFor = (itemId: string, ordered: number) =>
+    missingByItemId[itemId] ? 0 : parseFoundQty(foundQtyDrafts[itemId], ordered);
+
+  const replaceItemSerials = (orderId: string, itemId: string, serials: OrderItemSerial[]) => {
+    setItems((prev) =>
+      prev.map((o) =>
+        o.id !== orderId
+          ? o
+          : {
+              ...o,
+              items: o.items?.map((it) => (it.id === itemId ? { ...it, serials } : it)),
+            },
+      ),
+    );
+  };
+
+  const submitScan = async (raw: string) => {
+    if (!pickOrder || !serialsEnabled) return;
+    const serial = raw.trim();
+    if (!serial || scanBusy) return;
+    const lines = pickOrder.items ?? [];
+    const target =
+      lines.find((it) => it.id === activeSerialItemId) ??
+      lines.find((it) => (it.serials?.length ?? 0) < foundQtyFor(it.id, it.qty));
+    if (!target) {
+      setScanError("Усі зібрані штуки вже мають серійний номер.");
+      return;
+    }
+    const need = foundQtyFor(target.id, target.qty);
+    if (need <= 0) {
+      setScanError("Для цієї позиції немає зібраних штук.");
+      return;
+    }
+    if ((target.serials?.length ?? 0) >= need) {
+      setScanError("Для цієї позиції вже відскановано всі номери. Оберіть іншу.");
+      return;
+    }
+    setScanBusy(true);
+    setScanError(null);
+    try {
+      const next = await ordersApi.addItemSerial(pickOrder.id, target.id, serial);
+      replaceItemSerials(pickOrder.id, target.id, next);
+      setScanValue("");
+      if (next.length >= need) {
+        const nextLine = lines.find(
+          (it) => it.id !== target.id && (it.serials?.length ?? 0) < foundQtyFor(it.id, it.qty),
+        );
+        setActiveSerialItemId(nextLine?.id ?? null);
+      } else {
+        setActiveSerialItemId(target.id);
+      }
+    } catch (e) {
+      setScanError(getUserFriendlyApiError(e, strings.orders.modal.serialSaveError));
+    } finally {
+      setScanBusy(false);
+      requestAnimationFrame(() => scanInputRef.current?.focus());
+    }
+  };
+
   const confirmPick = async () => {
     if (!pickOrder) return;
+
+    if (serialsEnabled) {
+      for (const it of pickOrder.items ?? []) {
+        const found = pickShortage.allMissing ? 0 : foundQtyFor(it.id, it.qty);
+        const have = it.serials?.length ?? 0;
+        if (have !== found) {
+          const name = it.product?.name ?? it.productNameSnapshot ?? it.product?.sku ?? "Позиція";
+          setErr(
+            found === 0 && have > 0
+              ? "Приберіть серійні номери з позиції, якої немає в збірці."
+              : strings.orders.modal.serialIncomplete(name, have, found),
+          );
+          return;
+        }
+      }
+    }
 
     setConfirming(true);
     setErr(null);
@@ -370,6 +467,15 @@ function WarehouseWorkPageContent() {
                     <div className="text-xs text-zinc-600">{clientLabel(o)}</div>
                     {managerLabel(o) ? (
                       <div className="text-xs text-zinc-500">Менеджер: {managerLabel(o)}</div>
+                    ) : null}
+                    {serialsEnabled && (o.items?.length ?? 0) > 0 ? (
+                      <div className="text-xs text-zinc-500">
+                        {strings.orders.modal.serialsTitle}:{" "}
+                        {strings.orders.modal.serialsProgress(
+                          (o.items ?? []).reduce((sum, it) => sum + (it.serials?.length ?? 0), 0),
+                          (o.items ?? []).reduce((sum, it) => sum + it.qty, 0),
+                        )}
+                      </div>
                     ) : null}
                     <div className="mt-1 flex flex-wrap items-center justify-between gap-2 text-xs">
                       <div className="flex flex-wrap gap-1">
@@ -507,8 +613,37 @@ function WarehouseWorkPageContent() {
 
               <h3 className="text-sm font-semibold text-zinc-800">Товари</h3>
               <p className="mt-1 text-xs text-zinc-500">
-                Вкажіть скільки знайшли (з замовленого) або відмітьте «Немає», потім підтвердіть збірку.
+                {serialsEnabled
+                  ? "Вкажіть скільки зібрали і відскануйте серійний номер на кожну штуку."
+                  : "Вкажіть скільки знайшли (з замовленого) або відмітьте «Немає», потім підтвердіть збірку."}
               </p>
+              {serialsEnabled ? (
+                <div className="mt-3">
+                  <label className="text-xs font-medium text-zinc-500" htmlFor="warehouse-serial-scan">
+                    {strings.orders.modal.serialScanPlaceholder}
+                  </label>
+                  <input
+                    id="warehouse-serial-scan"
+                    ref={scanInputRef}
+                    value={scanValue}
+                    autoFocus
+                    autoComplete="off"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    disabled={busy || scanBusy}
+                    placeholder={strings.orders.modal.serialScanPlaceholder}
+                    onChange={(e) => setScanValue(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key !== "Enter" && e.key !== "Tab") return;
+                      e.preventDefault();
+                      void submitScan(e.currentTarget.value);
+                    }}
+                    className="mt-1 w-full rounded-md border border-zinc-300 px-2 py-2 font-mono text-sm focus:border-zinc-900 focus:outline-none disabled:opacity-50"
+                  />
+                  <p className="mt-1 text-xs text-zinc-500">{strings.orders.modal.serialScanHint}</p>
+                  {scanError ? <p className="mt-1 text-xs text-red-600">{scanError}</p> : null}
+                </div>
+              ) : null}
               <ul className="mt-2 divide-y divide-zinc-100">
                 {(pickOrder.items ?? []).map((it) => {
                   const name = it.product?.name ?? it.productNameSnapshot ?? "—";
@@ -517,8 +652,18 @@ function WarehouseWorkPageContent() {
                     ? 0
                     : parseFoundQty(foundQtyDrafts[it.id], it.qty);
                   const hasLineShortage = foundQty < it.qty;
+                  const serialNeed = foundQty;
+                  const serialActive = activeSerialItemId === it.id;
                   return (
-                    <li key={it.id} className="py-2.5 text-sm">
+                    <li
+                      key={it.id}
+                      className={`py-2.5 text-sm ${serialsEnabled && serialActive ? "rounded-md bg-zinc-50 px-2" : ""}`}
+                      onClick={() => {
+                        if (!serialsEnabled) return;
+                        setActiveSerialItemId(it.id);
+                        scanInputRef.current?.focus();
+                      }}
+                    >
                       <div className="min-w-0">
                         {it.product?.sku ? (
                           <span className="font-medium text-zinc-800">{it.product.sku}</span>
@@ -526,7 +671,10 @@ function WarehouseWorkPageContent() {
                         {it.product?.sku ? " · " : ""}
                         <span className="text-zinc-700">{name}</span>
                       </div>
-                      <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                      <div
+                        className="mt-2 flex flex-wrap items-center justify-between gap-2"
+                        onClick={(e) => e.stopPropagation()}
+                      >
                         <div
                           className={[
                             "inline-flex items-center rounded border text-sm tabular-nums",
@@ -583,6 +731,17 @@ function WarehouseWorkPageContent() {
                             ? "Не знайдено на складі"
                             : `Не вистачає ${it.qty - foundQty}`}
                         </p>
+                      ) : null}
+                      {serialsEnabled ? (
+                        <OrderItemSerials
+                          orderId={pickOrder.id}
+                          itemId={it.id}
+                          requiredQty={serialNeed}
+                          serials={it.serials ?? []}
+                          editable
+                          showInput={false}
+                          onChange={(serials) => replaceItemSerials(pickOrder.id, it.id, serials)}
+                        />
                       ) : null}
                     </li>
                   );
