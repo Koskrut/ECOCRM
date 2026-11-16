@@ -4,7 +4,23 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.249**.)_
+_(планируемые изменения после **0.2.250**.)_
+
+## [0.2.250] — 2026-11-16
+
+### Summary
+
+Hotfix **0.2.250**: Docker/backend `tsc` з `NODE_OPTIONS=8192` (CI OOM на **0.2.249**). Функціонал серійних номерів — той самий, що в **0.2.249**.
+
+### Changed
+
+- `apps/backend/Dockerfile` + `package.json` build: `--max-old-space-size=8192`.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.250`**.
+- **Міграція:** та сама `20261113160000_order_item_serials` (`OrderItemSerial`).
+- **Не використовувати `0.2.249`** (backend image не опубліковано — OOM). **Не використовувати `0.2.230`** і **`0.2.199`–`0.2.202`**.
 
 ## [0.2.249] — 2026-11-16
 
@@ -20,9 +36,8 @@ _(планируемые изменения после **0.2.249**.)_
 
 ### Upgrade notes
 
-- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.249`**.
-- **Міграція:** `20261113160000_order_item_serials` (`OrderItemSerial`).
-- **Не використовувати `0.2.230`** і **`0.2.199`–`0.2.202`**.
+- **Не опубліковано** (backend CI OOM). Використовуйте **`0.2.250`**.
+- **Міграція:** `20261113160000_order_item_serials` (`OrderItemSerial`) — у **0.2.250**.
 
 ## [0.2.248] — 2026-11-12
 

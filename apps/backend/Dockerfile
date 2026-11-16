@@ -18,6 +18,8 @@ COPY apps/backend/tsconfig.json ./apps/backend/
 COPY apps/backend/src ./apps/backend/src
 COPY apps/backend/assets ./apps/backend/assets
 COPY scripts/generate-version-file.sh ./scripts/generate-version-file.sh
+# CI runners OOM on default Node heap while typechecking the full Nest graph.
+ENV NODE_OPTIONS="--max-old-space-size=8192"
 RUN npm run build --workspace=backend
 
 FROM node:20-alpine AS runner
