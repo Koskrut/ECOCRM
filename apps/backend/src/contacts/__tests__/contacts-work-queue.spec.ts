@@ -162,6 +162,68 @@ test("getWorkQueue reasons filter uses OR and intersects with preset", async () 
   assert.equal(debtOnlyPresetMiss.items.length, 0);
 });
 
+test("getWorkQueue sortBy=daysSinceLastOrder puts longest without order first", async () => {
+  const row = {
+    firstName: "Ivan",
+    lastName: "Petrov",
+    phone: "+380501112233",
+    email: null,
+    ownerId: "mgr-1",
+    status: "Клієнт",
+    clientStage: "DORMANT_CLIENT",
+    nextActionType: "CALL",
+    nextActionAt: new Date("2026-09-10T10:00:00Z"),
+    marketingCallOptOut: false,
+    createdAt: new Date("2026-01-01T10:00:00Z"),
+    owner: { fullName: "Manager" },
+    company: { name: "Clinic A" },
+  };
+  const { service } = buildService({
+    findMany: async () => [
+      { ...row, id: "short", lastName: "Short" },
+      { ...row, id: "long", lastName: "Long" },
+      { ...row, id: "mid", lastName: "Mid" },
+    ],
+    scoreReasons: ["DORMANT"],
+    signals: new Map([
+      [
+        "short",
+        {
+          lastContactAt: new Date("2026-08-01T10:00:00Z"),
+          daysSinceLastOrder: 90,
+          overdueFollowupTasks: 0,
+        },
+      ],
+      [
+        "long",
+        {
+          lastContactAt: new Date("2026-07-01T10:00:00Z"),
+          daysSinceLastOrder: 200,
+          overdueFollowupTasks: 0,
+        },
+      ],
+      [
+        "mid",
+        {
+          lastContactAt: new Date("2026-07-15T10:00:00Z"),
+          daysSinceLastOrder: 140,
+          overdueFollowupTasks: 0,
+        },
+      ],
+    ]),
+  });
+
+  // Expand signal stubs so score path still has required numeric fields.
+  const result = await service.getWorkQueue(
+    { reason: ["DORMANT"], sortBy: "daysSinceLastOrder", pageSize: 10 },
+    manager(),
+  );
+  assert.deepEqual(
+    result.items.map((item) => item.contact.id),
+    ["long", "mid", "short"],
+  );
+});
+
 test("getWorkQueue horizon=today keeps only contacts still due today", async () => {
   const now = new Date();
   const postponed = new Date(now.getTime() + 36 * 60 * 60 * 1000);

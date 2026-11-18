@@ -13,6 +13,10 @@ export const CONTACT_WORK_QUEUE_PRESETS = [
 
 export type ContactWorkQueuePreset = (typeof CONTACT_WORK_QUEUE_PRESETS)[number];
 
+export const CONTACT_WORK_QUEUE_SORTS = ["priority", "daysSinceLastOrder"] as const;
+
+export type ContactWorkQueueSort = (typeof CONTACT_WORK_QUEUE_SORTS)[number];
+
 export const CONTACT_PRIORITY_REASON_CODES = [
   "OVERDUE_FOLLOWUP",
   "NEW_LEAD_NO_FIRST_CONTACT",
@@ -56,6 +60,11 @@ export class GetWorkQueueDto {
   @IsOptional()
   @IsIn(CONTACT_WORK_QUEUE_PRESETS)
   preset?: ContactWorkQueuePreset;
+
+  /** Default: priority score. `daysSinceLastOrder` for longest-without-order first. */
+  @IsOptional()
+  @IsIn(CONTACT_WORK_QUEUE_SORTS)
+  sortBy?: ContactWorkQueueSort;
 
   /** `today`: due through end of today, skip contacts already touched today. */
   @IsOptional()

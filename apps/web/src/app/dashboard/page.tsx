@@ -299,7 +299,17 @@ function DashboardPageContent() {
 
       <DashboardTabBar tab={tab} onTabChange={setTab} />
 
-      <p className="text-sm text-zinc-500">{lt.tabHints[tab]}</p>
+      <p className="text-sm text-zinc-500">
+        {tab === "today"
+          ? userRole === "ADMIN"
+            ? lt.tabHints.todayAdmin
+            : lt.tabHints.todayLead
+          : tab === "team"
+            ? lt.tabHints.team
+            : tab === "sales"
+              ? lt.tabHints.sales
+              : lt.tabHints.activity}
+      </p>
 
       {managerId && tab === "team" ? (
         <p className="rounded-lg border border-sky-200 bg-sky-50/60 px-3 py-2 text-sm text-sky-900">
@@ -307,16 +317,46 @@ function DashboardPageContent() {
         </p>
       ) : null}
 
-      {tab === "today" && data ? (
+      {tab === "today" && data && userRole === "LEAD" ? (
         <div className="space-y-8">
-          <DashboardHeroKpis sales={data.sales} currency={currency} compareEnabled={compare} />
+          <DashboardTeamPulse
+            date={activityDate}
+            currency={data.teamPulse.currency}
+            rows={data.teamPulse.rows}
+            showTeamDayPlan={showTeamDayPlan}
+            onDateChange={(d) => {
+              setActivityDate(d);
+            }}
+          />
           <DashboardAttentionPanel
             attention={data.attention}
             currency={currency}
-            showAnalyticsLink={isLeadership}
+            showAnalyticsLink
             ownerId={managerId || undefined}
           />
-          <DashboardRiskPanel />
+          <p className="text-sm text-zinc-500">
+            <button
+              type="button"
+              onClick={() => setTab("team")}
+              className="font-medium text-sky-700 hover:text-sky-900 hover:underline"
+            >
+              {lt.todayLeadQualityLink}
+            </button>
+          </p>
+          <DashboardMyWorkSection
+            myWork={data.myWork}
+            userRole={userRole}
+            morningOpen={morningOpen}
+            onMorningOpenChange={onMorningOpenChange}
+            onAgendaUpdated={handleAgendaUpdated}
+            onTaskCompleted={handleTaskCompleted}
+          />
+        </div>
+      ) : null}
+
+      {tab === "today" && data && userRole === "ADMIN" ? (
+        <div className="space-y-8">
+          <DashboardHeroKpis sales={data.sales} currency={currency} compareEnabled={compare} />
           {financeEnabled ? (
             <DashboardReceivablesPanel
               data={receivables}
@@ -324,16 +364,7 @@ function DashboardPageContent() {
               currency={currency}
             />
           ) : null}
-          {isLeadership ? (
-            <DashboardMyWorkSection
-              myWork={data.myWork}
-              userRole={userRole}
-              morningOpen={morningOpen}
-              onMorningOpenChange={onMorningOpenChange}
-              onAgendaUpdated={handleAgendaUpdated}
-              onTaskCompleted={handleTaskCompleted}
-            />
-          ) : null}
+          <DashboardRiskPanel />
           <DashboardQualityFlags quality={data.quality} />
         </div>
       ) : null}

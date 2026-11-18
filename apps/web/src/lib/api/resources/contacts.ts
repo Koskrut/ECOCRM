@@ -104,11 +104,14 @@ export type ContactExclusionCode = "DO_NOT_DISTURB" | "NON_TARGET_STATUS" | "DUP
 
 export type ContactWorkQueuePreset = (typeof CONTACT_WORK_QUEUE_PRESETS)[number];
 
+export type ContactWorkQueueSort = "priority" | "daysSinceLastOrder";
+
 export type ContactWorkQueueFilters = {
   page?: number;
   pageSize?: number;
   ownerId?: string;
   preset?: ContactWorkQueuePreset;
+  sortBy?: ContactWorkQueueSort;
   horizon?: "today";
   reasons?: ContactPriorityReasonCode[];
   onlyOverdue?: boolean;
@@ -310,6 +313,7 @@ export const contactsApi = {
     if (params?.pageSize != null) searchParams.set("pageSize", String(params.pageSize));
     if (params?.ownerId) searchParams.set("ownerId", params.ownerId);
     if (params?.preset) searchParams.set("preset", params.preset);
+    if (params?.sortBy) searchParams.set("sortBy", params.sortBy);
     if (params?.horizon) searchParams.set("horizon", params.horizon);
     for (const reason of params?.reasons ?? []) searchParams.append("reason", reason);
     if (params?.onlyOverdue != null) searchParams.set("onlyOverdue", String(params.onlyOverdue));

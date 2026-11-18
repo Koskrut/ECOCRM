@@ -4,7 +4,26 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.251**.)_
+_(планируемые изменения после **0.2.252**.)_
+
+## [0.2.252] — 2026-11-18
+
+### Summary
+
+Патч **0.2.252**: manager dashboard — dormant clients, ready-stock orders, sales pulse; LEAD «сьогодні» = team pulse + my work; work queue `sortBy=daysSinceLastOrder`; web BFF для unlink Telegram.
+
+### Changed
+
+- ManagerDashboard: DormantClients / ReadyStockOrders / SalesPulse panels.
+- Leadership today tab: ADMIN vs LEAD layouts.
+- Contacts work queue: sort by days since last order.
+- Web API proxies for contact/conversation telegram-accounts.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.252`**.
+- **Нових міграцій немає.**
+- **Не використовувати `0.2.249`** (OOM). **Не використовувати `0.2.230`** і **`0.2.199`–`0.2.202`**.
 
 ## [0.2.251] — 2026-11-18
 

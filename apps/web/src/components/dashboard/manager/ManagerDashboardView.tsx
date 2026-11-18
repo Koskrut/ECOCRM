@@ -5,6 +5,7 @@ import { DateTime } from "luxon";
 import { CreateLeadModal } from "@/app/leads/CreateLeadModal";
 import { LeadModal } from "@/app/leads/LeadModal";
 import { ContactModal } from "@/app/contacts/ContactModal";
+import { OrderModal } from "@/app/orders/OrderModal";
 import { DayPlanWidget } from "@/components/day-plan/DayPlanWidget";
 import { DailyAgendaWidget } from "@/components/daily-agenda/DailyAgendaWidget";
 import { MorningPlanModal } from "@/components/daily-agenda/MorningPlanModal";
@@ -17,6 +18,7 @@ import {
 import { contactsApi, type ContactWorkQueueItem } from "@/lib/api/resources/contacts";
 import { dayPlanApi, type DayPlanPayload } from "@/lib/api/resources/day-plan";
 import { dailyAgendaApi, type DailyAgendaPayload } from "@/lib/api/resources/daily-agenda";
+import { apiHttp } from "@/lib/api/client";
 import { tasksApi } from "@/lib/api/resources/tasks";
 import {
   DashboardReceivablesPanel,
@@ -29,6 +31,7 @@ import type { BaseCurrency } from "@/lib/base-currency";
 import { CRM_LOCALE, CRM_TIME_ZONE, todayYmdInKyiv } from "@/lib/crmDatetime";
 import { strings } from "@/locales";
 import { ManagerDashboardHeader } from "./ManagerDashboardHeader";
+import { ManagerDormantClientsPanel } from "./ManagerDormantClientsPanel";
 import { ManagerInboxPanel } from "./ManagerInboxPanel";
 import { ManagerWorkQueueTeaser } from "./ManagerWorkQueueTeaser";
 import { ManagerScorecard } from "./ManagerScorecard";
@@ -38,6 +41,11 @@ import { ManagerMonthPulse } from "./ManagerMonthPulse";
 import { ManagerGrowthLevers } from "./ManagerGrowthLevers";
 import { ManagerPerformanceTrend } from "./ManagerPerformanceTrend";
 import { ManagerPotentialPanel } from "./ManagerPotentialPanel";
+import {
+  ManagerReadyStockOrdersPanel,
+  type ManagerReadyStockOrder,
+} from "./ManagerReadyStockOrdersPanel";
+import { ManagerSalesPulse, type ManagerDebtSummary } from "./ManagerSalesPulse";
 
 type Props = {
   userName: string | null;
@@ -45,6 +53,9 @@ type Props = {
 };
 
 const QUEUE_SIZE = 7;
+const DORMANT_LIST_SIZE = 10;
+const READY_STOCK_LIST_SIZE = 10;
+const READY_STOCK_FETCH_SIZE = 100;
 
 function formatPeriodLabel(period: { from: string; to: string }): string {
   const from = DateTime.fromISO(period.from, { setZone: true })
@@ -65,12 +76,18 @@ export function ManagerDashboardView({ userName, userRole }: Props) {
   const [inbox, setInbox] = useState<ManagerInboxResponse | null>(null);
   const [scorecard, setScorecard] = useState<ManagerScorecardResponse | null>(null);
   const [queue, setQueue] = useState<ContactWorkQueueItem[]>([]);
+  const [dormantItems, setDormantItems] = useState<ContactWorkQueueItem[]>([]);
+  const [dormantTotal, setDormantTotal] = useState(0);
+  const [readyStockItems, setReadyStockItems] = useState<ManagerReadyStockOrder[]>([]);
+  const [readyStockTotal, setReadyStockTotal] = useState(0);
   const [dayPlan, setDayPlan] = useState<DayPlanPayload | null>(null);
   const [agenda, setAgenda] = useState<DailyAgendaPayload | null>(null);
 
   const [loading, setLoading] = useState(true);
   const [scorecardLoading, setScorecardLoading] = useState(true);
   const [queueLoading, setQueueLoading] = useState(true);
+  const [dormantLoading, setDormantLoading] = useState(true);
+  const [readyStockLoading, setReadyStockLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [scorecardError, setScorecardError] = useState<string | null>(null);
   const [morningOpen, setMorningOpen] = useState(false);
@@ -79,7 +96,9 @@ export function ManagerDashboardView({ userName, userRole }: Props) {
   const [createLeadOpen, setCreateLeadOpen] = useState(false);
   const [openContactId, setOpenContactId] = useState<string | null>(null);
   const [openLeadId, setOpenLeadId] = useState<string | null>(null);
+  const [openOrderId, setOpenOrderId] = useState<string | null>(null);
   const [receivables, setReceivables] = useState<DashboardReceivablesData | null>(null);
+  const [debtSummary, setDebtSummary] = useState<ManagerDebtSummary | null>(null);
   const [receivablesLoading, setReceivablesLoading] = useState(false);
 
   const { pushToast } = useToast();
@@ -134,6 +153,52 @@ export function ManagerDashboardView({ userName, userRole }: Props) {
     }
   }, []);
 
+  const loadDormant = useCallback(async (mode: "initial" | "refresh" = "initial") => {
+    if (mode === "initial") setDormantLoading(true);
+    try {
+      const res = await contactsApi.getWorkQueue({
+        reasons: ["DORMANT"],
+        sortBy: "daysSinceLastOrder",
+        pageSize: DORMANT_LIST_SIZE,
+      });
+      setDormantItems(res.items);
+      setDormantTotal(res.total);
+    } catch {
+      if (mode === "initial") {
+        setDormantItems([]);
+        setDormantTotal(0);
+      }
+    } finally {
+      if (mode === "initial") setDormantLoading(false);
+    }
+  }, []);
+
+  const loadReadyStock = useCallback(async (mode: "initial" | "refresh" = "initial") => {
+    if (mode === "initial") setReadyStockLoading(true);
+    try {
+      const res = await apiHttp.get<{ items?: ManagerReadyStockOrder[] }>("/orders", {
+        params: {
+          orderStage: "AWAITING_STOCK",
+          page: 1,
+          pageSize: READY_STOCK_FETCH_SIZE,
+          withCompanyClient: true,
+          sortBy: "createdAt",
+          sortDir: "desc",
+        },
+      });
+      const ready = (res.data?.items ?? []).filter((o) => o.stockReadiness === "FULL");
+      setReadyStockTotal(ready.length);
+      setReadyStockItems(ready.slice(0, READY_STOCK_LIST_SIZE));
+    } catch {
+      if (mode === "initial") {
+        setReadyStockItems([]);
+        setReadyStockTotal(0);
+      }
+    } finally {
+      if (mode === "initial") setReadyStockLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     void loadCore();
   }, [loadCore]);
@@ -147,14 +212,27 @@ export function ManagerDashboardView({ userName, userRole }: Props) {
   }, [loadQueue]);
 
   useEffect(() => {
-    const onFocus = () => void loadQueue("refresh");
+    void loadDormant("initial");
+  }, [loadDormant]);
+
+  useEffect(() => {
+    void loadReadyStock("initial");
+  }, [loadReadyStock]);
+
+  useEffect(() => {
+    const onFocus = () => {
+      void loadQueue("refresh");
+      void loadDormant("refresh");
+      void loadReadyStock("refresh");
+    };
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
-  }, [loadQueue]);
+  }, [loadQueue, loadDormant, loadReadyStock]);
 
   const loadReceivables = useCallback(async () => {
     if (!financeEnabled) {
       setReceivables(null);
+      setDebtSummary(null);
       return;
     }
     setReceivablesLoading(true);
@@ -164,8 +242,14 @@ export function ManagerDashboardView({ userName, userRole }: Props) {
         currency: res.data.currency,
         reconciliation: res.data.reconciliation,
       });
+      setDebtSummary({
+        debtTotal: res.data.kpi.debtTotal,
+        overdueDebt: res.data.kpi.overdueDebt,
+        clientsWithDebtCount: res.data.kpi.clientsWithDebtCount,
+      });
     } catch {
       setReceivables(null);
+      setDebtSummary(null);
     } finally {
       setReceivablesLoading(false);
     }
@@ -254,6 +338,35 @@ export function ManagerDashboardView({ userName, userRole }: Props) {
   return (
     <div className="space-y-6">
       <ManagerDashboardHeader userName={userName} onNewLead={() => setCreateLeadOpen(true)} />
+
+      {scorecardLoading && !scorecard ? (
+        <div className="h-28 animate-pulse rounded-xl bg-zinc-100" />
+      ) : scorecard && hasMonthPulse ? (
+        <div className={scorecardLoading ? "opacity-60 transition-opacity" : "transition-opacity"}>
+          <ManagerSalesPulse
+            scorecard={scorecard}
+            currency={currency}
+            financeEnabled={financeEnabled}
+            debt={debtSummary}
+            debtLoading={receivablesLoading}
+          />
+        </div>
+      ) : null}
+
+      <ManagerDormantClientsPanel
+        items={dormantItems}
+        total={dormantTotal}
+        loading={dormantLoading}
+        onOpenContact={setOpenContactId}
+      />
+
+      <ManagerReadyStockOrdersPanel
+        items={readyStockItems}
+        total={readyStockTotal}
+        loading={readyStockLoading}
+        currency={currency}
+        onOpenOrder={setOpenOrderId}
+      />
 
       {scorecardLoading && !scorecard ? (
         <PulseSkeleton />
@@ -369,6 +482,7 @@ export function ManagerDashboardView({ userName, userRole }: Props) {
           onClose={() => setOpenContactId(null)}
           onUpdate={() => {
             void loadQueue();
+            void loadDormant();
             void loadCore();
           }}
         />
@@ -381,6 +495,21 @@ export function ManagerDashboardView({ userName, userRole }: Props) {
           userRole={userRole}
           onClose={() => setOpenLeadId(null)}
           onUpdated={() => void loadCore()}
+        />
+      ) : null}
+
+      {openOrderId ? (
+        <OrderModal
+          apiBaseUrl="/api"
+          orderId={openOrderId}
+          userRole={userRole}
+          onClose={() => setOpenOrderId(null)}
+          onSaved={() => {
+            void loadReadyStock("refresh");
+            void loadScorecard();
+            void loadCore();
+          }}
+          onOpenOrder={(id) => setOpenOrderId(id)}
         />
       ) : null}
     </div>

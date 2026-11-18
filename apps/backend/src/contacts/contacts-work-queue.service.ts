@@ -186,7 +186,16 @@ export class ContactsWorkQueueService {
       });
     }
 
-    items.sort((a, b) => b.priorityScore - a.priorityScore);
+    if (query.sortBy === "daysSinceLastOrder") {
+      items.sort((a, b) => {
+        const aDays = a.metrics.daysSinceLastOrder ?? -1;
+        const bDays = b.metrics.daysSinceLastOrder ?? -1;
+        if (bDays !== aDays) return bDays - aDays;
+        return b.priorityScore - a.priorityScore;
+      });
+    } else {
+      items.sort((a, b) => b.priorityScore - a.priorityScore);
+    }
     const total = items.length;
     const pagedItems = items.slice(skip, skip + pageSize);
 
