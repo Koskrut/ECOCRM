@@ -45,8 +45,8 @@ import {
 import { financialOverdueWhere, isDebtOverdueByDueDate } from "../orders/order-status-sync.mapper";
 import {
   aggregateClientFinance,
-  applyCreditToOverdueOrders,
-  clientDebtAfterOrderCredit,
+  clientNetDebt,
+  earlyOrderCash,
 } from "../finance/client-finance";
 import { DateTime } from "luxon";
 import { CRM_TIME_ZONE } from "../crm-timezone";
@@ -81,6 +81,7 @@ import {
   buildBitrixLegacyDebtOrderWhere,
   buildOperationalDebtOrderWhere,
   buildOverdueDebtOrderWhere,
+  buildClientAdvanceOrderWhere,
   buildReceivablesDebtOrderWhere,
   buildReceivablesPositiveDebtOrderWhere,
   computeReconcileStatus,
@@ -102,6 +103,10 @@ type ContactDebtRow = {
   debtBase: number;
   overdueBase: number;
   creditBase: number;
+  /** Money already received on orders that are not receivables yet. */
+  advanceBase: number;
+  /** Client wallet in base currency. */
+  walletBase: number;
   orderCount: number;
   ownerId: string | null;
   firstName: string;
@@ -123,6 +128,50 @@ const CALL_TASK_TITLE_PREFIX = "Дзвінок: дебіторка";
 /** Order money fields are in the order currency. Callers convert to the base currency. */
 function orderStoredAmount(value: unknown): number {
   return safeNum(value);
+}
+
+/** Net amount still to collect. Overdue invoices stay on the row as overdueBase. */
+function clientReceivablesNet(row: {
+  debtBase: number;
+  creditBase: number;
+  advanceBase: number;
+  walletBase: number;
+}): number {
+  return clientNetDebt(row.debtBase, row.creditBase + row.advanceBase + row.walletBase);
+}
+
+function emptyContactDebtRow(
+  client: {
+    id: string;
+    externalCode: string | null;
+    ownerId: string | null;
+    firstName: string;
+    lastName: string;
+    phone: string | null;
+  },
+  lastPaymentAt: Date | null,
+  primaryOrderId: string | null = null,
+): ContactDebtRow {
+  return {
+    contactId: client.id,
+    externalCode: normalizeCounterpartyCode1C(client.externalCode ?? ""),
+    debtBase: 0,
+    overdueBase: 0,
+    creditBase: 0,
+    advanceBase: 0,
+    walletBase: 0,
+    orderCount: 0,
+    ownerId: client.ownerId,
+    firstName: client.firstName,
+    lastName: client.lastName,
+    phone: client.phone ?? null,
+    lastPaymentAt,
+    overdueDays: 0,
+    primaryOrderId,
+    primaryOverdue: false,
+    primaryDebt: 0,
+    overdueOrders: [],
+  };
 }
 
 function isOrderOverdueByDueDate(
@@ -418,7 +467,7 @@ export class ReceivablesService {
       let amountCRM = 0;
       for (const c of matched) {
         const row = contactDebt.get(c.id);
-        amountCRM += row ? clientDebtAfterOrderCredit(row.debtBase, row.creditBase).debt : 0;
+        amountCRM += row ? clientReceivablesNet(row) : 0;
       }
       totalCRM += amountCRM;
 
@@ -446,7 +495,7 @@ export class ReceivablesService {
     const codesIn1C = new Set(amount1CByCode.keys());
     for (const [contactId, row] of contactDebt) {
       if (row.externalCode && codesIn1C.has(row.externalCode)) continue;
-      const amountCRM = clientDebtAfterOrderCredit(row.debtBase, row.creditBase).debt;
+      const amountCRM = clientReceivablesNet(row);
       if (amountCRM <= tolerance) continue;
       totalCRM += amountCRM;
       const status: ReceivablesReconcileStatus = "ONLY_CRM";
@@ -543,31 +592,57 @@ export class ReceivablesService {
           OR: [{ debtAmount: { gt: 0 } }, { creditAmount: { gt: 0 } }],
           clientId: { not: null },
         });
+    const clientSelect = {
+      id: true,
+      externalCode: true,
+      ownerId: true,
+      firstName: true,
+      lastName: true,
+      phone: true,
+    } as const;
 
-    const orders = await this.prisma.order.findMany({
-      where: orderWhere,
-      select: {
-        id: true,
-        clientId: true,
-        debtAmount: true,
-        creditAmount: true,
-        currency: true,
-        paymentDueDate: true,
-        client: {
-          select: {
-            id: true,
-            externalCode: true,
-            ownerId: true,
-            firstName: true,
-            lastName: true,
-            phone: true,
-          },
+    const [orders, advanceOrders] = await Promise.all([
+      this.prisma.order.findMany({
+        where: orderWhere,
+        select: {
+          id: true,
+          clientId: true,
+          debtAmount: true,
+          creditAmount: true,
+          currency: true,
+          paymentDueDate: true,
+          client: { select: clientSelect },
         },
-      },
-    });
+      }),
+      this.prisma.order.findMany({
+        where: buildClientAdvanceOrderWhere(scope),
+        select: {
+          id: true,
+          clientId: true,
+          paidAmount: true,
+          creditAmount: true,
+          currency: true,
+          orderStage: true,
+          legacySource: true,
+          client: { select: clientSelect },
+        },
+      }),
+    ]);
 
-    const clientIds = [...new Set(orders.map((o) => o.clientId).filter(Boolean))] as string[];
-    const lastPaymentByClient = await this.loadLastPaymentByClient(clientIds);
+    const clientIds = [
+      ...new Set(
+        [...orders, ...advanceOrders].map((o) => o.clientId).filter(Boolean),
+      ),
+    ] as string[];
+    const [lastPaymentByClient, balanceRows] = await Promise.all([
+      this.loadLastPaymentByClient(clientIds),
+      clientIds.length > 0
+        ? this.prisma.clientBalance.findMany({
+            where: { holderKind: "CONTACT", holderId: { in: clientIds } },
+            select: { holderId: true, amount: true, currency: true },
+          })
+        : Promise.resolve([] as Array<{ holderId: string; amount: unknown; currency: string }>),
+    ]);
 
     const map: ContactDebtMap = new Map();
     for (const o of orders) {
@@ -579,7 +654,6 @@ export class ReceivablesService {
       const creditBase = creditRaw > 0 ? toBaseCurrency(creditRaw, o.currency, rates) : 0;
       const overdueBase = isOrderOverdueByDueDate(o.paymentDueDate, debtBase) ? debtBase : 0;
       const days = overdueBase > 0 ? overdueDaysByDueDate(o.paymentDueDate) : 0;
-      const code = normalizeCounterpartyCode1C(client.externalCode ?? "");
       const overdueOrder = overdueBase > 0 && days > 0 ? { days, amount: overdueBase } : null;
       const prev = map.get(client.id);
       if (prev) {
@@ -598,26 +672,43 @@ export class ReceivablesService {
           prev.primaryDebt = debtBase;
         }
       } else {
-        map.set(client.id, {
-          contactId: client.id,
-          externalCode: code,
-          debtBase,
-          overdueBase,
-          creditBase,
-          orderCount: 1,
-          ownerId: client.ownerId,
-          firstName: client.firstName,
-          lastName: client.lastName,
-          phone: client.phone ?? null,
-          lastPaymentAt: lastPaymentByClient.get(client.id) ?? null,
-          overdueDays: days,
-          primaryOrderId: o.id,
-          primaryOverdue: overdueBase > 0,
-          primaryDebt: debtBase,
-          overdueOrders: overdueOrder ? [overdueOrder] : [],
-        });
+        const row = emptyContactDebtRow(client, lastPaymentByClient.get(client.id) ?? null, o.id);
+        row.debtBase = debtBase;
+        row.overdueBase = overdueBase;
+        row.creditBase = creditBase;
+        row.orderCount = 1;
+        row.overdueDays = days;
+        row.primaryOverdue = overdueBase > 0;
+        row.primaryDebt = debtBase;
+        row.overdueOrders = overdueOrder ? [overdueOrder] : [];
+        map.set(client.id, row);
       }
     }
+
+    for (const o of advanceOrders) {
+      const client = o.client;
+      if (!client) continue;
+      const cash = earlyOrderCash(o);
+      if (!(cash > 0)) continue;
+      const advanceBase = toBaseCurrency(cash, o.currency, rates);
+      if (!(advanceBase > 0)) continue;
+      const prev = map.get(client.id);
+      if (prev) {
+        prev.advanceBase += advanceBase;
+        continue;
+      }
+      const row = emptyContactDebtRow(client, lastPaymentByClient.get(client.id) ?? null, o.id);
+      row.advanceBase = advanceBase;
+      map.set(client.id, row);
+    }
+
+    for (const bal of balanceRows) {
+      const prev = map.get(bal.holderId);
+      if (!prev) continue;
+      const walletBase = toBaseCurrency(orderStoredAmount(bal.amount), bal.currency, rates);
+      if (walletBase > 0) prev.walletBase += walletBase;
+    }
+
     return map;
   }
 
@@ -843,10 +934,10 @@ export class ReceivablesService {
     let overdueDebt = 0;
     let clientsWithDebtCount = 0;
     for (const row of contactDebt.values()) {
-      const position = clientDebtAfterOrderCredit(row.debtBase, row.creditBase, row.overdueBase);
-      debtTotal += position.debt;
-      overdueDebt += position.overdue;
-      if (position.debt > 0.009) clientsWithDebtCount += 1;
+      const net = clientReceivablesNet(row);
+      debtTotal += net;
+      overdueDebt += row.overdueBase;
+      if (net > 0.009) clientsWithDebtCount += 1;
     }
 
     const [ordersWithDebtCount, bitrixLegacyOrdersCount, bitrixLegacyDebt] = await Promise.all([
@@ -889,8 +980,7 @@ export class ReceivablesService {
       const parsed = parseDebtCommentTitle(last?.title ?? null);
       if (isPromiseForYmd(parsed.promiseDate, todayYmd)) {
         promisedTodayCount += 1;
-        promisedTodayAmount +=
-          parsed.promiseAmount ?? clientDebtAfterOrderCredit(row.debtBase, row.creditBase).debt;
+        promisedTodayAmount += parsed.promiseAmount ?? clientReceivablesNet(row);
       }
     }
 
@@ -978,21 +1068,21 @@ export class ReceivablesService {
 
     const contactDebt = await this.loadContactDebtMap(scope, rates);
     let items = [...contactDebt.values()].map((row) => {
-      const position = clientDebtAfterOrderCredit(row.debtBase, row.creditBase, row.overdueBase);
-      const openOverdue = applyCreditToOverdueOrders(row.overdueOrders, row.creditBase);
-      const overdueDays = openOverdue.reduce((max, order) => Math.max(max, order.days), 0);
+      const overdueDays = row.overdueDays;
       return {
         contactId: row.contactId,
         clientName: [row.firstName, row.lastName].filter(Boolean).join(" "),
         externalCode: row.externalCode || null,
-        debtAmount: position.debt,
-        overdueAmount: position.overdue,
+        debtAmount: clientReceivablesNet(row),
+        overdueAmount: Math.round(row.overdueBase * 100) / 100,
         overpaymentAmount: Math.round(row.creditBase * 100) / 100,
+        advanceAmount: Math.round(row.advanceBase * 100) / 100,
+        walletAmount: Math.round(row.walletBase * 100) / 100,
         orderCount: row.orderCount,
         ownerId: row.ownerId,
         lastPaymentAt: row.lastPaymentAt?.toISOString() ?? null,
         phone: row.phone,
-        overdueDays,
+        overdueDays: overdueDays > 0 ? overdueDays : 0,
         agingBucket: overdueDays > 0 ? agingBucketLabel(overdueDays) : null,
         primaryOrderId: row.primaryOrderId,
       };
@@ -1221,7 +1311,7 @@ export class ReceivablesService {
       buckets: buildAgingBuckets(
         [...contactDebt.values()].map((row) => ({
           contactId: row.contactId,
-          overdueOrders: applyCreditToOverdueOrders(row.overdueOrders, row.creditBase),
+          overdueOrders: row.overdueOrders,
         })),
       ),
     };
@@ -1731,21 +1821,40 @@ export class ReceivablesService {
       throw new BadRequestException("No operational debt for this client");
     }
 
-    const orders = await this.prisma.order.findMany({
-      where: {
-        AND: [buildReceivablesDebtOrderWhere(scope), { clientId: contactId }],
-      },
-      select: {
-        id: true,
-        orderNumber: true,
-        debtAmount: true,
-        creditAmount: true,
-        exchangeRate: true,
-        paymentDueDate: true,
-        bankAccountId: true,
-        currency: true,
-      },
-    });
+    const [orders, earlyPaidOrders, walletRows] = await Promise.all([
+      this.prisma.order.findMany({
+        where: {
+          AND: [buildReceivablesDebtOrderWhere(scope), { clientId: contactId }],
+        },
+        select: {
+          id: true,
+          orderNumber: true,
+          debtAmount: true,
+          creditAmount: true,
+          exchangeRate: true,
+          paymentDueDate: true,
+          bankAccountId: true,
+          currency: true,
+        },
+      }),
+      this.prisma.order.findMany({
+        where: {
+          AND: [buildClientAdvanceOrderWhere(scope), { clientId: contactId }],
+        },
+        select: {
+          paidAmount: true,
+          creditAmount: true,
+          exchangeRate: true,
+          currency: true,
+          orderStage: true,
+          legacySource: true,
+        },
+      }),
+      this.prisma.clientBalance.findMany({
+        where: { holderKind: "CONTACT", holderId: contactId },
+        select: { amount: true, currency: true },
+      }),
+    ]);
 
     const rates = await this.settings.getExchangeRates();
     const moneyOrders = orders.map((o) => {
@@ -1772,17 +1881,55 @@ export class ReceivablesService {
     }
 
     const fallbackUahPerUsd = rates.UAH_TO_USD > 0 ? 1 / rates.UAH_TO_USD : 41;
+    const advanceOrders = earlyPaidOrders
+      .map((o) => {
+        const storedRate = o.exchangeRate != null ? Number(o.exchangeRate) : null;
+        return {
+          cash: earlyOrderCash(o),
+          exchangeRate:
+            storedRate != null && storedRate > 0
+              ? storedRate
+              : computeOrderExchangeRate(o.currency, rates),
+          currency: o.currency,
+        };
+      })
+      .filter((o) => o.cash > 0);
     const debtUah = computeFullDebtPayAmountUah(debtOrders, fallbackUahPerUsd);
     const creditUah = computeFullDebtPayAmountUah(
       creditOrders.map((o) => ({ debtAmount: o.creditAmount, exchangeRate: o.exchangeRate })),
       fallbackUahPerUsd,
     );
-    const amountUah = Math.max(0, Math.round((debtUah - creditUah) * 100) / 100);
+    const advanceUah = computeFullDebtPayAmountUah(
+      advanceOrders.map((o) => ({ debtAmount: o.cash, exchangeRate: o.exchangeRate })),
+      fallbackUahPerUsd,
+    );
+    let walletUsd = 0;
+    let walletUah = 0;
+    for (const bal of walletRows) {
+      const amount = orderStoredAmount(bal.amount);
+      if (!(amount > 0)) continue;
+      walletUsd += toUsd(amount, bal.currency, rates);
+      const rate =
+        bal.currency.toUpperCase() === "UAH"
+          ? 1
+          : bal.currency.toUpperCase() === "USD"
+            ? fallbackUahPerUsd
+            : computeOrderExchangeRate(bal.currency, rates) ?? fallbackUahPerUsd;
+      walletUah += amount * rate;
+    }
+    walletUsd = Math.round(walletUsd * 100) / 100;
+    walletUah = Math.round(walletUah * 100) / 100;
+    const amountUah = Math.max(
+      0,
+      Math.round((debtUah - creditUah - advanceUah - walletUah) * 100) / 100,
+    );
     const debtAmountUsd = Math.max(
       0,
       Math.round(
         (debtOrders.reduce((s, o) => s + toUsd(o.debtAmount, o.currency, rates), 0) -
-          creditOrders.reduce((s, o) => s + toUsd(o.creditAmount, o.currency, rates), 0)) *
+          creditOrders.reduce((s, o) => s + toUsd(o.creditAmount, o.currency, rates), 0) -
+          advanceOrders.reduce((s, o) => s + toUsd(o.cash, o.currency, rates), 0) -
+          walletUsd) *
           100,
       ) / 100,
     );
@@ -1868,6 +2015,7 @@ export class ReceivablesService {
           returnAdjustmentAmount: true,
           debtAmount: true,
           creditAmount: true,
+          paidAmount: true,
           currency: true,
           orderStage: true,
           legacySource: true,
@@ -2001,6 +2149,7 @@ export class ReceivablesService {
         grossDebt: finance.grossDebt,
         overdueDebt: finance.overdue,
         overpaymentTotal: finance.orderCredit,
+        advanceTotal: finance.advance,
         clientBalance: finance.clientBalance,
         ordersWithDebtCount: finance.ordersWithDebtCount,
         bitrixLegacyDebt: finance.bitrixDebt,

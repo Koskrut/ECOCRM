@@ -26,6 +26,7 @@ export type ContactCardSummary = {
     debt: number;
     overdue: number;
     orderCredit: number;
+    advance?: number;
     clientBalance: number;
     lastOrderAt: string | null;
     lastActivityAt: string | null;

@@ -7,6 +7,7 @@ import type {
   ContactScoringSignal,
 } from "./types/contacts-priority.types";
 import { isOperationalDebtOrder } from "../receivables/receivables-scope.util";
+import { earlyOrderCash } from "../finance/client-finance";
 
 type ContactSummaryRow = {
   id: string;
@@ -135,6 +136,7 @@ export class ContactsInsightsService {
             returnAdjustmentAmount: true,
             debtAmount: true,
             creditAmount: true,
+            paidAmount: true,
             orderStage: true,
             legacySource: true,
           },
@@ -205,6 +207,10 @@ export class ContactsInsightsService {
             Math.max(0, Number(o.debtAmount ?? 0)) -
             Math.max(0, Number(o.creditAmount ?? 0)),
         );
+      }
+      const earlyCash = earlyOrderCash(o);
+      if (earlyCash > 0) {
+        debtById.set(id, (debtById.get(id) ?? 0) - earlyCash);
       }
       const prev = lastOrderAtById.get(id) ?? null;
       if (!prev || o.createdAt > prev) {

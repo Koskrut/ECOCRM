@@ -17,7 +17,11 @@ import {
 } from "../../orders/orders-attention.util";
 import { previousPeriodOfSameLength, type ResolvedPeriod } from "../utils/analytics-date.util";
 import { getBaseCurrency, paymentToBase, safeNum, toBaseCurrency } from "../utils/analytics-currency.util";
-import { buildReceivablesDebtOrderWhere } from "../../receivables/receivables-scope.util";
+import {
+  buildClientAdvanceOrderWhere,
+  buildReceivablesDebtOrderWhere,
+} from "../../receivables/receivables-scope.util";
+import { sumClientFinanceByContact } from "../../finance/client-finance";
 
 export type OverviewCharts = {
   bookedRevenueByDay: { date: string; amount: number; ordersCount: number }[];
@@ -160,6 +164,7 @@ export class AnalyticsOverviewService {
       paymentsRows,
       ordersByStageRows,
       debtOrders,
+      advanceOrders,
       overdueDebtOrders,
       leadsTotal,
       leadsWon,
@@ -182,7 +187,32 @@ export class AnalyticsOverviewService {
         where: orderWhere,
         _count: { id: true },
       }),
-      this.prisma.order.findMany({ where: snapshotDebtWhere, select: { debtAmount: true, currency: true } }),
+      this.prisma.order.findMany({
+        where: snapshotDebtWhere,
+        select: {
+          clientId: true,
+          debtAmount: true,
+          creditAmount: true,
+          paidAmount: true,
+          currency: true,
+          paymentDueDate: true,
+          orderStage: true,
+          legacySource: true,
+        },
+      }),
+      this.prisma.order.findMany({
+        where: buildClientAdvanceOrderWhere(scope),
+        select: {
+          clientId: true,
+          debtAmount: true,
+          creditAmount: true,
+          paidAmount: true,
+          currency: true,
+          paymentDueDate: true,
+          orderStage: true,
+          legacySource: true,
+        },
+      }),
       this.prisma.order.findMany({
         where: overduePaymentsWhere,
         select: { debtAmount: true, currency: true },
@@ -215,13 +245,31 @@ export class AnalyticsOverviewService {
       collectedPayments += paymentToBase(p.amountUsd, p.amount, cur, rates);
     }
 
-    let debtTotal = 0;
-    for (const o of debtOrders) debtTotal += toBaseCurrency(safeNum(o.debtAmount), o.currency, rates);
-    let overdueDebt = 0;
+    const financeClientIds = [
+      ...new Set(
+        [...debtOrders, ...advanceOrders]
+          .map((o) => o.clientId)
+          .filter((id): id is string => !!id),
+      ),
+    ];
+    const balanceRows =
+      financeClientIds.length > 0
+        ? await this.prisma.clientBalance.findMany({
+            where: { holderKind: "CONTACT", holderId: { in: financeClientIds } },
+            select: { holderId: true, amount: true, currency: true },
+          })
+        : [];
+    const clientFinance = sumClientFinanceByContact(
+      [...debtOrders, ...advanceOrders],
+      balanceRows,
+      rates,
+    );
+    const debtTotal = clientFinance.debtTotal;
+    const overdueDebt = clientFinance.overdueTotal;
+    let overdueDebtAmount = 0;
     for (const o of overdueDebtOrders) {
-      overdueDebt += toBaseCurrency(safeNum(o.debtAmount), o.currency, rates);
+      overdueDebtAmount += toBaseCurrency(safeNum(o.debtAmount), o.currency, rates);
     }
-    const overdueDebtAmount = overdueDebt;
 
     const charts: OverviewCharts = {
       bookedRevenueByDay: this.buildBookedRevenueByDay(ordersForRevenue, rates),

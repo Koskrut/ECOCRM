@@ -19,11 +19,13 @@ export type ContactCardSummaryResponse = {
     /** Base currency (USD or EUR) for every money field in this KPI. */
     currency: string;
     revenue: number;
-    /** Net position: operational debt − operational order credit − wallet. */
+    /** Net position: operational debt − order credit − pre-ship cash − wallet. */
     debt: number;
     overdue: number;
     /** Sum of order-level overpayments (creditAmount) on operational orders. */
     orderCredit: number;
+    /** Money already received on orders that are not receivables yet. */
+    advance: number;
     clientBalance: number;
     lastOrderAt: string | null;
     lastActivityAt: string | null;

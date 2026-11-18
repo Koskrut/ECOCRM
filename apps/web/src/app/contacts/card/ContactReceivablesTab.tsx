@@ -177,6 +177,12 @@ export function ContactReceivablesTab({
             value={formatMoney(data.kpi.overpaymentTotal ?? 0, currency)}
           />
         ) : null}
+        {(data.kpi.advanceTotal ?? 0) > 0 ? (
+          <KpiCard
+            title={strings.contacts.card.kpi.advance}
+            value={formatMoney(data.kpi.advanceTotal ?? 0, currency)}
+          />
+        ) : null}
         {(data.kpi.clientBalance ?? 0) > 0 ? (
           <KpiCard
             title={strings.contacts.card.kpi.clientBalance}

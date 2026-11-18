@@ -4,7 +4,25 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.250**.)_
+_(планируемые изменения после **0.2.251**.)_
+
+## [0.2.251] — 2026-11-18
+
+### Summary
+
+Патч **0.2.251**: клієнтський `advance` (передоплата до READY_TO_SHIP + каса на CANCELED/REFUSED) зменшує net debt; overdue лишається по рахунках; UI дебіторки/контакту показує аванс і гаманець.
+
+### Changed
+
+- `aggregateClientFinance` / receivables: `advance` + `clientNetDebt`; credit більше не зрізає overdue інших інвойсів.
+- Pre-ship / closed-cash order scopes; full-debt pay link мінус advance + wallet.
+- Contact KPI + WorkClientsTable: advance / wallet.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.251`**.
+- **Нових міграцій немає.**
+- **Не використовувати `0.2.249`** (OOM). **Не використовувати `0.2.230`** і **`0.2.199`–`0.2.202`**.
 
 ## [0.2.250] — 2026-11-16
 

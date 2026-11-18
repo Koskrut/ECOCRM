@@ -1,6 +1,19 @@
 import type { OrderStage } from "@prisma/client";
 
 /**
+ * Orders that are not receivables yet. Money already received on them is a client advance.
+ */
+export const PRE_SHIP_PAYMENT_STAGES: readonly OrderStage[] = [
+  "NEW",
+  "AWAITING_PAYMENT",
+  "AWAITING_STOCK",
+  "CONFIRMED",
+] as const;
+
+/** Canceled / refused orders whose received money still belongs to the client. */
+export const CLOSED_CASH_ORDER_STAGES: readonly OrderStage[] = ["CANCELED", "REFUSED"] as const;
+
+/**
  * Stages that count toward CRM receivables (debt).
  * Debt starts only once the order is ready to ship — earlier pipeline stages are excluded.
  */

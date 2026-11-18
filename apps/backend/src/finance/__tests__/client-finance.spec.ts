@@ -2,15 +2,16 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   aggregateClientFinance,
-  applyCreditToOverdueOrders,
   clientDebtAfterOrderCredit,
+  clientNetDebt,
+  earlyOrderCash,
 } from "../client-finance";
 
 const rates = { UAH_TO_USD: 0.025, EUR_TO_USD: 1.25, baseCurrency: "USD" as const };
 const now = new Date("2026-06-10T12:00:00.000Z");
 
 describe("aggregateClientFinance", () => {
-  it("nets operational credit and wallet, and ignores canceled credit", () => {
+  it("nets operational credit, advance, canceled cash and wallet; overdue stays on invoices", () => {
     const snap = aggregateClientFinance(
       [
         {
@@ -43,8 +44,9 @@ describe("aggregateClientFinance", () => {
     );
     assert.equal(snap.grossDebt, 200);
     assert.equal(snap.orderCredit, 0);
+    assert.equal(snap.advance, 540);
     assert.equal(snap.clientBalance, 50);
-    assert.equal(snap.netDebt, 150);
+    assert.equal(snap.netDebt, 0);
     assert.equal(snap.overdue, 200);
     assert.equal(snap.revenue, 280);
     assert.equal(snap.ordersWithDebtCount, 1);
@@ -79,7 +81,7 @@ describe("aggregateClientFinance", () => {
     assert.equal(snap.currency, "USD");
   });
 
-  it("excludes REFUSED orders from revenue", () => {
+  it("excludes REFUSED orders from revenue and counts their cash as advance", () => {
     const snap = aggregateClientFinance(
       [
         {
@@ -90,13 +92,23 @@ describe("aggregateClientFinance", () => {
           orderStage: "REFUSED",
           legacySource: null,
         },
+        {
+          totalAmount: 100,
+          debtAmount: 100,
+          currency: "USD",
+          orderStage: "SHIPPED",
+          paymentDueDate: new Date("2026-06-01T00:00:00.000Z"),
+        },
       ],
       [],
       rates,
       now,
     );
-    assert.equal(snap.revenue, 0);
-    assert.equal(snap.grossDebt, 0);
+    assert.equal(snap.revenue, 100);
+    assert.equal(snap.grossDebt, 100);
+    assert.equal(snap.advance, 400);
+    assert.equal(snap.netDebt, 0);
+    assert.equal(snap.overdue, 100);
   });
 
   it("does not treat prepayment debt as overdue before the Kyiv due date", () => {
@@ -118,7 +130,7 @@ describe("aggregateClientFinance", () => {
     assert.equal(snap.netDebt, 100);
   });
 
-  it("reduces the client total by an operational overpayment, overdue first", () => {
+  it("reduces the client total by an operational overpayment without changing overdue", () => {
     const snap = aggregateClientFinance(
       [
         {
@@ -144,28 +156,73 @@ describe("aggregateClientFinance", () => {
     assert.equal(snap.grossDebt, 200);
     assert.equal(snap.orderCredit, 50);
     assert.equal(snap.netDebt, 150);
-    assert.equal(snap.overdue, 150);
+    assert.equal(snap.overdue, 200);
+  });
+
+  it("counts money received before the order is ready to ship without reducing overdue", () => {
+    const snap = aggregateClientFinance(
+      [
+        {
+          totalAmount: 200,
+          debtAmount: 200,
+          paidAmount: 0,
+          currency: "USD",
+          orderStage: "SHIPPED",
+          paymentDueDate: new Date("2026-06-01T00:00:00.000Z"),
+        },
+        {
+          totalAmount: 500,
+          debtAmount: 400,
+          paidAmount: 100,
+          creditAmount: 0,
+          currency: "USD",
+          orderStage: "CONFIRMED",
+        },
+        {
+          totalAmount: 80,
+          debtAmount: 50,
+          paidAmount: 30,
+          currency: "USD",
+          orderStage: "AWAITING_STOCK",
+        },
+        {
+          totalAmount: 40,
+          debtAmount: 40,
+          paidAmount: 0,
+          currency: "USD",
+          orderStage: "NEW",
+        },
+        {
+          totalAmount: 70,
+          debtAmount: 0,
+          paidAmount: 70,
+          currency: "USD",
+          orderStage: "CANCELED",
+        },
+      ],
+      [],
+      rates,
+      now,
+    );
+    assert.equal(snap.grossDebt, 200);
+    assert.equal(snap.advance, 200);
+    assert.equal(snap.netDebt, 0);
+    assert.equal(snap.overdue, 200);
+    assert.equal(earlyOrderCash({ orderStage: "AWAITING_PAYMENT", paidAmount: 15, creditAmount: 0 }), 15);
+    assert.equal(earlyOrderCash({ orderStage: "NEW", paidAmount: 0, creditAmount: 9 }), 9);
+    assert.equal(earlyOrderCash({ orderStage: "SHIPPED", paidAmount: 20 }), 0);
+    assert.equal(earlyOrderCash({ orderStage: "NEW", legacySource: "bitrix", paidAmount: 20 }), 0);
+    assert.equal(earlyOrderCash({ orderStage: "CANCELED", creditAmount: 12, paidAmount: 99 }), 12);
+    assert.equal(earlyOrderCash({ orderStage: "REFUSED", creditAmount: 0, paidAmount: 8 }), 8);
   });
 });
 
-describe("clientDebtAfterOrderCredit", () => {
-  it("nets the overpayment and does not leave overdue above the balance", () => {
-    assert.deepEqual(clientDebtAfterOrderCredit(200, 50, 100), { debt: 150, overdue: 50 });
-    assert.deepEqual(clientDebtAfterOrderCredit(200, 150, 100), { debt: 50, overdue: 0 });
-    assert.deepEqual(clientDebtAfterOrderCredit(100, 300, 100), { debt: 0, overdue: 0 });
-  });
-
-  it("applies credit to the oldest overdue invoices first", () => {
-    const left = applyCreditToOverdueOrders(
-      [
-        { days: 3, amount: 40 },
-        { days: 20, amount: 100 },
-      ],
-      50,
-    );
-    assert.deepEqual(left, [
-      { days: 20, amount: 50 },
-      { days: 3, amount: 40 },
-    ]);
+describe("clientNetDebt", () => {
+  it("nets cash against debt and leaves overdue unchanged via clientDebtAfterOrderCredit", () => {
+    assert.equal(clientNetDebt(200, 50), 150);
+    assert.equal(clientNetDebt(100, 300), 0);
+    assert.deepEqual(clientDebtAfterOrderCredit(200, 50, 100), { debt: 150, overdue: 100 });
+    assert.deepEqual(clientDebtAfterOrderCredit(200, 150, 100), { debt: 50, overdue: 100 });
+    assert.deepEqual(clientDebtAfterOrderCredit(100, 300, 100), { debt: 0, overdue: 100 });
   });
 });

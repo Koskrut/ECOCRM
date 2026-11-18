@@ -9,9 +9,11 @@ import { previousPeriodOfSameLength, type ResolvedPeriod } from "../utils/analyt
 import { getBaseCurrency, paymentToBase, safeNum, toBaseCurrency } from "../utils/analytics-currency.util";
 import { CRM_TIME_ZONE } from "../../crm-timezone";
 import {
+  buildClientAdvanceOrderWhere,
   buildOverdueDebtOrderWhere,
   buildReceivablesDebtOrderWhere,
 } from "../../receivables/receivables-scope.util";
+import { sumClientFinanceByContact } from "../../finance/client-finance";
 
 export type FinanceKpi = {
   /** COMPLETED payments in period → base currency (same semantics as Overview/Sales collected). */
@@ -155,9 +157,8 @@ export class AnalyticsFinanceService {
     // PERF: period payments loaded for aggregates + day/source breakdown — same pattern as overview collected series.
     const [
       paymentsRows,
-      debtOrdersAll,
-      overdueOrdersAll,
       debtOrdersWithDue,
+      advanceOrders,
       overdueOrdersRows,
       overdueOrdersCount,
       distinctOverdueClients,
@@ -167,17 +168,32 @@ export class AnalyticsFinanceService {
         where: paymentWhere,
         select: { paidAt: true, amount: true, currency: true, amountUsd: true, sourceType: true },
       }),
-      this.prisma.order.findMany({ where: snapshotDebtWhere, select: { debtAmount: true, currency: true } }),
-      this.prisma.order.findMany({ where: snapshotOverdueWhere, select: { debtAmount: true, currency: true } }),
       this.prisma.order.findMany({
-        where: { ...snapshotDebtWhere, debtAmount: { gt: 0 } },
+        where: snapshotDebtWhere,
         select: {
           id: true,
           debtAmount: true,
+          creditAmount: true,
+          paidAmount: true,
           currency: true,
           paymentDueDate: true,
+          orderStage: true,
+          legacySource: true,
           clientId: true,
           client: { select: { firstName: true, lastName: true } },
+        },
+      }),
+      this.prisma.order.findMany({
+        where: buildClientAdvanceOrderWhere(scope),
+        select: {
+          clientId: true,
+          debtAmount: true,
+          creditAmount: true,
+          paidAmount: true,
+          currency: true,
+          paymentDueDate: true,
+          orderStage: true,
+          legacySource: true,
         },
       }),
       this.prisma.order.findMany({
@@ -203,6 +219,26 @@ export class AnalyticsFinanceService {
         where: { status: "PENDING", order: periodOrderWhere },
       }),
     ]);
+
+    const financeClientIds = [
+      ...new Set(
+        [...debtOrdersWithDue, ...advanceOrders]
+          .map((o) => o.clientId)
+          .filter((id): id is string => !!id),
+      ),
+    ];
+    const balanceRows =
+      financeClientIds.length > 0
+        ? await this.prisma.clientBalance.findMany({
+            where: { holderKind: "CONTACT", holderId: { in: financeClientIds } },
+            select: { holderId: true, amount: true, currency: true },
+          })
+        : [];
+    const clientFinance = sumClientFinanceByContact(
+      [...debtOrdersWithDue, ...advanceOrders],
+      balanceRows,
+      rates,
+    );
 
     let collectedPayments = 0;
     const byDay = new Map<string, { amount: number; paymentCount: number }>();
@@ -233,10 +269,8 @@ export class AnalyticsFinanceService {
       .map(([sourceType, v]) => ({ sourceType, count: v.count, amount: v.amount }))
       .sort((a, b) => b.amount - a.amount);
 
-    let debtTotal = 0;
-    for (const o of debtOrdersAll) debtTotal += toBaseCurrency(safeNum(o.debtAmount), o.currency, rates);
-    let overdueDebt = 0;
-    for (const o of overdueOrdersAll) overdueDebt += toBaseCurrency(safeNum(o.debtAmount), o.currency, rates);
+    const debtTotal = clientFinance.debtTotal;
+    const overdueDebt = clientFinance.overdueTotal;
 
     const refDay = DateTime.fromJSDate(new Date(period.to)).setZone(CRM_TIME_ZONE).startOf("day");
     const buckets = [
@@ -246,15 +280,17 @@ export class AnalyticsFinanceService {
       { label: "31-60", amount: 0, ordersCount: 0 },
       { label: "60+", amount: 0, ordersCount: 0 },
     ];
-    const byClient = new Map<string, { name: string | null; debt: number; overdue: number; orders: number }>();
+    const byClient = new Map<
+      string,
+      { name: string | null; debt: number; overdue: number; orders: number }
+    >();
 
-    const startOfToday = DateTime.now().setZone(CRM_TIME_ZONE).startOf("day");
     for (const o of debtOrdersWithDue) {
       const due = o.paymentDueDate
         ? DateTime.fromJSDate(new Date(o.paymentDueDate)).setZone(CRM_TIME_ZONE).startOf("day")
         : null;
       const debt = toBaseCurrency(safeNum(o.debtAmount), o.currency, rates);
-      if (due) {
+      if (due && debt > 0) {
         const days = Math.floor(refDay.diff(due, "days").days);
         if (days >= 0) {
           let idx = 4;
@@ -266,16 +302,15 @@ export class AnalyticsFinanceService {
           buckets[idx].ordersCount += 1;
         }
       }
-      if (o.clientId) {
+      if (o.clientId && debt > 0) {
+        const snap = clientFinance.byClient.get(o.clientId);
         const cur = byClient.get(o.clientId) ?? {
           name: o.client ? [o.client.firstName, o.client.lastName].filter(Boolean).join(" ") : null,
-          debt: 0,
-          overdue: 0,
+          debt: snap?.netDebt ?? 0,
+          overdue: snap?.overdue ?? 0,
           orders: 0,
         };
-        cur.debt += debt;
         cur.orders += 1;
-        if (due && debt > 0 && due < startOfToday) cur.overdue += debt;
         byClient.set(o.clientId, cur);
       }
     }

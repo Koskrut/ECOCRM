@@ -189,6 +189,8 @@ export function WorkClientsTable({
             const reconcile = row.reconcileStatus;
             const reason = row.delayReasonCode;
             const overpayment = row.overpaymentAmount ?? 0;
+            const advance = row.advanceAmount ?? 0;
+            const wallet = row.walletAmount ?? 0;
             const snoozed = isSnoozeActive(row.snoozedUntil);
             return (
               <Fragment key={row.contactId}>
@@ -238,6 +240,16 @@ export function WorkClientsTable({
                     {overpayment > 0 ? (
                       <div className="mt-0.5 text-xs text-emerald-700">
                         {t.overpaymentShort(formatMoney(overpayment, currency))}
+                      </div>
+                    ) : null}
+                    {advance > 0 ? (
+                      <div className="mt-0.5 text-xs text-emerald-700">
+                        {t.advanceShort(formatMoney(advance, currency))}
+                      </div>
+                    ) : null}
+                    {wallet > 0 ? (
+                      <div className="mt-0.5 text-xs text-emerald-700">
+                        {t.walletShort(formatMoney(wallet, currency))}
                       </div>
                     ) : null}
                   </td>

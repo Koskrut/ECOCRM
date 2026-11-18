@@ -73,6 +73,10 @@ export type WorkClientRow = {
   debtAmount: number;
   overdueAmount: number;
   overpaymentAmount?: number;
+  /** Money already received on orders that are not receivables yet. */
+  advanceAmount?: number;
+  /** Client wallet in the base currency. */
+  walletAmount?: number;
   orderCount: number;
   ownerId: string | null;
   ownerName: string | null;
@@ -152,6 +156,8 @@ export type ContactReceivablesResponse = {
     grossDebt?: number;
     overdueDebt: number;
     overpaymentTotal?: number;
+    /** Money already received on orders that are not receivables yet. */
+    advanceTotal?: number;
     clientBalance?: number;
     ordersWithDebtCount: number;
     bitrixLegacyDebt: number;

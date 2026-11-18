@@ -60,6 +60,9 @@ export function ContactKpiStrip({
     ...(kpi.orderCredit > 0
       ? [{ title: t.orderCredit, value: money(kpi.orderCredit), variant: "default" as const }]
       : []),
+    ...((kpi.advance ?? 0) > 0
+      ? [{ title: t.advance, value: money(kpi.advance ?? 0), variant: "default" as const }]
+      : []),
     ...(kpi.clientBalance > 0
       ? [{ title: t.clientBalance, value: money(kpi.clientBalance), variant: "default" as const }]
       : []),

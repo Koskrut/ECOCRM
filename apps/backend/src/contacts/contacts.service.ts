@@ -48,7 +48,10 @@ import {
   selectRootMovementOrders,
 } from "./contact-orders-movement.mapper";
 import { WorkflowDomainEmitterService } from "../workflows/workflow-domain-emitter.service";
-import { buildOperationalDebtOrderWhere } from "../receivables/receivables-scope.util";
+import {
+  buildClientAdvanceOrderWhere,
+  buildOperationalDebtOrderWhere,
+} from "../receivables/receivables-scope.util";
 import { aggregateClientFinance, countsTowardClientRevenue } from "../finance/client-finance";
 import { getBaseCurrency, toBaseCurrency } from "../common/currency.util";
 import { SettingsService, type ExchangeRates } from "../settings/settings.service";
@@ -274,6 +277,7 @@ export class ContactsService {
             returnAdjustmentAmount: true,
             debtAmount: true,
             creditAmount: true,
+            paidAmount: true,
             currency: true,
             paymentDueDate: true,
             financialStatus: true,
@@ -372,6 +376,7 @@ export class ContactsService {
         debt: netDebt,
         overdue,
         orderCredit,
+        advance: finance.advance,
         clientBalance: finance.clientBalance,
         lastOrderAt: lastOrderAt ? lastOrderAt.toISOString() : null,
         lastActivityAt: lastActivityAt ? new Date(lastActivityAt).toISOString() : null,
@@ -918,8 +923,16 @@ export class ContactsService {
         }),
         this.prisma.order.findMany({
           where: {
-            ...buildOperationalDebtOrderWhere({ clientId: { in: contactIds } }),
-            ...(managerId ? { ownerId: managerId } : {}),
+            OR: [
+              buildOperationalDebtOrderWhere({
+                clientId: { in: contactIds },
+                ...(managerId ? { ownerId: managerId } : {}),
+              }),
+              buildClientAdvanceOrderWhere(null, {
+                clientId: { in: contactIds },
+                ...(managerId ? { ownerId: managerId } : {}),
+              }),
+            ],
           },
           select: {
             clientId: true,
@@ -927,6 +940,7 @@ export class ContactsService {
             returnAdjustmentAmount: true,
             debtAmount: true,
             creditAmount: true,
+            paidAmount: true,
             currency: true,
             orderStage: true,
             legacySource: true,

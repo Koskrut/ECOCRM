@@ -1,7 +1,11 @@
 import type { OrderStage, Prisma, ReceivablesReconcileStatus } from "@prisma/client";
 import type { AnalyticsScope } from "../analytics/analytics-scope.service";
 import { financialOverdueWhere } from "../orders/order-status-sync.mapper";
-import { RECEIVABLES_DEBT_ORDER_STAGES } from "./receivables.constants";
+import {
+  CLOSED_CASH_ORDER_STAGES,
+  PRE_SHIP_PAYMENT_STAGES,
+  RECEIVABLES_DEBT_ORDER_STAGES,
+} from "./receivables.constants";
 
 export const RECEIVABLES_EXCLUDED_LEGACY_SOURCES = ["bitrix"] as const;
 
@@ -33,6 +37,82 @@ export function isOperationalDebtOrder(order: {
     order.orderStage != null &&
     RECEIVABLES_DEBT_ORDER_STAGES.includes(order.orderStage)
   );
+}
+
+/** New, awaiting payment, awaiting stock, confirmed. Not a receivable yet. */
+export function isPreShipPaymentOrder(order: {
+  orderStage?: OrderStage | null;
+  legacySource?: string | null;
+}): boolean {
+  if (order.legacySource === "bitrix") return false;
+  return (
+    order.orderStage != null &&
+    PRE_SHIP_PAYMENT_STAGES.includes(order.orderStage)
+  );
+}
+
+/** Early-stage orders that already have money. Their unpaid remainder stays out of debt. */
+export function buildPreShipPaidOrderWhere(
+  scope?: AnalyticsScope | null,
+  extra?: Prisma.OrderWhereInput,
+): Prisma.OrderWhereInput {
+  const filter: Prisma.OrderWhereInput = {
+    OR: [{ paidAmount: { gt: 0 } }, { creditAmount: { gt: 0 } }],
+    clientId: { not: null },
+    ...extra,
+  };
+  if (scope) applyOrderOwnerScope(filter, scope);
+  return {
+    AND: [
+      { orderStage: { in: [...PRE_SHIP_PAYMENT_STAGES] } },
+      excludeBitrixLegacyWhere(),
+      filter,
+    ],
+  };
+}
+
+/** Canceled / refused orders that still hold client cash. */
+export function buildClosedCashOrderWhere(
+  scope?: AnalyticsScope | null,
+  extra?: Prisma.OrderWhereInput,
+): Prisma.OrderWhereInput {
+  const filter: Prisma.OrderWhereInput = {
+    OR: [{ paidAmount: { gt: 0 } }, { creditAmount: { gt: 0 } }],
+    clientId: { not: null },
+    ...extra,
+  };
+  if (scope) applyOrderOwnerScope(filter, scope);
+  return {
+    AND: [
+      { orderStage: { in: [...CLOSED_CASH_ORDER_STAGES] } },
+      excludeBitrixLegacyWhere(),
+      filter,
+    ],
+  };
+}
+
+/** Pre-ship payments plus canceled/refused cash — all non-receivable client money on orders. */
+export function buildClientAdvanceOrderWhere(
+  scope?: AnalyticsScope | null,
+  extra?: Prisma.OrderWhereInput,
+): Prisma.OrderWhereInput {
+  const filter: Prisma.OrderWhereInput = {
+    OR: [{ paidAmount: { gt: 0 } }, { creditAmount: { gt: 0 } }],
+    clientId: { not: null },
+    ...extra,
+  };
+  if (scope) applyOrderOwnerScope(filter, scope);
+  return {
+    AND: [
+      {
+        orderStage: {
+          in: [...PRE_SHIP_PAYMENT_STAGES, ...CLOSED_CASH_ORDER_STAGES],
+        },
+      },
+      excludeBitrixLegacyWhere(),
+      filter,
+    ],
+  };
 }
 
 function applyOrderOwnerScope(extra: Prisma.OrderWhereInput, scope: AnalyticsScope): void {

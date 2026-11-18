@@ -281,7 +281,7 @@ test("getCardSummary: excludes canceled order debt from KPI", async () => {
   assert.equal(result.kpi.revenue, 800);
 });
 
-test("getCardSummary: canceled credit does not hide live debt", async () => {
+test("getCardSummary: canceled credit reduces live debt; overdue stays on the invoice", async () => {
   const { service } = createService({
     contact: {
       findUnique: mockFn(async () => ({
@@ -336,7 +336,8 @@ test("getCardSummary: canceled credit does not hide live debt", async () => {
 
   const result = await service.getCardSummary("c-cancel-credit", manager("m1"));
   assert.equal(result.kpi.orderCredit, 0);
-  assert.equal(result.kpi.debt, 100);
+  assert.equal(result.kpi.advance, 500);
+  assert.equal(result.kpi.debt, 0);
   assert.equal(result.kpi.overdue, 100);
   assert.equal(result.kpi.revenue, 200);
 });
