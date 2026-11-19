@@ -308,6 +308,50 @@ test("open factory order shows on the board and reduces production", () => {
   assert.equal(bySku.get("PLATE")?.inProduction, 10);
 });
 
+test("a factory line for the kit itself adds to kits already in production", () => {
+  const bolt = {
+    productId: "bolt",
+    sku: "BOLT",
+    name: "Bolt",
+    qtyPerKit: 2,
+    scrapPct: 0,
+    constrains: true,
+    qtyByWarehouse: { pf: 8, gp: 0 },
+  };
+  const plate = {
+    productId: "plate",
+    sku: "PLATE",
+    name: "Plate",
+    qtyPerKit: 1,
+    scrapPct: 0,
+    constrains: true,
+    qtyByWarehouse: { pf: 8, gp: 0 },
+  };
+  const rows = buildKitBoard({
+    coverMonths: 3,
+    monthKeys,
+    warehouses,
+    alreadyInFactoryByPart: { kit: 15, bolt: 20, plate: 10 },
+    kits: [
+      {
+        productId: "kit",
+        sku: "K1",
+        name: "Kit",
+        qtyByWarehouse: { s44: 4 },
+        avgMonthlySold: 10,
+        revenue: 1000,
+        monthlySold: flatMonthly(10),
+        system: "Straumann RC",
+        category: "Абатмент",
+        parts: [bolt, plate],
+      },
+    ],
+  });
+  // Parts cover 10 kits; the kit line adds 15 more.
+  assert.equal(rows[0]?.inProduction, 25);
+  assert.equal(rows[0]?.toProduce, 0);
+});
+
 test("a factory order for one shared part does not mark the whole kit in production", () => {
   const bolt = {
     productId: "bolt",

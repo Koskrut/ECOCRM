@@ -75,6 +75,7 @@ export function allCards(): CardDescriptor[] {
     { href: "/settings/google-maps", icon: Map, ...t.googleMaps, group: "integrations" },
     { href: "/settings/meta-lead-ads", icon: Megaphone, ...t.metaLeadAds, group: "integrations" },
     { href: "/settings/meta-audiences", icon: Users, ...t.metaAudiences, group: "integrations", adminOnly: true },
+    { href: "/settings/meta-conversions", icon: Activity, ...t.metaConversions, group: "integrations", adminOnly: true },
     {
       href: "/settings/marketing",
       icon: BadgeDollarSign,

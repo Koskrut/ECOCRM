@@ -1,13 +1,16 @@
 "use client";
 
 import { useCallback, useEffect } from "react";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { captureAttributionFromLocation } from "@/lib/attribution";
+import { prefetchMetaConversions, reportPromoView } from "@/lib/meta-promo";
 import { ensureTrackingReady, syncGtagConsentFromLocalState, trackEvent } from "@/lib/tracking";
 import { useStoreConfig } from "@/context/StoreConfigContext";
 
 export function TrackingBootstrap() {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const search = searchParams.toString();
   const { config } = useStoreConfig();
   const gaId = config.analytics?.gaId;
   const gtmId = config.analytics?.gtmId;
@@ -29,6 +32,12 @@ export function TrackingBootstrap() {
       window.clearTimeout(retryId);
     };
   }, [fireLandingEvent, gaId, gtmId, metaPixelId]);
+
+  useEffect(() => {
+    void prefetchMetaConversions();
+    const query = search ? `?${search}` : "";
+    void reportPromoView(pathname, query);
+  }, [pathname, search]);
 
   useEffect(() => {
     const onConsentUpdated = () => {

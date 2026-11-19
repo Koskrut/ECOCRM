@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { kyivDayBounds, todayYmdKyiv } from "../../crm-timezone";
 import { ContactsService } from "../contacts.service";
 
 type AnyFn = (...args: any[]) => any;
@@ -108,4 +109,69 @@ test("contacts.list: q with / prefix searches externalCode only", async () => {
   assert.deepEqual(andParts[0], {
     externalCode: { contains: "000000123", mode: "insensitive" },
   });
+});
+
+test("contacts.list: hasCallToday uses the Kyiv calendar day", async () => {
+  const groupBy = mockFn(async () => []);
+  const prisma = {
+    contact: {
+      findMany: mockFn(async () => [
+        {
+          id: "c1",
+          firstName: "A",
+          lastName: "B",
+          phone: null,
+          email: null,
+          company: null,
+          owner: null,
+          createdAt: new Date(),
+        },
+      ]),
+      count: mockFn(async () => 1),
+    },
+    call: { groupBy },
+    callQueueItem: { groupBy: mockFn(async () => []) },
+    order: { findMany: mockFn(async () => []) },
+    clientBalance: { findMany: mockFn(async () => []) },
+  };
+  const service = new ContactsService(prisma as any, {} as any);
+  await service.list({ hasCallToday: true });
+  const todayCall = groupBy.calls
+    .map((args) => args[0])
+    .find((query) => query?.where?.startedAt);
+  const bounds = kyivDayBounds(todayYmdKyiv());
+  assert.ok(todayCall, "call groupBy should filter startedAt");
+  assert.equal(todayCall.where.startedAt.gte.toISOString(), bounds.from.toISOString());
+  assert.equal(todayCall.where.startedAt.lte.toISOString(), bounds.to.toISOString());
+});
+
+test("contacts.list: missed filter is an open callback, not any historical miss", async () => {
+  const queueGroupBy = mockFn(async () => []);
+  const prisma = {
+    contact: {
+      findMany: mockFn(async () => [
+        {
+          id: "c1",
+          firstName: "A",
+          lastName: "B",
+          phone: null,
+          email: null,
+          company: null,
+          owner: null,
+          createdAt: new Date(),
+        },
+      ]),
+      count: mockFn(async () => 1),
+    },
+    call: { groupBy: mockFn(async () => []) },
+    callQueueItem: { groupBy: queueGroupBy },
+    order: { findMany: mockFn(async () => []) },
+    clientBalance: { findMany: mockFn(async () => []) },
+  };
+  const service = new ContactsService(prisma as any, {} as any);
+  await service.list({ hasMissedCall: true });
+  const query = queueGroupBy.calls[0][0];
+  assert.deepEqual(query.where.status, { in: ["PENDING", "CLAIMED"] });
+  assert.deepEqual(query.where.callId, { not: null });
+  assert.equal(query.where.contactId.in[0], "c1");
 });

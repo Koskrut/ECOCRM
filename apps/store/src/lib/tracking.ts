@@ -20,6 +20,7 @@ declare global {
     __suprexGtmLoaded?: boolean;
     __suprexGaLoaded?: boolean;
     __suprexMetaLoaded?: boolean;
+    __suprexMetaPixels?: Set<string>;
     _fbq?: (...args: unknown[]) => void;
     __suprexTrackingConfig?: {
       gaId?: string;
@@ -96,12 +97,20 @@ function ensureGaLoaded() {
 
 function ensureMetaLoaded() {
   const { metaPixelId } = getRuntimeIds();
-  if (!metaPixelId || typeof window === "undefined" || window.__suprexMetaLoaded) return;
+  if (!metaPixelId || typeof window === "undefined" || window.__suprexMetaLoaded) {
+    if (metaPixelId && typeof window !== "undefined") {
+      window.__suprexMetaPixels = window.__suprexMetaPixels ?? new Set<string>();
+      window.__suprexMetaPixels.add(metaPixelId);
+    }
+    return;
+  }
   // Use the canonical Meta Pixel bootstrap (inline snippet). A custom fbq stub
   // can cause fbevents.js to fail to initialize and never register pixels.
   const scriptId = "suprex-meta-pixel";
   if (document.getElementById(scriptId)) {
     window.__suprexMetaLoaded = true;
+    window.__suprexMetaPixels = window.__suprexMetaPixels ?? new Set<string>();
+    window.__suprexMetaPixels.add(metaPixelId);
     return;
   }
 
@@ -134,6 +143,8 @@ fbq('track', 'PageView');
   script.text = inline;
   document.head.appendChild(script);
   window.__suprexMetaLoaded = true;
+  window.__suprexMetaPixels = window.__suprexMetaPixels ?? new Set<string>();
+  window.__suprexMetaPixels.add(metaPixelId);
 }
 
 export function ensureTrackingReady() {
@@ -169,5 +180,57 @@ export function trackEvent(eventName: TrackingEventName, payload: TrackingPayloa
   if (typeof window.fbq === "function") {
     window.fbq("trackCustom", eventName, payload);
   }
+}
+
+function ensureConversionsPixel(pixelId: string) {
+  ensureTrackingReady();
+  if (!canTrackMarketing() || typeof window === "undefined") return;
+  window.__suprexMetaPixels = window.__suprexMetaPixels ?? new Set<string>();
+  if (typeof window.fbq !== "function") {
+    const scriptId = "suprex-meta-conversions-pixel";
+    if (!document.getElementById(scriptId)) {
+      const inline = `
+!function(f,b,e,v,n,t,s)
+{if(f.fbq)return;n=f.fbq=function(){n.callMethod?
+n.callMethod.apply(n,arguments):n.queue.push(arguments)};
+if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';
+n.queue=[];t=b.createElement(e);t.async=!0;
+t.src=v;s=b.getElementsByTagName(e)[0];
+s.parentNode.insertBefore(t,s)}(window, document,'script',
+'https://connect.facebook.net/en_US/fbevents.js');
+fbq('init', '${pixelId.replace(/'/g, "\\'")}');
+      `.trim();
+      const script = document.createElement("script");
+      script.id = scriptId;
+      script.text = inline;
+      document.head.appendChild(script);
+    }
+    window.__suprexMetaPixels.add(pixelId);
+    return;
+  }
+  if (!window.__suprexMetaPixels.has(pixelId)) {
+    window.fbq("init", pixelId);
+    window.__suprexMetaPixels.add(pixelId);
+  }
+}
+
+/** Standard Meta event with the same eventID the server sends. Marketing consent still gates the pixel. */
+export function trackMetaStandard(
+  eventName: "Purchase" | "ViewContent",
+  payload: TrackingPayload,
+  eventId: string,
+  pixelId: string | null | undefined,
+) {
+  if (typeof window === "undefined") return;
+  const id = pixelId?.trim();
+  if (!id || !eventId || !canTrackMarketing()) return;
+  ensureConversionsPixel(id);
+  if (typeof window.fbq !== "function") return;
+  const others = window.__suprexMetaPixels && [...window.__suprexMetaPixels].some((pixel) => pixel !== id);
+  if (others) {
+    window.fbq("trackSingle", id, eventName, payload, { eventID: eventId });
+    return;
+  }
+  window.fbq("track", eventName, payload, { eventID: eventId });
 }
 

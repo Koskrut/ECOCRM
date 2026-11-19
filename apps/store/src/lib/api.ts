@@ -221,6 +221,8 @@ export async function checkout(body: {
     setPasswordToken: string | null;
     alreadyHadAccount: boolean;
     orderPayToken: string;
+    value: number;
+    currency: string;
   }>("/checkout", { method: "POST", body });
 }
 

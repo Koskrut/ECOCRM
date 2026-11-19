@@ -190,6 +190,7 @@ export function ContactCreateForm({
               <option value="Немає зв'язку">{t.statusNoContact}</option>
               <option value="Видалити">{t.statusDelete}</option>
               <option value="Не працює з імплантами">{t.statusNoImplants}</option>
+              <option value="Дублікат">{t.statusDuplicate}</option>
             </select>
           </div>
           <div>

@@ -1,4 +1,6 @@
 import { BadRequestException, Body, Controller, Get, Post, Query, Req } from "@nestjs/common";
+import { notifyMetaPurchase } from "../../integrations/meta-conversions/meta-conversions.events";
+import { MetaConversionsService } from "../../integrations/meta-conversions/meta-conversions.service";
 import { StoreCheckoutPaymentLinkDto } from "./dto/store-checkout-payment-link.dto";
 import { StoreCheckoutService } from "./store-checkout.service";
 import { StoreCheckoutPaymentLinkService } from "./store-checkout-payment-link.service";
@@ -15,6 +17,7 @@ export class StoreCheckoutController {
   constructor(
     private readonly storeCheckout: StoreCheckoutService,
     private readonly storeCheckoutPaymentLink: StoreCheckoutPaymentLinkService,
+    private readonly metaConversions: MetaConversionsService,
   ) {}
 
   /** Повний перелік областей України (не залежить від org-chart). */
@@ -59,6 +62,19 @@ export class StoreCheckoutController {
         autoCreateCustomer: true,
         forContactId: linkedContactId,
       });
+      if (result.currency) {
+        void notifyMetaPurchase(this.metaConversions, {
+          orderId: result.orderId,
+          value: result.value,
+          currency: result.currency,
+          channel: "telegram",
+          phone: dto.phone,
+          email: dto.email,
+          firstName: dto.firstName,
+          lastName: dto.lastName,
+          externalId: result.contactId,
+        });
+      }
       void this.storeCheckout.notifyTelegramWebAppOrder({
         orderId: result.orderId,
         orderNumber: result.orderNumber,
@@ -74,7 +90,21 @@ export class StoreCheckoutController {
       throw new BadRequestException("Telegram checkout requires a signed Mini App session");
     }
 
-    return this.storeCheckout.checkout(dto);
+    const result = await this.storeCheckout.checkout(dto);
+    if (result.currency) {
+      void notifyMetaPurchase(this.metaConversions, {
+        orderId: result.orderId,
+        value: result.value,
+        currency: result.currency,
+        channel: "website",
+        phone: dto.phone,
+        email: dto.email,
+        firstName: dto.firstName,
+        lastName: dto.lastName,
+        externalId: result.contactId,
+      });
+    }
+    return result;
   }
 
   /** Публічне посилання на оплату після оформлення (JWT з відповіді checkout). */

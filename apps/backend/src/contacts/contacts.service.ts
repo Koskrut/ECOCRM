@@ -16,6 +16,7 @@ import { hashPassword } from "../auth/password";
 import { CustomFieldsService } from "../custom-fields/custom-fields.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { normalizePagination } from "../common/pagination";
+import { kyivDayBounds, todayYmdKyiv } from "../crm-timezone";
 import {
   contactDenormalizedFromDefault,
   mapAddressRow,
@@ -36,6 +37,11 @@ import {
   CONTACT_CLIENT_STAGES,
   type ContactClientStage,
 } from "./dto/update-contact-stage.dto";
+import {
+  daysSince,
+  laterDate,
+  orderCountsAsPurchase,
+} from "./contact-signals.util";
 import type {
   ContactCardAnalyticsRange,
   ContactCardAnalyticsResponse,
@@ -269,7 +275,7 @@ export class ContactsService {
     }
 
     const now = new Date();
-    const [visibleOrders, totalCanonicalOrders, lastActivity, openTasksCount, overdueTasksCount, nextTask, balanceRows] =
+    const [visibleOrders, touchOrders, totalCanonicalOrders, lastActivity, lastConversation, lastTelegram, lastMeta, openTasksCount, overdueTasksCount, nextTask, balanceRows] =
       await Promise.all([
         this.prisma.order.findMany({
           where: visibleOrdersWhere,
@@ -287,6 +293,10 @@ export class ContactsService {
             legacySource: true,
           },
         }),
+        this.prisma.order.findMany({
+          where: { OR: [{ clientId: id }, { contactId: id }] },
+          select: { createdAt: true, orderStage: true },
+        }),
         this.prisma.order.count({ where: { clientId: id } }),
         this.prisma.activity.findFirst({
           where: {
@@ -295,6 +305,21 @@ export class ContactsService {
           },
           orderBy: [{ occurredAt: "desc" }, { createdAt: "desc" }],
           select: { occurredAt: true, createdAt: true },
+        }),
+        this.prisma.conversation.findFirst({
+          where: { contactId: id, lastMessageAt: { not: null } },
+          orderBy: { lastMessageAt: "desc" },
+          select: { lastMessageAt: true },
+        }),
+        this.prisma.telegramAccount.findFirst({
+          where: { contactId: id, lastMessageAt: { not: null } },
+          orderBy: { lastMessageAt: "desc" },
+          select: { lastMessageAt: true },
+        }),
+        this.prisma.metaParticipant.findFirst({
+          where: { contactId: id, lastMessageAt: { not: null } },
+          orderBy: { lastMessageAt: "desc" },
+          select: { lastMessageAt: true },
         }),
         this.prisma.task.count({ where: visibleTasksWhere }),
         this.prisma.task.count({
@@ -317,7 +342,10 @@ export class ContactsService {
     const rates = await this.exchangeRates();
     const finance = aggregateClientFinance(visibleOrders, balanceRows, rates);
     let lastOrderAt: Date | null = null;
-    for (const order of visibleOrders) {
+    let anyOrderAt: Date | null = null;
+    for (const order of touchOrders) {
+      if (!anyOrderAt || order.createdAt > anyOrderAt) anyOrderAt = order.createdAt;
+      if (!orderCountsAsPurchase(order)) continue;
       if (!lastOrderAt || order.createdAt > lastOrderAt) lastOrderAt = order.createdAt;
     }
     const netDebt = finance.netDebt;
@@ -325,9 +353,11 @@ export class ContactsService {
     const orderCredit = finance.orderCredit;
 
     const lastActivityAt = lastActivity?.occurredAt ?? lastActivity?.createdAt ?? null;
-    const daysSinceActivity = lastActivityAt
-      ? Math.floor((now.getTime() - new Date(lastActivityAt).getTime()) / (1000 * 60 * 60 * 24))
-      : null;
+    const lastMessageAt = laterDate(
+      laterDate(lastConversation?.lastMessageAt, lastTelegram?.lastMessageAt),
+      lastMeta?.lastMessageAt,
+    );
+    const daysSinceTouch = daysSince(now, laterDate(laterDate(lastActivityAt, anyOrderAt), lastMessageAt));
 
     const hasVisibleScopeGap =
       actor?.role === UserRole.MANAGER && totalCanonicalOrders > visibleOrders.length;
@@ -338,7 +368,7 @@ export class ContactsService {
     if (overdue > 0) riskFlags.push("overdue");
     if (netDebt > 0) riskFlags.push("debt");
     if (overdueTasksCount > 0) riskFlags.push("overdue_tasks");
-    if (daysSinceActivity != null && daysSinceActivity >= 14) riskFlags.push("no_activity");
+    if (daysSinceTouch != null && daysSinceTouch >= 14) riskFlags.push("no_activity");
 
     const badges: string[] = [];
     if (isUnassigned) badges.push("unassigned");
@@ -346,7 +376,7 @@ export class ContactsService {
     if (overdue > 0) badges.push("overdue");
     if (netDebt > 0) badges.push("debt");
     if (overdueTasksCount > 0) badges.push("open_overdue_tasks");
-    if (daysSinceActivity != null && daysSinceActivity >= 14) badges.push("no_activity");
+    if (daysSinceTouch != null && daysSinceTouch >= 14) badges.push("no_activity");
     if (orderCredit > 0) badges.push("credit");
 
     const phones = [contact.phone, ...contact.phones.map((p) => p.phone)]
@@ -900,8 +930,7 @@ export class ContactsService {
     let financeRestrictedIds = new Set<string>();
 
     if (contactIds.length > 0) {
-      const now = new Date();
-      const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const todayBounds = kyivDayBounds(todayYmdKyiv());
       const managerId = actor?.role === UserRole.MANAGER ? actor.id : null;
 
       const [callsToday, missedCalls, financeOrders, balanceRows, hiddenDebt, rates] = await Promise.all([
@@ -910,17 +939,18 @@ export class ContactsService {
           where: {
             contactId: { in: contactIds },
             startedAt: {
-              gte: startOfToday,
-              lte: now,
+              gte: todayBounds.from,
+              lte: todayBounds.to,
             },
           },
           _count: { _all: true },
         }),
-        this.prisma.call.groupBy({
+        this.prisma.callQueueItem.groupBy({
           by: ["contactId"],
           where: {
             contactId: { in: contactIds },
-            status: "MISSED",
+            callId: { not: null },
+            status: { in: ["PENDING", "CLAIMED"] },
           },
           _count: { _all: true },
         }),

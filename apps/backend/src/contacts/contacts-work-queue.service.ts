@@ -146,6 +146,7 @@ export class ContactsWorkQueueService {
           row.nextActionAt,
           signal.lastContactAt,
           signal.overdueFollowupTasks,
+          pr.reasons,
           todayBounds,
         )
       ) {
@@ -261,6 +262,7 @@ export class ContactsWorkQueueService {
           row.nextActionAt,
           signal.lastContactAt,
           signal.overdueFollowupTasks,
+          pr.reasons,
           todayBounds,
         )
       ) {
@@ -352,16 +354,22 @@ export class ContactsWorkQueueService {
 
   /**
    * Still due today: skip a contact already touched today, and skip one whose next
-   * action is after today — unless an overdue follow-up task is still open.
+   * action is after today. Overdue follow-up, churn risk, and dormant clients stay
+   * visible even when the next action was postponed.
    */
   private matchesTodayHorizon(
     nextActionAt: Date | null,
     lastContactAt: Date | null,
     overdueFollowupTasks: number | undefined,
+    reasons: ContactPriorityReasonCode[],
     bounds: { from: Date; to: Date },
   ): boolean {
     if (lastContactAt && lastContactAt >= bounds.from && lastContactAt <= bounds.to) return false;
-    if (nextActionAt && nextActionAt > bounds.to && (overdueFollowupTasks ?? 0) <= 0) return false;
+    const staysDespiteSchedule =
+      (overdueFollowupTasks ?? 0) > 0 ||
+      reasons.includes("AT_RISK") ||
+      reasons.includes("DORMANT");
+    if (nextActionAt && nextActionAt > bounds.to && !staysDespiteSchedule) return false;
     return true;
   }
 

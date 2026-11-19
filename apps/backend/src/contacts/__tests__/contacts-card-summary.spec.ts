@@ -24,6 +24,9 @@ function createService(overrides?: Partial<any>) {
     activity: { findFirst: mockFn() },
     task: { count: mockFn(), findFirst: mockFn() },
     clientBalance: { findMany: mockFn(async () => []) },
+    conversation: { findFirst: mockFn(async () => null) },
+    telegramAccount: { findFirst: mockFn(async () => null) },
+    metaParticipant: { findFirst: mockFn(async () => null) },
     ...overrides,
   };
   const service = new ContactsService(prisma as any);
@@ -511,6 +514,79 @@ test("getCardSummary: empty-state summary for contact with no orders/activity/ta
   assert.equal(result.kpi.overdueTasksCount, 0);
   assert.equal(result.insights.nextStep, null);
   assert.equal(result.insights.financeRestricted, false);
+});
+
+test("getCardSummary: order counts as a touch, canceled order is not the last purchase", async () => {
+  const touch = new Date(Date.now() - 40 * 24 * 60 * 60 * 1000 - 3 * 60 * 60 * 1000);
+  const purchase = new Date(Date.now() - 50 * 24 * 60 * 60 * 1000 - 3 * 60 * 60 * 1000);
+  const canceled = new Date(Date.now() - 1 * 24 * 60 * 60 * 1000 - 3 * 60 * 60 * 1000);
+  const { service } = createService({
+    contact: {
+      findUnique: mockFn(async () => ({
+        id: "c-touch",
+        ownerId: "m1",
+        firstName: "Order",
+        lastName: "Touch",
+        status: null,
+        clientType: null,
+        city: null,
+        region: null,
+        email: null,
+        phone: "+380111111111",
+        companyId: null,
+        company: null,
+        owner: { id: "m1", fullName: "Manager" },
+        phones: [],
+      })),
+    },
+    order: {
+      findMany: mockFn(async () => [
+        {
+          createdAt: canceled,
+          totalAmount: 100,
+          returnAdjustmentAmount: 0,
+          debtAmount: 0,
+          creditAmount: 0,
+          paidAmount: 0,
+          currency: "USD",
+          paymentDueDate: null,
+          financialStatus: "CLOSED",
+          orderStage: "CANCELED",
+          legacySource: null,
+        },
+        {
+          createdAt: purchase,
+          totalAmount: 200,
+          returnAdjustmentAmount: 0,
+          debtAmount: 0,
+          creditAmount: 0,
+          paidAmount: 0,
+          currency: "USD",
+          paymentDueDate: null,
+          financialStatus: "PAID",
+          orderStage: "COMPLETED",
+          legacySource: null,
+        },
+      ]),
+      count: mockFn(async () => 2),
+    },
+    activity: {
+      findFirst: mockFn(async () => ({
+        occurredAt: touch,
+        createdAt: touch,
+      })),
+    },
+    task: {
+      count: mockFn(async () => 0),
+      findFirst: mockFn(async () => null),
+    },
+  });
+
+  const result = await service.getCardSummary("c-touch", manager("m1"));
+  assert.equal(result.kpi.lastOrderAt, purchase.toISOString());
+  assert.equal(result.kpi.lastActivityAt, touch.toISOString());
+  assert.equal(result.insights.riskFlags.includes("no_activity"), false);
+  assert.equal(result.contact.badges.includes("no_activity"), false);
 });
 
 test("getCardAnalytics: contact scope returns series and top products", async () => {

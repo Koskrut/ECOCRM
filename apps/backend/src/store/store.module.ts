@@ -20,6 +20,7 @@ import { StoreCheckoutService } from "./checkout/store-checkout.service";
 import { StoreLeadsController } from "./leads/store-leads.controller";
 import { StoreLeadsService } from "./leads/store-leads.service";
 import { MarketingModule } from "../marketing/marketing.module";
+import { MetaConversionsModule } from "../integrations/meta-conversions/meta-conversions.module";
 import { StoreConfigController } from "./store-config.controller";
 import { StoreTelegramLinkService } from "./telegram/store-telegram-link.service";
 import { StoreTelegramWebAppController } from "./telegram/store-telegram-webapp.controller";
@@ -36,6 +37,7 @@ import { StoreTelegramWebAppService } from "./telegram/store-telegram-webapp.ser
     forwardRef(() => OrdersModule),
     PaymentRequestsModule,
     MarketingModule,
+    MetaConversionsModule,
   ],
   controllers: [
     StoreConfigController,

@@ -20,6 +20,7 @@ import { formatPhoneDisplay, formatUaPhoneInput } from "@/lib/formatPhone";
 import { Button } from "@/components/Button";
 import { useCart } from "@/context/CartContext";
 import { useTelegramWebApp } from "@/context/TelegramWebAppContext";
+import { prefetchMetaConversions, trackStorePurchase } from "@/lib/meta-promo";
 import { assignStorePath, isTelegramMiniAppDocument } from "@/lib/telegram-nav";
 
 const inputClass =
@@ -58,6 +59,10 @@ export default function CheckoutPage() {
     orderNumber: string;
     href: string;
   } | null>(null);
+
+  useEffect(() => {
+    void prefetchMetaConversions();
+  }, []);
 
   const [loggedIn, setLoggedIn] = useState(false);
   const [shippingProfiles, setShippingProfiles] = useState<ShippingProfile[]>([]);
@@ -490,6 +495,14 @@ export default function CheckoutPage() {
         sessionId,
       });
       applyCart({ id: null, uahPerUsd: 41, items: [], subtotal: 0 });
+      if (result.currency) {
+        await trackStorePurchase({
+          orderId: result.orderId,
+          value: result.value,
+          currency: result.currency,
+          channel: isTelegramCheckout ? "telegram" : "website",
+        });
+      }
       const q = new URLSearchParams();
       q.set("orderNumber", result.orderNumber);
       if (result.setPasswordToken) q.set("setPasswordToken", result.setPasswordToken);

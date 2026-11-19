@@ -113,13 +113,9 @@ async function addKitToPackingRequest(kitProductId: string, qty: number) {
   return list.id;
 }
 
-async function addKitPartsToFactoryRequest(row: KitBoardRow, kitQty: number) {
-  const lines = row.parts
-    .filter((part) => part.constrains && part.qtyPerKit > 0)
-    .map((part) => ({
-      partProductId: part.productId,
-      qtyOrdered: Math.max(1, Math.ceil(kitQty * part.qtyPerKit)),
-    }));
+async function addLinesToFactoryDraft(
+  lines: Array<{ partProductId: string; qtyOrdered: number }>,
+) {
   if (lines.length === 0) {
     throw new Error(strings.planning.kitBoard.noParts);
   }
@@ -134,6 +130,20 @@ async function addKitPartsToFactoryRequest(row: KitBoardRow, kitQty: number) {
   }
   const created = await planningApi.createFactoryOrder({ lines });
   return created.id;
+}
+
+async function addKitPartsToFactoryRequest(row: KitBoardRow, kitQty: number) {
+  const lines = row.parts
+    .filter((part) => part.constrains && part.qtyPerKit > 0)
+    .map((part) => ({
+      partProductId: part.productId,
+      qtyOrdered: Math.max(1, Math.ceil(kitQty * part.qtyPerKit)),
+    }));
+  return addLinesToFactoryDraft(lines);
+}
+
+async function addKitToFactoryRequest(kitProductId: string, qty: number) {
+  return addLinesToFactoryDraft([{ partProductId: kitProductId, qtyOrdered: qty }]);
 }
 
 export function KitBoardPanel() {
@@ -158,6 +168,7 @@ export function KitBoardPanel() {
   const [requestsKey, setRequestsKey] = useState(0);
   const [activeQty, setActiveQty] = useState<string | null>(null);
   const [pending, setPending] = useState<PendingAdd | null>(null);
+  const [produceTarget, setProduceTarget] = useState<"parts" | "kit">("parts");
   const [confirmQty, setConfirmQty] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [mainTab, setMainTab] = useState<MainTab>("board");
@@ -308,6 +319,8 @@ export function KitBoardPanel() {
     if (!(next.defaultQty > 0)) return;
     setPending(next);
     setConfirmQty(String(next.defaultQty));
+    const canParts = next.row.parts.some((part) => part.constrains && part.qtyPerKit > 0);
+    setProduceTarget(canParts ? "parts" : "kit");
     setActiveQty(null);
     setError(null);
   };
@@ -325,7 +338,8 @@ export function KitBoardPanel() {
       setError(t.qtyInvalid);
       return;
     }
-    const qty = pending.kind === "produce" ? roundUpToTen(entered) : entered;
+    const qty =
+      pending.kind === "produce" && produceTarget === "parts" ? roundUpToTen(entered) : entered;
     // Over board-plan qty is allowed after the dialog warning (sales-cover horizon).
     setSubmitting(true);
     setError(null);
@@ -333,6 +347,9 @@ export function KitBoardPanel() {
       if (pending.kind === "pack") {
         await addKitToPackingRequest(pending.row.productId, qty);
         setToast(t.addedPack(pending.row.sku, qty));
+      } else if (produceTarget === "kit") {
+        await addKitToFactoryRequest(pending.row.productId, qty);
+        setToast(t.addedProduceKit(pending.row.sku, qty));
       } else {
         await addKitPartsToFactoryRequest(pending.row, qty);
         setToast(t.addedProduce(pending.row.sku, qty));
@@ -742,9 +759,11 @@ export function KitBoardPanel() {
         <ConfirmDialog
           pending={pending}
           qty={confirmQty}
+          produceTarget={produceTarget}
           coverMonths={board?.coverMonths ?? 3}
           submitting={submitting}
           onQtyChange={setConfirmQty}
+          onProduceTargetChange={setProduceTarget}
           onCancel={() => setPending(null)}
           onConfirm={() => void submitRequest()}
         />
@@ -1040,17 +1059,21 @@ function boardPackCap(row: KitBoardRow): number {
 function ConfirmDialog({
   pending,
   qty,
+  produceTarget,
   coverMonths,
   submitting,
   onQtyChange,
+  onProduceTargetChange,
   onCancel,
   onConfirm,
 }: {
   pending: PendingAdd;
   qty: string;
+  produceTarget: "parts" | "kit";
   coverMonths: number;
   submitting: boolean;
   onQtyChange: (value: string) => void;
+  onProduceTargetChange: (value: "parts" | "kit") => void;
   onCancel: () => void;
   onConfirm: () => void;
 }) {
@@ -1061,16 +1084,16 @@ function ConfirmDialog({
   const packCap = isPack ? boardPackCap(pending.row) : 0;
   const overPlan =
     isPack && packCap > 0 && Number.isFinite(qtyNum) && qtyNum > packCap;
-  const partsHint =
-    !isPack && pending.row.parts.some((p) => p.constrains)
-      ? t.confirmProduceParts(
-          pending.row.parts
-            .filter((p) => p.constrains)
-            .map((p) => p.sku)
-            .slice(0, 6)
-            .join(", "),
-        )
-      : null;
+  const constrainingParts = pending.row.parts.filter((p) => p.constrains && p.qtyPerKit > 0);
+  const canExplodeParts = constrainingParts.length > 0;
+  const partsHint = canExplodeParts
+    ? t.confirmProduceParts(
+        constrainingParts
+          .map((p) => p.sku)
+          .slice(0, 6)
+          .join(", "),
+      )
+    : null;
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -1107,7 +1130,39 @@ function ConfirmDialog({
             {t.confirmAlreadyInProduction(pending.row.inProduction ?? 0)}
           </p>
         ) : null}
-        {partsHint ? <p className="mt-1 text-xs text-zinc-500">{partsHint}</p> : null}
+        {!isPack ? (
+          <fieldset className="mt-4 space-y-2">
+            <legend className="text-sm font-medium text-zinc-800">{t.confirmProduceAs}</legend>
+            <label className={`flex items-start gap-2 text-sm ${canExplodeParts ? "text-zinc-800" : "text-zinc-400"}`}>
+              <input
+                type="radio"
+                name="produce-target"
+                className="mt-1"
+                checked={produceTarget === "parts"}
+                disabled={!canExplodeParts || submitting}
+                onChange={() => onProduceTargetChange("parts")}
+              />
+              <span>
+                {t.confirmProducePartsMode}
+                {partsHint ? <span className="mt-0.5 block text-xs text-zinc-500">{partsHint}</span> : null}
+              </span>
+            </label>
+            <label className="flex items-start gap-2 text-sm text-zinc-800">
+              <input
+                type="radio"
+                name="produce-target"
+                className="mt-1"
+                checked={produceTarget === "kit"}
+                disabled={submitting}
+                onChange={() => onProduceTargetChange("kit")}
+              />
+              <span>
+                {t.confirmProduceKitMode}
+                <span className="mt-0.5 block text-xs text-zinc-500">{t.confirmProduceKitHint}</span>
+              </span>
+            </label>
+          </fieldset>
+        ) : null}
         <label className="mt-4 block text-sm text-zinc-700">
           {t.confirmQtyLabel}
           <input

@@ -185,6 +185,7 @@ export function ContactIdentityFields({
           { value: "Немає зв'язку", label: createT.statusNoContact },
           { value: "Видалити", label: createT.statusDelete },
           { value: "Не працює з імплантами", label: createT.statusNoImplants },
+          { value: "Дублікат", label: createT.statusDuplicate },
         ]}
         disabled={saving}
         onSave={async (next) => onPatch({ status: next?.trim() || null })}

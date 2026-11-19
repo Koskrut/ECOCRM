@@ -26,7 +26,7 @@ export class DeliveryDataDto {
 }
 
 export class CreateOrderDto {
-  /** Optional when request is authenticated; then ownerId = current user. */
+  /** Optional. Authenticated CRM creates default to the client's manager, then the current user. */
   @IsOptional()
   @IsString()
   ownerId?: string;

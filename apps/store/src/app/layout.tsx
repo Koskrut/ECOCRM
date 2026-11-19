@@ -81,7 +81,9 @@ export default function RootLayout({
         <StoreConfigProvider>
           <TelegramWebAppProvider>
             <CartProvider>
-              <TrackingBootstrap />
+              <Suspense fallback={null}>
+                <TrackingBootstrap />
+              </Suspense>
               <TelegramShell>
                 <Suspense fallback={<header className="h-16 border-b border-[var(--border)] bg-white" />}>
                   <Header />

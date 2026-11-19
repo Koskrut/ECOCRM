@@ -1,8 +1,7 @@
 "use client";
 
 import Script from "next/script";
-import { usePathname } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
 declare global {
   interface Window {
@@ -15,9 +14,7 @@ function isValidPixelId(id: string): boolean {
 }
 
 export function MetaPixel() {
-  const pathname = usePathname();
   const [pixelId, setPixelId] = useState<string | null>(null);
-  const prevPathRef = useRef<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -39,17 +36,6 @@ export function MetaPixel() {
     };
   }, []);
 
-  useEffect(() => {
-    if (!pixelId || typeof window === "undefined" || !window.fbq) return;
-    if (prevPathRef.current === null) {
-      prevPathRef.current = pathname;
-      return;
-    }
-    if (prevPathRef.current === pathname) return;
-    prevPathRef.current = pathname;
-    window.fbq("track", "PageView");
-  }, [pathname, pixelId]);
-
   if (!pixelId) return null;
 
   const inline = `
@@ -62,7 +48,6 @@ t.src=v;s=b.getElementsByTagName(e)[0];
 s.parentNode.insertBefore(t,s)}(window, document,'script',
 'https://connect.facebook.net/en_US/fbevents.js');
 fbq('init', '${pixelId}');
-fbq('track', 'PageView');
   `.trim();
 
   return (

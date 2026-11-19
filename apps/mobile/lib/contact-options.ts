@@ -47,6 +47,7 @@ export const CONTACT_STATUS_OPTIONS: SelectOption[] = [
   { value: "Немає зв'язку", label: "Немає зв'язку" },
   { value: "Видалити", label: "Видалити" },
   { value: "Не працює з імплантами", label: "Не працює з імплантами" },
+  { value: "Дублікат", label: "Дублікат" },
 ];
 
 export const CONTACT_CLIENT_STAGES: ContactClientStage[] = [

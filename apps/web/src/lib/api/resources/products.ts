@@ -168,8 +168,18 @@ export const productsApi = {
     page?: number;
     pageSize?: number;
   }): Promise<ProductsCatalogResponse> => {
+    return productsApi.listByKinds({ ...params, kinds: ["PART"] });
+  },
+
+  /** Active products of the given kinds. Production requests use PART and KIT. */
+  listByKinds: async (params: {
+    kinds: Array<"KIT" | "PART" | "OTHER">;
+    search?: string;
+    page?: number;
+    pageSize?: number;
+  }): Promise<ProductsCatalogResponse> => {
     const qs = new URLSearchParams();
-    qs.set("kind", "PART");
+    qs.set("kind", params.kinds.join(","));
     if (params.search != null && params.search !== "") qs.set("search", params.search);
     if (params.page != null) qs.set("page", String(params.page));
     if (params.pageSize != null) qs.set("pageSize", String(params.pageSize));

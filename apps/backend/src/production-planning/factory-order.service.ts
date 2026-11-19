@@ -51,6 +51,13 @@ export type FactoryLineInput = {
   dueAt?: string | null;
 };
 
+const factoryProductSelect = {
+  id: true,
+  sku: true,
+  name: true,
+  kind: true,
+} as const;
+
 @Injectable()
 export class FactoryOrderService {
   constructor(
@@ -63,7 +70,7 @@ export class FactoryOrderService {
   private orderInclude() {
     return {
       lines: {
-        include: { partProduct: { select: { id: true, sku: true, name: true } } },
+        include: { partProduct: { select: factoryProductSelect } },
         orderBy: { qtyOrdered: "desc" as const },
       },
     };
@@ -76,7 +83,7 @@ export class FactoryOrderService {
       include: {
         _count: { select: { lines: true } },
         lines: {
-          include: { partProduct: { select: { id: true, sku: true, name: true } } },
+          include: { partProduct: { select: factoryProductSelect } },
         },
       },
     });
@@ -117,7 +124,7 @@ export class FactoryOrderService {
       },
       include: {
         lines: {
-          include: { partProduct: { select: { id: true, sku: true, name: true } } },
+          include: { partProduct: { select: factoryProductSelect } },
         },
       },
       orderBy: { dueAt: "asc" },
@@ -131,6 +138,7 @@ export class FactoryOrderService {
       partProductId: string;
       sku: string;
       name: string;
+      kind: string;
       qtyOrdered: number;
       qtyReceived: number;
       dueAt: string;
@@ -155,6 +163,7 @@ export class FactoryOrderService {
           partProductId: line.partProductId,
           sku: line.partProduct.sku,
           name: line.partProduct.name,
+          kind: line.partProduct.kind,
           qtyOrdered: line.qtyOrdered,
           qtyReceived: line.qtyReceived,
           dueAt: effective.toISOString(),
@@ -326,13 +335,7 @@ export class FactoryOrderService {
     if (partIds.length !== normalized.length) {
       throw new BadRequestException("Duplicate partProductId in factory order lines");
     }
-    const parts = await this.prisma.product.findMany({
-      where: { id: { in: partIds }, kind: { not: ProductKind.KIT } },
-      select: { id: true },
-    });
-    if (parts.length !== partIds.length) {
-      throw new BadRequestException("One or more partProductId values are invalid or are kits");
-    }
+    await this.assertFactoryProducts(partIds);
 
     const order = await this.prisma.factoryOrder.create({
       data: {
@@ -389,14 +392,7 @@ export class FactoryOrderService {
       throw new BadRequestException("Factory order must keep at least one line");
     }
 
-    const partIds = [...byPart.keys()];
-    const parts = await this.prisma.product.findMany({
-      where: { id: { in: partIds }, kind: { not: ProductKind.KIT } },
-      select: { id: true },
-    });
-    if (parts.length !== partIds.length) {
-      throw new BadRequestException("One or more partProductId values are invalid or are kits");
-    }
+    await this.assertFactoryProducts([...byPart.keys()]);
 
     const existingByPart = new Map(order.lines.map((l) => [l.partProductId, l]));
     const ops = [];
@@ -462,11 +458,7 @@ export class FactoryOrderService {
       return this.get(id);
     }
 
-    const part = await this.prisma.product.findFirst({
-      where: { id: input.partProductId, kind: { not: ProductKind.KIT } },
-      select: { id: true },
-    });
-    if (!part) throw new BadRequestException("partProductId is invalid or is a kit");
+    await this.assertFactoryProducts([input.partProductId]);
 
     const dueAt =
       input.dueAt != null && String(input.dueAt).trim() !== ""
@@ -662,6 +654,7 @@ export class FactoryOrderService {
     const rows = order.lines.map((l) => ({
       sku: l.partProduct.sku,
       name: l.partProduct.name,
+      kind: l.partProduct.kind,
       qtyOrdered: l.qtyOrdered,
       qtyReceived: l.qtyReceived,
       lineDueAt: effectiveLineDueAt(l.dueAt, order.dueAt).toISOString().slice(0, 10),
@@ -677,6 +670,19 @@ export class FactoryOrderService {
       type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       disposition: `attachment; filename="factory-order-${order.id.slice(0, 8)}.xlsx"`,
     });
+  }
+
+  /** Lines may be parts or kits. Rejects ids that are not products. */
+  private async assertFactoryProducts(ids: string[]) {
+    const unique = [...new Set(ids)];
+    if (unique.length === 0) return;
+    const found = await this.prisma.product.findMany({
+      where: { id: { in: unique } },
+      select: { id: true },
+    });
+    if (found.length !== unique.length) {
+      throw new BadRequestException("One or more products are invalid");
+    }
   }
 
   private async getOpenPoQtyByPart(): Promise<Map<string, number>> {

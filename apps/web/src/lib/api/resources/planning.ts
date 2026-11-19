@@ -543,7 +543,7 @@ export type FactoryOrderLine = {
   dueAt?: string | null;
   effectiveDueAt?: string;
   trackingStatus?: FactoryLineTrackingStatus;
-  partProduct: { id: string; sku: string; name: string };
+  partProduct: { id: string; sku: string; name: string; kind?: "KIT" | "PART" | "OTHER" };
 };
 
 export type FactoryOrder = {
@@ -569,6 +569,7 @@ export type FactoryTrackingRow = {
   partProductId: string;
   sku: string;
   name: string;
+  kind?: "KIT" | "PART" | "OTHER";
   qtyOrdered: number;
   qtyReceived: number;
   dueAt: string;

@@ -271,3 +271,40 @@ test("getWorkQueue horizon=today keeps only contacts still due today", async () 
     OR: [{ ownerId: "mgr-1" }, { ownerId: null }],
   });
 });
+
+test("getWorkQueue horizon=today keeps postponed at-risk contacts", async () => {
+  const now = new Date();
+  const postponed = new Date(now.getTime() + 36 * 60 * 60 * 1000);
+  const touchedToday = new Date(now.getTime() - 30 * 60 * 1000);
+  const row = {
+    firstName: "Ivan",
+    lastName: "Petrov",
+    phone: "+380501112233",
+    email: null,
+    ownerId: "mgr-1",
+    status: "Клієнт",
+    clientStage: "AT_RISK",
+    nextActionType: "CALL",
+    marketingCallOptOut: false,
+    createdAt: new Date("2026-08-01T10:00:00Z"),
+    owner: { fullName: "Manager" },
+    company: { name: "Clinic A" },
+  };
+  const { service } = buildService({
+    scoreReasons: ["AT_RISK"],
+    findMany: async () => [
+      { ...row, id: "postponed", nextActionAt: postponed },
+      { ...row, id: "touched", nextActionAt: postponed },
+    ],
+    signals: new Map([
+      ["postponed", { lastContactAt: new Date("2026-09-01T10:00:00Z") }],
+      ["touched", { lastContactAt: touchedToday }],
+    ]),
+  });
+
+  const result = await service.getWorkQueue({ horizon: "today", preset: "risk-or-dormant" }, manager());
+  assert.deepEqual(
+    result.items.map((item) => item.contact.id),
+    ["postponed"],
+  );
+});

@@ -18,7 +18,7 @@ import type { Request } from "express";
 import { Public } from "../auth/public.decorator";
 import { FileInterceptor } from "@nestjs/platform-express";
 import type { Response } from "express";
-import { Prisma } from "@prisma/client";
+import { Prisma, ProductKind } from "@prisma/client";
 import { createDriveAuth, getFileStream } from "./drive/google-drive.client";
 import { SettingsService } from "../settings/settings.service";
 import { normalizePagination } from "../common/pagination";
@@ -38,9 +38,20 @@ type ProductsQuery = {
   page?: string;
   pageSize?: string;
   catalog?: string;
-  /** PART = BOM/factory materials (outside sales catalog). */
+  /** PART, KIT, OTHER, or a comma list such as PART,KIT. */
   kind?: string;
 };
+
+function parseProductKindFilter(raw: string | undefined): ProductKind[] | null {
+  if (!raw?.trim()) return null;
+  const allowed = new Set<string>(Object.values(ProductKind));
+  const tokens = raw
+    .split(",")
+    .map((token) => token.trim().toUpperCase())
+    .filter(Boolean);
+  if (tokens.length === 0 || tokens.some((token) => !allowed.has(token))) return null;
+  return [...new Set(tokens)] as ProductKind[];
+}
 
 @Controller("/products")
 export class ProductsController {
@@ -63,11 +74,10 @@ export class ProductsController {
     });
 
     const useCatalog = query.catalog === "1" || query.catalog === "true";
-    const kind = query.kind?.trim().toUpperCase();
-    const { items, total } =
-      kind === "PART"
-        ? await this.productStore.listParts(query.search, pagination)
-        : useCatalog
+    const kinds = parseProductKindFilter(query.kind);
+    const { items, total } = kinds
+      ? await this.productStore.listByKinds(kinds, query.search, pagination)
+      : useCatalog
           ? await this.productStore.listCatalog(query.search, pagination)
           : await this.productStore.listActive(query.search, undefined, pagination);
 

@@ -576,7 +576,8 @@ export function buildKitBoard(input: {
   /** Open packing-list qty by kit — reserved from the pack pool before allocating toPack. */
   alreadyInRequestByKit?: Map<string, number> | Record<string, number>;
   /**
-   * Outstanding factory qty by part (DRAFT + OPEN + PARTIAL, ordered − received).
+   * Outstanding factory qty by product (DRAFT + OPEN + PARTIAL, ordered − received).
+   * Keys are part ids and, when the line is the kit itself, kit ids.
    * CLOSED and CANCELLED orders are omitted.
    */
   alreadyInFactoryByPart?: Map<string, number> | Record<string, number>;
@@ -645,7 +646,9 @@ export function buildKitBoard(input: {
     // during the factory lead: parts ordered today arrive only after that wait.
     // Finished kits + parts on 39/40 already count; a surplus above the target
     // reduces the order. Open factory qty is not ordered again.
-    const inProduction = kitsInProduction(kit.parts, input.alreadyInFactoryByPart);
+    const inProduction =
+      kitsInProduction(kit.parts, input.alreadyInFactoryByPart) +
+      openFactoryQty(input.alreadyInFactoryByPart, kit.productId);
     const produceTarget =
       kit.avgMonthlySold > 0
         ? Math.ceil(kit.avgMonthlySold * (coverMonths + leadMonths))

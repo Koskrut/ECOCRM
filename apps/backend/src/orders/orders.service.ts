@@ -73,6 +73,7 @@ import {
 } from "./order-stage-prerequisites";
 import { validateOrderStageTransition } from "./order-stage-transitions";
 import { assertOrderReadyForCompletion, getOrderCompletionBlockers } from "./order-completion-guards";
+import { defaultOrderOwnerFromClient } from "./order-owner-from-client";
 import { computeFxVarianceSnapshot } from "./fx-variance.utils";
 import {
   computeOrderStockReadiness,
@@ -172,6 +173,17 @@ export class OrdersService {
   private num(v: unknown, fallback = 0) {
     const n = typeof v === "string" ? Number(v) : (v as number);
     return Number.isFinite(n) ? n : fallback;
+  }
+
+  private async contactOwnerId(
+    contactId: string,
+    db: Prisma.TransactionClient | PrismaService,
+  ): Promise<string | null> {
+    const contact = await db.contact.findUnique({
+      where: { id: contactId },
+      select: { ownerId: true },
+    });
+    return contact?.ownerId ?? null;
   }
 
   private async enforceDeferredRiskGate(input: {
@@ -1090,10 +1102,23 @@ export class OrdersService {
 
   async create(dto: CreateOrderDto, actor?: AuthUser, tx?: Prisma.TransactionClient) {
     assertWarehouseOrderMutation(actor, "create order");
-    // When authenticated, use current user as owner; otherwise require body (e.g. API).
-    const ownerId = actor?.id ?? dto.ownerId ?? undefined;
-    if (!ownerId) throw new BadRequestException("ownerId is required");
+    // Authenticated CRM orders default to the client's manager, then the current user.
+    // Store checkout passes an explicit owner and no actor; that owner is kept.
     const orderSource = dto.orderSource ?? OrderSource.CRM;
+    let ownerId = actor?.id ?? dto.ownerId ?? undefined;
+    if (actor && orderSource !== OrderSource.STORE) {
+      const clientKey = dto.clientId ?? dto.contactId ?? null;
+      if (clientKey) {
+        const clientOwnerId = await this.contactOwnerId(clientKey, tx ?? this.prisma);
+        const resolved = defaultOrderOwnerFromClient({
+          actor,
+          clientOwnerId,
+          currentOwnerId: actor.id,
+        });
+        if (resolved) ownerId = resolved;
+      }
+    }
+    if (!ownerId) throw new BadRequestException("ownerId is required");
     let currency = "USD";
     const discountAmount = this.num(dto.discountAmount, 0);
     const paidAmount = 0;
@@ -1231,6 +1256,7 @@ export class OrdersService {
     const before = this.mapToEntity(existing as unknown as Record<string, unknown>);
 
     const data: Prisma.OrderUpdateInput = {};
+    let autoAssignedOwnerId: string | null = null;
 
     // relations
     // FK поля в Prisma "checked update" нельзя писать напрямую (companyId/clientId/contactId),
@@ -1257,6 +1283,17 @@ export class OrdersService {
       }
       if (nextOwnerId) {
         data.owner = { connect: { id: nextOwnerId } };
+      }
+    } else if ("clientId" in dto && dto.clientId && dto.clientId !== existing.clientId) {
+      const clientOwnerId = await this.contactOwnerId(dto.clientId, this.prisma);
+      const resolved = defaultOrderOwnerFromClient({
+        actor: actor ?? null,
+        clientOwnerId,
+        currentOwnerId: existing.ownerId,
+      });
+      if (resolved && resolved !== existing.ownerId) {
+        data.owner = { connect: { id: resolved } };
+        autoAssignedOwnerId = resolved;
       }
     }
     if ("bankAccountId" in dto) {
@@ -1361,6 +1398,9 @@ export class OrdersService {
     for (const k of keys) {
       if (b[k] !== n[k]) changes[k] = { previous: b[k], current: n[k] };
     }
+    if (autoAssignedOwnerId && b.ownerId !== n.ownerId) {
+      changes.ownerId = { previous: b.ownerId, current: n.ownerId };
+    }
     this.workflowEmitter.emitRecordUpdated(
       CustomFieldEntityType.ORDER,
       id,
@@ -1368,15 +1408,16 @@ export class OrdersService {
       Object.keys(changes).length ? changes : undefined,
     );
 
+    const notifiedOwnerId =
+      "ownerId" in dto && dto.ownerId ? dto.ownerId : autoAssignedOwnerId;
     if (
-      "ownerId" in dto &&
-      dto.ownerId &&
-      dto.ownerId !== existing.ownerId &&
-      dto.ownerId !== actor?.id
+      notifiedOwnerId &&
+      notifiedOwnerId !== existing.ownerId &&
+      notifiedOwnerId !== actor?.id
     ) {
       void this.saleAssignedNotifier.notifyIfNeeded({
         orderId: id,
-        newOwnerId: dto.ownerId,
+        newOwnerId: notifiedOwnerId,
         actorId: actor?.id,
       });
     }

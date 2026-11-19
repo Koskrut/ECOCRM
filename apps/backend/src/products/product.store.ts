@@ -1353,10 +1353,19 @@ export class ProductStore {
     search: string | undefined,
     pagination: Pagination,
   ): Promise<ProductListResultWithStockByWarehouse> {
+    return this.listByKinds([ProductKind.PART], search, pagination);
+  }
+
+  /** Active products of the given kinds. Used by the production request picker. */
+  public async listByKinds(
+    kinds: ProductKind[],
+    search: string | undefined,
+    pagination: Pagination,
+  ): Promise<ProductListResultWithStockByWarehouse> {
     const hasSearch = search && search.trim().length > 0;
     const baseWhere: Prisma.ProductWhereInput = {
       isActive: true,
-      kind: ProductKind.PART,
+      kind: { in: [...new Set(kinds)] },
     };
     if (hasSearch) {
       const term = search!.trim();

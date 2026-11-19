@@ -475,6 +475,22 @@ export class StoreCheckoutService {
       { expiresInSeconds: 60 * 60 * 24 * 14 },
     );
 
+    let value = 0;
+    let currency = "";
+    try {
+      const priced = await this.prisma.order.findUnique({
+        where: { id: order.id },
+        select: { totalAmount: true, currency: true },
+      });
+      if (priced) {
+        value = Number(priced.totalAmount ?? 0);
+        currency = (priced.currency || "").trim();
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.warn(`store checkout price read failed for ${order.id}: ${message}`);
+    }
+
     return {
       orderId: order.id,
       orderNumber: order.orderNumber,
@@ -482,6 +498,8 @@ export class StoreCheckoutService {
       setPasswordToken,
       alreadyHadAccount,
       orderPayToken,
+      value,
+      currency,
     };
   }
 

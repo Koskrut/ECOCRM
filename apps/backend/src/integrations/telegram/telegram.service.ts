@@ -40,6 +40,8 @@ import {
 import { ConversationsService } from "./conversations.service";
 import { TelegramClientBotService } from "./telegram-client-bot.service";
 import { TelegramInboxNotifierService } from "./telegram-inbox-notifier.service";
+import { maybeTrackStartContact, promoStartLabel } from "../meta-conversions/meta-conversions.events";
+import { MetaConversionsService } from "../meta-conversions/meta-conversions.service";
 import { TelegramManagerBotService } from "./telegram-manager-bot.service";
 
 function normalizePhoneDigits(phone: string): string {
@@ -83,6 +85,9 @@ export class TelegramService {
     @Optional()
     @Inject(forwardRef(() => TelegramManagerBotService))
     private readonly managerBot?: TelegramManagerBotService,
+    @Optional()
+    @Inject(MetaConversionsService)
+    private readonly metaConversions?: MetaConversionsService,
   ) {}
 
   /**
@@ -391,30 +396,38 @@ export class TelegramService {
 
       let contactId: string | null = account.contactId;
       let leadId: string | null = account.leadId;
-      if (parsed.text && parsed.text.startsWith("/start ")) {
-        const token = parsed.text.slice(7).trim();
-        if (token) {
-          const linkRow = await this.prisma.storeTelegramLinkToken.findUnique({
-            where: { token },
-          });
-          if (linkRow && linkRow.expiresAt >= now) {
-            await this.prisma.$transaction([
-              this.prisma.telegramAccount.updateMany({
-                where: { telegramChatId: parsed.chatId },
-                data: { contactId: linkRow.contactId, leadId: null },
-              }),
-              this.prisma.conversation.updateMany({
-                where: { telegramChatId: parsed.chatId },
-                data: { contactId: linkRow.contactId, leadId: null },
-              }),
-            ]);
-            await this.prisma.storeTelegramLinkToken
-              .delete({ where: { id: linkRow.id } })
-              .catch(() => {});
-            contactId = linkRow.contactId;
-            leadId = null;
-          }
+      const startLabel = promoStartLabel(parsed.text) ?? "";
+      if (startLabel) {
+        const linkRow = await this.prisma.storeTelegramLinkToken.findUnique({
+          where: { token: startLabel },
+        });
+        if (linkRow && linkRow.expiresAt >= now) {
+          await this.prisma.$transaction([
+            this.prisma.telegramAccount.updateMany({
+              where: { telegramChatId: parsed.chatId },
+              data: { contactId: linkRow.contactId, leadId: null },
+            }),
+            this.prisma.conversation.updateMany({
+              where: { telegramChatId: parsed.chatId },
+              data: { contactId: linkRow.contactId, leadId: null },
+            }),
+          ]);
+          await this.prisma.storeTelegramLinkToken
+            .delete({ where: { id: linkRow.id } })
+            .catch(() => {});
+          contactId = linkRow.contactId;
+          leadId = null;
         }
+        void maybeTrackStartContact(this.metaConversions, {
+          text: parsed.text,
+          updateId,
+          chatId: parsed.chatId,
+          isLinkToken: Boolean(linkRow),
+          phone: parsed.phone,
+          firstName: parsed.firstName,
+          lastName: parsed.lastName,
+          externalId: parsed.userId,
+        });
       }
 
       if (!contactId && !leadId) {

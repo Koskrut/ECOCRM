@@ -19,6 +19,7 @@ import { TelegramInboxNotifierService } from "./telegram-inbox-notifier.service"
 import { TelegramIntegrationAdapter } from "./telegram-integration.adapter";
 import { TelegramManagerBotService } from "./telegram-manager-bot.service";
 import { TelegramController } from "./telegram.controller";
+import { MetaConversionsModule } from "../meta-conversions/meta-conversions.module";
 import { TelegramService } from "./telegram.service";
 
 @Module({
@@ -32,6 +33,7 @@ import { TelegramService } from "./telegram.service";
     forwardRef(() => AuthModule),
     forwardRef(() => NotificationsModule),
     forwardRef(() => OrdersModule),
+    MetaConversionsModule,
   ],
   controllers: [TelegramController, ConversationsController],
   providers: [

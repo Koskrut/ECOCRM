@@ -39,6 +39,35 @@ function formatSkuNameLabel(sku: string, name: string): string {
   return name && name !== sku ? `${sku} — ${name}` : sku;
 }
 
+function SkuKindLabel({
+  sku,
+  name,
+  kind,
+}: {
+  sku: string;
+  name: string;
+  kind?: string | null;
+}) {
+  const mark = strings.planning.overview;
+  const label = kind === "KIT" ? mark.kindKit : kind === "PART" ? mark.kindPart : null;
+  return (
+    <span className="inline-flex flex-wrap items-center gap-1.5">
+      <span>{formatSkuNameLabel(sku, name)}</span>
+      {label ? (
+        <span
+          className={
+            kind === "KIT"
+              ? "rounded bg-violet-100 px-1.5 py-0.5 text-[10px] font-medium text-violet-800"
+              : "rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium text-zinc-600"
+          }
+        >
+          {label}
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
 function useStableErrorHandler(onError: (msg: string) => void) {
   const ref = useRef(onError);
   ref.current = onError;
@@ -1298,7 +1327,7 @@ export function FactoryPanel({
     }
     const handle = window.setTimeout(() => {
       void productsApi
-        .listParts({ search: partSearch.trim(), pageSize: 12 })
+        .listByKinds({ kinds: ["PART", "KIT"], search: partSearch.trim(), pageSize: 12 })
         .then((res) => setPartHits(res.items ?? []))
         .catch(() => setPartHits([]));
     }, 250);
@@ -1471,7 +1500,7 @@ export function FactoryPanel({
               t.labels.actions,
             ]}
             rows={trackingRows.map((row) => [
-              formatSkuNameLabel(row.sku, row.name),
+              <SkuKindLabel key={`sku-${row.lineId}`} sku={row.sku} name={row.name} kind={row.kind} />,
               row.externalCode ?? "—",
               String(row.qtyOrdered),
               String(row.qtyReceived),
@@ -1820,7 +1849,7 @@ export function FactoryPanel({
                           setPartHits([]);
                         }}
                       >
-                        {formatSkuNameLabel(p.sku, p.name)}
+                        <SkuKindLabel sku={p.sku} name={p.name} kind={p.kind} />
                       </button>
                     </li>
                   ))}
@@ -1845,7 +1874,12 @@ export function FactoryPanel({
               const overdue = line.trackingStatus === "overdue";
               if (active.status === "DRAFT") {
                 return [
-                  formatSkuNameLabel(line.partProduct.sku, line.partProduct.name),
+                  <SkuKindLabel
+                    key={`${line.id}-sku`}
+                    sku={line.partProduct.sku}
+                    name={line.partProduct.name}
+                    kind={line.partProduct.kind}
+                  />,
                   <input
                     key={`${line.id}-qty`}
                     className="w-24 rounded border border-zinc-200 px-2 py-1"
@@ -1879,7 +1913,11 @@ export function FactoryPanel({
               }
               return [
                 <span key={`${line.id}-sku`} className={overdue ? "text-rose-700" : undefined}>
-                  {formatSkuNameLabel(line.partProduct.sku, line.partProduct.name)}
+                  <SkuKindLabel
+                    sku={line.partProduct.sku}
+                    name={line.partProduct.name}
+                    kind={line.partProduct.kind}
+                  />
                 </span>,
                 String(line.qtyOrdered),
                 active.status === "OPEN" || active.status === "PARTIAL" ? (

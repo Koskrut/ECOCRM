@@ -8,15 +8,15 @@ import type {
 } from "./types/contacts-priority.types";
 
 const RULE_EXPLANATION: Record<ContactPriorityReasonCode, string> = {
-  OVERDUE_FOLLOWUP: "Есть просроченный follow-up, нужен контакт сегодня.",
-  NEW_LEAD_NO_FIRST_CONTACT: "Новый клиент без первого контакта.",
-  NO_CONTACT_14_DAYS: "Давно не было контакта (14+ дней).",
-  NO_ORDER_30_DAYS: "Раньше покупал, но давно без заказа (30+ дней).",
-  HAS_DEBT: "Есть задолженность, нужен контроль оплаты.",
-  HIGH_VALUE_CLIENT: "Клиент с высокой ценностью/оборотом.",
-  RETURN_TO_WORK: "Клиент выпал из контакта, стоит вернуть в работу.",
-  AT_RISK: "Есть риск потери клиента.",
-  DORMANT: "Клиент спящий, нужен реактивационный контакт.",
+  OVERDUE_FOLLOWUP: "Є прострочений фоллоуап, потрібен контакт сьогодні.",
+  NEW_LEAD_NO_FIRST_CONTACT: "Новий клієнт без першого контакту.",
+  NO_CONTACT_14_DAYS: "Давно не було контакту (14+ днів).",
+  NO_ORDER_30_DAYS: "Раніше купував, але давно без замовлення (30+ днів).",
+  HAS_DEBT: "Є заборгованість, потрібен контроль оплати.",
+  HIGH_VALUE_CLIENT: "Клієнт з високою цінністю / оборотом.",
+  RETURN_TO_WORK: "Клієнт випав з контакту, варто повернути в роботу.",
+  AT_RISK: "Є ризик втрати клієнта.",
+  DORMANT: "Клієнт сплячий, потрібен реактиваційний контакт.",
 };
 
 const HIGH_VALUE_CLIENT_REVENUE_90_THRESHOLD = 1000;
@@ -63,6 +63,11 @@ export class ContactsPriorityService {
       entries.push(this.entry("DORMANT", 14, 14));
     }
 
+    // List membership uses the rules that fired. The cap below only limits the
+    // score, otherwise a client drops out of "return to work" once risk and
+    // dormant reasons are also present.
+    const reasonCodes = entries.map((e) => e.code);
+
     const inactivityCodes: ContactPriorityReasonCode[] = [
       "NO_CONTACT_14_DAYS",
       "RETURN_TO_WORK",
@@ -87,9 +92,8 @@ export class ContactsPriorityService {
 
     const total = entries.reduce((sum, e) => sum + e.value, 0);
     const score = Math.max(0, Math.min(100, total));
-    const reasons = entries.filter((e) => e.value > 0).map((e) => e.code);
     const breakdown = entries.filter((e) => e.value > 0);
-    return { score, reasons, breakdown };
+    return { score, reasons: reasonCodes, breakdown };
   }
 
   suggest(signal: ContactScoringSignal, priority: ContactPriorityResult): ContactSuggestionResult {
@@ -134,7 +138,7 @@ export class ContactsPriorityService {
       explanation:
         priority.breakdown.length > 0
           ? priority.breakdown.map((x) => x.explanation)
-          : ["Недостаточно сигналов для приоритизации."],
+          : ["Недостатньо сигналів для пріоритизації."],
     };
   }
 

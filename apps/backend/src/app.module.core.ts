@@ -31,6 +31,7 @@ import { PrismaModule } from "./prisma/prisma.module";
 import { SettingsModule } from "./settings/settings.module";
 import { TelegramModule } from "./integrations/telegram/telegram.module";
 import { MetaAudiencesModule } from "./integrations/meta-audiences/meta-audiences.module";
+import { MetaConversionsModule } from "./integrations/meta-conversions/meta-conversions.module";
 import { MetaMessagingModule } from "./integrations/meta-messaging/meta-messaging.module";
 import { StoreModule } from "./store/store.module";
 import { VisitsModule } from "./visits/visits.module";
@@ -77,6 +78,7 @@ import { CannedResponsesModule } from "./canned-responses/canned-responses.modul
     TelegramModule,
     MetaMessagingModule,
     MetaAudiencesModule,
+    MetaConversionsModule,
     NotificationsModule,
     PresenceModule,
     TasksModule,

@@ -4,7 +4,27 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.254**.)_
+_(планируемые изменения после **0.2.255**.)_
+
+## [0.2.255] — 2026-11-19
+
+### Summary
+
+Патч **0.2.255**: **Meta Conversions API** (Purchase / Contact / ViewContent) + покращення пріоритетів контактів, власника замовлення від клієнта, kit board / factory kits і статусу «Дублікат».
+
+### Changed
+
+- **Meta Conversions:** сервер надсилає **Purchase** після checkout сайту і Telegram Mini App, **Contact** на `/start` з міткою акції (перша `bf2026`) і **ViewContent** лише для сторінки акції (`promo=bf` або окремий шлях). Подія йде навіть без згоди на маркетинг у браузері. Settings `meta_conversions` (піксель, токен, test event code); токен маскується; помилка Meta не зриває checkout/бота; дедуп Purchase за `event_id`; PageView зі сторінок CRM прибрано.
+- **Contacts:** спільно використовувані сигнали (purchase vs void stages, дзвінки, last touch з conversations/Telegram/Meta); пріоритет / insights / work-queue; статус **Дублікат** (web + mobile).
+- **Orders:** дефолтний власник = менеджер клієнта (менеджер не перетягує чужі); lead convert зберігає своє правило власника.
+- **Planning / factory:** kit board враховує відкриті factory-рядки на сам KIT; factory дозволяє KIT як рядок; products `kind` filter підтримує `PART,KIT`.
+- **Leads:** «дзвінки сьогодні» за київським днем; missed через call queue PENDING/CLAIMED.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.255`**.
+- Нових Prisma-міграцій немає.
+- У Settings → Meta conversions вставити токен Conversions API і увімкнути. Піксель за замовчуванням `1262413015423388`.
 
 ## [0.2.254] — 2026-11-19
 

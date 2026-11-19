@@ -21,6 +21,7 @@ import type { AuthUser } from "../auth/auth.types";
 import { CustomFieldsService } from "../custom-fields/custom-fields.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { normalizePagination } from "../common/pagination";
+import { kyivDayBounds, todayYmdKyiv } from "../crm-timezone";
 import {
   getPhoneCandidatesForLookup,
   getPhoneNormalizedDigits,
@@ -404,27 +405,27 @@ export class LeadsService {
     let hasMissedCallIds = new Set<string>();
 
     if (leadIds.length > 0) {
-      const now = new Date();
-      const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const todayBounds = kyivDayBounds(todayYmdKyiv());
 
       const callsToday = await this.prisma.call.groupBy({
         by: ["leadId"],
         where: {
           leadId: { in: leadIds },
           startedAt: {
-            gte: startOfToday,
-            lte: now,
+            gte: todayBounds.from,
+            lte: todayBounds.to,
           },
         },
         _count: { _all: true },
       });
       hasCallTodayIds = new Set(callsToday.map((c) => c.leadId as string));
 
-      const missedCalls = await this.prisma.call.groupBy({
+      const missedCalls = await this.prisma.callQueueItem.groupBy({
         by: ["leadId"],
         where: {
           leadId: { in: leadIds },
-          status: "MISSED",
+          callId: { not: null },
+          status: { in: ["PENDING", "CLAIMED"] },
         },
         _count: { _all: true },
       });
@@ -949,11 +950,15 @@ export class LeadsService {
         deal = await this.ordersService.create(orderDto, actor, tx);
         const orderId = (deal as { id: string }).id;
         conversionOrderId = orderId;
-        if (orderOwnerId !== actor.id) {
+        // Lead conversion keeps its own owner rule (explicit > lead owner > actor),
+        // even when order create defaults the owner to the linked client's manager.
+        const createdOwnerId = (deal as { ownerId?: string | null }).ownerId ?? actor.id;
+        if (createdOwnerId !== orderOwnerId) {
           await tx.order.update({
             where: { id: orderId },
             data: { owner: { connect: { id: orderOwnerId } } },
           });
+          (deal as { ownerId?: string | null }).ownerId = orderOwnerId;
         }
         for (const it of leadItems) {
           deal = await this.ordersService.addItem(

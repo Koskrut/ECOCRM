@@ -541,13 +541,19 @@ export class PlanningCalculationService {
           status: { in: [FactoryOrderStatus.OPEN, FactoryOrderStatus.PARTIAL] },
         },
       },
+      select: {
+        partProductId: true,
+        qtyOrdered: true,
+        qtyReceived: true,
+        partProduct: { select: { kind: true } },
+      },
     });
     const inboundByPart = new Map<string, number>();
+    const inboundByKit = new Map<string, number>();
     for (const line of openPo) {
-      inboundByPart.set(
-        line.partProductId,
-        (inboundByPart.get(line.partProductId) ?? 0) + Math.max(0, line.qtyOrdered - line.qtyReceived),
-      );
+      const qty = Math.max(0, line.qtyOrdered - line.qtyReceived);
+      const bucket = line.partProduct.kind === ProductKind.KIT ? inboundByKit : inboundByPart;
+      bucket.set(line.partProductId, (bucket.get(line.partProductId) ?? 0) + qty);
     }
 
     const receiptWeek = Math.max(1, Math.floor(settings.factoryLeadTimeDays / 7));
@@ -568,6 +574,9 @@ export class PlanningCalculationService {
       if (w === receiptWeek) {
         for (const [partId, qty] of inboundByPart.entries()) {
           partStock.set(partId, (partStock.get(partId) ?? 0) + qty);
+        }
+        for (const [kitId, qty] of inboundByKit.entries()) {
+          kitStock.set(kitId, (kitStock.get(kitId) ?? 0) + qty);
         }
       }
       if (weeks.includes(w)) {

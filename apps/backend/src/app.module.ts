@@ -34,6 +34,7 @@ import { TasksModule } from "./tasks/tasks.module";
 import { NotificationsModule } from "./notifications/notifications.module";
 import { TelegramModule } from "./integrations/telegram/telegram.module";
 import { MetaAudiencesModule } from "./integrations/meta-audiences/meta-audiences.module";
+import { MetaConversionsModule } from "./integrations/meta-conversions/meta-conversions.module";
 import { MetaMessagingModule } from "./integrations/meta-messaging/meta-messaging.module";
 import { Privat24Module } from "./integrations/privat24/privat24.module";
 import { RingostatModule } from "./integrations/ringostat/ringostat.module";
@@ -105,6 +106,7 @@ import { CannedResponsesModule } from "./canned-responses/canned-responses.modul
     TelegramModule,
     MetaMessagingModule,
     MetaAudiencesModule,
+    MetaConversionsModule,
     Privat24Module,
     UpcModule,
     RingostatModule,
