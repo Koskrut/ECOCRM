@@ -13,6 +13,11 @@ export type OrderSheetExporterPort = {
   sendOrderToSheet(orderId: string, options: OrderSheetExportOptions): Promise<unknown>;
 };
 
+export type OfficeToolsOrderSenderPort = {
+  isActive(): Promise<boolean>;
+  sendOrder(orderId: string, options: OrderSheetExportOptions): Promise<unknown>;
+};
+
 export type OrderFinancePort = {
   recalcOrder(orderId: string): Promise<void>;
 };
@@ -73,6 +78,7 @@ export type ClientBalancePort = {
 export class IntegrationPortsService {
   private orderPaymentsReader: OrderPaymentsReaderPort | null = null;
   private orderSheetExporter: OrderSheetExporterPort | null = null;
+  private officeToolsOrderSender: OfficeToolsOrderSenderPort | null = null;
   private orderFinance: OrderFinancePort | null = null;
   private clientBalance: ClientBalancePort | null = null;
   private storeBankAccount: StoreBankAccountPort | null = null;
@@ -86,6 +92,10 @@ export class IntegrationPortsService {
 
   registerOrderSheetExporter(port: OrderSheetExporterPort): void {
     this.orderSheetExporter = port;
+  }
+
+  registerOfficeToolsOrderSender(port: OfficeToolsOrderSenderPort): void {
+    this.officeToolsOrderSender = port;
   }
 
   registerOrderFinance(port: OrderFinancePort): void {
@@ -117,7 +127,10 @@ export class IntegrationPortsService {
     return this.orderPaymentsReader.listByOrderId(orderId, actor);
   }
 
-  sendOrderToSheet(orderId: string, options: OrderSheetExportOptions): Promise<unknown> {
+  async sendOrderToSheet(orderId: string, options: OrderSheetExportOptions): Promise<unknown> {
+    if (this.officeToolsOrderSender && (await this.officeToolsOrderSender.isActive())) {
+      return this.officeToolsOrderSender.sendOrder(orderId, options);
+    }
     if (!this.orderSheetExporter) {
       throw new ServiceUnavailableException("Google Sheet integration is not available");
     }

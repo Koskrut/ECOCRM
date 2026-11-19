@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { apiHttp } from "@/lib/api/client";
 import { getUserFriendlyApiError } from "@/lib/api/errors";
 import { SettingsPageShell } from "@/components/SettingsPageShell";
+import { OfficeToolsLegacyBanner } from "@/components/OfficeToolsLegacyBanner";
 import { ErrorPanel, PageLoading } from "@/components/feedback";
 
 type GoogleSheetConfigResponse = {
@@ -87,6 +88,7 @@ export default function GoogleSheetSettingsPage() {
       title="Google-таблиця (1С)"
       subtitle="Webhook таблиці, синхронізація з 1С і фото товарів з Google Drive."
     >
+      <OfficeToolsLegacyBanner />
       {error ? <ErrorPanel variant="inline" message={error} /> : null}
       {loading ? (
         <PageLoading inline />

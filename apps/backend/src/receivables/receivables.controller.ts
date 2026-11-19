@@ -18,12 +18,17 @@ import type { AuthUser } from "../auth/auth.types";
 import { Roles } from "../auth/roles.decorator";
 import { RequireModule } from "../modules/gating/require-module.decorator";
 import { ModuleIds } from "../modules/module-ids";
+import { assertOfficeToolsInactiveForLegacyWrite } from "../integrations/office-tools/office-tools-active";
+import { OfficeToolsConfigService } from "../integrations/office-tools/office-tools-config.service";
 import { ReceivablesService } from "./receivables.service";
 
 @Controller("receivables")
 @RequireModule(ModuleIds.Finance)
 export class ReceivablesController {
-  constructor(private readonly service: ReceivablesService) {}
+  constructor(
+    private readonly service: ReceivablesService,
+    private readonly officeToolsConfig: OfficeToolsConfigService,
+  ) {}
 
   private requireUser(req: Request & { user?: AuthUser }): AuthUser {
     if (!req.user) throw new BadRequestException("User not found in request");
@@ -39,11 +44,12 @@ export class ReceivablesController {
   @Post("snapshots/upload")
   @UseInterceptors(FileInterceptor("file"))
   @Roles(UserRole.ADMIN, UserRole.LEAD)
-  uploadSnapshot(
+  async uploadSnapshot(
     @UploadedFile() file: { buffer?: Buffer } | undefined,
     @Body() body: { snapshotDate?: string; note?: string; currency?: string },
     @Req() req: Request & { user?: AuthUser },
   ) {
+    await assertOfficeToolsInactiveForLegacyWrite(this.officeToolsConfig);
     if (!file?.buffer) throw new BadRequestException("File is required");
     return this.service.uploadSnapshot({
       actor: this.requireUser(req),

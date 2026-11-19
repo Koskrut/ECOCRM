@@ -279,6 +279,24 @@ export class ReceivablesService {
     return this.getSnapshot(snapshot.id);
   }
 
+  /** Programmatic snapshot from Office Tools compbalans (amounts already in UAH base). */
+  async importAmountsByCode(params: {
+    importedById: string;
+    note?: string;
+    byCode: Map<string, number>;
+    snapshotDate?: Date;
+  }): Promise<string> {
+    const snapshot = await this.prisma.receivablesSnapshot.create({
+      data: {
+        snapshotDate: params.snapshotDate ?? new Date(),
+        importedById: params.importedById,
+        note: params.note?.trim() || null,
+      },
+    });
+    await this.reconcileSnapshot(snapshot.id, params.byCode, RECEIVABLES_1C_AMOUNT_CURRENCY);
+    return snapshot.id;
+  }
+
   private parse1CCurrency(raw?: string): Receivables1CCurrency {
     const c = (raw?.trim().toUpperCase() || RECEIVABLES_1C_AMOUNT_CURRENCY) as Receivables1CCurrency;
     if (!RECEIVABLES_1C_ALLOWED_CURRENCIES.includes(c)) {

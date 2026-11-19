@@ -263,6 +263,20 @@ export const MODULE_REGISTRY: Registry = {
       bundleSelectable: true,
     },
   }),
+  [ModuleIds.OfficeTools]: defineModule({
+    id: ModuleIds.OfficeTools,
+    kind: "integration" satisfies ModuleKind,
+    version: 1,
+    displayName: "Office Tools",
+    description:
+      "Office Tools (GMS) ERP sync: counterparties, serial stock, payments, receivables, and order push. When enabled, replaces Google Sheet and Excel 1C imports.",
+    dependsOn: [ModuleIds.CoreCrm, ModuleIds.Finance],
+    delivery: "in_process",
+    controlPlane: {
+      entitlementKey: ModuleIds.OfficeTools,
+      bundleSelectable: true,
+    },
+  }),
   [ModuleIds.RiskManagement]: defineModule({
     id: ModuleIds.RiskManagement,
     kind: "extension" satisfies ModuleKind,

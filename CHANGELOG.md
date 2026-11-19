@@ -4,7 +4,26 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.252**.)_
+_(планируемые изменения после **0.2.253**.)_
+
+## [0.2.253] — 2026-11-18
+
+### Summary
+
+Патч **0.2.253**: інтеграція **Office Tools** (`int.office_tools`) — sync контрагентів / серійного складу / оплат / дебіторки; settings UI; legacy Google Sheet / 1C Excel блокуються коли OT активний.
+
+### Changed
+
+- Prisma: `OfficeToolsLink`, `OfficeToolsStockSerial`, `OfficeToolsReceipt`; enums `OFFICE_TOOLS`.
+- Nest `OfficeToolsModule` + cron/sync; module registry entitlement.
+- Web: Settings → Office Tools; BFF sync/match; legacy banners на 1C payments / Google Sheet / stock upload.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.253`**.
+- **Міграція:** `20261118160000_office_tools`.
+- Увімкнути модуль `int.office_tools` у license/CP перед використанням.
+- **Не використовувати `0.2.249`** (OOM). **Не використовувати `0.2.230`** і **`0.2.199`–`0.2.202`**.
 
 ## [0.2.252] — 2026-11-18
 

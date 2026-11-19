@@ -14,6 +14,7 @@ import { ReceivablesService } from "./receivables.service";
     AnalyticsModule,
     PaymentRequestsModule,
     forwardRef(() => TelegramModule),
+    forwardRef(() => require("../integrations/office-tools/office-tools.module").OfficeToolsModule),
   ],
   controllers: [ReceivablesController],
   providers: [ReceivablesService],

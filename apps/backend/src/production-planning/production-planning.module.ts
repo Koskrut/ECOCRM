@@ -1,4 +1,4 @@
-import { Module } from "@nestjs/common";
+import { Module, forwardRef } from "@nestjs/common";
 import { NotificationsModule } from "../notifications/notifications.module";
 import { PrismaModule } from "../prisma/prisma.module";
 import { SettingsServiceModule } from "../settings/settings-service.module";
@@ -30,7 +30,13 @@ import { KitBomListService } from "./kit-bom-list.service";
 import { PlanningProductParamsService } from "./planning-product-params.service";
 
 @Module({
-  imports: [PrismaModule, SystemModule, NotificationsModule, SettingsServiceModule],
+  imports: [
+    PrismaModule,
+    SystemModule,
+    NotificationsModule,
+    SettingsServiceModule,
+    forwardRef(() => require("../integrations/office-tools/office-tools.module").OfficeToolsModule),
+  ],
   controllers: [ProductionPlanningController],
   providers: [
     DemandRulesService,

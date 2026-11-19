@@ -309,6 +309,7 @@ enum PaymentSourceType {
   CREDIT
   CREDIT_TRANSFER
   ONE_C
+  OFFICE_TOOLS
   NP_COD
 }
 
@@ -565,6 +566,7 @@ enum ProductKind {
 enum InventorySnapshotSource {
   MANUAL_PASTE
   FILE_UPLOAD
+  OFFICE_TOOLS
 }
 
 enum InventorySnapshotStatus {
@@ -1761,6 +1763,7 @@ model Warehouse {
   reservations           MaterialReservation[]
   returnPackages         ReturnPackage[]
   orderReturns           OrderReturn[]
+  officeToolsStockSerials OfficeToolsStockSerial[]
 
   @@index([sortOrder])
   @@index([responsibleUserId])
@@ -1811,6 +1814,7 @@ model Product {
   actualReturnItems      OrderReturnItem[]       @relation("ReturnItemActualProduct")
   planningParams         PlanningProductParams?
   planningRunLines       PlanningRunLine[]
+  officeToolsStockSerials OfficeToolsStockSerial[]
 
   @@index([primaryImageId])
   @@index([kind])
@@ -3965,6 +3969,82 @@ model IntegrationSetting {
 
   @@unique([provider, companyId])
   @@index([provider])
+}
+
+/// Maps CRM entities to Office Tools / 1C ids (CompID, ProdID, StockID, docid).
+model OfficeToolsLink {
+  id           String    @id @default(cuid())
+  /// CONTACT | PRODUCT | WAREHOUSE | ORDER
+  entityType   String
+  entityId     String
+  /// External numeric/string id in Office Tools.
+  externalId   String
+  /// Counterparty Code / article when known.
+  externalCode String?
+  meta         Json?
+  lastError    String?
+  lastSyncedAt DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@unique([entityType, entityId])
+  @@unique([entityType, externalId])
+  @@index([externalCode])
+}
+
+/// Per-serial stock row from Office Tools rem/list (SeriesNomenclatures).
+model OfficeToolsStockSerial {
+  id          String   @id @default(cuid())
+  productId   String
+  warehouseId String
+  prodId      Int
+  stockId     Int
+  /// Exact SeriesNomenclatures value; empty when unsérialized qty.
+  serial      String   @default("")
+  /// Uppercase key; empty string for rows without a serial.
+  serialKey   String   @default("")
+  qty         Int      @default(0)
+  article     String?
+  prodName    String?
+  syncedAt    DateTime @default(now())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  product   Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  warehouse Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, warehouseId, serialKey])
+  @@index([productId])
+  @@index([warehouseId])
+  @@index([serialKey])
+  @@index([prodId])
+  @@index([stockId])
+}
+
+/// Raw payment row from Office Tools comprec/list before / after matching to an order.
+model OfficeToolsReceipt {
+  id          String    @id @default(cuid())
+  importKey   String    @unique
+  compId      Int?
+  code        String?
+  contactId   String?
+  orderId     String?
+  paymentId   String?   @unique
+  docDate     DateTime?
+  amount      Decimal   @db.Decimal(18, 2)
+  currency    String    @default("UAH")
+  managerName String?
+  compName    String?
+  raw         Json?
+  /// unmatched | matched | skipped
+  status      String    @default("unmatched")
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([contactId])
+  @@index([orderId])
+  @@index([status])
+  @@index([docDate])
 }
 
 model IntegrationSyncState {

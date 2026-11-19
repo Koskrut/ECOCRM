@@ -25,6 +25,8 @@ import type { Request } from "express";
 import { FileInterceptor } from "@nestjs/platform-express";
 import { Roles } from "../auth/roles.decorator";
 import type { AuthUser } from "../auth/auth.types";
+import { assertOfficeToolsInactiveForLegacyWrite } from "../integrations/office-tools/office-tools-active";
+import { OfficeToolsConfigService } from "../integrations/office-tools/office-tools-config.service";
 import { BomImportService } from "./bom-import.service";
 import { BomService } from "./bom.service";
 import { DemandRulesService } from "./demand-rules.service";
@@ -74,6 +76,7 @@ export class ProductionPlanningController {
     private readonly kitPortfolio: KitPortfolioService,
     private readonly kitBoard: KitBoardService,
     private readonly productParams: PlanningProductParamsService,
+    private readonly officeToolsConfig: OfficeToolsConfigService,
   ) {}
 
   @Get("today")
@@ -276,11 +279,12 @@ export class ProductionPlanningController {
   @Post("inventory-snapshots/upload")
   @UseInterceptors(FileInterceptor("file"))
   @Roles(UserRole.ADMIN, UserRole.LEAD)
-  uploadSnapshot(
+  async uploadSnapshot(
     @UploadedFile() file: { buffer?: Buffer } | undefined,
     @Body() body: { note?: string },
     @Req() req: Request & { user?: AuthUser },
   ) {
+    await assertOfficeToolsInactiveForLegacyWrite(this.officeToolsConfig);
     const userId = req.user?.id;
     if (!userId) throw new BadRequestException("User not found in request");
     if (!file?.buffer) throw new BadRequestException("File is required");

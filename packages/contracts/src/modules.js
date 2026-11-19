@@ -20,6 +20,7 @@ const ModuleIds = {
   Privat24: "int.privat24",
   Upc: "int.upc",
   OneCPayments: "int.1c_payments",
+  OfficeTools: "int.office_tools",
 };
 
 module.exports = {

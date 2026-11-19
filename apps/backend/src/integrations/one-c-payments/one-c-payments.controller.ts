@@ -17,13 +17,18 @@ import type { AuthUser } from "../../auth/auth.types";
 import { Roles } from "../../auth/roles.decorator";
 import { RequireModule } from "../../modules/gating/require-module.decorator";
 import { ModuleIds } from "../../modules/module-ids";
+import { assertOfficeToolsInactiveForLegacyWrite } from "../office-tools/office-tools-active";
+import { OfficeToolsConfigService } from "../office-tools/office-tools-config.service";
 import { OneCPaymentsImportService } from "./one-c-payments-import.service";
 import type { CommitOneCPaymentsDto, CreateOneCContactDto, SetOneCOverridesDto } from "./dto/one-c-payments.dto";
 
 @Controller("one-c-payments")
 @RequireModule(ModuleIds.OneCPayments)
 export class OneCPaymentsController {
-  constructor(private readonly service: OneCPaymentsImportService) {}
+  constructor(
+    private readonly service: OneCPaymentsImportService,
+    private readonly officeToolsConfig: OfficeToolsConfigService,
+  ) {}
 
   private requireUser(req: Request & { user?: AuthUser }): AuthUser {
     if (!req.user) throw new BadRequestException("User not found in request");
@@ -48,10 +53,11 @@ export class OneCPaymentsController {
   @Post("upload")
   @UseInterceptors(FileInterceptor("file"))
   @Roles(UserRole.ADMIN, UserRole.LEAD)
-  upload(
+  async upload(
     @UploadedFile() file: { buffer?: Buffer; originalname?: string } | undefined,
     @Req() req: Request & { user?: AuthUser },
   ) {
+    await assertOfficeToolsInactiveForLegacyWrite(this.officeToolsConfig);
     if (!file?.buffer?.length) throw new BadRequestException("File is required");
     return this.service.upload({
       actor: this.requireUser(req),
@@ -97,6 +103,7 @@ export class OneCPaymentsController {
     @Body() body: CommitOneCPaymentsDto,
     @Req() req: Request & { user?: AuthUser },
   ) {
+    await assertOfficeToolsInactiveForLegacyWrite(this.officeToolsConfig);
     const actor = this.requireUser(req);
     if (body?.overrides && typeof body.overrides === "object") {
       await this.service.setOverrides(id, actor, body.overrides);

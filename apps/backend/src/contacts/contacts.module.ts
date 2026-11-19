@@ -1,4 +1,4 @@
-import { Module } from "@nestjs/common";
+import { Module, forwardRef } from "@nestjs/common";
 import { ContactsController } from "./contacts.controller";
 import { ContactsService } from "./contacts.service";
 import { CustomFieldsModule } from "../custom-fields/custom-fields.module";
@@ -10,7 +10,13 @@ import { ContactsPriorityService } from "./contacts-priority.service";
 import { ContactsWorkQueueService } from "./contacts-work-queue.service";
 
 @Module({
-  imports: [PrismaModule, WorkflowsModule, CustomFieldsModule, SettingsModule],
+  imports: [
+    PrismaModule,
+    WorkflowsModule,
+    CustomFieldsModule,
+    SettingsModule,
+    forwardRef(() => require("../integrations/office-tools/office-tools.module").OfficeToolsModule),
+  ],
   controllers: [ContactsController],
   providers: [
     ContactsService,

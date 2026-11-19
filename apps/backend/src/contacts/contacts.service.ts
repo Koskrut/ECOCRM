@@ -55,6 +55,7 @@ import {
 import { aggregateClientFinance, countsTowardClientRevenue } from "../finance/client-finance";
 import { getBaseCurrency, toBaseCurrency } from "../common/currency.util";
 import { SettingsService, type ExchangeRates } from "../settings/settings.service";
+import { OfficeToolsContactService } from "../integrations/office-tools/office-tools-contact.service";
 
 function shallowFieldChanges(
   keys: string[],
@@ -108,6 +109,7 @@ export class ContactsService {
     private readonly workflowEmitter: WorkflowDomainEmitterService,
     @Optional() private readonly customFields?: CustomFieldsService,
     @Optional() private readonly settings?: SettingsService,
+    @Optional() private readonly officeToolsContacts?: OfficeToolsContactService,
   ) {}
 
   private async exchangeRates(): Promise<ExchangeRates> {
@@ -714,6 +716,7 @@ export class ContactsService {
         contact.id,
         created as unknown as Record<string, unknown>,
       );
+      void this.officeToolsContacts?.pushContactAfterCreate(contact.id);
     }
     return created;
   }

@@ -30,6 +30,8 @@ import type { ProductImagesSyncStatus } from "./product-images-sync-state";
 import { StockUploadService } from "./stock-upload.service";
 import type { ProductImagesSyncResult } from "./product-images-sync.service";
 import { WarehousesService } from "../warehouses/warehouses.service";
+import { assertOfficeToolsInactiveForLegacyWrite } from "../integrations/office-tools/office-tools-active";
+import { OfficeToolsConfigService } from "../integrations/office-tools/office-tools-config.service";
 
 type ProductsQuery = {
   search?: string;
@@ -50,6 +52,7 @@ export class ProductsController {
     private readonly stockUploadService: StockUploadService,
     private readonly warehousesService: WarehousesService,
     private readonly settings: SettingsService,
+    private readonly officeToolsConfig: OfficeToolsConfigService,
   ) {}
 
   @Get()
@@ -139,6 +142,7 @@ export class ProductsController {
     notFound: string[];
     missingProducts?: MissingStockProduct[];
   }> {
+    await assertOfficeToolsInactiveForLegacyWrite(this.officeToolsConfig);
     const buffer = file?.buffer;
     if (!buffer) {
       throw new BadRequestException("File is required");
@@ -172,6 +176,7 @@ export class ProductsController {
     resolved: Array<{ fileSku: string; dbSku: string; productId: string }>;
     duplicateSkus: string[];
   }> {
+    await assertOfficeToolsInactiveForLegacyWrite(this.officeToolsConfig);
     const buffer = file?.buffer;
     if (!buffer) throw new BadRequestException("File is required");
     const warehouses = await this.warehousesService.list();

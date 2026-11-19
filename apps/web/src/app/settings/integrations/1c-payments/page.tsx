@@ -11,6 +11,7 @@ import {
 } from "@/lib/api/resources/one-c-payments";
 import { formatDate } from "@/lib/crmDatetime";
 import { formatOrderAmount } from "@/lib/formatOrderAmount";
+import { OfficeToolsLegacyBanner } from "@/components/OfficeToolsLegacyBanner";
 
 const STATUS_LABEL: Record<OneCMatchStatus, string> = {
   MATCHED: "Знайдено",
@@ -150,6 +151,9 @@ export default function OneCPaymentsImportPage() {
         <Link href="/settings" className="text-sm text-zinc-600 hover:text-zinc-900">
           ← Налаштування
         </Link>
+        <div className="mt-4">
+          <OfficeToolsLegacyBanner />
+        </div>
         <h1 className="mt-2 text-2xl font-bold text-zinc-900">Імпорт оплат з 1С</h1>
         <p className="mt-1 text-sm text-zinc-500">
           Завантажте вивантаження <code className="font-mono">.xlsb</code> /{" "}
