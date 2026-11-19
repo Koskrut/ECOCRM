@@ -31,6 +31,7 @@ export default function OfficeToolsSettingsPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [matchOrderId, setMatchOrderId] = useState<Record<string, string>>({});
+  const [apiKey, setApiKey] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -61,7 +62,7 @@ export default function OfficeToolsSettingsPage() {
     setError(null);
     setSuccess(null);
     try {
-      const res = await officeToolsApi.patchConfig({
+      const payload: Partial<OfficeToolsConfig> = {
         isEnabled: config.isEnabled,
         baseUrl: config.baseUrl,
         stockId: config.stockId,
@@ -69,8 +70,11 @@ export default function OfficeToolsSettingsPage() {
         managerId: config.managerId,
         codeId1: config.codeId1,
         currId: config.currId,
-      });
+      };
+      if (apiKey !== "") payload.apiKey = apiKey;
+      const res = await officeToolsApi.patchConfig(payload);
       setConfig(res.data ?? config);
+      setApiKey("");
       setSuccess(t.saved);
       await load();
     } catch (e) {
@@ -148,6 +152,19 @@ export default function OfficeToolsSettingsPage() {
               className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm"
               value={config.baseUrl}
               onChange={(e) => setConfig({ ...config, baseUrl: e.target.value })}
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-zinc-700">{t.apiKey}</label>
+            <p className="mt-0.5 text-xs text-zinc-500">{t.apiKeyHint}</p>
+            <input
+              type="password"
+              className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm"
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              placeholder={config.apiKeyMasked || t.apiKeyPlaceholder}
+              autoComplete="off"
             />
           </div>
 

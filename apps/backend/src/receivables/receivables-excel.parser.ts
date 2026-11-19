@@ -13,13 +13,31 @@ function normalizeHeader(v: unknown): string {
     .replace(/\s+/g, " ");
 }
 
+/** `(32.88)` and `32.88-` are negative. A plain number is returned as-is. */
 function parseAmount(v: unknown): number {
   if (typeof v === "number" && Number.isFinite(v)) return v;
-  if (typeof v === "string") {
-    const n = parseFloat(v.replace(/\s/g, "").replace(",", "."));
-    if (Number.isFinite(n)) return n;
+  if (typeof v !== "string") return 0;
+
+  const compact = v.replace(/\s/g, "").replace(",", ".");
+  if (!compact) return 0;
+
+  let negative = false;
+  let body = compact;
+  if (body.startsWith("(") && body.endsWith(")")) {
+    negative = true;
+    body = body.slice(1, -1);
   }
-  return 0;
+  if (/[-−–]$/.test(body)) {
+    negative = true;
+    body = body.slice(0, -1);
+  } else if (/^[-−–]/.test(body)) {
+    negative = true;
+    body = body.slice(1);
+  }
+
+  const n = parseFloat(body);
+  if (!Number.isFinite(n)) return 0;
+  return negative ? -Math.abs(n) : n;
 }
 
 /** Trim + strip leading zeros: `000006495` → `6495`. */
@@ -57,7 +75,12 @@ function isCodeHeader(h: string): boolean {
   return CODE_HEADERS.has(h) || h.includes("код");
 }
 
+function isOverpayHeader(h: string): boolean {
+  return h.includes("переплат") || h.includes("overpay");
+}
+
 function isAmountHeader(h: string): boolean {
+  if (isOverpayHeader(h)) return false;
   return AMOUNT_HEADERS.has(h) || /долг|борг|заборг|сумм|amount|sum/.test(h);
 }
 
@@ -67,6 +90,10 @@ function findCodeColumnIndex(headers: string[]): number {
 
 function findAmountColumnIndex(headers: string[]): number {
   return headers.findIndex(isAmountHeader);
+}
+
+function findOverpayColumnIndex(headers: string[]): number {
+  return headers.findIndex(isOverpayHeader);
 }
 
 function findHeaderRowIndex(rows: unknown[][]): number {
@@ -104,6 +131,7 @@ export function parseReceivablesExcel(buffer: Buffer): ReceivablesExcelRow[] {
   const headers = rows[headerRowIdx].map(normalizeHeader);
   const codeIdx = findCodeColumnIndex(headers);
   const amountIdx = findAmountColumnIndex(headers);
+  const overpayIdx = findOverpayColumnIndex(headers);
 
   if (codeIdx < 0 || amountIdx < 0) {
     throw new BadRequestException(
@@ -117,13 +145,18 @@ export function parseReceivablesExcel(buffer: Buffer): ReceivablesExcelRow[] {
     if (!Array.isArray(row)) continue;
     const code = normalizeCounterpartyCode1C(String(row[codeIdx] ?? ""));
     if (!code) continue;
-    const amount = parseAmount(row[amountIdx]);
-    if (amount <= 0) continue;
+    const debt = parseAmount(row[amountIdx]);
+    let amount = debt;
+    if (overpayIdx >= 0 && debt >= 0) {
+      const overpay = parseAmount(row[overpayIdx]);
+      if (overpay > 0) amount = debt - overpay;
+    }
+    if (amount === 0) continue;
     out.push({ counterpartyCode1C: code, amount });
   }
 
   if (out.length === 0) {
-    throw new BadRequestException("No valid rows with code 1C and positive amount");
+    throw new BadRequestException("No valid rows with code 1C and a non-zero amount");
   }
 
   return out;

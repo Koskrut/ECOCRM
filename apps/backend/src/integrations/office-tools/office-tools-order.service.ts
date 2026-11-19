@@ -130,7 +130,7 @@ export class OfficeToolsOrderService {
       details: buildAccDetails({ lines }),
     });
 
-    const result = await officeToolsCreateAcc(cfg.baseUrl, body);
+    const result = await officeToolsCreateAcc(this.config.requestContext(cfg), body);
     const docid = toInt(result.docid);
     const chid = toInt(result.chid);
     if (docid == null) {

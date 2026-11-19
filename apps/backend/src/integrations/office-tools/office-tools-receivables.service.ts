@@ -19,8 +19,9 @@ export class OfficeToolsReceivablesService {
 
   async syncCompBalans(): Promise<{ rows: number; snapshotId: string | null }> {
     const cfg = await this.config.requireActiveConfig();
+    const ctx = this.config.requestContext(cfg);
     const rows = await officeToolsListAllPages((offset, limit) =>
-      officeToolsListCompBalans(cfg.baseUrl, {
+      officeToolsListCompBalans(ctx, {
         SELECT: [],
         FILTER: {},
         ORDER: { CompID: "ASC" },

@@ -427,7 +427,7 @@ export class ReceivablesService {
       }
     } else {
       const existing = await this.prisma.receivablesSnapshotLine.findMany({
-        where: { snapshotId, amount1C: { gt: 0 } },
+        where: { snapshotId, amount1C: { not: 0 } },
       });
       for (const line of existing) {
         const code = normalizeCounterpartyCode1C(line.counterpartyCode1C);

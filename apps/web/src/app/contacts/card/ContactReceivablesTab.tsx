@@ -228,7 +228,9 @@ export function ContactReceivablesTab({
             <div>
               <div className="text-xs text-zinc-500">{t.kpi1CTotal}</div>
               <div className="font-medium tabular-nums">
-                {formatMoney(data.reconciliation.amount1C, currency)}
+                {data.reconciliation.amount1C < 0
+                  ? t.overpaymentShort(formatMoney(Math.abs(data.reconciliation.amount1C), currency))
+                  : formatMoney(data.reconciliation.amount1C, currency)}
               </div>
             </div>
             <div>

@@ -32,8 +32,9 @@ export class OfficeToolsStockService {
     serials: number;
   }> {
     const cfg = await this.config.requireActiveConfig();
+    const ctx = this.config.requestContext(cfg);
     const remRows = await officeToolsListAllPages((offset, limit) =>
-      officeToolsListRems(cfg.baseUrl, {
+      officeToolsListRems(ctx, {
         SELECT: [],
         FILTER: {},
         ORDER: { ProdID: "ASC" },

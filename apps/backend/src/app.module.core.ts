@@ -30,6 +30,7 @@ import { RbacModule } from "./rbac/rbac.module";
 import { PrismaModule } from "./prisma/prisma.module";
 import { SettingsModule } from "./settings/settings.module";
 import { TelegramModule } from "./integrations/telegram/telegram.module";
+import { MetaAudiencesModule } from "./integrations/meta-audiences/meta-audiences.module";
 import { MetaMessagingModule } from "./integrations/meta-messaging/meta-messaging.module";
 import { StoreModule } from "./store/store.module";
 import { VisitsModule } from "./visits/visits.module";
@@ -75,6 +76,7 @@ import { CannedResponsesModule } from "./canned-responses/canned-responses.modul
     StoreModule,
     TelegramModule,
     MetaMessagingModule,
+    MetaAudiencesModule,
     NotificationsModule,
     PresenceModule,
     TasksModule,

@@ -113,6 +113,8 @@ export type OfficeToolsAccCreateResult = {
 export type OfficeToolsConfig = {
   isEnabled?: boolean;
   baseUrl?: string;
+  /** Write-only on PATCH; stored in IntegrationSetting.apiToken, sent as X-API-Key. */
+  apiKey?: string;
   stockId?: number;
   empId?: number;
   managerId?: number;
@@ -120,6 +122,17 @@ export type OfficeToolsConfig = {
   currId?: number;
   /** User who last saved settings — used as importedBy for receivables/inventory. */
   configuredByUserId?: string;
+};
+
+export type OfficeToolsPublicConfig = Omit<OfficeToolsConfig, "apiKey"> & {
+  isEnabled: boolean;
+  baseUrl: string;
+  apiKeyMasked?: string;
+};
+
+/** Runtime config for outbound HTTP (includes raw API key). */
+export type OfficeToolsRuntimeConfig = OfficeToolsPublicConfig & {
+  apiKey: string | null;
 };
 
 export class OfficeToolsApiError extends Error {

@@ -12,16 +12,27 @@ import {
 
 export type OfficeToolsHttpFetch = typeof fetch;
 
+export type OfficeToolsRequestContext = {
+  baseUrl: string;
+  /** Sent as X-API-Key on every request when set. */
+  apiKey?: string | null;
+  fetchImpl?: OfficeToolsHttpFetch;
+};
+
 async function postJson<T>(
-  baseUrl: string,
+  ctx: OfficeToolsRequestContext,
   path: string,
   body: unknown,
-  fetchImpl: OfficeToolsHttpFetch = fetch,
 ): Promise<{ httpStatus: number; envelope: OfficeToolsEnvelope<T> }> {
-  const url = `${baseUrl.replace(/\/+$/, "")}/${path.replace(/^\/+/, "")}`;
+  const url = `${ctx.baseUrl.replace(/\/+$/, "")}/${path.replace(/^\/+/, "")}`;
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const apiKey = ctx.apiKey?.trim();
+  if (apiKey) headers["X-API-Key"] = apiKey;
+
+  const fetchImpl = ctx.fetchImpl ?? fetch;
   const res = await fetchImpl(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify(body ?? {}),
   });
   const text = await res.text();
@@ -69,83 +80,60 @@ export function assertProcessed<T>(
 }
 
 export async function officeToolsListComps(
-  baseUrl: string,
+  ctx: OfficeToolsRequestContext,
   query: OfficeToolsListQuery,
-  fetchImpl?: OfficeToolsHttpFetch,
 ): Promise<OfficeToolsComp[]> {
-  const { httpStatus, envelope } = await postJson<OfficeToolsComp[]>(
-    baseUrl,
-    "comps/list",
-    query,
-    fetchImpl,
-  );
+  const { httpStatus, envelope } = await postJson<OfficeToolsComp[]>(ctx, "comps/list", query);
   const result = assertProcessed(httpStatus, envelope, "comps/list");
   return Array.isArray(result) ? result : [];
 }
 
 export async function officeToolsCreateComp(
-  baseUrl: string,
+  ctx: OfficeToolsRequestContext,
   body: Record<string, unknown>,
-  fetchImpl?: OfficeToolsHttpFetch,
 ): Promise<{ httpStatus: number; envelope: OfficeToolsEnvelope<OfficeToolsComp | OfficeToolsComp[]> }> {
-  return postJson<OfficeToolsComp | OfficeToolsComp[]>(baseUrl, "comps/create", body, fetchImpl);
+  return postJson<OfficeToolsComp | OfficeToolsComp[]>(ctx, "comps/create", body);
 }
 
 export async function officeToolsListRems(
-  baseUrl: string,
+  ctx: OfficeToolsRequestContext,
   query: OfficeToolsListQuery,
-  fetchImpl?: OfficeToolsHttpFetch,
 ): Promise<OfficeToolsRem[]> {
-  const { httpStatus, envelope } = await postJson<OfficeToolsRem[]>(
-    baseUrl,
-    "rems/list",
-    query,
-    fetchImpl,
-  );
+  const { httpStatus, envelope } = await postJson<OfficeToolsRem[]>(ctx, "rems/list", query);
   const result = assertProcessed(httpStatus, envelope, "rems/list");
   return Array.isArray(result) ? result : [];
 }
 
 export async function officeToolsListCompRec(
-  baseUrl: string,
+  ctx: OfficeToolsRequestContext,
   query: OfficeToolsListQuery,
-  fetchImpl?: OfficeToolsHttpFetch,
 ): Promise<OfficeToolsCompRec[]> {
-  const { httpStatus, envelope } = await postJson<OfficeToolsCompRec[]>(
-    baseUrl,
-    "comprec/list",
-    query,
-    fetchImpl,
-  );
+  const { httpStatus, envelope } = await postJson<OfficeToolsCompRec[]>(ctx, "comprec/list", query);
   const result = assertProcessed(httpStatus, envelope, "comprec/list");
   return Array.isArray(result) ? result : [];
 }
 
 export async function officeToolsListCompBalans(
-  baseUrl: string,
+  ctx: OfficeToolsRequestContext,
   query: OfficeToolsListQuery,
-  fetchImpl?: OfficeToolsHttpFetch,
 ): Promise<OfficeToolsCompBalans[]> {
   const { httpStatus, envelope } = await postJson<OfficeToolsCompBalans[]>(
-    baseUrl,
+    ctx,
     "compbalans/list",
     query,
-    fetchImpl,
   );
   const result = assertProcessed(httpStatus, envelope, "compbalans/list");
   return Array.isArray(result) ? result : [];
 }
 
 export async function officeToolsCreateAcc(
-  baseUrl: string,
+  ctx: OfficeToolsRequestContext,
   body: OfficeToolsAccCreateBody,
-  fetchImpl?: OfficeToolsHttpFetch,
 ): Promise<OfficeToolsAccCreateResult> {
   const { httpStatus, envelope } = await postJson<OfficeToolsAccCreateResult>(
-    baseUrl,
+    ctx,
     "acc/create",
     body,
-    fetchImpl,
   );
   return assertProcessed(httpStatus, envelope, "acc/create") ?? {};
 }

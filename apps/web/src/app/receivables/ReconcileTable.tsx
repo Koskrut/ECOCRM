@@ -5,6 +5,16 @@ import type { ReconciliationLine } from "@/lib/api/resources/receivables";
 import { formatMoney } from "./format-money";
 import { RECONCILE_STATUS_CLASS, reconcileStatusLabel } from "./receivables-labels";
 
+function formatAmount1C(
+  amount: number,
+  currency: string,
+  overpaymentShort: (amount: string) => string,
+): string {
+  if (amount < 0) return overpaymentShort(formatMoney(Math.abs(amount), currency));
+  if (amount > 0) return formatMoney(amount, currency);
+  return "—";
+}
+
 export function ReconcileTable({
   rows,
   currency,
@@ -44,7 +54,7 @@ export function ReconcileTable({
               <td className="px-3 py-3 font-mono text-xs">{row.counterpartyCode1C || "—"}</td>
               <td className="px-3 py-3">{row.clientName ?? "—"}</td>
               <td className="px-3 py-3 text-right tabular-nums">
-                {row.amount1C > 0 ? formatMoney(row.amount1C, currency) : "—"}
+                {formatAmount1C(row.amount1C, currency, t.overpaymentShort)}
               </td>
               <td className="px-3 py-3 text-right tabular-nums">
                 {row.amountCRM > 0 ? formatMoney(row.amountCRM, currency) : "—"}

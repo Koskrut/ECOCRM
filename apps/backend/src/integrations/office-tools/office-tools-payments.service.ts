@@ -40,8 +40,9 @@ export class OfficeToolsPaymentsService {
       filter.DocDate = { ">=": fromDate };
     }
 
+    const ctx = this.config.requestContext(cfg);
     const rows = await officeToolsListAllPages((offset, limit) =>
-      officeToolsListCompRec(cfg.baseUrl, {
+      officeToolsListCompRec(ctx, {
         SELECT: [],
         FILTER: filter as never,
         ORDER: { DocDate: "ASC" },

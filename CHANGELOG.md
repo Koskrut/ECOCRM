@@ -4,7 +4,26 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.253**.)_
+_(планируемые изменения после **0.2.254**.)_
+
+## [0.2.254] — 2026-11-19
+
+### Summary
+
+Патч **0.2.254**: **Meta Custom Audiences** (синхронізація сегментів CRM → Meta) + API-ключ **Office Tools** + покращення парсера Excel дебіторки (переплата / від’ємні суми).
+
+### Changed
+
+- **Meta Audiences:** Nest-модуль + cron/manual sync чотирьох аудиторій (`buyers_12m` / `buyers_all` / `buyers_lapsed` / `leads_no_order`); settings UI `/settings/meta-audiences` (admin); токен маскується в API.
+- **Office Tools:** `X-API-Key` з налаштувань / `OFFICE_TOOLS_API_KEY`; UI поле API-ключа; клієнтський request context.
+- **Receivables Excel:** колонка «переплата», суми в дужках / з мінусом у кінці; ненульовий (в т.ч. від’ємний) борг у reconcile.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.254`**.
+- Нових Prisma-міграцій немає.
+- Meta Audiences: у Settings задати ad account + access token і увімкнути sync.
+- Office Tools: за потреби зберегти API-ключ у Settings → Office Tools.
 
 ## [0.2.253] — 2026-11-18
 

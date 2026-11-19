@@ -3,6 +3,8 @@ import { apiHttp } from "@/lib/api/client";
 export type OfficeToolsConfig = {
   isEnabled: boolean;
   baseUrl: string;
+  apiKey?: string;
+  apiKeyMasked?: string;
   stockId?: number;
   empId?: number;
   managerId?: number;

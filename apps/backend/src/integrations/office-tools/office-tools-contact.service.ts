@@ -89,11 +89,12 @@ export class OfficeToolsContactService {
     const body = buildCompCreateBody(contact);
     let compId: number | null = null;
     let code: string | null = null;
+    const ctx = this.config.requestContext(cfg);
 
     try {
-      const { httpStatus, envelope } = await officeToolsCreateComp(cfg.baseUrl, body);
+      const { httpStatus, envelope } = await officeToolsCreateComp(ctx, body);
       if (httpStatus === 422 || envelope.status === "failed") {
-        const found = await this.findCompByPhoneOrName(cfg.baseUrl, contact.phone, String(body.CompName));
+        const found = await this.findCompByPhoneOrName(ctx, contact.phone, String(body.CompName));
         compId = found.compId;
         code = found.code;
         if (compId == null) {
@@ -117,7 +118,7 @@ export class OfficeToolsContactService {
         code = identity.code;
         if (compId == null) {
           const found = await this.findCompByPhoneOrName(
-            cfg.baseUrl,
+            ctx,
             contact.phone,
             String(body.CompName),
           );
@@ -127,7 +128,7 @@ export class OfficeToolsContactService {
       }
     } catch (err) {
       if (err instanceof OfficeToolsApiError && err.statusCode === 422) {
-        const found = await this.findCompByPhoneOrName(cfg.baseUrl, contact.phone, String(body.CompName));
+        const found = await this.findCompByPhoneOrName(ctx, contact.phone, String(body.CompName));
         if (found.compId == null) throw err;
         compId = found.compId;
         code = found.code;
@@ -175,13 +176,13 @@ export class OfficeToolsContactService {
   }
 
   private async findCompByPhoneOrName(
-    baseUrl: string,
+    ctx: { baseUrl: string; apiKey?: string | null },
     phone: string,
     name: string,
   ): Promise<{ compId: number | null; code: string | null }> {
     const phoneDigits = phone.replace(/\D/g, "");
     if (phoneDigits) {
-      const byPhone = await officeToolsListComps(baseUrl, {
+      const byPhone = await officeToolsListComps(ctx, {
         SELECT: [],
         FILTER: { Phone1: { LIKE: `%${phoneDigits.slice(-10)}%` } },
         LIMIT: 5,
@@ -192,7 +193,7 @@ export class OfficeToolsContactService {
       }
     }
     if (name.trim()) {
-      const byName = await officeToolsListComps(baseUrl, {
+      const byName = await officeToolsListComps(ctx, {
         SELECT: [],
         FILTER: { CompName: { LIKE: `%${name.trim().slice(0, 40)}%` } },
         LIMIT: 5,
