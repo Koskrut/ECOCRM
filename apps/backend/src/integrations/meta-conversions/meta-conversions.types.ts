@@ -39,6 +39,16 @@ export type PurchaseInput = {
   firstName?: string | null;
   lastName?: string | null;
   externalId?: string | null;
+  country?: string | null;
+  city?: string | null;
+  region?: string | null;
+  zip?: string | null;
+  clientIpAddress?: string | null;
+  clientUserAgent?: string | null;
+  fbp?: string | null;
+  fbc?: string | null;
+  fbclid?: string | null;
+  eventSourceUrl?: string | null;
 };
 
 export type ContactInput = {
@@ -55,6 +65,11 @@ export type ViewContentInput = {
   path: string;
   search: string;
   externalId?: string | null;
+  clientIpAddress?: string | null;
+  clientUserAgent?: string | null;
+  fbp?: string | null;
+  fbc?: string | null;
+  fbclid?: string | null;
 };
 
 export function emptyStoredMetaConversions(): StoredMetaConversions {

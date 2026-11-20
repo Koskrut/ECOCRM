@@ -17,6 +17,10 @@ import { PrismaService } from "../../prisma/prisma.service";
 import { SettingsService } from "../../settings/settings.service";
 import { resolveAssignedManagerForRegion } from "../../settings/org-chart-region-resolver";
 import { StoreCartService } from "../cart/store-cart.service";
+import {
+  storeCartMerchandiseUsd,
+  storeSpendPromoForSubtotal,
+} from "../promo/store-spend-discount";
 import { ProductStore } from "../../products/product.store";
 import type { CreateOrderDto } from "../../orders/dto/create-order.dto";
 import type { StoreCheckoutDto } from "./dto/store-checkout.dto";
@@ -41,6 +45,12 @@ function getPhoneCandidatesForLookup(phoneNorm: string): string[] {
     candidates.add("0" + phoneNorm.slice(3));
   }
   return Array.from(candidates);
+}
+
+function cityFromDelivery(data: unknown): string {
+  if (!data || typeof data !== "object") return "";
+  const city = (data as { novaPoshta?: { cityName?: unknown } }).novaPoshta?.cityName;
+  return typeof city === "string" ? city.trim() : "";
 }
 
 @Injectable()
@@ -429,6 +439,13 @@ export class StoreCheckoutService {
       });
     }
 
+    const spend = storeSpendPromoForSubtotal(storeCartMerchandiseUsd(cart.items));
+    const promoNote =
+      spend.discountUsd > 0
+        ? `Акція: −${spend.discountUsd} USD за кожні ${spend.promo.thresholdUsd} USD`
+        : "";
+    const comment = [dto.comment?.trim(), promoNote].filter(Boolean).join("\n") || undefined;
+
     const order = await this.prisma.$transaction(async (tx) => {
       const created = (await this.ordersService.create(
         {
@@ -436,7 +453,8 @@ export class StoreCheckoutService {
           clientId: contact.id,
           contactId: contact.id,
           orderSource: OrderSource.STORE,
-          comment: dto.comment ?? undefined,
+          comment,
+          discountAmount: spend.discountUsd,
           deliveryMethod: dto.deliveryMethod ?? undefined,
           paymentMethod: dto.paymentMethod ?? undefined,
           paymentType: dto.paymentType ?? undefined,
@@ -477,14 +495,16 @@ export class StoreCheckoutService {
 
     let value = 0;
     let currency = "";
+    let city = "";
     try {
       const priced = await this.prisma.order.findUnique({
         where: { id: order.id },
-        select: { totalAmount: true, currency: true },
+        select: { totalAmount: true, currency: true, deliveryData: true },
       });
       if (priced) {
         value = Number(priced.totalAmount ?? 0);
         currency = (priced.currency || "").trim();
+        city = cityFromDelivery(priced.deliveryData);
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -500,6 +520,7 @@ export class StoreCheckoutService {
       orderPayToken,
       value,
       currency,
+      city,
     };
   }
 

@@ -1,9 +1,6 @@
 import { Type } from "class-transformer";
-import { IsIn, IsInt, IsNumber, IsOptional, Max, Min } from "class-validator";
-import {
-  ORDER_PROMO_BUY_100_GET_30,
-  ORDER_PROMO_QTY_25_MINUS_2,
-} from "../order-line-total.utils";
+import { IsInt, IsNumber, IsOptional, Matches, Max, Min, ValidateIf } from "class-validator";
+import { ORDER_PROMO_ID_RE } from "../order-line-total.utils";
 
 export class UpdateOrderItemDto {
   @IsOptional()
@@ -25,8 +22,9 @@ export class UpdateOrderItemDto {
   @Type(() => Number)
   discountPercent?: number;
 
-  /** BUY_100_GET_30 | QTY_25_MINUS_2 | null/NONE to clear */
+  /** Promotion id from settings, or NONE / empty to clear. */
   @IsOptional()
-  @IsIn([ORDER_PROMO_BUY_100_GET_30, ORDER_PROMO_QTY_25_MINUS_2, "NONE", ""])
+  @ValidateIf((_, value) => value != null && value !== "" && value !== "NONE")
+  @Matches(ORDER_PROMO_ID_RE)
   promoType?: string | null;
 }

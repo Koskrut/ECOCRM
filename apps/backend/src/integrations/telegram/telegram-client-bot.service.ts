@@ -27,6 +27,7 @@ import { SettingsService } from "../../settings/settings.service";
 import { UKRAINE_REGIONS } from "../../store/checkout/uk-regions";
 import { resolveAssignedManagerForRegion } from "../../settings/org-chart-region-resolver";
 import { StoreCartService } from "../../store/cart/store-cart.service";
+import { formatStoreSpendPromoLines } from "../../store/promo/store-spend-discount";
 import { appendCatalogHandoff, usableCatalogPhone } from "../../store/telegram/store-catalog-handoff";
 import { StoreCheckoutPaymentLinkService } from "../../store/checkout/store-checkout-payment-link.service";
 import {
@@ -1298,7 +1299,16 @@ export class TelegramClientBotService {
       await this.replyInline(
         parsed.chatId,
         conversationId,
-        `Додано до кошика. Разом позицій: ${cart.items.length}, сума: ${Math.round(cart.subtotal * cart.uahPerUsd)} грн.`,
+        (cart.discountAmount ?? 0) > 0
+          ? `Додано до кошика. Разом позицій: ${cart.items.length}.\n${formatStoreSpendPromoLines({
+              subtotalUsd: cart.subtotal,
+              discountUsd: cart.discountAmount ?? 0,
+              totalUsd: cart.total ?? cart.subtotal,
+              uahPerUsd: cart.uahPerUsd,
+              thresholdUsd: cart.spendPromo?.thresholdUsd,
+              discountPerStepUsd: cart.spendPromo?.discountPerStepUsd,
+            })}`
+          : `Додано до кошика. Разом позицій: ${cart.items.length}, сума: ${Math.round(cart.subtotal * cart.uahPerUsd)} грн.`,
         [
           [{ text: "🛒 Кошик", callback_data: "cart:show" }],
           [{ text: "✅ Оформити", callback_data: "cart:chk" }],
@@ -1386,7 +1396,14 @@ export class TelegramClientBotService {
       ].filter(Boolean);
       return extra.length ? `${head}\n${extra.join("\n")}` : head;
     });
-    const totalUah = Math.round(cart.subtotal * cart.uahPerUsd);
+    const totalUah = formatStoreSpendPromoLines({
+      subtotalUsd: cart.subtotal,
+      discountUsd: cart.discountAmount ?? 0,
+      totalUsd: cart.total ?? cart.subtotal,
+      uahPerUsd: cart.uahPerUsd,
+      thresholdUsd: cart.spendPromo?.thresholdUsd,
+      discountPerStepUsd: cart.spendPromo?.discountPerStepUsd,
+    });
     const qtyRows: InlineBtn[][] = cart.items.map((item) => [
       { text: "−", callback_data: `cart:dec:${item.id}` },
       { text: `${item.name} · ${item.qty}`.slice(0, 40), callback_data: "cart:show" },
@@ -1396,7 +1413,7 @@ export class TelegramClientBotService {
     await this.replyInline(
       parsed.chatId,
       conversationId,
-      `Кошик:\n${lines.join("\n")}\n\nРазом: ${totalUah} грн`,
+      `Кошик:\n${lines.join("\n")}\n\n${totalUah}`,
       [
         ...qtyRows,
         [{ text: "✅ Оформити", callback_data: "cart:chk" }],

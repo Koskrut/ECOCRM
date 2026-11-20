@@ -2059,7 +2059,7 @@ model OrderItem {
   qty                 Int
   price               Float
   discountPercent     Int     @default(0)
-  /// Selected line promo: BUY_100_GET_30 | QTY_25_MINUS_2 | null
+  /// Selected line promo id from order discount settings, or null. Builtins: BUY_100_GET_30, QTY_25_MINUS_2.
   promoType           String?
   lineTotal           Float
 

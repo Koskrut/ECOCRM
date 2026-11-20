@@ -28,7 +28,13 @@ import { settingsApi } from "@/lib/api/settings";
 import { useTheme } from "@/lib/design/theme-context";
 import { t } from "@/lib/i18n";
 import { formatBaseMoney } from "@/lib/order-currency";
-import { ORDER_PROMO_BUY_100_GET_30, pricesMatch } from "@/lib/order-line-total";
+import {
+  catalogFromLegacyPromos,
+  defaultOrderPromoCatalog,
+  findPromoDefinition,
+  pricesMatch,
+  type OrderPromoDefinition,
+} from "@/lib/order-line-total";
 import { useBaseCurrency } from "@/lib/use-base-currency";
 import {
   createOrderFull,
@@ -75,9 +81,7 @@ export function OrderFormWizard({
   const [originalLines, setOriginalLines] = useState<DraftOrderLine[]>([]);
   const [warehouseId, setWarehouseId] = useState<string | null>(null);
   const [discountPresets, setDiscountPresets] = useState<number[]>([]);
-  const [promoOptions, setPromoOptions] = useState<
-    Array<"BUY_100_GET_30" | "QTY_25_MINUS_2">
-  >(["BUY_100_GET_30", "QTY_25_MINUS_2"]);
+  const [promoCatalog, setPromoCatalog] = useState<OrderPromoDefinition[]>(defaultOrderPromoCatalog());
 
   const [paymentType, setPaymentType] = useState<string | null>(null);
   const [paymentMethod, setPaymentMethod] = useState("FOP");
@@ -92,7 +96,7 @@ export function OrderFormWizard({
   const [comment, setComment] = useState("");
   const [busy, setBusy] = useState(false);
 
-  const total = useMemo(() => draftLinesTotal(lines), [lines]);
+  const total = useMemo(() => draftLinesTotal(lines, promoCatalog), [lines, promoCatalog]);
   const displayCurrency = orderCurrency ?? baseCurrency;
   const selectedShippingProfile = useMemo(
     () => shippingProfiles.find((p) => p.id === selectedProfileId) ?? null,
@@ -253,15 +257,14 @@ export function OrderFormWizard({
       .orderDiscounts(token)
       .then((cfg) => {
         setDiscountPresets(cfg.percents ?? []);
-        const promos = (cfg.promos ?? []).filter(
-          (p): p is "BUY_100_GET_30" | "QTY_25_MINUS_2" =>
-            p === "BUY_100_GET_30" || p === "QTY_25_MINUS_2",
-        );
-        setPromoOptions(promos);
+        const catalog = Array.isArray(cfg.catalog)
+          ? cfg.catalog
+          : catalogFromLegacyPromos(cfg.promos);
+        setPromoCatalog(catalog);
       })
       .catch(() => {
         setDiscountPresets([]);
-        setPromoOptions([]);
+        setPromoCatalog([]);
       });
   }, [token]);
 
@@ -447,20 +450,23 @@ export function OrderFormWizard({
                     index={index}
                     currency={displayCurrency}
                     discountPresets={discountPresets}
-                    promoOptions={promoOptions}
+                    promoCatalog={promoCatalog}
                     allLines={lines}
                     onChange={(patch) =>
                       setLines((prev) => {
-                        const applyingBuy100 = patch.promoType === ORDER_PROMO_BUY_100_GET_30;
-                        const clearingBuy100 =
+                        const applyingGrouped =
+                          typeof patch.promoType === "string" &&
+                          findPromoDefinition(patch.promoType, promoCatalog)?.kind === "pay_ratio";
+                        const clearingGrouped =
                           patch.promoType === null &&
-                          line.promoType === ORDER_PROMO_BUY_100_GET_30;
+                          !!line.promoType &&
+                          findPromoDefinition(line.promoType, promoCatalog)?.kind === "pay_ratio";
                         return prev.map((l) => {
                           if (l.key === line.key) return { ...l, ...patch };
-                          if (applyingBuy100 && pricesMatch(l.price, line.price)) {
-                            return { ...l, promoType: ORDER_PROMO_BUY_100_GET_30, discountPercent: 0 };
+                          if (applyingGrouped && pricesMatch(l.price, line.price)) {
+                            return { ...l, promoType: patch.promoType, discountPercent: 0 };
                           }
-                          if (clearingBuy100 && pricesMatch(l.price, line.price)) {
+                          if (clearingGrouped && pricesMatch(l.price, line.price)) {
                             return { ...l, promoType: null };
                           }
                           return l;
@@ -522,6 +528,7 @@ export function OrderFormWizard({
             deliveryMethod={deliveryMethod}
             shippingProfile={deliveryMethod === "NOVA_POSHTA" ? selectedShippingProfile : null}
             comment={comment}
+            promoCatalog={promoCatalog}
           />
         ) : null}
       </KeyboardAwareScrollView>

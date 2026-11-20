@@ -34,3 +34,21 @@ test("inapplicable promo falls back to percent on client", () => {
   assert.equal(p.promoType, null);
   assert.equal(p.lineTotal, computeLineTotal(20, 16, 10));
 });
+
+test("catalog overrides builtin pay ratio", () => {
+  const catalog = [
+    {
+      id: ORDER_PROMO_BUY_100_GET_30,
+      name: "10+2",
+      enabled: true,
+      kind: "pay_ratio" as const,
+      minQty: 12,
+      payUnits: 10,
+      bundleUnits: 12,
+      unitOff: 0,
+    },
+  ];
+  const p = computeLinePricing(12, 12, 0, ORDER_PROMO_BUY_100_GET_30, 12, catalog);
+  assert.equal(p.lineTotal, 120);
+  assert.equal(p.promoType, ORDER_PROMO_BUY_100_GET_30);
+});

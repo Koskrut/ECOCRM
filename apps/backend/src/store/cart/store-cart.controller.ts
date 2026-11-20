@@ -15,6 +15,7 @@ import {
   readStoreTelegramWebAppJwt,
   type RequestWithStoreTg,
 } from "../telegram/store-telegram-webapp.util";
+import { storeSpendPromoForSubtotal } from "../promo/store-spend-discount";
 import { StoreCartService } from "./store-cart.service";
 
 @Controller("store/cart")
@@ -51,7 +52,16 @@ export class StoreCartController {
     if (!identity.customerId && !identity.sessionId) {
       const rates = await this.settings.getExchangeRates();
       const uahPerUsd = rates.UAH_TO_USD > 0 ? 1 / rates.UAH_TO_USD : 41;
-      return { id: null, uahPerUsd, items: [], subtotal: 0 };
+      const priced = storeSpendPromoForSubtotal(0);
+      return {
+        id: null,
+        uahPerUsd,
+        items: [],
+        subtotal: 0,
+        discountAmount: 0,
+        total: 0,
+        spendPromo: priced.promo,
+      };
     }
     return this.cart.getCart(identity);
   }

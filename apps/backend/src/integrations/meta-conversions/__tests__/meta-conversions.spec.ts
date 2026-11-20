@@ -12,6 +12,7 @@ import {
   notifyMetaPurchase,
   resolveStartContact,
 } from "../meta-conversions.events";
+import { clientIpFromRequest } from "../meta-conversions.match";
 import { MetaConversionsService } from "../meta-conversions.service";
 import { DEFAULT_META_PIXEL_ID, META_CONVERSIONS_SETTING_ID } from "../meta-conversions.types";
 
@@ -90,7 +91,7 @@ describe("meta conversions", () => {
     assert.equal(event.event_name, "Purchase");
     assert.equal(event.event_id, "ord-42");
     assert.equal(event.action_source, "website");
-    assert.equal(event.event_source_url, "https://www.suprex.dental");
+    assert.equal(event.event_source_url, "https://www.suprex.dental/checkout");
     const custom = event.custom_data as Record<string, unknown>;
     assert.equal(custom.value, 1500);
     assert.equal(custom.currency, "USD");
@@ -110,6 +111,57 @@ describe("meta conversions", () => {
       channel: "website",
     });
     assert.equal(calls.length, 1);
+  });
+
+  it("sends Purchase with ip, user agent and fbc built from fbclid", async () => {
+    const { service, calls } = harness();
+    await enable(service);
+    const ip = clientIpFromRequest({
+      ip: "10.0.0.8",
+      headers: { "x-forwarded-for": "10.1.1.1, 203.0.113.10" },
+    });
+    assert.equal(ip, "203.0.113.10");
+    await service.trackPurchase({
+      orderId: "ord-match",
+      value: 990,
+      currency: "UAH",
+      channel: "website",
+      phone: PHONE,
+      country: "UA",
+      city: "Київ",
+      region: "Київська область",
+      zip: "01-001",
+      clientIpAddress: ip,
+      clientUserAgent: "Mozilla/5.0",
+      fbclid: "IwAR123",
+      eventSourceUrl: "https://www.suprex.dental/checkout?step=pay",
+    });
+    const event = bodyOf(calls[0]).data[0];
+    const user = event.user_data as Record<string, unknown>;
+    assert.equal(event.event_id, "ord-match");
+    assert.equal(event.event_source_url, "https://www.suprex.dental/checkout?step=pay");
+    assert.equal(user.client_ip_address, "203.0.113.10");
+    assert.equal(user.client_user_agent, "Mozilla/5.0");
+    assert.match(String(user.fbc), /^fb\.1\.\d+\.IwAR123$/);
+    assert.equal("fbp" in user, false);
+    assert.deepEqual(user.country, [sha256Hex("ua")]);
+    assert.deepEqual(user.ct, [sha256Hex("київ")]);
+    assert.deepEqual(user.st, [sha256Hex("київськаобласть")]);
+    assert.deepEqual(user.zp, [sha256Hex("01001")]);
+    const packed = JSON.stringify(event);
+    assert.equal(packed.includes("Київ"), false);
+    assert.equal(packed.includes("Хрещатик"), false);
+    assert.equal(packed.includes(PHONE), false);
+
+    await service.trackPurchase({
+      orderId: "ord-plain",
+      value: 10,
+      currency: "UAH",
+      channel: "website",
+    });
+    const plain = bodyOf(calls[1]).data[0].user_data as Record<string, unknown>;
+    assert.equal("fbc" in plain, false);
+    assert.equal("client_ip_address" in plain, false);
   });
 
   it("sends Contact only for /start bf2026", async () => {
@@ -153,6 +205,10 @@ describe("meta conversions", () => {
     assert.equal(event.event_id, "tg-3");
     assert.equal(event.action_source, "other");
     assert.equal("event_source_url" in event, false);
+    const contactUser = event.user_data as Record<string, unknown>;
+    assert.equal("client_ip_address" in contactUser, false);
+    assert.equal("fbp" in contactUser, false);
+    assert.equal("fbc" in contactUser, false);
     assert.equal((event.custom_data as { content_name: string }).content_name, "bf2026");
     assert.equal(JSON.stringify(event).includes(TOKEN), false);
   });
@@ -170,12 +226,19 @@ describe("meta conversions", () => {
       eventId: "vc-bf",
       path: "/",
       search: "?promo=bf",
+      clientIpAddress: "203.0.113.10",
+      clientUserAgent: "Mozilla/5.0",
+      fbclid: "IwAR123",
     });
     assert.equal(promo.sent, true);
     assert.equal(calls.length, 1);
     const event = bodyOf(calls[0]).data[0];
+    const user = event.user_data as Record<string, unknown>;
     assert.equal(event.event_name, "ViewContent");
     assert.equal(event.event_id, "vc-bf");
+    assert.equal(event.event_source_url, "https://www.suprex.dental/?promo=bf");
+    assert.equal(user.client_ip_address, "203.0.113.10");
+    assert.match(String(user.fbc), /^fb\.1\.\d+\.IwAR123$/);
     assert.equal((event.custom_data as { content_name: string }).content_name, "bf");
 
     assert.equal(isPromoView("/promo/bf", ""), true);
@@ -215,7 +278,7 @@ describe("meta conversions", () => {
     service.fetchImpl = (async (url: string | URL | Request, init?: RequestInit) => {
       calls.push({ url: String(url), init: init ?? {} });
       return new Response(
-        JSON.stringify({ error: { message: `bad ${TOKEN} phone 380501112233` } }),
+        JSON.stringify({ error: { message: `bad ${TOKEN} phone 380501112233 ip 203.0.113.55` } }),
         { status: 400 },
       );
     }) as typeof fetch;
@@ -225,29 +288,34 @@ describe("meta conversions", () => {
       currency: "UAH",
       channel: "website",
       phone: PHONE,
+      clientIpAddress: "203.0.113.55",
+      clientUserAgent: "Mozilla/5.0",
     });
     const pub = await service.getPublic();
     assert.equal(pub.lastError?.includes(TOKEN), false);
     assert.equal(pub.lastError?.includes("380501112233"), false);
     assert.equal(pub.lastError?.includes(PHONE), false);
+    assert.equal(pub.lastError?.includes("203.0.113.55"), false);
     assert.match(pub.lastError ?? "", /bad/);
     assert.equal("accessToken" in pub, false);
     assert.equal(pub.accessTokenMasked.endsWith("7890"), true);
     assert.equal(JSON.stringify(pub).includes(TOKEN), false);
 
     service.fetchImpl = (async () => {
-      throw new Error(`network ${TOKEN} phone 380501112233`);
+      throw new Error(`network ${TOKEN} phone 380501112233 ip 198.51.100.20`);
     }) as typeof fetch;
     await service.trackPurchase({
       orderId: "ord-net",
       value: 5,
       currency: "USD",
       channel: "website",
+      clientIpAddress: "198.51.100.20",
       phone: PHONE,
     });
     const afterNetwork = await service.getPublic();
     assert.equal(afterNetwork.lastError?.includes(TOKEN), false);
     assert.equal(afterNetwork.lastError?.includes("380501112233"), false);
+    assert.equal(afterNetwork.lastError?.includes("198.51.100.20"), false);
     await notifyMetaPurchase(
       {
         trackPurchase: async () => {

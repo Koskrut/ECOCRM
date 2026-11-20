@@ -8,12 +8,10 @@ import { orderCurrencySymbol } from "@/lib/order-currency";
 import {
   computeLineTotal,
   isPromoApplicable,
-  ORDER_PROMO_BUY_100_GET_30,
-  ORDER_PROMO_QTY_25_MINUS_2,
   parsePromoType,
   promoEligibilityQty,
   roundMoney,
-  type OrderPromoType,
+  type OrderPromoDefinition,
 } from "@/lib/order-line-total";
 import { spacing } from "@/lib/design/tokens";
 import { t } from "@/lib/i18n";
@@ -28,18 +26,21 @@ type OrderItemRowProps = {
   ) => void;
   onRemove: () => void;
   discountPresets?: number[];
-  promoOptions?: OrderPromoType[];
-  /** All draft lines — needed for BUY_100_GET_30 group eligibility by same price. */
+  promoCatalog?: OrderPromoDefinition[];
+  /** All draft lines — needed for pay-ratio promos grouped by the same price. */
   allLines?: DraftOrderLine[];
 };
 
-function lineTotal(item: DraftOrderLine, allLines?: DraftOrderLine[]): number {
-  const promo = parsePromoType(item.promoType);
-  const elig =
-    promo && allLines
-      ? promoEligibilityQty(promo, item, allLines)
-      : item.qty;
-  return roundMoney(computeLineTotal(item.qty, item.price, item.discountPercent, promo, elig));
+function lineTotal(
+  item: DraftOrderLine,
+  allLines?: DraftOrderLine[],
+  catalog?: readonly OrderPromoDefinition[] | null,
+): number {
+  const promo = parsePromoType(item.promoType, catalog);
+  const elig = promo && allLines ? promoEligibilityQty(promo, item, allLines, catalog) : item.qty;
+  return roundMoney(
+    computeLineTotal(item.qty, item.price, item.discountPercent, promo, elig, catalog),
+  );
 }
 
 function useNumericDraft(value: number, onCommit: (n: number) => void, min: number) {
@@ -69,11 +70,6 @@ function useNumericDraft(value: number, onCommit: (n: number) => void, min: numb
   };
 }
 
-function promoLabel(promo: OrderPromoType): string {
-  if (promo === ORDER_PROMO_BUY_100_GET_30) return t("orderCreate.promoBuy100Get30");
-  return t("orderCreate.promoQty25Minus2");
-}
-
 export function OrderItemRow({
   item,
   currency,
@@ -81,14 +77,17 @@ export function OrderItemRow({
   onChange,
   onRemove,
   discountPresets,
-  promoOptions,
+  promoCatalog,
   allLines,
 }: OrderItemRowProps) {
   const theme = useTheme();
   const showDiscounts = (discountPresets?.length ?? 0) > 0;
-  const showPromos = (promoOptions?.length ?? 0) > 0;
+  const linePromos = (promoCatalog ?? []).filter(
+    (promo) => promo.enabled || promo.id === item.promoType,
+  );
+  const showPromos = linePromos.length > 0;
   const currencySym = orderCurrencySymbol(currency);
-  const activePromo = parsePromoType(item.promoType);
+  const activePromo = parsePromoType(item.promoType, promoCatalog);
   const linesForElig = allLines ?? [item];
 
   const qtyField = useNumericDraft(
@@ -101,8 +100,9 @@ export function OrderItemRow({
           activePromo,
           draft,
           linesForElig.map((l) => (l.key === item.key ? draft : l)),
+          promoCatalog,
         );
-        if (!isPromoApplicable(activePromo, elig)) {
+        if (!isPromoApplicable(activePromo, elig, promoCatalog)) {
           patch.promoType = null;
         }
       }
@@ -121,7 +121,7 @@ export function OrderItemRow({
     },
   ];
 
-  const total = lineTotal(item, linesForElig);
+  const total = lineTotal(item, linesForElig, promoCatalog);
   const gross = item.qty * item.price;
 
   return (
@@ -163,8 +163,9 @@ export function OrderItemRow({
                       activePromo,
                       draft,
                       linesForElig.map((l) => (l.key === item.key ? draft : l)),
+                      promoCatalog,
                     );
-                    if (!isPromoApplicable(activePromo, elig)) {
+                    if (!isPromoApplicable(activePromo, elig, promoCatalog)) {
                       patch.promoType = null;
                     }
                   }
@@ -212,17 +213,17 @@ export function OrderItemRow({
       </View>
       {showPromos ? (
         <View style={styles.presetRow}>
-          {promoOptions!.map((promo) => {
-            const elig = promoEligibilityQty(promo, item, linesForElig);
-            const ok = isPromoApplicable(promo, elig);
-            const selected = activePromo === promo;
+          {linePromos.map((promo) => {
+            const elig = promoEligibilityQty(promo.id, item, linesForElig, promoCatalog);
+            const ok = isPromoApplicable(promo.id, elig, promoCatalog);
+            const selected = activePromo === promo.id;
             return (
               <Pressable
-                key={promo}
+                key={promo.id}
                 disabled={!ok && !selected}
                 onPress={() =>
                   onChange({
-                    promoType: selected ? null : promo,
+                    promoType: selected ? null : promo.id,
                     discountPercent: selected ? item.discountPercent : 0,
                   })
                 }
@@ -237,8 +238,8 @@ export function OrderItemRow({
                 ]}
                 accessibilityRole="button">
                 <Text style={[styles.presetText, { color: theme.colors.text }]}>
-                  {promoLabel(promo)}
-                  {promo === ORDER_PROMO_BUY_100_GET_30 && !ok ? ` ${elig}/130` : ""}
+                  {promo.name}
+                  {promo.kind === "pay_ratio" && !ok ? ` ${elig}/${promo.minQty}` : ""}
                 </Text>
               </Pressable>
             );
@@ -289,8 +290,11 @@ export function OrderItemRow({
   );
 }
 
-export function draftLinesTotal(items: DraftOrderLine[]): number {
-  return items.reduce((sum, item) => sum + lineTotal(item, items), 0);
+export function draftLinesTotal(
+  items: DraftOrderLine[],
+  catalog?: readonly OrderPromoDefinition[] | null,
+): number {
+  return items.reduce((sum, item) => sum + lineTotal(item, items, catalog), 0);
 }
 
 const styles = StyleSheet.create({

@@ -68,6 +68,8 @@ export function sanitizeMetaError(message: string, secret?: string | null): stri
   text = text.replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[email]");
   text = text.replace(/\b[a-f0-9]{64}\b/gi, "[hash]");
   text = text.replace(/(?<!\d)\d{10,13}(?!\d)/g, "[phone]");
+  text = text.replace(/\b(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)\b/g, "[ip]");
+  text = text.replace(/\bfb\.\d+\.\d+\.[A-Za-z0-9_-]+/g, "[click]");
   if (!text) return "Помилка Meta";
   return text.length > 400 ? text.slice(0, 400) : text;
 }

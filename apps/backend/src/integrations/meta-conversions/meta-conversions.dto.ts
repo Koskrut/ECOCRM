@@ -34,4 +34,16 @@ export class StoreMetaViewContentDto {
   @IsString()
   @MaxLength(500)
   search?: string;
+
+  @IsOptional()
+  @IsString()
+  fbp?: string;
+
+  @IsOptional()
+  @IsString()
+  fbc?: string;
+
+  @IsOptional()
+  @IsString()
+  fbclid?: string;
 }

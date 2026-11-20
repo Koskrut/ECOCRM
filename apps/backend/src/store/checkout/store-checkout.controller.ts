@@ -1,6 +1,8 @@
 import { BadRequestException, Body, Controller, Get, Post, Query, Req } from "@nestjs/common";
 import { notifyMetaPurchase } from "../../integrations/meta-conversions/meta-conversions.events";
+import { clientIpFromRequest, headerValue } from "../../integrations/meta-conversions/meta-conversions.match";
 import { MetaConversionsService } from "../../integrations/meta-conversions/meta-conversions.service";
+import type { PurchaseInput } from "../../integrations/meta-conversions/meta-conversions.types";
 import { StoreCheckoutPaymentLinkDto } from "./dto/store-checkout-payment-link.dto";
 import { StoreCheckoutService } from "./store-checkout.service";
 import { StoreCheckoutPaymentLinkService } from "./store-checkout-payment-link.service";
@@ -11,6 +13,34 @@ import {
   readStoreTelegramWebAppJwt,
   type RequestWithStoreTg,
 } from "../telegram/store-telegram-webapp.util";
+
+function metaPurchaseContext(
+  req: RequestWithStoreTg,
+  dto: StoreCheckoutDto,
+  result: { orderId: string; value: number; currency: string; contactId: string; city?: string },
+  channel: "website" | "telegram",
+): PurchaseInput {
+  return {
+    orderId: result.orderId,
+    value: result.value,
+    currency: result.currency,
+    channel,
+    phone: dto.phone,
+    email: dto.email,
+    firstName: dto.firstName,
+    lastName: dto.lastName,
+    externalId: result.contactId,
+    country: "ua",
+    city: result.city || dto.deliveryData?.cityName,
+    region: dto.region,
+    clientIpAddress: clientIpFromRequest(req),
+    clientUserAgent: headerValue(req.headers["user-agent"]),
+    fbp: dto.fbp,
+    fbc: dto.fbc,
+    fbclid: dto.fbclid,
+    eventSourceUrl: dto.eventSourceUrl,
+  };
+}
 
 @Controller("store/checkout")
 export class StoreCheckoutController {
@@ -63,17 +93,7 @@ export class StoreCheckoutController {
         forContactId: linkedContactId,
       });
       if (result.currency) {
-        void notifyMetaPurchase(this.metaConversions, {
-          orderId: result.orderId,
-          value: result.value,
-          currency: result.currency,
-          channel: "telegram",
-          phone: dto.phone,
-          email: dto.email,
-          firstName: dto.firstName,
-          lastName: dto.lastName,
-          externalId: result.contactId,
-        });
+        void notifyMetaPurchase(this.metaConversions, metaPurchaseContext(req, dto, result, "telegram"));
       }
       void this.storeCheckout.notifyTelegramWebAppOrder({
         orderId: result.orderId,
@@ -92,17 +112,7 @@ export class StoreCheckoutController {
 
     const result = await this.storeCheckout.checkout(dto);
     if (result.currency) {
-      void notifyMetaPurchase(this.metaConversions, {
-        orderId: result.orderId,
-        value: result.value,
-        currency: result.currency,
-        channel: "website",
-        phone: dto.phone,
-        email: dto.email,
-        firstName: dto.firstName,
-        lastName: dto.lastName,
-        externalId: result.contactId,
-      });
+      void notifyMetaPurchase(this.metaConversions, metaPurchaseContext(req, dto, result, "website"));
     }
     return result;
   }

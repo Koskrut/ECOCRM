@@ -4,7 +4,24 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.255**.)_
+_(планируемые изменения после **0.2.256**.)_
+
+## [0.2.256] — 2026-11-20
+
+### Summary
+
+Патч **0.2.256**: точніше **Meta Conversions** matching + сторінка `/promo/bf` + налаштовувані line-promo в замовленнях + store spend-знижка (−$60 за кожні $460).
+
+### Changed
+
+- **Meta Conversions:** Purchase/ViewContent передають `client_ip_address`, `client_user_agent`, `fbp`/`fbc` (fbc з `fbclid` якщо cookie немає); хеш міста/області/індексу лише з замовлення; Contact з `/start` без вигаданих IP/cookie.
+- **Store promo:** сторінка `/promo/bf` (каталог + `t.me/<бот>?start=bf2026`); spend promo −$60 за кожні повні $460 у cart/checkout/Telegram bot; `CartTotals`.
+- **Order line promos:** каталог акцій у Settings (builtins + custom `pay_ratio` / `unit_off`); web/mobile/backend спільний розрахунок `lineTotal`; schema comment для `promoType`.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.256`**.
+- Нових Prisma-міграцій немає.
 
 ## [0.2.255] — 2026-11-19
 

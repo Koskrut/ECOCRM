@@ -85,11 +85,23 @@ export type CartItem = {
   lineTotal: number;
 };
 
+export type CartSpendPromo = {
+  thresholdUsd: number;
+  discountPerStepUsd: number;
+  steps: number;
+};
+
 export type Cart = {
   id: string | null;
   uahPerUsd: number;
   items: CartItem[];
+  /** Merchandise in USD, before the spend promo. */
   subtotal: number;
+  /** USD taken off for every full promo tier. */
+  discountAmount?: number;
+  /** USD to pay after the spend promo. */
+  total?: number;
+  spendPromo?: CartSpendPromo;
 };
 
 export async function getProducts(params?: {
@@ -213,6 +225,10 @@ export async function checkout(body: {
   deliveryData?: CheckoutDeliveryData | null;
   paymentMethod?: string;
   sessionId?: string;
+  fbp?: string;
+  fbc?: string;
+  fbclid?: string;
+  eventSourceUrl?: string;
 }) {
   return api<{
     orderId: string;
@@ -478,6 +494,8 @@ export type StoreConfig = {
     order: number;
   }>;
   contact?: { companyName?: string; address?: string; phone?: string; email?: string };
+  /** @username без @, з STORE_TELEGRAM_BOT_USERNAME. */
+  telegramBotUsername?: string;
   /** Базовий URL CRM для /pay/[token] (без слеша в кінці). */
   crmPayPageUrl?: string;
 };

@@ -10,7 +10,13 @@ import { SectionTitle } from "@/components/ui/SectionTitle";
 import type { DeliveryMethod } from "@/components/order/DeliveryMethodSection";
 import { useTheme } from "@/lib/design/theme-context";
 import { formatBaseMoney } from "@/lib/order-currency";
-import { computeLineTotal, parsePromoType, promoEligibilityQty, roundMoney } from "@/lib/order-line-total";
+import {
+  computeLineTotal,
+  parsePromoType,
+  promoEligibilityQty,
+  roundMoney,
+  type OrderPromoDefinition,
+} from "@/lib/order-line-total";
 import { t } from "@/lib/i18n";
 import type { Contact, ContactShippingProfile, DraftOrderLine } from "@/types/crm";
 
@@ -24,12 +30,17 @@ type Props = {
   deliveryMethod: DeliveryMethod;
   shippingProfile?: ContactShippingProfile | null;
   comment: string;
+  promoCatalog?: OrderPromoDefinition[];
 };
 
-function lineAmount(line: DraftOrderLine, all: DraftOrderLine[]): number {
-  const promo = parsePromoType(line.promoType);
-  const elig = promo ? promoEligibilityQty(promo, line, all) : line.qty;
-  return roundMoney(computeLineTotal(line.qty, line.price, line.discountPercent, promo, elig));
+function lineAmount(
+  line: DraftOrderLine,
+  all: DraftOrderLine[],
+  catalog?: readonly OrderPromoDefinition[] | null,
+): number {
+  const promo = parsePromoType(line.promoType, catalog);
+  const elig = promo ? promoEligibilityQty(promo, line, all, catalog) : line.qty;
+  return roundMoney(computeLineTotal(line.qty, line.price, line.discountPercent, promo, elig, catalog));
 }
 
 export function OrderReviewStep({
@@ -42,9 +53,10 @@ export function OrderReviewStep({
   deliveryMethod,
   shippingProfile,
   comment,
+  promoCatalog,
 }: Props) {
   const theme = useTheme();
-  const total = draftLinesTotal(lines);
+  const total = draftLinesTotal(lines, promoCatalog);
 
   return (
     <View>
@@ -69,7 +81,7 @@ export function OrderReviewStep({
             key={line.key}
             style={[theme.typography.caption, { marginLeft: 8, marginBottom: 4, color: theme.colors.textMuted }]}>
             {index + 1}. {line.productSku ? `${line.productSku} · ` : ""}
-            {line.productName} × {line.qty} = {formatBaseMoney(lineAmount(line, lines), currency)}
+            {line.productName} × {line.qty} = {formatBaseMoney(lineAmount(line, lines, promoCatalog), currency)}
           </Text>
         ))}
         <Text style={[theme.typography.body, { marginBottom: 8 }]}>

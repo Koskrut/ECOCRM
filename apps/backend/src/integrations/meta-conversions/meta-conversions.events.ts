@@ -1,6 +1,7 @@
 import type { ContactInput, PurchaseInput, ViewContentInput } from "./meta-conversions.types";
 import { STORE_EVENT_SOURCE_URL } from "./meta-conversions.types";
-import { metaUserData, type MetaUserInput } from "./meta-conversions.user-data";
+import { checkoutPageUrl, storeEventSourceUrl } from "./meta-conversions.match";
+import { metaUserData, type MetaUserData, type MetaUserInput } from "./meta-conversions.user-data";
 
 export type MetaEventName = "Purchase" | "Contact" | "ViewContent";
 
@@ -10,7 +11,7 @@ export type MetaEvent = {
   event_id: string;
   action_source: "website" | "other";
   event_source_url?: string;
-  user_data: Record<string, string[]>;
+  user_data: MetaUserData;
   custom_data: Record<string, string | number>;
 };
 
@@ -54,7 +55,7 @@ export function contactEventId(updateId: string | null | undefined, chatId: stri
   return `tg-${chatId}-${label}`;
 }
 
-function userOf(input: MetaUserInput): Record<string, string[]> {
+function userOf(input: MetaUserInput): MetaUserData {
   return metaUserData(input);
 }
 
@@ -65,7 +66,7 @@ export function buildPurchaseEvent(input: PurchaseInput, nowSeconds = Math.floor
     event_time: nowSeconds,
     event_id: input.orderId.trim(),
     action_source: "website",
-    event_source_url: STORE_EVENT_SOURCE_URL,
+    event_source_url: checkoutPageUrl(input.eventSourceUrl),
     user_data: userOf(input),
     custom_data: {
       value: Number(input.value) || 0,
@@ -93,8 +94,8 @@ export function buildViewContentEvent(input: ViewContentInput, nowSeconds = Math
     event_time: nowSeconds,
     event_id: input.eventId.trim(),
     action_source: "website",
-    event_source_url: STORE_EVENT_SOURCE_URL,
-    user_data: userOf({ externalId: input.externalId }),
+    event_source_url: storeEventSourceUrl(input.path, input.search),
+    user_data: userOf(input),
     custom_data: { content_name: "bf" },
   };
 }

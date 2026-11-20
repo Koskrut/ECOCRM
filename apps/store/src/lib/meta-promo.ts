@@ -1,3 +1,4 @@
+import { getAttributionSnapshot } from "@/lib/attribution";
 import { trackMetaStandard } from "@/lib/tracking";
 
 const PROMO_PATHS = new Set(["/promo/bf", "/promo/bf2026", "/bf", "/bf2026"]);
@@ -45,6 +46,30 @@ function viewEventId(path: string, search: string): string {
   }
 }
 
+function readCookie(name: string): string | null {
+  if (typeof document === "undefined") return null;
+  const match = document.cookie.match(new RegExp(`(?:^|; )${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}=([^;]*)`));
+  if (!match?.[1]) return null;
+  try {
+    const value = decodeURIComponent(match[1]).trim();
+    return value || null;
+  } catch {
+    return match[1].trim() || null;
+  }
+}
+
+/** fbp/fbc cookies and the fbclid already stored for this visit. Empty values are omitted. */
+export function readMetaClickIds(): { fbp?: string; fbc?: string; fbclid?: string } {
+  const fbp = readCookie("_fbp");
+  const fbc = readCookie("_fbc");
+  const fbclid = getAttributionSnapshot().fbclid?.trim() || null;
+  return {
+    ...(fbp ? { fbp } : {}),
+    ...(fbc ? { fbc } : {}),
+    ...(fbclid ? { fbclid } : {}),
+  };
+}
+
 const posted = new Set<string>();
 
 /** Server event does not wait for marketing consent. The browser pixel does. */
@@ -58,7 +83,7 @@ export async function reportPromoView(path: string, search: string): Promise<voi
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ eventId, path, search }),
+        body: JSON.stringify({ eventId, path, search, ...readMetaClickIds() }),
       });
     } catch {
       posted.delete(eventId);

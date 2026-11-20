@@ -124,7 +124,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
   const { count, sumUah } = useMemo(
     () => ({
       count: cart.items.length,
-      sumUah: Math.round(cart.subtotal * (cart.uahPerUsd || 41)),
+      sumUah: Math.round((cart.total ?? cart.subtotal) * (cart.uahPerUsd || 41)),
     }),
     [cart],
   );

@@ -18,9 +18,10 @@ import {
 import { getCartSessionId } from "@/lib/cart-session";
 import { formatPhoneDisplay, formatUaPhoneInput } from "@/lib/formatPhone";
 import { Button } from "@/components/Button";
+import { CartTotals } from "@/components/CartTotals";
 import { useCart } from "@/context/CartContext";
 import { useTelegramWebApp } from "@/context/TelegramWebAppContext";
-import { prefetchMetaConversions, trackStorePurchase } from "@/lib/meta-promo";
+import { prefetchMetaConversions, readMetaClickIds, trackStorePurchase } from "@/lib/meta-promo";
 import { assignStorePath, isTelegramMiniAppDocument } from "@/lib/telegram-nav";
 
 const inputClass =
@@ -40,7 +41,7 @@ function revealCheckoutField(el: HTMLElement) {
 
 export default function CheckoutPage() {
   const telegram = useTelegramWebApp();
-  const { applyCart } = useCart();
+  const { cart, applyCart } = useCart();
   const errorAnchorRef = useRef<HTMLParagraphElement>(null);
   const isTelegramCheckout = telegram.isTelegram && Boolean(telegram.token);
   const telegramLoggedIn = isTelegramCheckout && telegram.loggedIn;
@@ -493,6 +494,8 @@ export default function CheckoutPage() {
         deliveryMethod,
         deliveryData: deliveryData ?? null,
         sessionId,
+        ...readMetaClickIds(),
+        eventSourceUrl: window.location.href,
       });
       applyCart({ id: null, uahPerUsd: 41, items: [], subtotal: 0 });
       if (result.currency) {
@@ -1262,6 +1265,11 @@ export default function CheckoutPage() {
               className={inputClass}
             />
           </div>
+          {cart.items.length > 0 ? (
+            <div className="rounded-xl border border-[var(--border)] bg-white p-4">
+              <CartTotals cart={cart} />
+            </div>
+          ) : null}
           {error ? (
             <p
               ref={errorAnchorRef}

@@ -1,9 +1,15 @@
 import { Type } from "class-transformer";
-import { IsIn, IsInt, IsNumber, IsOptional, IsString, Max, Min } from "class-validator";
 import {
-  ORDER_PROMO_BUY_100_GET_30,
-  ORDER_PROMO_QTY_25_MINUS_2,
-} from "../order-line-total.utils";
+  IsInt,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Matches,
+  Max,
+  Min,
+  ValidateIf,
+} from "class-validator";
+import { ORDER_PROMO_ID_RE } from "../order-line-total.utils";
 
 export class AddOrderItemDto {
   @IsString()
@@ -26,8 +32,9 @@ export class AddOrderItemDto {
   @Type(() => Number)
   discountPercent?: number;
 
-  /** BUY_100_GET_30 | QTY_25_MINUS_2 | null/NONE to clear */
+  /** Promotion id from settings, or NONE / empty to clear. */
   @IsOptional()
-  @IsIn([ORDER_PROMO_BUY_100_GET_30, ORDER_PROMO_QTY_25_MINUS_2, "NONE", ""])
+  @ValidateIf((_, value) => value != null && value !== "" && value !== "NONE")
+  @Matches(ORDER_PROMO_ID_RE)
   promoType?: string | null;
 }

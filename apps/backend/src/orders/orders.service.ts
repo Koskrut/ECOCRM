@@ -85,10 +85,11 @@ import { OrderSaleAssignedNotifierService } from "../notifications/order-sale-as
 import { OrderWarehouseNotifierService } from "../notifications/order-warehouse-notifier.service";
 import {
   computeLinePricing,
-  ORDER_PROMO_BUY_100_GET_30,
+  findPromoDefinition,
   parsePromoType,
   pricesMatch,
   sumQtyForSamePrice,
+  type OrderPromoDefinition,
   type OrderPromoType,
 } from "./order-line-total.utils";
 import { OrderReturnsService } from "../order-returns/order-returns.service";
@@ -224,9 +225,8 @@ export class OrdersService {
     }
   }
 
-  private async assertAllowedDiscountPercent(discountPercent: number): Promise<void> {
+  private assertAllowedDiscountPercent(discountPercent: number, percents: readonly number[]): void {
     if (discountPercent === 0) return;
-    const { percents } = await this.settings.getOrderLineDiscounts();
     if (!percents.includes(discountPercent)) {
       throw new BadRequestException(
         `Discount ${discountPercent}% is not allowed. Allowed: ${percents.join(", ")}%`,
@@ -234,10 +234,9 @@ export class OrdersService {
     }
   }
 
-  private async assertAllowedPromo(promoType: OrderPromoType | null): Promise<void> {
+  private assertAllowedPromo(promoType: OrderPromoType | null, enabledIds: readonly string[]): void {
     if (!promoType) return;
-    const { promos } = await this.settings.getOrderLineDiscounts();
-    if (!(promos as readonly string[]).includes(promoType)) {
+    if (!enabledIds.includes(promoType)) {
       throw new BadRequestException(`Promo ${promoType} is not enabled`);
     }
   }
@@ -249,6 +248,7 @@ export class OrdersService {
     promoType: OrderPromoType | null;
     dropInapplicable?: boolean;
     eligibilityQty?: number;
+    catalog?: readonly OrderPromoDefinition[] | null;
   }) {
     try {
       return computeLinePricing(
@@ -259,6 +259,7 @@ export class OrdersService {
         {
           dropInapplicable: input.dropInapplicable,
           eligibilityQty: input.eligibilityQty,
+          catalog: input.catalog,
         },
       );
     } catch (e) {
@@ -268,13 +269,15 @@ export class OrdersService {
   }
 
   /**
-   * BUY_100_GET_30 applies to all lines with the same unit price.
-   * Reprices every matching line (or clears promo if group qty drops below threshold).
+   * A pay-ratio promotion applies to every line with the same unit price.
+   * Reprices the group, or clears the promo when quantity drops below its minimum.
    */
-  private async syncBuy100Get30PriceGroup(
+  private async syncGroupedPricePromo(
     orderId: string,
     price: number,
     mode: "apply" | "refresh" | "clear",
+    promoId: string | null,
+    catalog: readonly OrderPromoDefinition[],
     db: Prisma.TransactionClient | PrismaService = this.prisma,
   ): Promise<void> {
     const items = await db.orderItem.findMany({ where: { orderId } });
@@ -282,15 +285,25 @@ export class OrdersService {
     if (group.length === 0) return;
 
     const groupQty = sumQtyForSamePrice(group, price);
+    const targetId =
+      mode === "refresh"
+        ? (group
+            .map((it) => it.promoType)
+            .find((id) => !!id && findPromoDefinition(id, catalog)?.kind === "pay_ratio") ?? null)
+        : promoId;
+    if (!targetId) return;
+    const def = findPromoDefinition(targetId, catalog);
+    if (!def || def.kind !== "pay_ratio") return;
 
-    if (mode === "clear" || (mode === "refresh" && groupQty < 130)) {
+    if (mode === "clear" || (mode === "refresh" && groupQty < def.minQty)) {
       for (const it of group) {
-        if (it.promoType !== ORDER_PROMO_BUY_100_GET_30) continue;
+        if (it.promoType !== targetId) continue;
         const pricing = this.resolveItemPricing({
           qty: it.qty,
           price: it.price,
           discountPercent: 0,
           promoType: null,
+          catalog,
         });
         await db.orderItem.update({
           where: { id: it.id },
@@ -304,16 +317,14 @@ export class OrdersService {
       return;
     }
 
-    if (mode === "apply" && groupQty < 130) {
+    if (mode === "apply" && groupQty < def.minQty) {
       throw new BadRequestException(
-        `Акція «100+30» доступна від 130 шт сумарно за однаковою ціною (зараз ${groupQty})`,
+        `Акція «${def.name}» доступна від ${def.minQty} шт сумарно за однаковою ціною (зараз ${groupQty})`,
       );
     }
 
-    if (mode === "apply" || (mode === "refresh" && groupQty >= 130)) {
-      const apply =
-        mode === "apply" ||
-        group.some((it) => it.promoType === ORDER_PROMO_BUY_100_GET_30);
+    if (mode === "apply" || (mode === "refresh" && groupQty >= def.minQty)) {
+      const apply = mode === "apply" || group.some((it) => it.promoType === targetId);
       if (!apply && mode === "refresh") return;
 
       for (const it of group) {
@@ -321,8 +332,9 @@ export class OrdersService {
           qty: it.qty,
           price: it.price,
           discountPercent: 0,
-          promoType: ORDER_PROMO_BUY_100_GET_30,
+          promoType: targetId,
           eligibilityQty: groupQty,
+          catalog,
         });
         await db.orderItem.update({
           where: { id: it.id },
@@ -1440,15 +1452,14 @@ export class OrdersService {
     if (!order) throw new NotFoundException("Order not found");
     if (actor) await this.assertOrderAccess(order, actor);
 
+    const discountCfg = await this.settings.getOrderLineDiscounts();
+    const catalog = discountCfg.catalog;
     const productId = dto.productId;
     const qty = Math.max(1, Math.trunc(dto.qty));
     const price = dto.price;
     let promoType: OrderPromoType | null;
     try {
-      promoType =
-        dto.promoType !== undefined
-          ? parsePromoType(dto.promoType)
-          : null;
+      promoType = dto.promoType !== undefined ? parsePromoType(dto.promoType, catalog) : null;
     } catch (e) {
       throw new BadRequestException(e instanceof Error ? e.message : "Invalid promoType");
     }
@@ -1456,23 +1467,36 @@ export class OrdersService {
     const discountPercent = promoType
       ? 0
       : Math.max(0, Math.trunc(dto.discountPercent ?? 0));
-    if (!promoType) await this.assertAllowedDiscountPercent(discountPercent);
-    await this.assertAllowedPromo(promoType);
+    if (!promoType) this.assertAllowedDiscountPercent(discountPercent, discountCfg.percents);
+    this.assertAllowedPromo(promoType, discountCfg.promos);
 
     const existing = await db.orderItem.findUnique({
       where: { orderId_productId: { orderId, productId } },
     });
+
+    const priceGroupedLine = (lineQty: number, linePromo: string) => {
+      const def = findPromoDefinition(linePromo, catalog);
+      return this.resolveItemPricing({
+        qty: lineQty,
+        price,
+        discountPercent: 0,
+        promoType: linePromo,
+        eligibilityQty: Math.max(lineQty, def?.minQty ?? lineQty),
+        catalog,
+      });
+    };
 
     if (existing) {
       const nextQty = existing.qty + qty;
       let nextPromo: OrderPromoType | null;
       try {
         nextPromo =
-          dto.promoType !== undefined
-            ? promoType
-            : parsePromoType(existing.promoType);
+          dto.promoType !== undefined ? promoType : parsePromoType(existing.promoType, catalog);
       } catch (e) {
-        throw new BadRequestException(e instanceof Error ? e.message : "Invalid promoType");
+        if (dto.promoType !== undefined) {
+          throw new BadRequestException(e instanceof Error ? e.message : "Invalid promoType");
+        }
+        nextPromo = null;
       }
       if (dto.discountPercent != null && dto.promoType === undefined) {
         nextPromo = null;
@@ -1482,22 +1506,21 @@ export class OrdersService {
         : dto.discountPercent != null
           ? discountPercent
           : existing.discountPercent;
-      if (!nextPromo) await this.assertAllowedDiscountPercent(nextDiscount);
-      await this.assertAllowedPromo(nextPromo);
+      if (!nextPromo && dto.discountPercent != null) {
+        this.assertAllowedDiscountPercent(nextDiscount, discountCfg.percents);
+      }
+      if (dto.promoType !== undefined) this.assertAllowedPromo(nextPromo, discountCfg.promos);
 
-      // For BUY_100_GET_30, eligibility is by same-price group qty (computed after write).
+      const nextDef = nextPromo ? findPromoDefinition(nextPromo, catalog) : null;
       const pricing =
-        nextPromo === ORDER_PROMO_BUY_100_GET_30
-          ? {
-              discountPercent: 0,
-              promoType: nextPromo as OrderPromoType,
-              lineTotal: price * nextQty * (100 / 130),
-            }
+        nextPromo && nextDef?.kind === "pay_ratio"
+          ? priceGroupedLine(nextQty, nextPromo)
           : this.resolveItemPricing({
               qty: nextQty,
               price,
               discountPercent: nextDiscount,
               promoType: nextPromo,
+              catalog,
             });
       await db.orderItem.update({
         where: { id: existing.id },
@@ -1510,18 +1533,16 @@ export class OrdersService {
         },
       });
     } else {
+      const requestedDef = promoType ? findPromoDefinition(promoType, catalog) : null;
       const pricing =
-        promoType === ORDER_PROMO_BUY_100_GET_30
-          ? {
-              discountPercent: 0,
-              promoType,
-              lineTotal: price * qty * (100 / 130),
-            }
+        promoType && requestedDef?.kind === "pay_ratio"
+          ? priceGroupedLine(qty, promoType)
           : this.resolveItemPricing({
               qty,
               price,
               discountPercent,
               promoType,
+              catalog,
             });
       await db.orderItem.create({
         data: {
@@ -1536,11 +1557,11 @@ export class OrdersService {
       });
     }
 
-    if (promoType === ORDER_PROMO_BUY_100_GET_30) {
-      await this.syncBuy100Get30PriceGroup(orderId, price, "apply", db);
+    const requestedDef = promoType ? findPromoDefinition(promoType, catalog) : null;
+    if (promoType && requestedDef?.kind === "pay_ratio") {
+      await this.syncGroupedPricePromo(orderId, price, "apply", promoType, catalog, db);
     } else {
-      // Qty/price change may invalidate an existing same-price promo group.
-      await this.syncBuy100Get30PriceGroup(orderId, price, "refresh", db);
+      await this.syncGroupedPricePromo(orderId, price, "refresh", null, catalog, db);
     }
 
     await this.materialReservations.syncActiveReservationsForOrder(orderId, tx);
@@ -1625,12 +1646,19 @@ export class OrdersService {
       }
     }
 
+    const discountCfg = await this.settings.getOrderLineDiscounts();
+    const catalog = discountCfg.catalog;
+
     let nextPromo: OrderPromoType | null;
     try {
       if (dto.promoType !== undefined) {
-        nextPromo = parsePromoType(dto.promoType);
+        nextPromo = parsePromoType(dto.promoType, catalog);
       } else {
-        nextPromo = parsePromoType(item.promoType);
+        try {
+          nextPromo = parsePromoType(item.promoType, catalog);
+        } catch {
+          nextPromo = null;
+        }
       }
     } catch (e) {
       throw new BadRequestException(e instanceof Error ? e.message : "Invalid promoType");
@@ -1645,34 +1673,40 @@ export class OrdersService {
       : dto.discountPercent != null
         ? Math.max(0, Math.trunc(dto.discountPercent))
         : item.discountPercent;
-    if (!nextPromo) await this.assertAllowedDiscountPercent(nextDiscount);
-    await this.assertAllowedPromo(nextPromo);
+    if (!nextPromo && dto.discountPercent != null) {
+      this.assertAllowedDiscountPercent(nextDiscount, discountCfg.percents);
+    }
+    if (dto.promoType !== undefined) this.assertAllowedPromo(nextPromo, discountCfg.promos);
 
     let prevPromo: OrderPromoType | null = null;
     try {
-      prevPromo = parsePromoType(item.promoType);
+      prevPromo = parsePromoType(item.promoType, catalog);
     } catch {
       prevPromo = null;
     }
-    const clearingBuy100 =
-      prevPromo === ORDER_PROMO_BUY_100_GET_30 && nextPromo !== ORDER_PROMO_BUY_100_GET_30;
-    const applyingBuy100 = nextPromo === ORDER_PROMO_BUY_100_GET_30;
+    const nextDef = nextPromo ? findPromoDefinition(nextPromo, catalog) : null;
+    const prevDef = prevPromo ? findPromoDefinition(prevPromo, catalog) : null;
+    const applyingGrouped = nextDef?.kind === "pay_ratio" && !!nextPromo;
+    const clearingGrouped = prevDef?.kind === "pay_ratio" && !!prevPromo && nextPromo !== prevPromo;
 
     // Write the line first (qty/price), then sync same-price promo group.
-    const provisional =
-      applyingBuy100
-        ? {
-            discountPercent: 0,
-            promoType: ORDER_PROMO_BUY_100_GET_30 as OrderPromoType | null,
-            lineTotal: nextPrice * nextQty * (100 / 130),
-          }
-        : this.resolveItemPricing({
-            qty: nextQty,
-            price: nextPrice,
-            discountPercent: nextDiscount,
-            promoType: nextPromo === ORDER_PROMO_BUY_100_GET_30 ? null : nextPromo,
-            dropInapplicable: true,
-          });
+    const provisional = applyingGrouped
+      ? this.resolveItemPricing({
+          qty: nextQty,
+          price: nextPrice,
+          discountPercent: 0,
+          promoType: nextPromo,
+          eligibilityQty: Math.max(nextQty, nextDef?.minQty ?? nextQty),
+          catalog,
+        })
+      : this.resolveItemPricing({
+          qty: nextQty,
+          price: nextPrice,
+          discountPercent: nextDiscount,
+          promoType: nextDef?.kind === "pay_ratio" ? null : nextPromo,
+          dropInapplicable: true,
+          catalog,
+        });
 
     await this.prisma.orderItem.update({
       where: { id: itemId },
@@ -1680,26 +1714,28 @@ export class OrdersService {
         qty: nextQty,
         price: nextPrice,
         discountPercent: provisional.discountPercent,
-        promoType: applyingBuy100 ? ORDER_PROMO_BUY_100_GET_30 : provisional.promoType,
+        promoType: applyingGrouped ? nextPromo : provisional.promoType,
         lineTotal: provisional.lineTotal,
       },
     });
 
-    if (applyingBuy100) {
-      await this.syncBuy100Get30PriceGroup(orderId, nextPrice, "apply");
-    } else if (clearingBuy100) {
-      // Clear promo from the whole same-price group (old price bucket).
-      await this.syncBuy100Get30PriceGroup(orderId, prevPrice, "clear");
-      if (!pricesMatch(prevPrice, nextPrice)) {
-        await this.syncBuy100Get30PriceGroup(orderId, nextPrice, "refresh");
+    if (applyingGrouped && nextPromo) {
+      if (clearingGrouped && prevPromo && prevPromo !== nextPromo) {
+        await this.syncGroupedPricePromo(orderId, prevPrice, "clear", prevPromo, catalog);
       }
-      // Re-apply non-group promo / percent on this line if requested.
+      await this.syncGroupedPricePromo(orderId, nextPrice, "apply", nextPromo, catalog);
+    } else if (clearingGrouped && prevPromo) {
+      await this.syncGroupedPricePromo(orderId, prevPrice, "clear", prevPromo, catalog);
+      if (!pricesMatch(prevPrice, nextPrice)) {
+        await this.syncGroupedPricePromo(orderId, nextPrice, "refresh", null, catalog);
+      }
       if (nextPromo !== null || dto.discountPercent != null) {
         const pricing = this.resolveItemPricing({
           qty: nextQty,
           price: nextPrice,
           discountPercent: nextDiscount,
           promoType: nextPromo,
+          catalog,
         });
         await this.prisma.orderItem.update({
           where: { id: itemId },
@@ -1711,10 +1747,9 @@ export class OrdersService {
         });
       }
     } else {
-      // Qty/price edits: refresh any active BUY_100 group(s) affected.
-      await this.syncBuy100Get30PriceGroup(orderId, prevPrice, "refresh");
+      await this.syncGroupedPricePromo(orderId, prevPrice, "refresh", null, catalog);
       if (!pricesMatch(prevPrice, nextPrice)) {
-        await this.syncBuy100Get30PriceGroup(orderId, nextPrice, "refresh");
+        await this.syncGroupedPricePromo(orderId, nextPrice, "refresh", null, catalog);
       }
     }
 
@@ -1750,7 +1785,8 @@ export class OrdersService {
 
     const removedPrice = item.price;
     await this.prisma.orderItem.delete({ where: { id: itemId } });
-    await this.syncBuy100Get30PriceGroup(orderId, removedPrice, "refresh");
+    const catalog = (await this.settings.getOrderLineDiscounts()).catalog;
+    await this.syncGroupedPricePromo(orderId, removedPrice, "refresh", null, catalog);
     await this.materialReservations.syncActiveReservationsForOrder(orderId);
     return this.recalcAndReturn(orderId);
   }
@@ -1827,6 +1863,7 @@ export class OrdersService {
     });
     if (!parent) throw new NotFoundException("Order not found");
     if (actor) await this.assertOrderAccess(parent, actor);
+    const promoCatalog = (await this.settings.getOrderLineDiscounts()).catalog;
 
     const picks = dto?.picks;
     const hasPicks = picks != null && picks.length > 0;
@@ -2037,12 +2074,13 @@ export class OrdersService {
           const disc = existingChildLine.discountPercent ?? p.discountPercent;
           let promo: OrderPromoType | null = null;
           try {
-            promo = parsePromoType(existingChildLine.promoType ?? p.promoType);
+            promo = parsePromoType(existingChildLine.promoType ?? p.promoType, promoCatalog);
           } catch {
             promo = null;
           }
           const pricing = computeLinePricing(nq, existingChildLine.price, disc, promo, {
             dropInapplicable: true,
+            catalog: promoCatalog,
           });
           await tx.orderItem.update({
             where: { id: existingChildLine.id },
@@ -2056,12 +2094,13 @@ export class OrdersService {
         } else {
           let promo: OrderPromoType | null = null;
           try {
-            promo = parsePromoType(p.promoType);
+            promo = parsePromoType(p.promoType, promoCatalog);
           } catch {
             promo = null;
           }
           const pricing = computeLinePricing(p.moveQty, p.price, p.discountPercent, promo, {
             dropInapplicable: true,
+            catalog: promoCatalog,
           });
           await tx.orderItem.create({
             data: {
@@ -2082,12 +2121,13 @@ export class OrdersService {
         } else {
           let promo: OrderPromoType | null = null;
           try {
-            promo = parsePromoType(p.promoType);
+            promo = parsePromoType(p.promoType, promoCatalog);
           } catch {
             promo = null;
           }
           const pricing = computeLinePricing(p.keepQty, p.price, p.discountPercent, promo, {
             dropInapplicable: true,
+            catalog: promoCatalog,
           });
           await tx.orderItem.update({
             where: { id: p.itemId },

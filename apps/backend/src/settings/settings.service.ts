@@ -1,5 +1,10 @@
 import { readFile } from "node:fs/promises";
 import { BadRequestException, Injectable } from "@nestjs/common";
+import {
+  defaultOrderPromoCatalog,
+  parseOrderPromoDefinition,
+  type OrderPromoDefinition,
+} from "../orders/order-line-total.utils";
 import type { Prisma } from "@prisma/client";
 import { UserRole } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
@@ -217,6 +222,8 @@ export type StoreConfig = {
   crmPayPageUrl?: string;
   /** Публічна URL вітрини (apps/store) для посилань з CRM, напр. встановлення пароля. Без завершального слеша. */
   publicStoreUrl?: string;
+  /** @username без @, з STORE_TELEGRAM_BOT_USERNAME. Не зберігається в налаштуваннях. */
+  telegramBotUsername?: string;
 };
 
 const STORE_CONFIG_KEY = "store_config";
@@ -229,14 +236,12 @@ export type OrderPromoSettingId = (typeof ORDER_PROMO_SETTING_IDS)[number];
 
 export type OrderLineDiscountsConfig = {
   percents: number[];
-  /** Enabled manager-selectable line promos. */
-  promos: OrderPromoSettingId[];
+  /** Enabled promotion ids, including ones added in settings. */
+  promos: string[];
+  catalog: OrderPromoDefinition[];
 };
 
-const DEFAULT_ORDER_LINE_DISCOUNTS: OrderLineDiscountsConfig = {
-  percents: [5, 10, 15, 20, 25, 30],
-  promos: [...ORDER_PROMO_SETTING_IDS],
-};
+const DEFAULT_ORDER_LINE_PERCENTS = [5, 10, 15, 20, 25, 30];
 
 export type OrderSerialNumbersConfig = {
   /** When false, orders do not collect or require per-unit serial numbers. */
@@ -244,17 +249,17 @@ export type OrderSerialNumbersConfig = {
 };
 
 export function normalizeOrderLineDiscountPercents(raw: unknown): number[] {
-  if (!Array.isArray(raw)) return [...DEFAULT_ORDER_LINE_DISCOUNTS.percents];
+  if (!Array.isArray(raw)) return [...DEFAULT_ORDER_LINE_PERCENTS];
   const nums = raw
     .map((v) => (typeof v === "number" ? Math.trunc(v) : Number(v)))
     .filter((n) => Number.isFinite(n) && n >= 1 && n <= 100);
   const unique = [...new Set(nums)].sort((a, b) => a - b);
-  return unique.length > 0 ? unique : [...DEFAULT_ORDER_LINE_DISCOUNTS.percents];
+  return unique.length > 0 ? unique : [...DEFAULT_ORDER_LINE_PERCENTS];
 }
 
 export function normalizeOrderLinePromos(raw: unknown): OrderPromoSettingId[] {
-  if (raw === undefined) return [...DEFAULT_ORDER_LINE_DISCOUNTS.promos];
-  if (!Array.isArray(raw)) return [...DEFAULT_ORDER_LINE_DISCOUNTS.promos];
+  if (raw === undefined) return [...ORDER_PROMO_SETTING_IDS];
+  if (!Array.isArray(raw)) return [...ORDER_PROMO_SETTING_IDS];
   const allowed = new Set<string>(ORDER_PROMO_SETTING_IDS);
   const unique: OrderPromoSettingId[] = [];
   for (const v of raw) {
@@ -263,6 +268,70 @@ export function normalizeOrderLinePromos(raw: unknown): OrderPromoSettingId[] {
     if (!unique.includes(id)) unique.push(id);
   }
   return unique;
+}
+
+function strictOrderLineDiscountPercents(raw: unknown): number[] {
+  if (!Array.isArray(raw)) {
+    throw new BadRequestException("percents must be an array");
+  }
+  const nums = raw
+    .map((v) => (typeof v === "number" ? Math.trunc(v) : Number(v)))
+    .filter((n) => Number.isFinite(n) && n >= 1 && n <= 100);
+  const unique = [...new Set(nums)].sort((a, b) => a - b);
+  if (unique.length === 0) {
+    throw new BadRequestException("At least one discount percent must be enabled");
+  }
+  return unique;
+}
+
+function strictOrderPromoCatalog(raw: unknown): OrderPromoDefinition[] {
+  if (!Array.isArray(raw)) {
+    throw new BadRequestException("catalog must be an array");
+  }
+  if (raw.length > 30) {
+    throw new BadRequestException("Акцій не більше 30");
+  }
+  const out: OrderPromoDefinition[] = [];
+  const seen = new Set<string>();
+  for (const item of raw) {
+    let parsed: OrderPromoDefinition;
+    try {
+      parsed = parseOrderPromoDefinition(item);
+    } catch (e) {
+      throw new BadRequestException(e instanceof Error ? e.message : "Invalid promo");
+    }
+    if (seen.has(parsed.id)) {
+      throw new BadRequestException("Такий ідентифікатор акції вже є");
+    }
+    seen.add(parsed.id);
+    out.push(parsed);
+  }
+  return out;
+}
+
+function readOrderPromoCatalog(value: Record<string, unknown>): OrderPromoDefinition[] {
+  if (Array.isArray(value.catalog)) {
+    const out: OrderPromoDefinition[] = [];
+    const seen = new Set<string>();
+    for (const item of value.catalog) {
+      try {
+        const parsed = parseOrderPromoDefinition(item);
+        if (seen.has(parsed.id)) continue;
+        seen.add(parsed.id);
+        out.push(parsed);
+        if (out.length >= 30) break;
+      } catch {
+        /* skip a broken row; the rest of the catalog still loads */
+      }
+    }
+    return out;
+  }
+  const enabled =
+    value.promos === undefined ? null : new Set<string>(normalizeOrderLinePromos(value.promos));
+  return defaultOrderPromoCatalog().map((promo) => ({
+    ...promo,
+    enabled: enabled ? enabled.has(promo.id) : true,
+  }));
 }
 
 const DEFAULT_STORE_CONFIG: StoreConfig = {
@@ -532,16 +601,20 @@ export class SettingsService {
     const row = await this.prisma.systemSetting.findUnique({
       where: { id: ORDER_LINE_DISCOUNTS_KEY },
     });
-    if (!row?.value || typeof row.value !== "object") {
+    if (!row?.value || typeof row.value !== "object" || Array.isArray(row.value)) {
+      const catalog = defaultOrderPromoCatalog();
       return {
-        percents: [...DEFAULT_ORDER_LINE_DISCOUNTS.percents],
-        promos: [...DEFAULT_ORDER_LINE_DISCOUNTS.promos],
+        percents: [...DEFAULT_ORDER_LINE_PERCENTS],
+        promos: catalog.filter((promo) => promo.enabled).map((promo) => promo.id),
+        catalog,
       };
     }
     const v = row.value as Record<string, unknown>;
+    const catalog = readOrderPromoCatalog(v);
     return {
       percents: normalizeOrderLineDiscountPercents(v.percents),
-      promos: normalizeOrderLinePromos(v.promos),
+      promos: catalog.filter((promo) => promo.enabled).map((promo) => promo.id),
+      catalog,
     };
   }
 
@@ -550,15 +623,23 @@ export class SettingsService {
   ): Promise<OrderLineDiscountsConfig> {
     const current = await this.getOrderLineDiscounts();
     const percents =
-      body.percents !== undefined
-        ? normalizeOrderLineDiscountPercents(body.percents)
-        : current.percents;
-    if (percents.length === 0) {
-      throw new BadRequestException("At least one discount percent must be enabled");
+      body.percents !== undefined ? strictOrderLineDiscountPercents(body.percents) : current.percents;
+    let catalog = current.catalog;
+    if (body.catalog !== undefined) {
+      catalog = strictOrderPromoCatalog(body.catalog);
+    } else if (body.promos !== undefined) {
+      const enabled = new Set<string>(normalizeOrderLinePromos(body.promos));
+      catalog = current.catalog.map((promo) =>
+        (ORDER_PROMO_SETTING_IDS as readonly string[]).includes(promo.id)
+          ? { ...promo, enabled: enabled.has(promo.id) }
+          : promo,
+      );
     }
-    const promos =
-      body.promos !== undefined ? normalizeOrderLinePromos(body.promos) : current.promos;
-    const next: OrderLineDiscountsConfig = { percents, promos };
+    const next: OrderLineDiscountsConfig = {
+      percents,
+      promos: catalog.filter((promo) => promo.enabled).map((promo) => promo.id),
+      catalog,
+    };
     await this.prisma.systemSetting.upsert({
       where: { id: ORDER_LINE_DISCOUNTS_KEY },
       create: { id: ORDER_LINE_DISCOUNTS_KEY, value: next },
@@ -1935,7 +2016,10 @@ export class SettingsService {
 
   /** Public API for store frontend (no auth). */
   async getStoreConfigPublic(): Promise<StoreConfig> {
-    return this.getStoreConfig();
+    const config = await this.getStoreConfig();
+    const username = (process.env.STORE_TELEGRAM_BOT_USERNAME ?? "").trim().replace(/^@/, "");
+    if (!username || !/^[A-Za-z0-9_]{4,32}$/.test(username)) return config;
+    return { ...config, telegramBotUsername: username };
   }
 
   async setStoreConfig(body: Partial<StoreConfig>): Promise<StoreConfig> {

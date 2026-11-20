@@ -1,5 +1,7 @@
-import { Body, Controller, Get, Post } from "@nestjs/common";
+import { Body, Controller, Get, Post, Req } from "@nestjs/common";
+import type { Request } from "express";
 import { StoreMetaViewContentDto } from "./meta-conversions.dto";
+import { clientIpFromRequest, headerValue } from "./meta-conversions.match";
 import { MetaConversionsService } from "./meta-conversions.service";
 
 @Controller("store/meta")
@@ -12,11 +14,16 @@ export class StoreMetaController {
   }
 
   @Post("view-content")
-  viewContent(@Body() body: StoreMetaViewContentDto) {
+  viewContent(@Req() req: Request, @Body() body: StoreMetaViewContentDto) {
     return this.conversions.trackViewContent({
       eventId: body.eventId,
       path: body.path,
       search: body.search ?? "",
+      fbp: body.fbp,
+      fbc: body.fbc,
+      fbclid: body.fbclid,
+      clientIpAddress: clientIpFromRequest(req),
+      clientUserAgent: headerValue(req.headers["user-agent"]),
     });
   }
 }

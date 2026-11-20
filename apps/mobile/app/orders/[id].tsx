@@ -27,10 +27,16 @@ import { ApiError } from "@/lib/api";
 import { contactsApi } from "@/lib/api/contacts";
 import { npApi } from "@/lib/api/np";
 import { ordersApi } from "@/lib/api/orders";
+import { settingsApi } from "@/lib/api/settings";
 import { useTheme } from "@/lib/design/theme-context";
 import { t } from "@/lib/i18n";
 import { orderStageLabel } from "@/lib/labels";
 import { formatBaseMoney, formatOrderAmount } from "@/lib/order-currency";
+import {
+  catalogFromLegacyPromos,
+  findPromoDefinition,
+  type OrderPromoDefinition,
+} from "@/lib/order-line-total";
 import type { Contact, Order, OrderItem } from "@/types/crm";
 
 function formatAmount(
@@ -55,10 +61,12 @@ function itemUnitPrice(item: OrderItem): number {
   return price;
 }
 
-function itemPromoLabel(promoType: string | null | undefined): string {
-  if (promoType === "BUY_100_GET_30") return t("orderCreate.promoBuy100Get30");
-  if (promoType === "QTY_25_MINUS_2") return t("orderCreate.promoQty25Minus2");
-  return "";
+function itemPromoLabel(
+  promoType: string | null | undefined,
+  catalog?: readonly OrderPromoDefinition[] | null,
+): string {
+  if (!promoType) return "";
+  return findPromoDefinition(promoType, catalog)?.name ?? "";
 }
 
 export default function OrderDetailScreen() {
@@ -70,6 +78,7 @@ export default function OrderDetailScreen() {
   const { npEnabled } = useModules();
 
   const [order, setOrder] = useState<Order | null>(null);
+  const [promoCatalog, setPromoCatalog] = useState<OrderPromoDefinition[]>([]);
   const [contact, setContact] = useState<Contact | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -97,6 +106,16 @@ export default function OrderDetailScreen() {
     try {
       const row = await ordersApi.getById(token, orderId);
       setOrder(row);
+      void settingsApi
+        .orderDiscounts(token)
+        .then((cfg) => {
+          setPromoCatalog(
+            Array.isArray(cfg.catalog) ? cfg.catalog : catalogFromLegacyPromos(cfg.promos),
+          );
+        })
+        .catch(() => {
+          /* builtin names still resolve without a catalog */
+        });
 
       const npData = (row.deliveryData?.novaPoshta ?? {}) as Record<string, unknown>;
       const savedProfileId =
@@ -417,7 +436,7 @@ export default function OrderDetailScreen() {
                       ? ` (було ${formatBaseMoney(item.price, order.currency ?? "USD")})`
                       : ""}
                     {item.discountPercent ? ` (−${item.discountPercent}%)` : ""}
-                    {item.promoType ? ` · ${itemPromoLabel(item.promoType)}` : ""} ={" "}
+                    {item.promoType ? ` · ${itemPromoLabel(item.promoType, promoCatalog)}` : ""} ={" "}
                     {formatBaseMoney(itemLineTotal(item), order.currency ?? "USD")}
                   </Text>
                 </View>

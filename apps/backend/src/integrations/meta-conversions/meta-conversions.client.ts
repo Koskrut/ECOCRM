@@ -1,6 +1,17 @@
 import { sanitizeMetaError } from "../meta-audiences/meta-audience.normalize";
 import type { MetaEvent } from "./meta-conversions.events";
 
+const RAW_USER_KEYS = ["client_ip_address", "client_user_agent", "fbp", "fbc"] as const;
+
+function scrubEventError(message: string, token: string, event: MetaEvent): string {
+  let text = sanitizeMetaError(message, token);
+  for (const key of RAW_USER_KEYS) {
+    const value = event.user_data[key];
+    if (value) text = text.split(value).join("[redacted]");
+  }
+  return text;
+}
+
 export type MetaSendConfig = {
   pixelId: string;
   accessToken: string;
@@ -29,11 +40,11 @@ export async function postMetaEvent(
     });
     const text = await response.text();
     if (!response.ok) {
-      return { ok: false, error: sanitizeMetaError(text || `Meta HTTP ${response.status}`, config.accessToken) };
+      return { ok: false, error: scrubEventError(text || `Meta HTTP ${response.status}`, config.accessToken, event) };
     }
     return { ok: true };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Помилка мережі";
-    return { ok: false, error: sanitizeMetaError(message, config.accessToken) };
+    return { ok: false, error: scrubEventError(message, config.accessToken, event) };
   }
 }

@@ -199,5 +199,21 @@ export class StoreCheckoutDto {
 
   @IsOptional()
   @IsString()
+  fbp?: string;
+
+  @IsOptional()
+  @IsString()
+  fbc?: string;
+
+  @IsOptional()
+  @IsString()
+  fbclid?: string;
+
+  @IsOptional()
+  @IsString()
+  eventSourceUrl?: string;
+
+  @IsOptional()
+  @IsString()
   sessionId?: string;
 }

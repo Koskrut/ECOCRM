@@ -23,16 +23,17 @@ import { useModules } from "@/lib/modules/useModules";
 import { useConfirm, useToast } from "@/components/feedback";
 import { TtnStatusBadge } from "@/components/TtnStatusBadge";
 import {
+  catalogFromLegacyPromos,
   computeLinePricing,
   computeOrderGrossSubtotal,
   computeOrderLineDiscountSum,
-  ORDER_PROMO_BUY_100_GET_30,
-  ORDER_PROMO_QTY_25_MINUS_2,
+  defaultOrderPromoCatalog,
+  findPromoDefinition,
   isPromoApplicable,
   parsePromoType,
   pricesMatch,
   promoEligibilityQty,
-  type OrderPromoType,
+  type OrderPromoDefinition,
 } from "@/lib/order-line-total";
 import type { FxVarianceSnapshot, OrderItemSerial } from "@/lib/api/resources/orders";
 import { OrderItemSerials, orderSerialsEditable } from "@/components/orders/OrderItemSerials";
@@ -856,10 +857,7 @@ export function OrderModal({
   const [showDiscounts, setShowDiscounts] = useState(false);
   const [discountOptions, setDiscountOptions] = useState<number[]>([5, 10, 15, 20, 25, 30]);
   const [serialsEnabled, setSerialsEnabled] = useState(false);
-  const [promoOptions, setPromoOptions] = useState<OrderPromoType[]>([
-    ORDER_PROMO_BUY_100_GET_30,
-    ORDER_PROMO_QTY_25_MINUS_2,
-  ]);
+  const [promoCatalog, setPromoCatalog] = useState<OrderPromoDefinition[]>(defaultOrderPromoCatalog());
   const [comment, setComment] = useState<string>("");
   const [deferredRiskGate, setDeferredRiskGate] = useState<RiskGateResult | null>(null);
   const [approvalRequesting, setApprovalRequesting] = useState(false);
@@ -1642,27 +1640,27 @@ export function OrderModal({
   }, [userRoleProp]);
 
   useEffect(() => {
-    if (isCreate) return;
     apiHttp
-      .get<{ percents: number[]; promos?: string[] }>("/settings/order-discounts")
+      .get<{ percents: number[]; promos?: string[]; catalog?: OrderPromoDefinition[] }>(
+        "/settings/order-discounts",
+      )
       .then((res) => {
         const percents = res.data?.percents;
         if (Array.isArray(percents) && percents.length > 0) {
           setDiscountOptions(percents);
         }
-        const promos = res.data?.promos;
-        if (Array.isArray(promos)) {
-          setPromoOptions(
-            promos.filter(
-              (p): p is OrderPromoType =>
-                p === ORDER_PROMO_BUY_100_GET_30 || p === ORDER_PROMO_QTY_25_MINUS_2,
-            ),
-          );
-        }
+        const catalog = Array.isArray(res.data?.catalog)
+          ? res.data.catalog
+          : catalogFromLegacyPromos(res.data?.promos);
+        setPromoCatalog(catalog);
       })
       .catch(() => {
         /* keep defaults */
       });
+  }, []);
+
+  useEffect(() => {
+    if (isCreate) return;
     apiHttp
       .get<{ enabled?: boolean }>("/settings/order-serials")
       .then((res) => setSerialsEnabled(res.data?.enabled === true))
@@ -1707,16 +1705,23 @@ export function OrderModal({
         const price = payload.price ?? target.price;
         let requestedPromo =
           payload.promoType !== undefined
-            ? parsePromoType(payload.promoType)
-            : parsePromoType(target.promoType);
+            ? parsePromoType(payload.promoType, promoCatalog)
+            : parsePromoType(target.promoType, promoCatalog);
         if (payload.discountPercent !== undefined && payload.promoType === undefined) {
           requestedPromo = null;
         }
 
-        const applyingBuy100 = requestedPromo === ORDER_PROMO_BUY_100_GET_30;
-        const clearingBuy100 =
-          parsePromoType(target.promoType) === ORDER_PROMO_BUY_100_GET_30 &&
-          requestedPromo !== ORDER_PROMO_BUY_100_GET_30 &&
+        const requestedDef = requestedPromo
+          ? findPromoDefinition(requestedPromo, promoCatalog)
+          : null;
+        const previousPromo = parsePromoType(target.promoType, promoCatalog);
+        const previousDef = previousPromo
+          ? findPromoDefinition(previousPromo, promoCatalog)
+          : null;
+        const applyingGrouped = requestedDef?.kind === "pay_ratio" && !!requestedPromo;
+        const clearingGrouped =
+          previousDef?.kind === "pay_ratio" &&
+          requestedPromo !== previousPromo &&
           payload.promoType !== undefined;
 
         const draftItems = prev.items.map((it) => {
@@ -1730,20 +1735,24 @@ export function OrderModal({
             const isTarget = it.id === itemId;
             const inSamePriceGroup = pricesMatch(it.price, price);
 
-            let promoType = parsePromoType(it.promoType);
-            if (applyingBuy100 && inSamePriceGroup) {
-              promoType = ORDER_PROMO_BUY_100_GET_30;
-            } else if (clearingBuy100 && pricesMatch(it.price, target.price)) {
+            let promoType = parsePromoType(it.promoType, promoCatalog);
+            if (applyingGrouped && inSamePriceGroup && requestedPromo) {
+              promoType = requestedPromo;
+            } else if (clearingGrouped && pricesMatch(it.price, target.price)) {
               promoType = isTarget ? requestedPromo : null;
             } else if (isTarget) {
               promoType = requestedPromo;
-              if (promoType && promoType !== ORDER_PROMO_BUY_100_GET_30) {
-                const elig = promoEligibilityQty(promoType, it, draftItems);
-                if (!isPromoApplicable(promoType, elig)) promoType = null;
+              if (promoType && findPromoDefinition(promoType, promoCatalog)?.kind !== "pay_ratio") {
+                const elig = promoEligibilityQty(promoType, it, draftItems, promoCatalog);
+                if (!isPromoApplicable(promoType, elig, promoCatalog)) promoType = null;
               }
-            } else if (promoType === ORDER_PROMO_BUY_100_GET_30 && inSamePriceGroup) {
-              const groupQty = promoEligibilityQty(ORDER_PROMO_BUY_100_GET_30, it, draftItems);
-              if (!isPromoApplicable(ORDER_PROMO_BUY_100_GET_30, groupQty)) promoType = null;
+            } else if (
+              promoType &&
+              findPromoDefinition(promoType, promoCatalog)?.kind === "pay_ratio" &&
+              inSamePriceGroup
+            ) {
+              const groupQty = promoEligibilityQty(promoType, it, draftItems, promoCatalog);
+              if (!isPromoApplicable(promoType, groupQty, promoCatalog)) promoType = null;
             }
 
             const discountPercent = promoType
@@ -1753,8 +1762,8 @@ export function OrderModal({
                 : (it.discountPercent ?? 0);
 
             const eligibilityQty =
-              promoType === ORDER_PROMO_BUY_100_GET_30
-                ? promoEligibilityQty(ORDER_PROMO_BUY_100_GET_30, it, draftItems)
+              promoType && findPromoDefinition(promoType, promoCatalog)?.kind === "pay_ratio"
+                ? promoEligibilityQty(promoType, it, draftItems, promoCatalog)
                 : undefined;
             const pricing = computeLinePricing(
               it.qty,
@@ -1762,6 +1771,7 @@ export function OrderModal({
               discountPercent,
               promoType,
               eligibilityQty,
+              promoCatalog,
             );
             return {
               ...it,
@@ -1789,13 +1799,14 @@ export function OrderModal({
         } else if (payload.qty !== undefined) {
           // Clear promo on server when qty no longer meets the threshold
           const current = order?.items.find((i) => i.id === itemId);
-          const currentPromo = parsePromoType(current?.promoType);
-          if (currentPromo === ORDER_PROMO_QTY_25_MINUS_2) {
-            if (!isPromoApplicable(currentPromo, Number(payload.qty))) {
+          const currentPromo = parsePromoType(current?.promoType, promoCatalog);
+          const currentDef = currentPromo ? findPromoDefinition(currentPromo, promoCatalog) : null;
+          if (currentPromo && currentDef && currentDef.kind !== "pay_ratio") {
+            if (!isPromoApplicable(currentPromo, Number(payload.qty), promoCatalog)) {
               body.promoType = "NONE";
             }
           }
-          // BUY_100_GET_30: leave promoType unset — server refreshes same-price group
+          // Pay-ratio promos: leave promoType unset — server refreshes the same-price group
         }
         const r = await fetch(`${apiBaseUrl}/orders/${orderId}/items/${itemId}`, {
           method: "PATCH",
@@ -1824,7 +1835,17 @@ export function OrderModal({
         setSaving(false);
       }
     },
-    [apiBaseUrl, applyOrderToState, onSaved, order, orderId, pushToast, refreshOrder, refreshTimeline],
+    [
+      apiBaseUrl,
+      applyOrderToState,
+      onSaved,
+      order,
+      orderId,
+      promoCatalog,
+      pushToast,
+      refreshOrder,
+      refreshTimeline,
+    ],
   );
 
   const deleteOrderItem = useCallback(
@@ -3077,18 +3098,20 @@ export function OrderModal({
                       const displayPrice = editingPrice
                         ? Math.max(0, Number(editingItem.value) || 0)
                         : it.price;
-                      const promo = parsePromoType(it.promoType);
+                      const promo = parsePromoType(it.promoType, promoCatalog);
                       const draftItems = order.items.map((x) =>
                         x.id === it.id
                           ? { ...x, qty: displayQty, price: displayPrice }
                           : x,
                       );
+                      const promoDef = promo ? findPromoDefinition(promo, promoCatalog) : null;
                       const eligibilityQty =
-                        promo === ORDER_PROMO_BUY_100_GET_30
+                        promo && promoDef?.kind === "pay_ratio"
                           ? promoEligibilityQty(
                               promo,
                               { qty: displayQty, price: displayPrice },
                               draftItems,
+                              promoCatalog,
                             )
                           : undefined;
                       const preview = computeLinePricing(
@@ -3097,6 +3120,10 @@ export function OrderModal({
                         it.discountPercent ?? 0,
                         promo,
                         eligibilityQty,
+                        promoCatalog,
+                      );
+                      const linePromos = promoCatalog.filter(
+                        (option) => option.enabled || option.id === it.promoType,
                       );
                       const showUah =
                         isForeignOrderCurrency(order.currency) &&
@@ -3344,7 +3371,7 @@ export function OrderModal({
                             )}
                             {showDiscounts && canEditLineDiscounts ? (
                               <>
-                                {promoOptions.length > 0 ? (
+                                {linePromos.length > 0 ? (
                                   <select
                                     value={it.promoType ?? ""}
                                     disabled={saving}
@@ -3355,28 +3382,24 @@ export function OrderModal({
                                         discountPercent: v ? 0 : undefined,
                                       });
                                     }}
-                                    className="max-w-[9rem] rounded-md border border-zinc-300 bg-white px-1.5 py-1.5 text-xs text-zinc-700"
+                                    className="max-w-[14rem] rounded-md border border-zinc-300 bg-white px-1.5 py-1.5 text-xs text-zinc-700"
                                     aria-label={t.linePromoAria}
                                   >
                                     <option value="">{t.promoNone}</option>
-                                    {promoOptions.map((p) => {
-                                      const elig = promoEligibilityQty(p, it, order.items);
-                                      const ok = isPromoApplicable(p, elig);
-                                      const label =
-                                        p === ORDER_PROMO_BUY_100_GET_30
-                                          ? t.promoBuy100Get30
-                                          : t.promoQty25Minus2;
+                                    {linePromos.map((option) => {
+                                      const elig = promoEligibilityQty(
+                                        option.id,
+                                        it,
+                                        order.items,
+                                        promoCatalog,
+                                      );
+                                      const ok = isPromoApplicable(option.id, elig, promoCatalog);
                                       return (
-                                        <option key={p} value={p} disabled={!ok}>
-                                          {label}
+                                        <option key={option.id} value={option.id} disabled={!ok}>
+                                          {option.name}
                                           {!ok
-                                            ? ` (${t.promoNeedQty}${
-                                                p === ORDER_PROMO_BUY_100_GET_30
-                                                  ? `: ${elig}/130`
-                                                  : ""
-                                              })`
-                                            : p === ORDER_PROMO_BUY_100_GET_30 &&
-                                                elig !== it.qty
+                                            ? ` (${t.promoNeedQty}: ${elig}/${option.minQty})`
+                                            : option.kind === "pay_ratio" && elig !== it.qty
                                               ? ` (${elig} шт)`
                                               : ""}
                                         </option>

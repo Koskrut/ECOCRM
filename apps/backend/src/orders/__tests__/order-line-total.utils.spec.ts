@@ -138,3 +138,35 @@ test("parsePromoType accepts known values and clears NONE", () => {
   assert.equal(parsePromoType(ORDER_PROMO_BUY_100_GET_30), ORDER_PROMO_BUY_100_GET_30);
   assert.throws(() => parsePromoType("UNKNOWN"), /Unknown promoType/);
 });
+
+test("custom catalog changes pay-ratio and unit-off pricing", () => {
+  const catalog = [
+    {
+      id: "BUY_100_GET_30",
+      name: "50+10",
+      enabled: true,
+      kind: "pay_ratio" as const,
+      minQty: 60,
+      payUnits: 50,
+      bundleUnits: 60,
+      unitOff: 0,
+    },
+    {
+      id: "WEEKEND",
+      name: "Від 5 шт −1.5",
+      enabled: true,
+      kind: "unit_off" as const,
+      minQty: 5,
+      payUnits: 0,
+      bundleUnits: 0,
+      unitOff: 1.5,
+    },
+  ];
+  const edited = computeLinePricing(60, 12, 0, "BUY_100_GET_30", { catalog });
+  assert.equal(edited.lineTotal, 60 * 12 * (50 / 60));
+  assert.throws(() => computeLinePricing(59, 12, 0, "BUY_100_GET_30", { catalog }), /50\+10/);
+  const custom = computeLinePricing(5, 10, 0, "WEEKEND", { catalog });
+  assert.equal(custom.lineTotal, 5 * 8.5);
+  assert.equal(parsePromoType("WEEKEND", catalog), "WEEKEND");
+  assert.throws(() => parsePromoType("WEEKEND"), /Unknown promoType/);
+});

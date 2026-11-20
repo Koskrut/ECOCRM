@@ -7,6 +7,7 @@ import { getCartSessionId } from "@/lib/cart-session";
 import { cartSpecEntries } from "@/lib/product-spec-labels";
 import { useCart } from "@/context/CartContext";
 import { ButtonLink } from "@/components/Button";
+import { CartTotals } from "@/components/CartTotals";
 
 export default function CartPage() {
   const { cart, loading, refresh, applyCart } = useCart();
@@ -37,7 +38,6 @@ export default function CartPage() {
   };
 
   const uah = cart.uahPerUsd ?? 41;
-  const subtotalUah = Math.round(cart.subtotal * uah);
 
   // Keep the last cart on screen while Telegram session / merge revalidates.
   if (loading && cart.items.length === 0) {
@@ -151,9 +151,7 @@ export default function CartPage() {
               })}
             </ul>
             <div className="mt-8 flex flex-col gap-4 rounded-xl border border-[var(--border)] bg-white p-4 sm:flex-row sm:items-center sm:justify-between sm:p-6">
-              <p className="text-lg font-semibold text-zinc-900">
-                Разом: {subtotalUah} грн
-              </p>
+              <CartTotals cart={cart} />
               <ButtonLink href="/checkout" className="min-h-[48px] flex items-center justify-center sm:min-h-[44px]">
                 Оформити замовлення
               </ButtonLink>

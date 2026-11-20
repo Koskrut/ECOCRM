@@ -4,6 +4,11 @@ import { PrismaService } from "../../prisma/prisma.service";
 import { ProductStore } from "../../products/product.store";
 import { SettingsService } from "../../settings/settings.service";
 import { publicStoreCharacteristics } from "../catalog/store-product-characteristics";
+import {
+  storeCartLineUsd,
+  storeCartMerchandiseUsd,
+  storeSpendPromoForSubtotal,
+} from "../promo/store-spend-discount";
 
 const cartInclude = {
   items: { include: { product: true }, orderBy: { createdAt: "asc" as const } },
@@ -75,11 +80,9 @@ export class StoreCartService {
       this.settings.getExchangeRates(),
     ]);
     const uahPerUsd = rates.UAH_TO_USD > 0 ? 1 / rates.UAH_TO_USD : 41;
-    const subtotal = cart.items.reduce((s, i) => s + i.price * i.qty, 0);
-    return {
-      id: cart.id,
-      uahPerUsd,
-      items: cart.items.map((i) => ({
+    const items = cart.items.map((i) => {
+      const line = storeCartLineUsd(i.price, i.qty);
+      return {
         id: i.id,
         productId: i.productId,
         sku: i.product.sku,
@@ -90,10 +93,19 @@ export class StoreCartService {
           (i.product.characteristics as Record<string, unknown> | null) ?? null,
         ),
         qty: i.qty,
-        price: i.price,
-        lineTotal: i.price * i.qty,
-      })),
-      subtotal,
+        price: line.price,
+        lineTotal: line.lineTotal,
+      };
+    });
+    const priced = storeSpendPromoForSubtotal(storeCartMerchandiseUsd(items));
+    return {
+      id: cart.id,
+      uahPerUsd,
+      items,
+      subtotal: priced.subtotalUsd,
+      discountAmount: priced.discountUsd,
+      total: priced.totalUsd,
+      spendPromo: priced.promo,
     };
   }
 
