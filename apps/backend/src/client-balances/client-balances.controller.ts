@@ -6,8 +6,8 @@ import { Roles } from "../auth/roles.decorator";
 import { RequireModule } from "../modules/gating/require-module.decorator";
 import { ModuleIds } from "../modules/module-ids";
 import { ClientBalancesService } from "./client-balances.service";
-import type { ApplyCreditDto } from "./dto/apply-credit.dto";
-import type { SettleReturnDto } from "./dto/settle-return.dto";
+import { ApplyCreditDto } from "./dto/apply-credit.dto";
+import { SettleReturnDto } from "./dto/settle-return.dto";
 
 @Controller("client-balances")
 @RequireModule(ModuleIds.Finance)

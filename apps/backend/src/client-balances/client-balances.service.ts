@@ -215,6 +215,9 @@ export class ClientBalancesService {
   } {
     const credit = roundMoney(Number(dto.creditAmount ?? 0));
     const refund = roundMoney(Number(dto.refundAmount ?? 0));
+    if (!Number.isFinite(credit) || !Number.isFinite(refund)) {
+      throw new BadRequestException("creditAmount/refundAmount must be finite numbers");
+    }
     if (dto.type === "CREDIT") {
       if (credit <= 0) throw new BadRequestException("creditAmount must be positive for CREDIT settlement");
       if (refund > 0) throw new BadRequestException("refundAmount must be 0 for CREDIT settlement");
@@ -395,7 +398,9 @@ export class ClientBalancesService {
 
   async applyCreditToOrder(orderId: string, dto: ApplyCreditDto, actor?: AuthUser) {
     const amount = roundMoney(Number(dto.amount));
-    if (amount <= 0) throw new BadRequestException("Amount must be positive");
+    if (!Number.isFinite(amount) || amount <= 0) {
+      throw new BadRequestException("Amount must be a positive finite number");
+    }
 
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },

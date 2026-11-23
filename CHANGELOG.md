@@ -4,7 +4,23 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.259**.)_
+_(планируемые изменения после **0.2.260**.)_
+
+## [0.2.260] — 2026-11-23
+
+### Summary
+
+Патч **0.2.260**: hotfix client balances — value-import DTO для ValidationPipe + перевірка finite amount на settle/apply credit.
+
+### Changed
+
+- `ApplyCreditDto` / `SettleReturnDto` імпортуються як value (не `import type`), щоб Nest ValidationPipe бачив класи.
+- `settleReturn` / `applyCreditToOrder` відхиляють non-finite `creditAmount` / `refundAmount` / `amount`.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.260`**.
+- Нових Prisma-міграцій немає.
 
 ## [0.2.259] — 2026-11-23
 
