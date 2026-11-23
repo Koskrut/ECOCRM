@@ -61,6 +61,7 @@ export function PayrollCard({ userId, showTeam = false, className }: Props) {
   const [loading, setLoading] = useState(true);
   const [teamLoading, setTeamLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [teamError, setTeamError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -81,14 +82,16 @@ export function PayrollCard({ userId, showTeam = false, className }: Props) {
   const loadTeam = useCallback(async () => {
     if (!showTeam) return;
     setTeamLoading(true);
+    setTeamError(null);
     try {
       setTeam(await payrollApi.team(month));
-    } catch {
+    } catch (e) {
       setTeam(null);
+      setTeamError(getUserFriendlyApiError(e, t.loadError));
     } finally {
       setTeamLoading(false);
     }
-  }, [month, showTeam]);
+  }, [month, showTeam, t.loadError]);
 
   useEffect(() => {
     void load();
@@ -154,14 +157,12 @@ export function PayrollCard({ userId, showTeam = false, className }: Props) {
         </div>
       </div>
 
-      {error ? <ErrorPanel variant="inline" message={error} onRetry={() => void load()} /> : null}
-      {loading && !data ? <PageLoading inline /> : null}
-
-      {data ? <PayrollBreakdownView data={data} /> : null}
-
       {showTeam ? (
-        <div className="mt-6 border-t border-zinc-100 pt-5">
+        <div className="mt-4">
           <h3 className="text-sm font-semibold text-zinc-900">{t.teamTitle}</h3>
+          {teamError ? (
+            <ErrorPanel variant="inline" message={teamError} onRetry={() => void loadTeam()} />
+          ) : null}
           {teamLoading && !team ? <PageLoading inline /> : null}
           {team && team.rows.length === 0 ? (
             <p className="mt-2 text-sm text-zinc-500">{t.teamEmpty}</p>
@@ -174,7 +175,9 @@ export function PayrollCard({ userId, showTeam = false, className }: Props) {
                     <th className="py-2 pr-3 font-medium">{t.colName}</th>
                     <th className="py-2 pr-3 font-medium">{t.colSales}</th>
                     <th className="py-2 pr-3 font-medium">{t.colBonus}</th>
+                    <th className="py-2 pr-3 font-medium">{t.colTeamBonus}</th>
                     <th className="py-2 pr-3 font-medium">{t.colAmort}</th>
+                    <th className="py-2 pr-3 font-medium">{t.colFuel}</th>
                     <th className="py-2 pr-3 font-medium">{t.colTotal}</th>
                   </tr>
                 </thead>
@@ -195,14 +198,20 @@ export function PayrollCard({ userId, showTeam = false, className }: Props) {
                             ({formatNum(row.appliedPercent, 2)}%)
                           </span>
                         </td>
+                        <td className="py-2 pr-3 text-zinc-700">
+                          {formatUah(row.leadTeamBonusUah ?? 0)}
+                        </td>
                         <td className="py-2 pr-3 text-zinc-700">{formatUah(row.amortizationUah)}</td>
+                        <td className="py-2 pr-3 text-zinc-700">
+                          {formatUah(row.fuelCompensationUah ?? 0)}
+                        </td>
                         <td className="py-2 pr-3 font-semibold text-zinc-900">
                           {formatUah(row.totalUah)}
                         </td>
                       </tr>
                       {expandedId === row.userId && expanded?.userId === row.userId ? (
                         <tr>
-                          <td colSpan={5} className="bg-zinc-50/80 px-2 py-3">
+                          <td colSpan={7} className="bg-zinc-50/80 px-2 py-3">
                             <PayrollBreakdownView data={expanded} compact />
                           </td>
                         </tr>
@@ -213,6 +222,18 @@ export function PayrollCard({ userId, showTeam = false, className }: Props) {
               </table>
             </div>
           ) : null}
+        </div>
+      ) : null}
+
+      {error ? <ErrorPanel variant="inline" message={error} onRetry={() => void load()} /> : null}
+      {loading && !data ? <PageLoading inline /> : null}
+
+      {data ? (
+        <div className={showTeam ? "mt-6 border-t border-zinc-100 pt-5" : "mt-4"}>
+          {showTeam ? (
+            <h3 className="mb-2 text-sm font-semibold text-zinc-900">{t.myPayrollTitle}</h3>
+          ) : null}
+          <PayrollBreakdownView data={data} />
         </div>
       ) : null}
     </section>
@@ -232,30 +253,36 @@ function PayrollBreakdownView({
 
   return (
     <div className={compact ? "space-y-3" : "mt-4 space-y-4"}>
-      <div className="grid gap-3 sm:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         <Stat label={t.baseSalary} value={formatUah(data.baseSalaryUah)} />
         <Stat
           label={t.salesBonus}
           value={formatUah(data.bonusUah)}
           hint={`${formatNum(data.appliedPercent, 2)}% · ${ratesLabel}`}
         />
+        {(data.leadTeamBonusUah ?? 0) > 0 || (data.teamSalesBaseUah ?? 0) > 0 ? (
+          <Stat
+            label={t.leadTeamBonus}
+            value={formatUah(data.leadTeamBonusUah ?? 0)}
+            hint={t.leadTeamBonusHint({
+              percent: formatNum(data.leadTeamBonusPercent ?? 0, 2),
+              sales: formatUah(data.teamSalesBaseUah ?? 0),
+            })}
+          />
+        ) : null}
         <Stat
           label={t.amortization}
           value={formatUah(data.amortizationUah)}
           hint={`${formatNum(data.totalKm, 1)} км × ${formatNum(data.amortizationUahPerKm, 2)}`}
         />
+        <Stat
+          label={t.fuelCompensation}
+          value={formatUah(data.fuelCompensationUah ?? 0)}
+          hint={t.fuelCompensationHint}
+        />
         <Stat label={t.total} value={formatUah(data.totalUah)} emphasize />
       </div>
 
-      <p className="text-xs text-zinc-500">
-        {t.bonusRule({
-          sales: formatUah(data.salesBaseUah),
-          threshold: formatUah(data.bonusRates.thresholdUah),
-          upTo: formatNum(data.bonusRates.percentUpTo, 2),
-          above: formatNum(data.bonusRates.percentAbove, 2),
-          applied: formatNum(data.appliedPercent, 2),
-        })}
-      </p>
       <p className="text-xs text-zinc-500">{t.fuelNote}</p>
 
       {!compact || data.orders.length > 0 ? (
@@ -305,6 +332,7 @@ function PayrollBreakdownView({
                   <th className="py-1.5 pr-3 font-medium">{t.colDate}</th>
                   <th className="py-1.5 pr-3 font-medium">{t.colKm}</th>
                   <th className="py-1.5 pr-3 font-medium">{t.colAmort}</th>
+                  <th className="py-1.5 pr-3 font-medium">{t.colFuel}</th>
                 </tr>
               </thead>
               <tbody>
@@ -313,6 +341,9 @@ function PayrollBreakdownView({
                     <td className="py-1.5 pr-3 text-zinc-700">{d.date}</td>
                     <td className="py-1.5 pr-3 text-zinc-700">{formatNum(d.km, 1)}</td>
                     <td className="py-1.5 pr-3 text-zinc-900">{formatUah(d.amountUah)}</td>
+                    <td className="py-1.5 pr-3 text-zinc-900">
+                      {formatUah(d.fuelCompensationUah ?? 0)}
+                    </td>
                   </tr>
                 ))}
               </tbody>

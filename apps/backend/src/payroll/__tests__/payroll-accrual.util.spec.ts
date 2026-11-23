@@ -4,6 +4,7 @@ import { describe, it } from "node:test";
 import type { ExchangeRates } from "../../settings/settings.service";
 import {
   accruePayrollMonth,
+  computeLeadTeamBonusUah,
   computeSalesBonusUah,
   findOrderClosePayment,
   resolveBonusRates,
@@ -19,7 +20,12 @@ const rates: ExchangeRates = {
   baseCurrency: "USD",
 };
 
-const company = { thresholdUah: 25000, percentUpTo: 2, percentAbove: 2.5 };
+const company = {
+  thresholdUah: 25000,
+  percentUpTo: 2,
+  percentAbove: 2.5,
+  leadTeamBonusPercent: 1,
+};
 
 function order(partial: Partial<PayrollOrderInput> & Pick<PayrollOrderInput, "id" | "payments">): PayrollOrderInput {
   return {
@@ -171,6 +177,7 @@ describe("selectFuelKm", () => {
         date: new Date(),
         compensationKm: 50,
         actualKm: 50,
+        amountEstimated: 200,
         compensationStatus: "REJECTED",
       }),
       0,
@@ -183,6 +190,7 @@ describe("selectFuelKm", () => {
         date: new Date(),
         compensationKm: 12,
         actualKm: 99,
+        amountEstimated: null,
         compensationStatus: "APPROVED",
       }),
       12,
@@ -222,7 +230,49 @@ describe("validatePersonalBonusTriplet", () => {
   });
 });
 
+describe("computeLeadTeamBonusUah", () => {
+  it("applies flat percent to managers sales base", () => {
+    assert.equal(computeLeadTeamBonusUah(100000, 1), 1000);
+    assert.equal(computeLeadTeamBonusUah(0, 1), 0);
+  });
+});
+
 describe("accruePayrollMonth", () => {
+  it("adds lead team bonus on top of own sales bonus", () => {
+    const result = accruePayrollMonth({
+      month: "2026-11",
+      companyRates: company,
+      personal: {
+        baseSalaryUah: 0,
+        amortizationUahPerKm: 0,
+        bonusThresholdUah: null,
+        bonusPercentUpTo: null,
+        bonusPercentAbove: null,
+      },
+      rates,
+      orders: [
+        order({
+          id: "own",
+          totalAmount: 20000,
+          payments: [
+            {
+              amount: 20000,
+              currency: "UAH",
+              amountUsd: null,
+              paidAt: new Date("2026-11-10T12:00:00Z"),
+              status: "COMPLETED",
+            },
+          ],
+        }),
+      ],
+      fuelDays: [],
+      teamSalesBaseUah: 80000,
+    });
+    assert.equal(result.bonusUah, 400);
+    assert.equal(result.leadTeamBonusUah, 800);
+    assert.equal(result.totalUah, 1200);
+  });
+
   it("includes only orders closed in the month and applies cliff bonus", () => {
     const result = accruePayrollMonth({
       month: "2026-11",
@@ -268,12 +318,14 @@ describe("accruePayrollMonth", () => {
           date: new Date("2026-11-05T00:00:00Z"),
           compensationKm: 10,
           actualKm: 10,
+          amountEstimated: 350,
           compensationStatus: "APPROVED",
         },
         {
           date: new Date("2026-11-06T00:00:00Z"),
           compensationKm: 5,
           actualKm: 5,
+          amountEstimated: 100,
           compensationStatus: "REJECTED",
         },
       ],
@@ -285,7 +337,9 @@ describe("accruePayrollMonth", () => {
     assert.equal(result.bonusUah, 750);
     assert.equal(result.totalKm, 10);
     assert.equal(result.amortizationUah, 20);
+    assert.equal(result.fuelCompensationUah, 350);
     assert.equal(result.baseSalaryUah, 1000);
+    assert.equal(result.leadTeamBonusUah, 0);
     assert.equal(result.totalUah, 1770);
   });
 });

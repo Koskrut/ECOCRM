@@ -11,6 +11,7 @@ type PayrollCompanyRates = {
   thresholdUah: number;
   percentUpTo: number;
   percentAbove: number;
+  leadTeamBonusPercent: number;
 };
 
 export default function PayrollSettingsPage() {
@@ -18,6 +19,7 @@ export default function PayrollSettingsPage() {
   const [threshold, setThreshold] = useState("25000");
   const [percentUpTo, setPercentUpTo] = useState("2");
   const [percentAbove, setPercentAbove] = useState("2.5");
+  const [leadTeamBonusPercent, setLeadTeamBonusPercent] = useState("1");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -27,10 +29,16 @@ export default function PayrollSettingsPage() {
     setError(null);
     try {
       const res = await apiHttp.get<PayrollCompanyRates>("/settings/payroll");
-      const data = res.data ?? { thresholdUah: 25000, percentUpTo: 2, percentAbove: 2.5 };
+      const data = res.data ?? {
+        thresholdUah: 25000,
+        percentUpTo: 2,
+        percentAbove: 2.5,
+        leadTeamBonusPercent: 1,
+      };
       setThreshold(String(data.thresholdUah));
       setPercentUpTo(String(data.percentUpTo));
       setPercentAbove(String(data.percentAbove));
+      setLeadTeamBonusPercent(String(data.leadTeamBonusPercent ?? 1));
     } catch (e) {
       setError(getUserFriendlyApiError(e, t.loadError));
     } finally {
@@ -46,13 +54,16 @@ export default function PayrollSettingsPage() {
     const thresholdUah = parseFloat(threshold.replace(/,/g, "."));
     const up = parseFloat(percentUpTo.replace(/,/g, "."));
     const above = parseFloat(percentAbove.replace(/,/g, "."));
+    const leadPct = parseFloat(leadTeamBonusPercent.replace(/,/g, "."));
     if (
       !Number.isFinite(thresholdUah) ||
       thresholdUah < 0 ||
       !Number.isFinite(up) ||
       up < 0 ||
       !Number.isFinite(above) ||
-      above < 0
+      above < 0 ||
+      !Number.isFinite(leadPct) ||
+      leadPct < 0
     ) {
       setError(t.invalid);
       return;
@@ -64,11 +75,18 @@ export default function PayrollSettingsPage() {
         thresholdUah,
         percentUpTo: up,
         percentAbove: above,
+        leadTeamBonusPercent: leadPct,
       });
-      const data = res.data ?? { thresholdUah, percentUpTo: up, percentAbove: above };
+      const data = res.data ?? {
+        thresholdUah,
+        percentUpTo: up,
+        percentAbove: above,
+        leadTeamBonusPercent: leadPct,
+      };
       setThreshold(String(data.thresholdUah));
       setPercentUpTo(String(data.percentUpTo));
       setPercentAbove(String(data.percentAbove));
+      setLeadTeamBonusPercent(String(data.leadTeamBonusPercent ?? 1));
     } catch (e) {
       setError(getUserFriendlyApiError(e, t.saveError));
     } finally {
@@ -111,6 +129,18 @@ export default function PayrollSettingsPage() {
                 inputMode="decimal"
                 value={percentAbove}
                 onChange={(e) => setPercentAbove(e.target.value)}
+                className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-zinc-700">
+                {t.leadTeamBonusPercent}
+              </label>
+              <input
+                type="text"
+                inputMode="decimal"
+                value={leadTeamBonusPercent}
+                onChange={(e) => setLeadTeamBonusPercent(e.target.value)}
                 className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900"
               />
             </div>

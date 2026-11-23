@@ -4,7 +4,24 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.258**.)_
+_(планируемые изменения после **0.2.259**.)_
+
+## [0.2.259] — 2026-11-23
+
+### Summary
+
+Патч **0.2.259**: payroll — бонус LEAD від продажів команди + показ компенсації палива (окремо від нарахування).
+
+### Changed
+
+- **LEAD team bonus:** company rate `leadTeamBonusPercent` (Settings → Зарплата); у total LEAD додається % від `salesBase` підлеглих MANAGER.
+- **Fuel compensation:** з `FuelDayReport.amountEstimated` у картці/команді (інформативно, не в `totalUah`).
+- Team table: колонки team bonus і fuel; фільтр ролей MANAGER/LEAD.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.259`**.
+- Нових Prisma-міграцій немає.
 
 ## [0.2.258] — 2026-11-23
 

@@ -52,12 +52,15 @@ export type PayrollCompanyRatesConfig = {
   thresholdUah: number;
   percentUpTo: number;
   percentAbove: number;
+  /** LEAD bonus from managers' fully paid sales base (default 1%). */
+  leadTeamBonusPercent: number;
 };
 
 const DEFAULT_PAYROLL_RATES: PayrollCompanyRatesConfig = {
   thresholdUah: 25000,
   percentUpTo: 2,
   percentAbove: 2.5,
+  leadTeamBonusPercent: 1,
 };
 
 function normalizePayrollCompanyRates(v: Record<string, unknown>): PayrollCompanyRatesConfig {
@@ -73,7 +76,13 @@ function normalizePayrollCompanyRates(v: Record<string, unknown>): PayrollCompan
     typeof v.percentAbove === "number" && Number.isFinite(v.percentAbove) && v.percentAbove >= 0
       ? v.percentAbove
       : DEFAULT_PAYROLL_RATES.percentAbove;
-  return { thresholdUah, percentUpTo, percentAbove };
+  const leadTeamBonusPercent =
+    typeof v.leadTeamBonusPercent === "number" &&
+    Number.isFinite(v.leadTeamBonusPercent) &&
+    v.leadTeamBonusPercent >= 0
+      ? v.leadTeamBonusPercent
+      : DEFAULT_PAYROLL_RATES.leadTeamBonusPercent;
+  return { thresholdUah, percentUpTo, percentAbove, leadTeamBonusPercent };
 }
 
 function normalizeExchangeRates(v: Record<string, unknown>): ExchangeRates {
@@ -664,6 +673,7 @@ export class SettingsService {
       thresholdUah: rates.thresholdUah ?? current.thresholdUah,
       percentUpTo: rates.percentUpTo ?? current.percentUpTo,
       percentAbove: rates.percentAbove ?? current.percentAbove,
+      leadTeamBonusPercent: rates.leadTeamBonusPercent ?? current.leadTeamBonusPercent,
     });
     if (rates.thresholdUah !== undefined) {
       if (!Number.isFinite(rates.thresholdUah) || rates.thresholdUah < 0) {
@@ -678,6 +688,11 @@ export class SettingsService {
     if (rates.percentAbove !== undefined) {
       if (!Number.isFinite(rates.percentAbove) || rates.percentAbove < 0) {
         throw new BadRequestException("percentAbove must be a non-negative number");
+      }
+    }
+    if (rates.leadTeamBonusPercent !== undefined) {
+      if (!Number.isFinite(rates.leadTeamBonusPercent) || rates.leadTeamBonusPercent < 0) {
+        throw new BadRequestException("leadTeamBonusPercent must be a non-negative number");
       }
     }
     await this.prisma.systemSetting.upsert({

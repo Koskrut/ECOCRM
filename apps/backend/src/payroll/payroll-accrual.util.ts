@@ -9,6 +9,7 @@ export type PayrollCompanyRates = {
   thresholdUah: number;
   percentUpTo: number;
   percentAbove: number;
+  leadTeamBonusPercent: number;
 };
 
 export type PayrollPersonalRates = {
@@ -51,6 +52,7 @@ export type PayrollFuelDayInput = {
   date: Date;
   compensationKm: number | null;
   actualKm: number | null;
+  amountEstimated: number | null;
   compensationStatus: string;
 };
 
@@ -68,7 +70,10 @@ export type PayrollOrderLine = {
 export type PayrollFuelDayLine = {
   date: string;
   km: number;
+  /** Amortization UAH for the day (km × rate). */
   amountUah: number;
+  /** Fuel compensation estimate from FuelDayReport.amountEstimated. */
+  fuelCompensationUah: number;
 };
 
 export type PayrollMonthResult = {
@@ -78,9 +83,15 @@ export type PayrollMonthResult = {
   bonusRates: ResolvedBonusRates;
   appliedPercent: number;
   bonusUah: number;
+  /** Fully paid sales base of subordinate managers (LEAD only). */
+  teamSalesBaseUah: number;
+  leadTeamBonusPercent: number;
+  leadTeamBonusUah: number;
   amortizationUahPerKm: number;
   totalKm: number;
   amortizationUah: number;
+  /** Sum of fuel day amountEstimated (not part of payroll total). */
+  fuelCompensationUah: number;
   totalUah: number;
   orders: PayrollOrderLine[];
   fuelDays: PayrollFuelDayLine[];
@@ -203,6 +214,16 @@ export function computeSalesBonusUah(
   };
 }
 
+/** LEAD: flat % of subordinate managers' paid sales base. */
+export function computeLeadTeamBonusUah(
+  teamSalesBaseUah: number,
+  percent: number,
+): number {
+  const base = Math.max(0, teamSalesBaseUah);
+  const p = Math.max(0, percent);
+  return roundMoney((base * p) / 100);
+}
+
 export function paymentAmountInOrderCurrency(
   payment: { amount: number; currency?: string | null; amountUsd?: number | null },
   orderCurrency: string | null | undefined,
@@ -279,6 +300,14 @@ export function selectFuelKm(day: PayrollFuelDayInput): number {
   return 0;
 }
 
+export function selectFuelCompensationUah(day: PayrollFuelDayInput): number {
+  if (day.compensationStatus === "REJECTED") return 0;
+  if (day.amountEstimated == null) return 0;
+  const n = Number(day.amountEstimated);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return roundMoney(n);
+}
+
 export function accruePayrollMonth(input: {
   month: string;
   companyRates: PayrollCompanyRates;
@@ -286,6 +315,8 @@ export function accruePayrollMonth(input: {
   orders: PayrollOrderInput[];
   fuelDays: PayrollFuelDayInput[];
   rates: ExchangeRates;
+  /** Sum of managers' salesBaseUah for LEAD override; 0 for managers. */
+  teamSalesBaseUah?: number;
 }): PayrollMonthResult {
   const bonusRates = resolveBonusRates(input.companyRates, input.personal);
   const { from, toExclusive } = kyivMonthBounds(input.month);
@@ -321,22 +352,30 @@ export function accruePayrollMonth(input: {
 
   const fuelDays: PayrollFuelDayLine[] = [];
   let totalKm = 0;
+  let fuelCompensationUah = 0;
   for (const day of input.fuelDays) {
     const ymd = kyivYmd(day.date);
     if (!ymd.startsWith(input.month)) continue;
     const km = selectFuelKm(day);
-    if (km <= 0) continue;
+    const fuelComp = selectFuelCompensationUah(day);
+    if (km <= 0 && fuelComp <= 0) continue;
     totalKm += km;
+    fuelCompensationUah += fuelComp;
     fuelDays.push({
       date: ymd,
       km: roundKm(km),
       amountUah: roundMoney(km * input.personal.amortizationUahPerKm),
+      fuelCompensationUah: fuelComp,
     });
   }
   fuelDays.sort((a, b) => a.date.localeCompare(b.date));
   totalKm = roundKm(totalKm);
+  fuelCompensationUah = roundMoney(fuelCompensationUah);
   const amortizationUah = roundMoney(totalKm * input.personal.amortizationUahPerKm);
   const baseSalaryUah = roundMoney(Math.max(0, input.personal.baseSalaryUah));
+  const teamSalesBaseUah = roundMoney(Math.max(0, input.teamSalesBaseUah ?? 0));
+  const leadTeamBonusPercent = Math.max(0, input.companyRates.leadTeamBonusPercent ?? 0);
+  const leadTeamBonusUah = computeLeadTeamBonusUah(teamSalesBaseUah, leadTeamBonusPercent);
 
   return {
     month: input.month,
@@ -345,10 +384,14 @@ export function accruePayrollMonth(input: {
     bonusRates,
     appliedPercent,
     bonusUah,
+    teamSalesBaseUah,
+    leadTeamBonusPercent,
+    leadTeamBonusUah,
     amortizationUahPerKm: input.personal.amortizationUahPerKm,
     totalKm,
     amortizationUah,
-    totalUah: roundMoney(baseSalaryUah + bonusUah + amortizationUah),
+    fuelCompensationUah,
+    totalUah: roundMoney(baseSalaryUah + bonusUah + leadTeamBonusUah + amortizationUah),
     orders: orderLines,
     fuelDays,
   };

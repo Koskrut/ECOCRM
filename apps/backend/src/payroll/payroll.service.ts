@@ -8,6 +8,7 @@ import { UserRole } from "@prisma/client";
 import type { AuthUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
 import { SettingsService } from "../settings/settings.service";
+import type { ExchangeRates, PayrollCompanyRatesConfig } from "../settings/settings.service";
 import {
   accruePayrollMonth,
   kyivMonthBounds,
@@ -42,6 +43,7 @@ export class PayrollService {
       select: {
         id: true,
         fullName: true,
+        role: true,
         leadId: true,
         isActive: true,
         payrollProfile: true,
@@ -57,6 +59,10 @@ export class PayrollService {
     ]);
     const personal = this.toPersonalRates(user.payrollProfile);
     const { orders, fuelDays } = await this.loadInputs(userId, month);
+    const teamSalesBaseUah =
+      user.role === UserRole.LEAD
+        ? await this.sumManagerSalesBase(user.id, month, companyRates, exchangeRates)
+        : 0;
 
     const accrued = accruePayrollMonth({
       month,
@@ -65,6 +71,7 @@ export class PayrollService {
       orders,
       fuelDays,
       rates: exchangeRates,
+      teamSalesBaseUah,
     });
 
     return {
@@ -84,12 +91,19 @@ export class PayrollService {
     const users = await this.prisma.user.findMany({
       where:
         actor.role === UserRole.ADMIN
-          ? { isActive: true }
-          : { isActive: true, OR: [{ id: actor.id }, { leadId: actor.id }] },
+          ? { isActive: true, role: { in: [UserRole.MANAGER, UserRole.LEAD] } }
+          : {
+              isActive: true,
+              OR: [
+                { id: actor.id },
+                { leadId: actor.id, role: UserRole.MANAGER },
+              ],
+            },
       select: {
         id: true,
         fullName: true,
         role: true,
+        leadId: true,
         payrollProfile: true,
       },
       orderBy: { fullName: "asc" },
@@ -100,10 +114,40 @@ export class PayrollService {
       this.settings.getExchangeRates(),
     ]);
 
-    const rows = [];
+    const salesBaseByUserId = new Map<string, number>();
+    const draft: Array<{
+      user: (typeof users)[number];
+      personal: PayrollPersonalRates;
+      orders: PayrollOrderInput[];
+      fuelDays: Awaited<ReturnType<PayrollService["loadInputs"]>>["fuelDays"];
+    }> = [];
+
     for (const user of users) {
       const personal = this.toPersonalRates(user.payrollProfile);
       const { orders, fuelDays } = await this.loadInputs(user.id, month);
+      const baseAccrued = accruePayrollMonth({
+        month,
+        companyRates,
+        personal,
+        orders,
+        fuelDays,
+        rates: exchangeRates,
+        teamSalesBaseUah: 0,
+      });
+      salesBaseByUserId.set(user.id, baseAccrued.salesBaseUah);
+      draft.push({ user, personal, orders, fuelDays });
+    }
+
+    const rows = [];
+    for (const { user, personal, orders, fuelDays } of draft) {
+      let teamSalesBaseUah = 0;
+      if (user.role === UserRole.LEAD) {
+        for (const other of users) {
+          if (other.role === UserRole.MANAGER && other.leadId === user.id) {
+            teamSalesBaseUah += salesBaseByUserId.get(other.id) ?? 0;
+          }
+        }
+      }
       const accrued = accruePayrollMonth({
         month,
         companyRates,
@@ -111,6 +155,7 @@ export class PayrollService {
         orders,
         fuelDays,
         rates: exchangeRates,
+        teamSalesBaseUah,
       });
       rows.push({
         userId: user.id,
@@ -120,14 +165,44 @@ export class PayrollService {
         salesBaseUah: accrued.salesBaseUah,
         appliedPercent: accrued.appliedPercent,
         bonusUah: accrued.bonusUah,
+        leadTeamBonusUah: accrued.leadTeamBonusUah,
         totalKm: accrued.totalKm,
         amortizationUah: accrued.amortizationUah,
+        fuelCompensationUah: accrued.fuelCompensationUah,
         totalUah: accrued.totalUah,
         bonusSource: accrued.bonusRates.source,
       });
     }
 
     return { month, companyRates, rows };
+  }
+
+  private async sumManagerSalesBase(
+    leadId: string,
+    month: string,
+    companyRates: PayrollCompanyRatesConfig,
+    exchangeRates: ExchangeRates,
+  ): Promise<number> {
+    const managers = await this.prisma.user.findMany({
+      where: { leadId, role: UserRole.MANAGER, isActive: true },
+      select: { id: true, payrollProfile: true },
+    });
+    let sum = 0;
+    for (const manager of managers) {
+      const personal = this.toPersonalRates(manager.payrollProfile);
+      const { orders, fuelDays } = await this.loadInputs(manager.id, month);
+      const accrued = accruePayrollMonth({
+        month,
+        companyRates,
+        personal,
+        orders,
+        fuelDays,
+        rates: exchangeRates,
+        teamSalesBaseUah: 0,
+      });
+      sum += accrued.salesBaseUah;
+    }
+    return sum;
   }
 
   private assertCanView(
@@ -186,6 +261,7 @@ export class PayrollService {
       date: Date;
       compensationKm: number | null;
       actualKm: number | null;
+      amountEstimated: number | null;
       compensationStatus: string;
     }>;
   }> {
@@ -235,6 +311,7 @@ export class PayrollService {
           date: true,
           compensationKm: true,
           actualKm: true,
+          amountEstimated: true,
           compensationStatus: true,
         },
       }),
@@ -265,6 +342,7 @@ export class PayrollService {
         date: d.date,
         compensationKm: d.compensationKm,
         actualKm: d.actualKm,
+        amountEstimated: d.amountEstimated == null ? null : Number(d.amountEstimated),
         compensationStatus: d.compensationStatus,
       })),
     };

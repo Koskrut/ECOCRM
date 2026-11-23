@@ -4,6 +4,7 @@ export type PayrollCompanyRates = {
   thresholdUah: number;
   percentUpTo: number;
   percentAbove: number;
+  leadTeamBonusPercent: number;
 };
 
 export type PayrollUserRates = {
@@ -29,6 +30,7 @@ export type PayrollFuelDayLine = {
   date: string;
   km: number;
   amountUah: number;
+  fuelCompensationUah: number;
 };
 
 export type PayrollBreakdown = {
@@ -47,9 +49,13 @@ export type PayrollBreakdown = {
   };
   appliedPercent: number;
   bonusUah: number;
+  teamSalesBaseUah: number;
+  leadTeamBonusPercent: number;
+  leadTeamBonusUah: number;
   amortizationUahPerKm: number;
   totalKm: number;
   amortizationUah: number;
+  fuelCompensationUah: number;
   totalUah: number;
   orders: PayrollOrderLine[];
   fuelDays: PayrollFuelDayLine[];
@@ -63,8 +69,10 @@ export type PayrollTeamRow = {
   salesBaseUah: number;
   appliedPercent: number;
   bonusUah: number;
+  leadTeamBonusUah: number;
   totalKm: number;
   amortizationUah: number;
+  fuelCompensationUah: number;
   totalUah: number;
   bonusSource: "company" | "personal";
 };
