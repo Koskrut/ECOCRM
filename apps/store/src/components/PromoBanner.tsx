@@ -12,7 +12,7 @@ export function PromoBanner() {
         </p>
         <div className="mt-8 flex justify-center gap-4">
           <Link
-            href="/?category=00"
+            href="/systems"
             className="rounded-full bg-white px-8 py-3.5 text-sm font-semibold text-[var(--primary)] shadow-sm transition hover:bg-gray-50"
           >
             Перейти в каталог

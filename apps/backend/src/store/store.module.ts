@@ -1,5 +1,6 @@
 import { forwardRef, Module } from "@nestjs/common";
 import { ContactsModule } from "../contacts/contacts.module";
+import { NotificationsModule } from "../notifications/notifications.module";
 import { IntegrationPortsModule } from "../integration-ports/integration-ports.module";
 import { OrdersModule } from "../orders/orders.module";
 import { PaymentRequestsModule } from "../payment-requests/payment-requests.module";
@@ -35,6 +36,8 @@ import { StoreTelegramWebAppService } from "./telegram/store-telegram-webapp.ser
     ContactsModule,
     ProductsModule,
     forwardRef(() => OrdersModule),
+    // Notifications → Telegram → Store. Eager import is undefined while that cycle loads.
+    forwardRef(() => NotificationsModule),
     PaymentRequestsModule,
     MarketingModule,
     MetaConversionsModule,

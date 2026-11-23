@@ -4,7 +4,26 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.256**.)_
+_(планируемые изменения после **0.2.257**.)_
+
+## [0.2.257] — 2026-11-23
+
+### Summary
+
+Патч **0.2.257**: Meta воронка **AddToCart** / **InitiateCheckout**, сповіщення менеджеру про store checkout, SEO/systems на вітрині + nginx legacy-редиректи.
+
+### Changed
+
+- **Meta Conversions:** AddToCart після add-to-cart (сайт + Mini App); InitiateCheckout при відкритті оформлення з непорожнім кошиком; Purchase лишається після створеного замовлення і містить склад.
+- **Notifications:** детальне сповіщення власнику про замовлення з сайту/Telegram shop (`notifyStoreCheckout`); StoreModule → Notifications через `forwardRef`.
+- **Storefront:** `/systems` + slug-сторінки, HomeShowcase, product SEO/ViewContent tracker, legacy redirects у middleware; sitemap/categories оновлення.
+- **Nginx:** `/shop`, `/catalog`, `/pricelist`, `/product-category/*` → актуальні URL (див. `deploy/nginx/`).
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.257`**.
+- Нових Prisma-міграцій немає.
+- На сервері оновити nginx conf з `deploy/nginx/suprex.dental.conf` (legacy locations у SSL server).
 
 ## [0.2.256] — 2026-11-20
 

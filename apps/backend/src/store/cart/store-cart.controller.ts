@@ -9,6 +9,9 @@ import {
   Post,
   Req,
 } from "@nestjs/common";
+import { notifyMetaAddToCart } from "../../integrations/meta-conversions/meta-conversions.events";
+import { clientIpFromRequest, headerValue } from "../../integrations/meta-conversions/meta-conversions.match";
+import { MetaConversionsService } from "../../integrations/meta-conversions/meta-conversions.service";
 import { SettingsService } from "../../settings/settings.service";
 import {
   isTelegramCartSessionId,
@@ -23,6 +26,7 @@ export class StoreCartController {
   constructor(
     private readonly cart: StoreCartService,
     private readonly settings: SettingsService,
+    private readonly metaConversions: MetaConversionsService,
   ) {}
 
   private getIdentity(req: RequestWithStoreTg): { customerId?: string; sessionId?: string } {
@@ -69,7 +73,17 @@ export class StoreCartController {
   @Post("items")
   async addItem(
     @Req() req: RequestWithStoreTg,
-    @Body() body: { productId: string; qty?: number; sessionId?: string },
+    @Body()
+    body: {
+      productId: string;
+      qty?: number;
+      sessionId?: string;
+      metaEventId?: string;
+      fbp?: string;
+      fbc?: string;
+      fbclid?: string;
+      eventSourceUrl?: string;
+    },
   ) {
     const identity = this.getIdentity(req);
     if (body.sessionId && !identity.customerId && !identity.sessionId) {
@@ -78,11 +92,30 @@ export class StoreCartController {
       }
       (identity as { sessionId?: string }).sessionId = body.sessionId;
     }
-    return this.cart.addItem(
-      identity,
-      String(body.productId ?? ""),
-      typeof body.qty === "number" ? body.qty : 1,
-    );
+    const productId = String(body.productId ?? "");
+    const addedQty = Math.max(1, Math.floor(typeof body.qty === "number" ? body.qty : Number(body.qty) || 1));
+    const cart = await this.cart.addItem(identity, productId, addedQty);
+    const line = cart.items.find((item) => item.productId === productId);
+    if (line) {
+      const storeTg = readStoreTelegramWebAppJwt(req);
+      void notifyMetaAddToCart(this.metaConversions, {
+        eventId: body.metaEventId ?? "",
+        contentId: line.sku || line.productId,
+        contentName: line.name,
+        quantity: addedQty,
+        itemPrice: line.price,
+        value: Math.round(line.price * addedQty * 100) / 100,
+        currency: "USD",
+        channel: storeTg ? "telegram" : "website",
+        clientIpAddress: clientIpFromRequest(req),
+        clientUserAgent: headerValue(req.headers["user-agent"]),
+        fbp: body.fbp,
+        fbc: body.fbc,
+        fbclid: body.fbclid,
+        eventSourceUrl: body.eventSourceUrl,
+      });
+    }
+    return cart;
   }
 
   @Patch("items/:itemId")

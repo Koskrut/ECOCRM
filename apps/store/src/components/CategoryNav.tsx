@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { STORE_CATEGORIES } from "@/lib/categories";
+import { CATALOG_SYSTEMS } from "@/lib/categories";
 
 type CategoryNavProps = {
   className?: string;
@@ -13,10 +13,10 @@ export function CategoryNav({ className, onNavigate }: CategoryNavProps) {
         Категорії
       </h3>
       <ul className="space-y-1">
-        {STORE_CATEGORIES.map((cat) => (
+        {CATALOG_SYSTEMS.map((cat) => (
           <li key={cat.id}>
             <Link
-              href={"/?category=" + encodeURIComponent(cat.id)}
+              href={"/systems/" + cat.slug}
               prefetch={false}
               onClick={onNavigate}
               className="flex min-h-[44px] items-center rounded-lg py-2 px-3 text-sm text-zinc-700 hover:bg-[var(--surface)] hover:text-[var(--primary)] transition"

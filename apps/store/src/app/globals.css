@@ -30,6 +30,15 @@ body {
   padding-bottom: env(safe-area-inset-bottom);
 }
 
+/* Keeps the last screen of content, including «В кошик», above the fixed cookie banner. */
+html {
+  scroll-padding-bottom: var(--consent-banner-offset, 0px);
+}
+
+main {
+  padding-bottom: var(--consent-banner-offset, 0px);
+}
+
 /* Touch-friendly minimum tap area; use with flex items-center justify-center */
 .tap-target {
   min-height: 44px;

@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger } from "@nestjs/common";
+import { BadRequestException, forwardRef, Inject, Injectable, Logger } from "@nestjs/common";
 import {
   NpDeliveryType,
   NpRecipientType,
@@ -12,6 +12,7 @@ import { hashPassword } from "../../auth/password";
 import { ContactsService } from "../../contacts/contacts.service";
 import { getPhoneNormalizedDigits, normalizePhoneToE164 } from "../../common/phone.utils";
 import { IntegrationPortsService } from "../../integration-ports/integration-ports.service";
+import { OrderSaleAssignedNotifierService } from "../../notifications/order-sale-assigned-notifier.service";
 import { OrdersService } from "../../orders/orders.service";
 import { PrismaService } from "../../prisma/prisma.service";
 import { SettingsService } from "../../settings/settings.service";
@@ -29,6 +30,7 @@ import {
   absolutePayUrl,
   resolvePublicPayPageOrigin,
 } from "./public-pay-url";
+import { isTelegramCartSessionId } from "../telegram/store-telegram-webapp.util";
 
 /** Mirrors store auth lookup so checkout does not create duplicate contacts. */
 function getPhoneCandidatesForLookup(phoneNorm: string): string[] {
@@ -65,6 +67,8 @@ export class StoreCheckoutService {
     private readonly integrations: IntegrationPortsService,
     private readonly productStore: ProductStore,
     private readonly paymentLinks: StoreCheckoutPaymentLinkService,
+    @Inject(forwardRef(() => OrderSaleAssignedNotifierService))
+    private readonly saleAssignedNotifier: OrderSaleAssignedNotifierService,
   ) {}
 
   /**
@@ -439,6 +443,13 @@ export class StoreCheckoutService {
       });
     }
 
+    const metaContents = cart.items
+      .map((item) => ({
+        id: (item.sku || item.productId || "").trim(),
+        quantity: Math.max(1, Math.floor(item.qty)),
+        itemPrice: item.price,
+      }))
+      .filter((item) => item.id);
     const spend = storeSpendPromoForSubtotal(storeCartMerchandiseUsd(cart.items));
     const promoNote =
       spend.discountUsd > 0
@@ -478,6 +489,13 @@ export class StoreCheckoutService {
     }, { timeout: 20_000 });
 
     this.ordersService.notifyOrderCreated(order);
+    const notifyChannel = isTelegramCartSessionId(sessionId) ? "telegram" : "website";
+    void this.saleAssignedNotifier
+      .notifyStoreCheckout({ orderId: order.id, channel: notifyChannel })
+      .catch((err: unknown) => {
+        const message = err instanceof Error ? err.message : String(err);
+        this.logger.warn(`store order manager notify failed for ${order.id}: ${message}`);
+      });
 
     try {
       await this.cartService.clearCart({ sessionId });
@@ -521,6 +539,7 @@ export class StoreCheckoutService {
       value,
       currency,
       city,
+      contents: metaContents,
     };
   }
 

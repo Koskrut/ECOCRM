@@ -94,25 +94,158 @@ export async function reportPromoView(path: string, search: string): Promise<voi
   trackMetaStandard("ViewContent", { content_name: "bf" }, eventId, config.pixelId);
 }
 
+type CommerceContent = { id: string; quantity: number; itemPrice?: number };
+
+function commercePayload(input: {
+  value: number;
+  currency: string;
+  channel?: "website" | "telegram";
+  contentIds?: string[];
+  contents?: CommerceContent[];
+  numItems?: number;
+  contentName?: string;
+}) {
+  const contents = (input.contents ?? [])
+    .filter((row) => row.id)
+    .map((row) => ({
+      id: row.id,
+      quantity: row.quantity,
+      ...(row.itemPrice != null ? { item_price: row.itemPrice } : {}),
+    }));
+  const contentIds = contents.length ? contents.map((row) => row.id) : (input.contentIds ?? []).filter(Boolean);
+  return {
+    value: input.value,
+    currency: input.currency,
+    content_type: "product",
+    ...(input.channel ? { channel: input.channel } : {}),
+    ...(input.contentName ? { content_name: input.contentName } : {}),
+    ...(contentIds.length ? { content_ids: contentIds } : {}),
+    ...(contents.length ? { contents } : {}),
+    ...(input.numItems && input.numItems > 0 ? { num_items: input.numItems } : {}),
+  };
+}
+
+async function trackStoreCommerce(
+  eventName: "AddToCart" | "InitiateCheckout" | "Purchase",
+  eventId: string,
+  payload: ReturnType<typeof commercePayload>,
+): Promise<void> {
+  const config = await prefetchMetaConversions();
+  if (!config.enabled || !config.pixelId || !eventId) return;
+  trackMetaStandard(eventName, payload, eventId, config.pixelId);
+}
+
+const CHECKOUT_EVENT_KEY = "suprex_meta_ic";
+
+function rememberCheckoutEventId(): string {
+  try {
+    const existing = sessionStorage.getItem(CHECKOUT_EVENT_KEY);
+    if (existing) return existing;
+    const id = crypto.randomUUID();
+    sessionStorage.setItem(CHECKOUT_EVENT_KEY, id);
+    return id;
+  } catch {
+    return "ic-checkout";
+  }
+}
+
+/** Lets the next checkout in this tab send a new InitiateCheckout. */
+export function clearInitiateCheckout(): void {
+  try {
+    sessionStorage.removeItem(CHECKOUT_EVENT_KEY);
+  } catch {
+    // The purchase is already stored.
+  }
+}
+
+/** Start of checkout. The server event does not wait for marketing consent. */
+export async function reportInitiateCheckout(input: {
+  value: number;
+  currency: string;
+  contentIds: string[];
+  contents: CommerceContent[];
+  numItems: number;
+  channel: "website" | "telegram";
+  eventSourceUrl: string;
+}): Promise<void> {
+  if (!input.contentIds.length) return;
+  const eventId = rememberCheckoutEventId();
+  if (!posted.has(eventId)) {
+    posted.add(eventId);
+    try {
+      await fetch("/api/store/meta/initiate-checkout", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          eventId,
+          value: input.value,
+          currency: input.currency,
+          contentIds: input.contentIds,
+          contents: input.contents,
+          numItems: input.numItems,
+          channel: input.channel,
+          eventSourceUrl: input.eventSourceUrl,
+          ...readMetaClickIds(),
+        }),
+      });
+    } catch {
+      posted.delete(eventId);
+    }
+  }
+  try {
+    await trackStoreCommerce("InitiateCheckout", eventId, commercePayload(input));
+  } catch {
+    // The checkout form is already on screen.
+  }
+}
+
+export async function trackStoreAddToCart(input: {
+  eventId: string;
+  value: number;
+  currency: string;
+  contentId: string;
+  contentName?: string;
+  quantity: number;
+  itemPrice: number;
+}): Promise<void> {
+  try {
+    await trackStoreCommerce(
+      "AddToCart",
+      input.eventId,
+      commercePayload({
+        value: input.value,
+        currency: input.currency,
+        contentName: input.contentName,
+        contentIds: [input.contentId],
+        contents: [{ id: input.contentId, quantity: input.quantity, itemPrice: input.itemPrice }],
+        numItems: input.quantity,
+      }),
+    );
+  } catch {
+    // The product is already in the cart.
+  }
+}
+
 export async function trackStorePurchase(input: {
   orderId: string;
   value: number;
   currency: string;
   channel: "website" | "telegram";
+  contents?: CommerceContent[];
 }): Promise<void> {
   try {
-    const config = await prefetchMetaConversions();
-    if (!config.enabled || !config.pixelId || !input.orderId) return;
-    trackMetaStandard(
+    const contents = input.contents ?? [];
+    await trackStoreCommerce(
       "Purchase",
-      {
+      input.orderId,
+      commercePayload({
         value: input.value,
         currency: input.currency,
-        content_type: "product",
         channel: input.channel,
-      },
-      input.orderId,
-      config.pixelId,
+        contents,
+        numItems: contents.reduce((sum, row) => sum + row.quantity, 0),
+      }),
     );
   } catch {
     // The order is already placed. The browser pixel is optional.

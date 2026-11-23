@@ -440,7 +440,7 @@ export const en = {
       },
       metaConversions: {
         title: "Facebook / Meta conversions",
-        desc: "Server Purchase, Contact, and ViewContent for the pixel. Separate from Lead Ads and audiences.",
+        desc: "Server AddToCart, InitiateCheckout, Purchase, Contact, and ViewContent for the pixel. Separate from Lead Ads and audiences.",
       },
       marketingCabinets: {
         title: "Ad accounts",
@@ -597,7 +597,7 @@ export const en = {
     metaConversionsPage: {
       title: "Facebook / Meta conversions",
       subtitle:
-        "The server sends Purchase, Contact, and ViewContent to the pixel even without marketing consent in the browser. The Conversions API token is separate from the Lead Ads page token and the audiences token.",
+        "The server sends AddToCart, InitiateCheckout, Purchase, Contact, and ViewContent to the pixel even without marketing consent in the browser. The Conversions API token is separate from the Lead Ads page token and the audiences token.",
       pixel: "Pixel",
       pixelHint: "Pixel 2026 is the default. The id can be changed.",
       token: "Conversions API token",

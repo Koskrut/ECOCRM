@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { IMPLANT_SYSTEM_GROUPS } from "@/lib/categories";
+import { IMPLANT_SYSTEM_GROUPS, systemPath } from "@/lib/categories";
 
 export function PopularSystems() {
   return (
@@ -13,7 +13,7 @@ export function PopularSystems() {
         {IMPLANT_SYSTEM_GROUPS.map((sys) => (
           <Link
             key={sys.id}
-            href={`/?category=${sys.id}`}
+            href={systemPath(sys)}
             prefetch={false}
             className="group flex aspect-[4/3] flex-col items-center justify-center rounded-2xl border border-[var(--border)] bg-white p-4 text-center shadow-sm hover:border-[var(--primary)] hover:shadow-md transition"
           >

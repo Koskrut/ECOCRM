@@ -1,3 +1,5 @@
+import { readMetaClickIds, trackStoreAddToCart } from "@/lib/meta-promo";
+import { trackEvent } from "@/lib/tracking";
 import { getTelegramCabinetToken, getTelegramStoreToken } from "@/lib/telegram-session";
 
 const API = "/api/store";
@@ -165,10 +167,44 @@ export async function mergeGuestCartIntoTelegram(fromSessionId: string): Promise
 }
 
 export async function addToCart(productId: string, qty: number, sessionId?: string) {
-  return api<Cart>("/cart/items", {
+  const addedQty = Math.max(1, Math.floor(Number(qty) || 1));
+  const eventId =
+    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID()
+      : `atc-${Date.now()}`;
+  const click = typeof window === "undefined" ? {} : readMetaClickIds();
+  const cart = await api<Cart>("/cart/items", {
     method: "POST",
-    body: { productId, qty, sessionId },
+    body: {
+      productId,
+      qty: addedQty,
+      sessionId,
+      metaEventId: eventId,
+      eventSourceUrl: typeof window === "undefined" ? undefined : window.location.href,
+      ...click,
+    },
   });
+  const line = cart.items.find((item) => item.productId === productId);
+  trackEvent("add_to_cart", {
+    item_id: productId,
+    item_name: line?.name,
+    sku: line?.sku,
+    quantity: addedQty,
+    price: line?.price,
+    currency: "USD",
+  });
+  if (line) {
+    void trackStoreAddToCart({
+      eventId,
+      value: Math.round(line.price * addedQty * 100) / 100,
+      currency: "USD",
+      contentId: line.sku || line.productId,
+      contentName: line.name,
+      quantity: addedQty,
+      itemPrice: line.price,
+    });
+  }
+  return cart;
 }
 
 export async function updateCartItem(itemId: string, qty: number, sessionId?: string) {
@@ -239,6 +275,7 @@ export async function checkout(body: {
     orderPayToken: string;
     value: number;
     currency: string;
+    contents?: Array<{ id: string; quantity: number; itemPrice?: number }>;
   }>("/checkout", { method: "POST", body });
 }
 

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import useEmblaCarousel from "embla-carousel-react";
 import { ButtonLink } from "@/components/Button";
+import { rewriteCatalogHref } from "@/lib/legacy-redirect";
 
 export type HeroBanner = {
   id: string;
@@ -66,7 +67,7 @@ export function HeroSlider({
             title: "Каталог стоматологічних компонентів",
             subtitle: "Якість та надійність для професійної практики.",
             ctaText: "Перейти в каталог",
-            ctaHref: "/?category=01",
+            ctaHref: "/systems",
             order: 0,
           } as HeroBanner,
         ];
@@ -118,9 +119,9 @@ export function HeroSlider({
                 <div
                   className={`mx-auto max-w-6xl md:max-w-none ${slide.imageUrl ? "text-white" : "text-white"}`}
                 >
-                  <h1 className="font-heading text-3xl font-bold tracking-tight md:text-4xl lg:text-5xl">
+                  <p className="font-heading text-3xl font-bold tracking-tight md:text-4xl lg:text-5xl">
                     {slide.title}
-                  </h1>
+                  </p>
                   {slide.subtitle && (
                     <p className="mt-3 max-w-xl text-lg text-blue-100">
                       {slide.subtitle}
@@ -129,7 +130,7 @@ export function HeroSlider({
                   {(slide.ctaText && slide.ctaHref) && (
                     <div className="mt-8">
                       <ButtonLink
-                        href={slide.ctaHref}
+                        href={rewriteCatalogHref(slide.ctaHref)}
                         variant="secondary"
                         className="border-white/30 bg-white/10 text-white hover:bg-white/20"
                       >

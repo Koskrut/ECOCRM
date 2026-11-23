@@ -441,7 +441,7 @@ export const uk = {
       },
       metaConversions: {
         title: "Facebook / Meta — конверсії",
-        desc: "Purchase, Contact і ViewContent з сервера на піксель. Окремо від Lead Ads і аудиторій.",
+        desc: "AddToCart, InitiateCheckout, Purchase, Contact і ViewContent з сервера на піксель. Окремо від Lead Ads і аудиторій.",
       },
       marketingCabinets: {
         title: "Рекламні кабінети",
@@ -598,7 +598,7 @@ export const uk = {
     metaConversionsPage: {
       title: "Facebook / Meta — конверсії",
       subtitle:
-        "Сервер надсилає Purchase, Contact і ViewContent на піксель навіть без згоди на маркетинг у браузері. Токен Conversions API окремий: сюди не підходить ні Page Access Token лідів, ні токен аудиторій.",
+        "Сервер надсилає AddToCart, InitiateCheckout, Purchase, Contact і ViewContent на піксель навіть без згоди на маркетинг у браузері. Токен Conversions API окремий: сюди не підходить ні Page Access Token лідів, ні токен аудиторій.",
       pixel: "Піксель",
       pixelHint: "За замовчуванням Pixel 2026. Номер можна змінити.",
       token: "Токен Conversions API",

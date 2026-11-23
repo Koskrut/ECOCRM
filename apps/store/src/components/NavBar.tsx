@@ -8,7 +8,7 @@ import { useTelegramWebApp } from "@/context/TelegramWebAppContext";
 
 const navLinks = [
   { href: "/", label: "Головна" },
-  { href: "/?category=01", label: "Магазин" },
+  { href: "/systems", label: "Магазин" },
   { href: "/why-suprex", label: "Чому SUPREX" },
   { href: "/about-production", label: "Про виробництво" },
   { href: "/about", label: "Про нас" },

@@ -3,8 +3,14 @@ const API_URL = process.env.API_URL ?? "http://localhost:3001";
 const PAGE_SIZE = 100;
 
 type StoreProductsListResponse = {
-  items: Array<{ id: string }>;
+  items: Array<{ id: string; updatedAt?: string }>;
   total: number;
+};
+
+export type SitemapProduct = {
+  id: string;
+  /** Present only when the store API returns an update timestamp. */
+  updatedAt?: string;
 };
 
 /**
@@ -12,8 +18,9 @@ type StoreProductsListResponse = {
  * Paginates until a short page or `total` is reached.
  * On network / HTTP errors returns [] so sitemap still serves static URLs.
  */
-export async function fetchAllActiveStoreProductIds(): Promise<string[]> {
-  const ids: string[] = [];
+export async function fetchSitemapProducts(): Promise<SitemapProduct[]> {
+  const products: SitemapProduct[] = [];
+  const seen = new Set<string>();
   let page = 1;
 
   try {
@@ -38,13 +45,16 @@ export async function fetchAllActiveStoreProductIds(): Promise<string[]> {
       }
 
       for (const row of batch) {
-        if (row?.id) {
-          ids.push(row.id);
-        }
+        if (!row?.id || seen.has(row.id)) continue;
+        seen.add(row.id);
+        products.push({
+          id: row.id,
+          ...(typeof row.updatedAt === "string" && row.updatedAt ? { updatedAt: row.updatedAt } : {}),
+        });
       }
 
-      const total = typeof data.total === "number" ? data.total : ids.length;
-      if (batch.length < PAGE_SIZE || ids.length >= total) {
+      const total = typeof data.total === "number" ? data.total : products.length;
+      if (batch.length < PAGE_SIZE || products.length >= total) {
         break;
       }
 
@@ -54,5 +64,5 @@ export async function fetchAllActiveStoreProductIds(): Promise<string[]> {
     return [];
   }
 
-  return [...new Set(ids)];
+  return products;
 }

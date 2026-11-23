@@ -1,9 +1,20 @@
-import type { ContactInput, PurchaseInput, ViewContentInput } from "./meta-conversions.types";
+import type {
+  AddToCartInput,
+  ContactInput,
+  InitiateCheckoutInput,
+  MetaContentInput,
+  PurchaseInput,
+  ViewContentInput,
+} from "./meta-conversions.types";
 import { STORE_EVENT_SOURCE_URL } from "./meta-conversions.types";
-import { checkoutPageUrl, storeEventSourceUrl } from "./meta-conversions.match";
+import { checkoutPageUrl, publicPageUrl, safeMetaEventId, storeEventSourceUrl } from "./meta-conversions.match";
 import { metaUserData, type MetaUserData, type MetaUserInput } from "./meta-conversions.user-data";
 
-export type MetaEventName = "Purchase" | "Contact" | "ViewContent";
+export type MetaEventName = "Purchase" | "Contact" | "ViewContent" | "AddToCart" | "InitiateCheckout";
+
+export type MetaContent = { id: string; quantity: number; item_price?: number };
+
+export type MetaCustomData = Record<string, string | number | string[] | MetaContent[]>;
 
 export type MetaEvent = {
   event_name: MetaEventName;
@@ -12,7 +23,7 @@ export type MetaEvent = {
   action_source: "website" | "other";
   event_source_url?: string;
   user_data: MetaUserData;
-  custom_data: Record<string, string | number>;
+  custom_data: MetaCustomData;
 };
 
 const PROMO_PATHS = new Set(["/promo/bf", "/promo/bf2026", "/bf", "/bf2026"]);
@@ -59,8 +70,54 @@ function userOf(input: MetaUserInput): MetaUserData {
   return metaUserData(input);
 }
 
+function money(value: number): number {
+  const amount = Number(value);
+  if (!Number.isFinite(amount)) return 0;
+  return Math.round(amount * 100) / 100;
+}
+
+function currencyCode(value: string | null | undefined): string {
+  const code = (value ?? "").trim().toUpperCase();
+  return /^[A-Z]{3}$/.test(code) ? code : "USD";
+}
+
+/** Product rows Meta can match. Empty ids are left out. */
+export function metaContents(rows: MetaContentInput[] | null | undefined): MetaContent[] {
+  const contents: MetaContent[] = [];
+  for (const row of rows ?? []) {
+    const id = (row?.id ?? "").trim();
+    if (!id) continue;
+    const quantity = Math.max(1, Math.floor(Number(row.quantity) || 1));
+    const price = Number(row.itemPrice);
+    contents.push({
+      id,
+      quantity,
+      ...(Number.isFinite(price) ? { item_price: money(price) } : {}),
+    });
+    if (contents.length >= 50) break;
+  }
+  return contents;
+}
+
+function withContents(data: MetaCustomData, contents: MetaContent[], contentIds?: string[] | null, numItems?: number | null): void {
+  const ids = contents.length
+    ? contents.map((row) => row.id)
+    : (contentIds ?? []).map((id) => id.trim()).filter(Boolean).slice(0, 50);
+  if (ids.length) data.content_ids = ids;
+  if (contents.length) data.contents = contents;
+  const count = Math.floor(Number(numItems));
+  if (Number.isFinite(count) && count > 0) data.num_items = count;
+  else if (contents.length) data.num_items = contents.reduce((sum, row) => sum + row.quantity, 0);
+}
+
 export function buildPurchaseEvent(input: PurchaseInput, nowSeconds = Math.floor(Date.now() / 1000)): MetaEvent {
-  const currency = input.currency.trim().toUpperCase();
+  const custom: MetaCustomData = {
+    value: money(input.value),
+    currency: currencyCode(input.currency),
+    content_type: "product",
+    channel: input.channel,
+  };
+  withContents(custom, metaContents(input.contents));
   return {
     event_name: "Purchase",
     event_time: nowSeconds,
@@ -68,12 +125,60 @@ export function buildPurchaseEvent(input: PurchaseInput, nowSeconds = Math.floor
     action_source: "website",
     event_source_url: checkoutPageUrl(input.eventSourceUrl),
     user_data: userOf(input),
-    custom_data: {
-      value: Number(input.value) || 0,
-      currency,
-      content_type: "product",
-      channel: input.channel,
-    },
+    custom_data: custom,
+  };
+}
+
+export function buildAddToCartEvent(input: AddToCartInput, nowSeconds = Math.floor(Date.now() / 1000)): MetaEvent | null {
+  const contentId = input.contentId.trim();
+  if (!contentId) return null;
+  const quantity = Math.max(1, Math.floor(Number(input.quantity) || 1));
+  const unit = Number(input.itemPrice);
+  const contents = metaContents([
+    { id: contentId, quantity, itemPrice: Number.isFinite(unit) ? unit : null },
+  ]);
+  const custom: MetaCustomData = {
+    value: money(input.value),
+    currency: currencyCode(input.currency),
+    content_type: "product",
+    channel: input.channel,
+  };
+  const name = (input.contentName ?? "").trim();
+  if (name) custom.content_name = name;
+  withContents(custom, contents, null, quantity);
+  return {
+    event_name: "AddToCart",
+    event_time: nowSeconds,
+    event_id: safeMetaEventId(input.eventId, `atc-${nowSeconds}-${quantity}`),
+    action_source: "website",
+    event_source_url: publicPageUrl(input.eventSourceUrl, "/"),
+    user_data: userOf(input),
+    custom_data: custom,
+  };
+}
+
+export function buildInitiateCheckoutEvent(
+  input: InitiateCheckoutInput,
+  nowSeconds = Math.floor(Date.now() / 1000),
+): MetaEvent | null {
+  const contents = metaContents(input.contents);
+  const custom: MetaCustomData = {
+    value: money(input.value),
+    currency: currencyCode(input.currency),
+    content_type: "product",
+    channel: input.channel === "telegram" ? "telegram" : "website",
+  };
+  withContents(custom, contents, input.contentIds, input.numItems);
+  const eventId = safeMetaEventId(input.eventId, "");
+  if (!eventId || !custom.content_ids) return null;
+  return {
+    event_name: "InitiateCheckout",
+    event_time: nowSeconds,
+    event_id: eventId,
+    action_source: "website",
+    event_source_url: checkoutPageUrl(input.eventSourceUrl),
+    user_data: userOf(input),
+    custom_data: custom,
   };
 }
 
@@ -116,6 +221,30 @@ export function buildTestPurchaseEvent(eventId: string, nowSeconds = Math.floor(
       channel: "website",
     },
   };
+}
+
+/** After the cart row is stored. A Meta failure must not undo the add. */
+export async function notifyMetaAddToCart(
+  meta: { trackAddToCart(input: AddToCartInput): Promise<unknown> } | undefined,
+  input: AddToCartInput,
+): Promise<void> {
+  try {
+    await meta?.trackAddToCart(input);
+  } catch {
+    // The product is already in the cart.
+  }
+}
+
+/** When the checkout page is open. A Meta failure must not block the form. */
+export async function notifyMetaInitiateCheckout(
+  meta: { trackInitiateCheckout(input: InitiateCheckoutInput): Promise<unknown> } | undefined,
+  input: InitiateCheckoutInput,
+): Promise<void> {
+  try {
+    await meta?.trackInitiateCheckout(input);
+  } catch {
+    // Checkout stays available.
+  }
 }
 
 /** After a successful checkout. A Meta failure stays inside trackPurchase. */

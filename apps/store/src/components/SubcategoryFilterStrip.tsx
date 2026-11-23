@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { useEffect, useLayoutEffect, useRef, useState, type MouseEventHandler, type WheelEventHandler } from "react";
 import { createPortal } from "react-dom";
 import { getSubcategoryFacets } from "@/lib/api";
+import { systemById } from "@/lib/categories";
 
 function easeOutCubic(t: number): number {
   return 1 - (1 - t) ** 3;
@@ -79,10 +80,11 @@ function buildHref(params: {
 }) {
   const q = new URLSearchParams();
   if (params.search) q.set("search", params.search);
-  if (params.category) q.set("category", params.category);
   if (params.subcategory) q.set("subcategory", params.subcategory);
   const s = q.toString();
-  return s ? `/?${s}` : "/";
+  const system = params.category ? systemById(params.category) : undefined;
+  const path = system ? `/systems/${system.slug}` : "/systems";
+  return s ? `${path}?${s}` : path;
 }
 
 type Props = {

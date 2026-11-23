@@ -5,6 +5,7 @@ import { useState } from "react";
 import { addToCart } from "@/lib/api";
 import { getCartSessionId } from "@/lib/cart-session";
 import { useCart } from "@/context/CartContext";
+import { cardCompatibilityLine } from "@/lib/product-seo";
 
 export type ProductCardProduct = {
   id: string;
@@ -21,6 +22,14 @@ function priceUah(usd: number, uahPerUsd: number) {
   return Math.round(usd * uahPerUsd);
 }
 
+function displayUnit(unit: string): string {
+  const normalized = unit.trim().toLowerCase();
+  if (!normalized || normalized === "pcs" || normalized === "pc" || normalized === "piece" || normalized === "pieces") {
+    return "шт";
+  }
+  return unit;
+}
+
 export function ProductCard({
   product,
   uahPerUsd,
@@ -30,6 +39,8 @@ export function ProductCard({
 }) {
   const { applyCart } = useCart();
   const price = priceUah(product.basePrice, uahPerUsd);
+  const priced = price > 0;
+  const compatibilityLine = cardCompatibilityLine(product.name, product.sku);
   const [qtyPickerOpen, setQtyPickerOpen] = useState(false);
   const [qty, setQty] = useState(1);
   const [adding, setAdding] = useState(false);
@@ -71,7 +82,7 @@ export function ProductCard({
           {product.primaryImageId ? (
             <img
               src={`/api/products/images/${product.primaryImageId}/source?v=3`}
-              alt=""
+              alt={product.name}
               width={400}
               height={300}
               loading="lazy"
@@ -88,21 +99,35 @@ export function ProductCard({
           <h2 className="font-heading font-medium text-zinc-900 line-clamp-2 text-sm leading-snug">
             {product.name}
           </h2>
+          {compatibilityLine ? (
+            <p className="mt-0.5 text-xs text-zinc-600">{compatibilityLine}</p>
+          ) : null}
           <p className="mt-0.5 text-xs text-zinc-500">
-            {product.sku} · {product.unit}
+            {product.sku} · {displayUnit(product.unit)}
           </p>
           <div className="mt-1.5 flex items-baseline justify-between gap-2">
-            <span className="text-lg font-semibold text-[var(--primary)]">
-              {price} грн
-            </span>
-            <span className="text-xs text-zinc-500 shrink-0">
-              {product.inStock ? "В наявності" : "Немає в наявності"}
-            </span>
+            {priced ? (
+              <span className="text-lg font-semibold text-[var(--primary)]">{price} грн</span>
+            ) : (
+              <span className="text-sm font-medium text-zinc-600">Ціну уточнюйте</span>
+            )}
+            {priced ? (
+              <span className="text-xs text-zinc-500 shrink-0">
+                {product.inStock ? "В наявності" : "Немає в наявності"}
+              </span>
+            ) : null}
           </div>
         </div>
       </Link>
       <div className="p-3 pt-0">
-        {!product.inStock ? (
+        {!priced ? (
+          <Link
+            href="/contacts#lead-compatibility"
+            className="inline-flex w-full items-center justify-center rounded-lg border border-[var(--border)] bg-white px-3 py-1.5 text-xs font-medium text-zinc-800 transition hover:bg-[var(--surface)]"
+          >
+            Уточнити ціну
+          </Link>
+        ) : !product.inStock ? (
           <p className="text-center text-xs text-zinc-500">Немає в наявності</p>
         ) : !qtyPickerOpen ? (
           <button

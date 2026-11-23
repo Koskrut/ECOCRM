@@ -4,15 +4,20 @@ import { metaGraphApiVersion } from "../meta-audiences/meta-audience.normalize";
 import { postMetaEvent, type MetaSendConfig } from "./meta-conversions.client";
 import { applyMetaConversionsPatch, parseStoredMetaConversions, toPublicMetaConversions, type MetaConversionsPatch } from "./meta-conversions.config";
 import {
+  buildAddToCartEvent,
   buildContactEvent,
+  buildInitiateCheckoutEvent,
   buildPurchaseEvent,
   buildTestPurchaseEvent,
   buildViewContentEvent,
   isPromoView,
+  type MetaEvent,
 } from "./meta-conversions.events";
 import {
   META_CONVERSIONS_SETTING_ID,
+  type AddToCartInput,
   type ContactInput,
+  type InitiateCheckoutInput,
   type PublicMetaConversions,
   type PurchaseInput,
   type StoredMetaConversions,
@@ -58,6 +63,18 @@ export class MetaConversionsService {
     await this.send(orderId, event);
   }
 
+  async trackAddToCart(input: AddToCartInput): Promise<{ sent: boolean }> {
+    const event = buildAddToCartEvent(input);
+    if (!event) return { sent: false };
+    return this.send(event.event_id, event);
+  }
+
+  async trackInitiateCheckout(input: InitiateCheckoutInput): Promise<{ sent: boolean }> {
+    const event = buildInitiateCheckoutEvent(input);
+    if (!event) return { sent: false };
+    return this.send(event.event_id, event);
+  }
+
   async trackContact(input: ContactInput): Promise<void> {
     const label = input.label?.trim() ?? "";
     const eventId = input.eventId?.trim() ?? "";
@@ -87,7 +104,7 @@ export class MetaConversionsService {
 
   private async send(
     eventId: string,
-    event: ReturnType<typeof buildPurchaseEvent>,
+    event: MetaEvent,
   ): Promise<{ sent: boolean; error: string | null }> {
     const claimed = await this.claim(eventId);
     if (!claimed) return { sent: false, error: null };

@@ -65,17 +65,29 @@ export function normalizeMetaGeo(value: string | null | undefined): string | nul
   return cleaned || null;
 }
 
-export function checkoutPageUrl(raw: string | null | undefined): string {
-  const fallback = "https://www.suprex.dental/checkout";
+export function publicPageUrl(raw: string | null | undefined, fallbackPath = "/"): string {
+  const path = fallbackPath.startsWith("/") ? fallbackPath : `/${fallbackPath}`;
+  const fallback = `https://www.suprex.dental${path}`;
   const value = (raw ?? "").trim();
   if (!value) return fallback;
   try {
     const url = new URL(value);
     if (url.protocol !== "https:" && url.protocol !== "http:") return fallback;
-    return `${url.origin}${url.pathname || "/checkout"}${url.search}`;
+    return `${url.origin}${url.pathname || path}${url.search}`;
   } catch {
     return fallback;
   }
+}
+
+export function checkoutPageUrl(raw: string | null | undefined): string {
+  return publicPageUrl(raw, "/checkout");
+}
+
+/** Client event id, or a server fallback when the browser did not send one. */
+export function safeMetaEventId(raw: string | null | undefined, fallback: string): string {
+  const text = (raw ?? "").trim();
+  if (/^[A-Za-z0-9-]{8,80}$/.test(text)) return text;
+  return fallback;
 }
 
 export function storeEventSourceUrl(path: string, search: string): string {

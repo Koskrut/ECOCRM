@@ -17,7 +17,14 @@ import {
 function metaPurchaseContext(
   req: RequestWithStoreTg,
   dto: StoreCheckoutDto,
-  result: { orderId: string; value: number; currency: string; contactId: string; city?: string },
+  result: {
+    orderId: string;
+    value: number;
+    currency: string;
+    contactId: string;
+    city?: string;
+    contents?: Array<{ id: string; quantity: number; itemPrice?: number | null }>;
+  },
   channel: "website" | "telegram",
 ): PurchaseInput {
   return {
@@ -33,6 +40,7 @@ function metaPurchaseContext(
     country: "ua",
     city: result.city || dto.deliveryData?.cityName,
     region: dto.region,
+    contents: result.contents,
     clientIpAddress: clientIpFromRequest(req),
     clientUserAgent: headerValue(req.headers["user-agent"]),
     fbp: dto.fbp,

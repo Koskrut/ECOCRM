@@ -9,6 +9,7 @@ import {
   contactEventId,
   isPromoView,
   maybeTrackStartContact,
+  notifyMetaAddToCart,
   notifyMetaPurchase,
   resolveStartContact,
 } from "../meta-conversions.events";
@@ -164,6 +165,121 @@ describe("meta conversions", () => {
     assert.equal("client_ip_address" in plain, false);
   });
 
+  it("sends AddToCart and InitiateCheckout, and keeps Purchase on the order id", async () => {
+    const { service, calls } = harness();
+    await enable(service);
+    const added = await service.trackAddToCart({
+      eventId: "11111111-1111-1111-1111-111111111111",
+      contentId: "SKU-1",
+      contentName: "Бор",
+      quantity: 2,
+      itemPrice: 15,
+      value: 30,
+      currency: "usd",
+      channel: "website",
+      clientIpAddress: "203.0.113.10",
+      clientUserAgent: "Mozilla/5.0",
+      fbclid: "IwAR123",
+      eventSourceUrl: "https://www.suprex.dental/product/1",
+    });
+    assert.equal(added.sent, true);
+    const add = bodyOf(calls[0]).data[0];
+    const addUser = add.user_data as Record<string, unknown>;
+    const addCustom = add.custom_data as Record<string, unknown>;
+    assert.equal(add.event_name, "AddToCart");
+    assert.equal(add.event_id, "11111111-1111-1111-1111-111111111111");
+    assert.equal(add.event_source_url, "https://www.suprex.dental/product/1");
+    assert.equal(addCustom.value, 30);
+    assert.equal(addCustom.currency, "USD");
+    assert.equal(addCustom.num_items, 2);
+    assert.deepEqual(addCustom.content_ids, ["SKU-1"]);
+    assert.deepEqual(addCustom.contents, [{ id: "SKU-1", quantity: 2, item_price: 15 }]);
+    assert.equal(addUser.client_ip_address, "203.0.113.10");
+    assert.equal(addUser.client_user_agent, "Mozilla/5.0");
+    assert.match(String(addUser.fbc), /^fb\.1\.\d+\.IwAR123$/);
+
+    await service.trackAddToCart({
+      eventId: "11111111-1111-1111-1111-111111111111",
+      contentId: "SKU-1",
+      quantity: 2,
+      value: 30,
+      currency: "USD",
+      channel: "website",
+    });
+    assert.equal(calls.length, 1);
+
+    const plain = await service.trackAddToCart({
+      eventId: "33333333-3333-3333-3333-333333333333",
+      contentId: "SKU-2",
+      quantity: 1,
+      value: 10,
+      currency: "USD",
+      channel: "website",
+    });
+    assert.equal(plain.sent, true);
+    assert.equal("fbc" in (bodyOf(calls[1]).data[0].user_data as Record<string, unknown>), false);
+
+    const skipped = await service.trackInitiateCheckout({
+      eventId: "44444444-4444-4444-4444-444444444444",
+      value: 10,
+      currency: "USD",
+    });
+    assert.equal(skipped.sent, false);
+    assert.equal(calls.length, 2);
+
+    const started = await service.trackInitiateCheckout({
+      eventId: "22222222-2222-2222-2222-222222222222",
+      value: 120.2,
+      currency: "USD",
+      contentIds: ["SKU-1", "SKU-2"],
+      numItems: 3,
+      clientIpAddress: "203.0.113.10",
+      clientUserAgent: "Mozilla/5.0",
+      fbp: "fb.1.1.browser",
+      eventSourceUrl: "https://www.suprex.dental/checkout?step=1",
+    });
+    assert.equal(started.sent, true);
+    const checkoutEvent = bodyOf(calls[2]).data[0];
+    const checkoutCustom = checkoutEvent.custom_data as Record<string, unknown>;
+    const checkoutUser = checkoutEvent.user_data as Record<string, unknown>;
+    assert.equal(checkoutEvent.event_name, "InitiateCheckout");
+    assert.equal(checkoutEvent.event_id, "22222222-2222-2222-2222-222222222222");
+    assert.equal(checkoutEvent.event_source_url, "https://www.suprex.dental/checkout?step=1");
+    assert.equal(checkoutCustom.value, 120.2);
+    assert.equal(checkoutCustom.currency, "USD");
+    assert.equal(checkoutCustom.num_items, 3);
+    assert.deepEqual(checkoutCustom.content_ids, ["SKU-1", "SKU-2"]);
+    assert.equal(checkoutUser.fbp, "fb.1.1.browser");
+    assert.equal("fbc" in checkoutUser, false);
+
+    await service.trackPurchase({
+      orderId: "ord-paid",
+      value: 120,
+      currency: "USD",
+      channel: "website",
+      contents: [
+        { id: "SKU-1", quantity: 2, itemPrice: 15 },
+        { id: "SKU-2", quantity: 1, itemPrice: 90 },
+      ],
+    });
+    const purchase = bodyOf(calls[3]).data[0];
+    const purchaseCustom = purchase.custom_data as Record<string, unknown>;
+    assert.equal(purchase.event_name, "Purchase");
+    assert.equal(purchase.event_id, "ord-paid");
+    assert.deepEqual(purchaseCustom.content_ids, ["SKU-1", "SKU-2"]);
+    assert.equal(purchaseCustom.num_items, 3);
+    assert.equal(purchaseCustom.value, 120);
+
+    await notifyMetaPurchase(
+      {
+        trackPurchase: async () => {
+          throw new Error("meta down");
+        },
+      },
+      { orderId: "ord-throw-2", value: 1, currency: "UAH", channel: "website" },
+    );
+  });
+
   it("sends Contact only for /start bf2026", async () => {
     const { service, calls } = harness();
     await enable(service);
@@ -264,6 +380,20 @@ describe("meta conversions", () => {
     });
     await service.trackContact({ eventId: "tg-1", label: "bf2026" });
     await service.trackViewContent({ eventId: "vc", path: "/promo/bf", search: "" });
+    await service.trackAddToCart({
+      eventId: "55555555-5555-5555-5555-555555555555",
+      contentId: "SKU-1",
+      quantity: 1,
+      value: 10,
+      currency: "USD",
+      channel: "website",
+    });
+    await service.trackInitiateCheckout({
+      eventId: "66666666-6666-6666-6666-666666666666",
+      value: 10,
+      currency: "USD",
+      contentIds: ["SKU-1"],
+    });
     await assert.rejects(() => service.sendTestPurchase(), /токен|Увімкніть/);
     assert.equal(calls.length, 0);
 
@@ -323,6 +453,21 @@ describe("meta conversions", () => {
         },
       },
       { orderId: "ord-throw", value: 1, currency: "UAH", channel: "website" },
+    );
+    await notifyMetaAddToCart(
+      {
+        trackAddToCart: async () => {
+          throw new Error(`meta down ${TOKEN} 203.0.113.10`);
+        },
+      },
+      {
+        eventId: "77777777-7777-7777-7777-777777777777",
+        contentId: "SKU-1",
+        quantity: 1,
+        value: 1,
+        currency: "USD",
+        channel: "website",
+      },
     );
   });
 

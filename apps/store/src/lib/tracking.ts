@@ -8,7 +8,9 @@ export type TrackingEventName =
   | "lead_created"
   | "thank_you_view"
   | "call_click"
-  | "whatsapp_click";
+  | "whatsapp_click"
+  | "view_item"
+  | "add_to_cart";
 
 export type TrackingPayload = Record<string, unknown>;
 
@@ -216,7 +218,7 @@ fbq('init', '${pixelId.replace(/'/g, "\\'")}');
 
 /** Standard Meta event with the same eventID the server sends. Marketing consent still gates the pixel. */
 export function trackMetaStandard(
-  eventName: "Purchase" | "ViewContent",
+  eventName: "Purchase" | "ViewContent" | "AddToCart" | "InitiateCheckout",
   payload: TrackingPayload,
   eventId: string,
   pixelId: string | null | undefined,

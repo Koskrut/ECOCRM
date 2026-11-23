@@ -42,9 +42,6 @@ export const metadata: Metadata = {
   },
   description:
     "SUPREX — каталог стоматологічних компонентів сумісності: платформи, аналоги, формувачі ясен, трансфери та інші компоненти.",
-  alternates: {
-    canonical: "/",
-  },
   openGraph: {
     type: "website",
     url: SITE_URL,

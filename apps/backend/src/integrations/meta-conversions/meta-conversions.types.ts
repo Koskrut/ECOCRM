@@ -29,6 +29,12 @@ export type PublicMetaConversions = {
   lastError: string | null;
 };
 
+export type MetaContentInput = {
+  id: string;
+  quantity: number;
+  itemPrice?: number | null;
+};
+
 export type PurchaseInput = {
   orderId: string;
   value: number;
@@ -43,6 +49,40 @@ export type PurchaseInput = {
   city?: string | null;
   region?: string | null;
   zip?: string | null;
+  contents?: MetaContentInput[] | null;
+  clientIpAddress?: string | null;
+  clientUserAgent?: string | null;
+  fbp?: string | null;
+  fbc?: string | null;
+  fbclid?: string | null;
+  eventSourceUrl?: string | null;
+};
+
+export type AddToCartInput = {
+  eventId: string;
+  contentId: string;
+  contentName?: string | null;
+  quantity: number;
+  itemPrice?: number | null;
+  value: number;
+  currency: string;
+  channel: MetaChannel;
+  clientIpAddress?: string | null;
+  clientUserAgent?: string | null;
+  fbp?: string | null;
+  fbc?: string | null;
+  fbclid?: string | null;
+  eventSourceUrl?: string | null;
+};
+
+export type InitiateCheckoutInput = {
+  eventId: string;
+  value: number;
+  currency: string;
+  channel?: MetaChannel | null;
+  contentIds?: string[] | null;
+  contents?: MetaContentInput[] | null;
+  numItems?: number | null;
   clientIpAddress?: string | null;
   clientUserAgent?: string | null;
   fbp?: string | null;

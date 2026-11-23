@@ -13,7 +13,7 @@ const DEFAULT_COMPANY = "SUPREX";
 
 const navLinks = [
   { href: "/", label: "Головна" },
-  { href: "/?category=01", label: "Магазин" },
+  { href: "/systems", label: "Магазин" },
   { href: "/why-suprex", label: "Чому SUPREX" },
   { href: "/about-production", label: "Про виробництво" },
   { href: "/about", label: "Про нас" },
@@ -100,14 +100,14 @@ export function Header() {
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
     const q = searchRef.current?.value?.trim();
-    navigateStorePath(q ? "/?search=" + encodeURIComponent(q) : "/", (path) => router.push(path));
+    navigateStorePath(q ? "/systems?search=" + encodeURIComponent(q) : "/", (path) => router.push(path));
     setMenuOpen(false);
   };
 
   const handleMobileSearch = (e: React.FormEvent) => {
     e.preventDefault();
     const q = mobileSearchRef.current?.value?.trim();
-    navigateStorePath(q ? "/?search=" + encodeURIComponent(q) : "/", (path) => router.push(path));
+    navigateStorePath(q ? "/systems?search=" + encodeURIComponent(q) : "/", (path) => router.push(path));
     setMenuOpen(false);
   };
 

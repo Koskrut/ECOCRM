@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useStoreConfig } from "@/context/StoreConfigContext";
 import { formatPhoneDisplay } from "@/lib/formatPhone";
+import { trackEvent } from "@/lib/tracking";
 
 const DEFAULT_COMPANY = "SUPREX";
 const DEFAULT_ADDRESS = "Дніпро, просп. Б. Хмельницкого 147";
@@ -31,7 +32,11 @@ export function Footer() {
           <div className="text-sm text-zinc-600">
             <p>{address}</p>
             <p className="mt-1">
-              <a href={`tel:${phone}`} className="inline-block min-h-[44px] py-2 hover:text-[var(--primary)] transition">
+              <a
+                href={`tel:${phone}`}
+                onClick={() => trackEvent("call_click", { placement: "footer" })}
+                className="inline-block min-h-[44px] py-2 hover:text-[var(--primary)] transition"
+              >
                 {formatPhoneDisplay(phone)}
               </a>
             </p>
@@ -42,7 +47,7 @@ export function Footer() {
             </p>
           </div>
           <nav className="flex flex-wrap gap-4 sm:gap-6 text-sm">
-            <Link href="/" className="min-h-[44px] flex items-center text-zinc-600 hover:text-[var(--primary)] transition py-2">
+            <Link href="/systems" className="min-h-[44px] flex items-center text-zinc-600 hover:text-[var(--primary)] transition py-2">
               Каталог
             </Link>
             <Link href="/cart" className="min-h-[44px] flex items-center text-zinc-600 hover:text-[var(--primary)] transition py-2">

@@ -21,7 +21,7 @@ import { Button } from "@/components/Button";
 import { CartTotals } from "@/components/CartTotals";
 import { useCart } from "@/context/CartContext";
 import { useTelegramWebApp } from "@/context/TelegramWebAppContext";
-import { prefetchMetaConversions, readMetaClickIds, trackStorePurchase } from "@/lib/meta-promo";
+import { clearInitiateCheckout, prefetchMetaConversions, readMetaClickIds, reportInitiateCheckout, trackStorePurchase } from "@/lib/meta-promo";
 import { assignStorePath, isTelegramMiniAppDocument } from "@/lib/telegram-nav";
 
 const inputClass =
@@ -64,6 +64,24 @@ export default function CheckoutPage() {
   useEffect(() => {
     void prefetchMetaConversions();
   }, []);
+
+  useEffect(() => {
+    if (placedOrder || cart.items.length === 0) return;
+    const contents = cart.items.map((item) => ({
+      id: item.sku || item.productId,
+      quantity: item.qty,
+      itemPrice: item.price,
+    }));
+    void reportInitiateCheckout({
+      value: cart.total ?? cart.subtotal,
+      currency: "USD",
+      contentIds: contents.map((item) => item.id),
+      contents,
+      numItems: contents.reduce((sum, item) => sum + item.quantity, 0),
+      channel: isTelegramCheckout ? "telegram" : "website",
+      eventSourceUrl: window.location.href,
+    });
+  }, [placedOrder, cart.items, cart.total, cart.subtotal, isTelegramCheckout]);
 
   const [loggedIn, setLoggedIn] = useState(false);
   const [shippingProfiles, setShippingProfiles] = useState<ShippingProfile[]>([]);
@@ -504,8 +522,10 @@ export default function CheckoutPage() {
           value: result.value,
           currency: result.currency,
           channel: isTelegramCheckout ? "telegram" : "website",
+          contents: result.contents,
         });
       }
+      clearInitiateCheckout();
       const q = new URLSearchParams();
       q.set("orderNumber", result.orderNumber);
       if (result.setPasswordToken) q.set("setPasswordToken", result.setPasswordToken);

@@ -208,7 +208,7 @@ describe("TelegramInboxNotifierService", () => {
       creates.map((c) => c.userId).sort(),
       ["admin1", "lead1"],
     );
-    assert.equal(creates[0]?.title, "Telegram: К. Олена");
+    assert.equal(creates[0]?.title, "Клієнт у боті: К. Олена");
   });
 
   it("uses telegram peer name when contact is missing", async () => {
@@ -237,7 +237,7 @@ describe("TelegramInboxNotifierService", () => {
       telegramChatId: "555",
       messageText: "Hi",
     });
-    assert.equal(creates[0]?.title, "Telegram: Max · @max_tg");
+    assert.equal(creates[0]?.title, "Клієнт у боті: Max · @max_tg");
   });
 
   it("skips notifications for linked staff chats", async () => {

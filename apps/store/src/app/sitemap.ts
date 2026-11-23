@@ -1,65 +1,39 @@
 import type { MetadataRoute } from "next";
+import { CATALOG_SYSTEMS } from "@/lib/categories";
 import { SITE_URL } from "@/lib/site";
-import { fetchAllActiveStoreProductIds } from "@/lib/store-server-sitemap";
+import { fetchSitemapProducts } from "@/lib/store-server-sitemap";
 
 export const dynamic = "force-dynamic";
 
-export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const now = new Date();
+function entry(
+  url: string,
+  changeFrequency: "weekly" | "monthly" | "yearly",
+  priority: number,
+): MetadataRoute.Sitemap[number] {
+  return { url, changeFrequency, priority };
+}
 
+export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const staticEntries: MetadataRoute.Sitemap = [
-    {
-      url: `${SITE_URL}/`,
-      lastModified: now,
-      changeFrequency: "weekly",
-      priority: 1,
-    },
-    {
-      url: `${SITE_URL}/about`,
-      lastModified: now,
-      changeFrequency: "monthly",
-      priority: 0.8,
-    },
-    {
-      url: `${SITE_URL}/about-production`,
-      lastModified: now,
-      changeFrequency: "monthly",
-      priority: 0.8,
-    },
-    {
-      url: `${SITE_URL}/contacts`,
-      lastModified: now,
-      changeFrequency: "monthly",
-      priority: 0.8,
-    },
-    {
-      url: `${SITE_URL}/why-suprex`,
-      lastModified: now,
-      changeFrequency: "monthly",
-      priority: 0.8,
-    },
-    {
-      url: `${SITE_URL}/privacy-policy`,
-      lastModified: now,
-      changeFrequency: "yearly",
-      priority: 0.4,
-    },
-    {
-      url: `${SITE_URL}/cookie-policy`,
-      lastModified: now,
-      changeFrequency: "yearly",
-      priority: 0.4,
-    },
+    entry(`${SITE_URL}/`, "weekly", 1),
+    entry(`${SITE_URL}/systems`, "weekly", 0.9),
+    ...CATALOG_SYSTEMS.map((system) => entry(`${SITE_URL}/systems/${system.slug}`, "weekly", 0.8)),
+    entry(`${SITE_URL}/about`, "monthly", 0.6),
+    entry(`${SITE_URL}/about-production`, "monthly", 0.6),
+    entry(`${SITE_URL}/contacts`, "monthly", 0.6),
+    entry(`${SITE_URL}/why-suprex`, "monthly", 0.6),
+    entry(`${SITE_URL}/privacy-policy`, "yearly", 0.3),
+    entry(`${SITE_URL}/cookie-policy`, "yearly", 0.3),
   ];
 
-  const productIds = await fetchAllActiveStoreProductIds();
-
-  const productEntries: MetadataRoute.Sitemap = productIds.map((id) => ({
-    url: `${SITE_URL}/product/${encodeURIComponent(id)}`,
-    lastModified: now,
-    changeFrequency: "weekly" as const,
-    priority: 0.7,
-  }));
+  const products = await fetchSitemapProducts();
+  const productEntries: MetadataRoute.Sitemap = products.map((product) => {
+    const item = entry(`${SITE_URL}/product/${encodeURIComponent(product.id)}`, "weekly", 0.7);
+    if (!product.updatedAt) return item;
+    const updated = new Date(product.updatedAt);
+    if (Number.isNaN(updated.getTime())) return item;
+    return { ...item, lastModified: updated };
+  });
 
   return [...staticEntries, ...productEntries];
 }

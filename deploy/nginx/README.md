@@ -146,7 +146,12 @@ docker compose -f docker-compose.prod.yml --env-file .env up -d backend
 | Тот же мусор **+** другие параметры (напр. `utm_*`) | — | Обрабатывает **Next.js middleware** в `apps/store` | В nginx нельзя безопасно вычеркнуть часть query и сохранить остальное |
 | `/about-us-3` или `/about-us-3/` | **301** | `/about` | Старый WP-URL → актуальная сторінка |
 | `/portfolio`, `/project-cat/*`, `/tag/*`, `/blog/*` | **410** | Тіло відповіді 410 | Контенту немає — явний сигнал пошуковикам |
-| `/product-category/…`, `/shop/…`, `/catalog/…`, `/pricelist/…` | **без змін** | Як є | Ще дають трафік; без маппінгу не чіпаємо |
+| `/shop`, `/shop/` | **301** | `/systems` | Старий WooCommerce-магазин. Query (`utm_*`) зберігається |
+| `/catalog`, `/catalog/` | **301** | `/systems` | Той самий каталог. **`/catalog-print` не чіпати** |
+| `/pricelist`, `/pricelist/` | **301** | `/contacts#lead-price` | Прайс — форма запиту |
+| `/product-category/03-ar-series` і все під ним | **301** | `/systems/megagen-anyridge` | Серія AnyRidge |
+| `/product-category/08-nd-series` і все під ним | **301** | `/systems/neodent` | Серія NeoDent |
+| Будь-який інший `/product-category/…` | **301** | `/systems` | Не на головну |
 
 Після `certbot` зазвичай з’являється окремий `server { listen 443 ssl; server_name www.suprex.dental; ... }`. Скопіюйте в нього **ті самі** блоки (рядок з `if ($args …)`, усі `location ~*` для SEO та **перед** `location /`) — інакше на HTTPS правила не спрацюють.
 
@@ -162,6 +167,15 @@ sudo nginx -t && sudo systemctl reload nginx
 - `curl -sI 'https://www.suprex.dental/any?utm_source=x&per_page=9'` → **301**, у `Location` лишається `utm_source`
 - `curl -sI 'https://www.suprex.dental/portfolio/'` → **410**
 - `curl -sI 'https://www.suprex.dental/about-us-3/'` → **301** на `/about`
+- `curl -sI 'https://www.suprex.dental/shop/'` → **301**, `Location` містить `/systems`, не головну
+- `curl -sI 'https://www.suprex.dental/catalog/'` → **301** на `/systems`
+- `curl -sI 'https://www.suprex.dental/catalog-print'` → **не** 301 на `/systems`
+- `curl -sI 'https://www.suprex.dental/pricelist'` → **301**, `Location` містить `/contacts#lead-price`
+- `curl -sI 'https://www.suprex.dental/product-category/03-ar-series/'` → **301** на `/systems/megagen-anyridge`
+- `curl -sI 'https://www.suprex.dental/product-category/08-nd-series/foo'` → **301** на `/systems/neodent`
+- `curl -sI 'https://www.suprex.dental/product-category/other'` → **301** на `/systems`
+
+У шаблоні репозиторію для www є лише `listen 80`. Якщо certbot виніс HTTPS в окремий `server { listen 443 ssl; server_name www.suprex.dental; }`, скопіюйте в нього **ті самі** `location` (`/shop`, `/catalog`, `/pricelist`, `/product-category/…`, `/about-us-3`, 410) **перед** `location /`. Інакше на 443 редіректи не спрацюють. `/catalog-print` у ці `location` не входить.
 
 ## 9. Обновление с устаревшего nginx-конфига (релиз web + шаблон)
 

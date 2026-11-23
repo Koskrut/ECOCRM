@@ -141,7 +141,7 @@ export class TelegramInboxNotifierService {
     const recipientIds = await this.resolveRecipientUserIds(conversation);
     if (recipientIds.length === 0) return;
 
-    const title = `Telegram: ${formatTelegramConversationLabel({
+    const title = `Клієнт у боті: ${formatTelegramConversationLabel({
       contact: conversation.contact,
       lead: conversation.lead,
       peer,

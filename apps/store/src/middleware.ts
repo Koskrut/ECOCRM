@@ -1,15 +1,6 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-
-/** WooCommerce / legacy query noise — 301 to same path, other params preserved. */
-const JUNK_QUERY_PARAMS = [
-  "add-to-cart",
-  "per_page",
-  "per_row",
-  "shop_view",
-  "woo_ajax",
-  "loop",
-] as const;
+import { JUNK_QUERY_PARAMS, homeQueryRedirect, legacyLocation } from "@/lib/legacy-redirect";
 
 function isGonePath(pathname: string) {
   return (
@@ -24,6 +15,13 @@ function isGonePath(pathname: string) {
   );
 }
 
+function redirectTo(request: NextRequest, location: string) {
+  // Build a plain URL. NextURL copies the request's trailing-slash mode and would
+  // turn /systems back into /systems/ when the incoming path had a slash.
+  const dest = new URL(location, request.nextUrl.origin);
+  return NextResponse.redirect(dest, 301);
+}
+
 export function middleware(request: NextRequest) {
   const url = request.nextUrl.clone();
 
@@ -31,6 +29,7 @@ export function middleware(request: NextRequest) {
   if (url.pathname === "/about-us-3" || url.pathname === "/about-us-3/") {
     url.pathname = "/about";
     url.search = "";
+    url.hash = "";
     return NextResponse.redirect(url, 301);
   }
   if (isGonePath(url.pathname)) {
@@ -38,6 +37,29 @@ export function middleware(request: NextRequest) {
       status: 410,
       headers: { "content-type": "text/plain; charset=utf-8" },
     });
+  }
+
+  const legacy = legacyLocation(url.pathname);
+  if (legacy) {
+    const params = new URLSearchParams(url.searchParams);
+    for (const key of JUNK_QUERY_PARAMS) params.delete(key);
+    const hashAt = legacy.indexOf("#");
+    const path = hashAt >= 0 ? legacy.slice(0, hashAt) : legacy;
+    const hash = hashAt >= 0 ? legacy.slice(hashAt) : "";
+    const qs = params.toString();
+    return redirectTo(request, `${path}${qs ? `?${qs}` : ""}${hash}`);
+  }
+
+  const homeTarget = homeQueryRedirect(url.pathname, url.searchParams);
+  if (homeTarget) {
+    return redirectTo(request, homeTarget);
+  }
+
+  if (url.pathname.length > 1 && url.pathname.endsWith("/")) {
+    const params = new URLSearchParams(url.searchParams);
+    for (const key of JUNK_QUERY_PARAMS) params.delete(key);
+    const qs = params.toString();
+    return redirectTo(request, `${url.pathname.slice(0, -1)}${qs ? `?${qs}` : ""}`);
   }
 
   let changed = false;
