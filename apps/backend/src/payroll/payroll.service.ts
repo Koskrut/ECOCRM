@@ -59,7 +59,7 @@ export class PayrollService {
     ]);
     const personal = this.toPersonalRates(user.payrollProfile);
     const { orders, fuelDays } = await this.loadInputs(userId, month);
-    const teamSalesBaseUah =
+    const teamSalesBaseUsd =
       user.role === UserRole.LEAD
         ? await this.sumManagerSalesBase(user.id, month, companyRates, exchangeRates)
         : 0;
@@ -71,7 +71,7 @@ export class PayrollService {
       orders,
       fuelDays,
       rates: exchangeRates,
-      teamSalesBaseUah,
+      teamSalesBaseUsd,
     });
 
     return {
@@ -132,19 +132,19 @@ export class PayrollService {
         orders,
         fuelDays,
         rates: exchangeRates,
-        teamSalesBaseUah: 0,
+        teamSalesBaseUsd: 0,
       });
-      salesBaseByUserId.set(user.id, baseAccrued.salesBaseUah);
+      salesBaseByUserId.set(user.id, baseAccrued.salesBaseUsd);
       draft.push({ user, personal, orders, fuelDays });
     }
 
     const rows = [];
     for (const { user, personal, orders, fuelDays } of draft) {
-      let teamSalesBaseUah = 0;
+      let teamSalesBaseUsd = 0;
       if (user.role === UserRole.LEAD) {
         for (const other of users) {
           if (other.role === UserRole.MANAGER && other.leadId === user.id) {
-            teamSalesBaseUah += salesBaseByUserId.get(other.id) ?? 0;
+            teamSalesBaseUsd += salesBaseByUserId.get(other.id) ?? 0;
           }
         }
       }
@@ -155,16 +155,18 @@ export class PayrollService {
         orders,
         fuelDays,
         rates: exchangeRates,
-        teamSalesBaseUah,
+        teamSalesBaseUsd,
       });
       rows.push({
         userId: user.id,
         fullName: user.fullName,
         role: user.role,
         baseSalaryUah: accrued.baseSalaryUah,
-        salesBaseUah: accrued.salesBaseUah,
+        salesBaseUsd: accrued.salesBaseUsd,
         appliedPercent: accrued.appliedPercent,
+        bonusUsd: accrued.bonusUsd,
         bonusUah: accrued.bonusUah,
+        leadTeamBonusUsd: accrued.leadTeamBonusUsd,
         leadTeamBonusUah: accrued.leadTeamBonusUah,
         totalKm: accrued.totalKm,
         amortizationUah: accrued.amortizationUah,
@@ -198,9 +200,9 @@ export class PayrollService {
         orders,
         fuelDays,
         rates: exchangeRates,
-        teamSalesBaseUah: 0,
+        teamSalesBaseUsd: 0,
       });
-      sum += accrued.salesBaseUah;
+      sum += accrued.salesBaseUsd;
     }
     return sum;
   }
@@ -219,7 +221,7 @@ export class PayrollService {
     profile: {
       baseSalaryUah: unknown;
       amortizationUahPerKm: unknown;
-      bonusThresholdUah: unknown;
+      bonusThresholdUsd: unknown;
       bonusPercentUpTo: unknown;
       bonusPercentAbove: unknown;
     } | null,
@@ -228,7 +230,7 @@ export class PayrollService {
       return {
         baseSalaryUah: 0,
         amortizationUahPerKm: 0,
-        bonusThresholdUah: null,
+        bonusThresholdUsd: null,
         bonusPercentUpTo: null,
         bonusPercentAbove: null,
       };
@@ -236,8 +238,8 @@ export class PayrollService {
     return {
       baseSalaryUah: Number(profile.baseSalaryUah) || 0,
       amortizationUahPerKm: Number(profile.amortizationUahPerKm) || 0,
-      bonusThresholdUah:
-        profile.bonusThresholdUah == null ? null : Number(profile.bonusThresholdUah),
+      bonusThresholdUsd:
+        profile.bonusThresholdUsd == null ? null : Number(profile.bonusThresholdUsd),
       bonusPercentUpTo:
         profile.bonusPercentUpTo == null ? null : Number(profile.bonusPercentUpTo),
       bonusPercentAbove:
@@ -249,7 +251,7 @@ export class PayrollService {
     return {
       baseSalaryUah: personal.baseSalaryUah,
       amortizationUahPerKm: personal.amortizationUahPerKm,
-      bonusThresholdUah: personal.bonusThresholdUah,
+      bonusThresholdUsd: personal.bonusThresholdUsd,
       bonusPercentUpTo: personal.bonusPercentUpTo,
       bonusPercentAbove: personal.bonusPercentAbove,
     };

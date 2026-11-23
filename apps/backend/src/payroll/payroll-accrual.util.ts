@@ -1,4 +1,4 @@
-import { computeOrderExchangeRate, normalizeCurrencyCode } from "../common/currency.util";
+import { fromUsd, normalizeCurrencyCode, toUsd } from "../common/currency.util";
 import type { ExchangeRates } from "../settings/settings.service";
 import { computeEffectiveTotal } from "../orders/order-payment-guards";
 import { paymentAmountInOrderCurrency as paymentInOrderCurrency } from "../payments/order-finance.utils";
@@ -6,7 +6,7 @@ import { paymentAmountInOrderCurrency as paymentInOrderCurrency } from "../payme
 export const DEBT_CLOSED_STAGES = new Set(["CANCELED", "REFUSED", "FULLY_RETURNED"]);
 
 export type PayrollCompanyRates = {
-  thresholdUah: number;
+  thresholdUsd: number;
   percentUpTo: number;
   percentAbove: number;
   leadTeamBonusPercent: number;
@@ -15,13 +15,13 @@ export type PayrollCompanyRates = {
 export type PayrollPersonalRates = {
   baseSalaryUah: number;
   amortizationUahPerKm: number;
-  bonusThresholdUah: number | null;
+  bonusThresholdUsd: number | null;
   bonusPercentUpTo: number | null;
   bonusPercentAbove: number | null;
 };
 
 export type ResolvedBonusRates = {
-  thresholdUah: number;
+  thresholdUsd: number;
   percentUpTo: number;
   percentAbove: number;
   source: "company" | "personal";
@@ -62,8 +62,8 @@ export type PayrollOrderLine = {
   closedAt: string;
   currency: string;
   amountOriginal: number;
-  exchangeRate: number;
-  amountUah: number;
+  /** Effective total converted to USD for bonus base. */
+  amountUsd: number;
   rateFallback: boolean;
 };
 
@@ -79,14 +79,21 @@ export type PayrollFuelDayLine = {
 export type PayrollMonthResult = {
   month: string;
   baseSalaryUah: number;
-  salesBaseUah: number;
+  /** Fully paid own sales in USD. */
+  salesBaseUsd: number;
   bonusRates: ResolvedBonusRates;
   appliedPercent: number;
+  /** Sales bonus in USD. */
+  bonusUsd: number;
+  /** Bonus converted to UAH at settings rate (for payroll total). */
   bonusUah: number;
-  /** Fully paid sales base of subordinate managers (LEAD only). */
-  teamSalesBaseUah: number;
+  /** Fully paid sales base of subordinate managers in USD (LEAD only). */
+  teamSalesBaseUsd: number;
   leadTeamBonusPercent: number;
+  leadTeamBonusUsd: number;
   leadTeamBonusUah: number;
+  /** UAH per 1 USD used to convert bonuses into payroll total. */
+  usdToUahRate: number;
   amortizationUahPerKm: number;
   totalKm: number;
   amortizationUah: number;
@@ -178,50 +185,51 @@ export function resolveBonusRates(
   company: PayrollCompanyRates,
   personal: Pick<
     PayrollPersonalRates,
-    "bonusThresholdUah" | "bonusPercentUpTo" | "bonusPercentAbove"
+    "bonusThresholdUsd" | "bonusPercentUpTo" | "bonusPercentAbove"
   >,
 ): ResolvedBonusRates {
   const hasPersonal =
-    personal.bonusThresholdUah != null &&
+    personal.bonusThresholdUsd != null &&
     personal.bonusPercentUpTo != null &&
     personal.bonusPercentAbove != null;
   if (hasPersonal) {
     return {
-      thresholdUah: Number(personal.bonusThresholdUah),
+      thresholdUsd: Number(personal.bonusThresholdUsd),
       percentUpTo: Number(personal.bonusPercentUpTo),
       percentAbove: Number(personal.bonusPercentAbove),
       source: "personal",
     };
   }
   return {
-    thresholdUah: company.thresholdUah,
+    thresholdUsd: company.thresholdUsd,
     percentUpTo: company.percentUpTo,
     percentAbove: company.percentAbove,
     source: "company",
   };
 }
 
-/** Cliff: one percent on the whole month total. */
-export function computeSalesBonusUah(
-  salesBaseUah: number,
+/** Cliff: one percent on the whole month total (USD). */
+export function computeSalesBonusUsd(
+  salesBaseUsd: number,
   rates: ResolvedBonusRates,
-): { appliedPercent: number; bonusUah: number } {
-  const base = Math.max(0, salesBaseUah);
-  const appliedPercent = base > rates.thresholdUah ? rates.percentAbove : rates.percentUpTo;
+): { appliedPercent: number; bonusUsd: number } {
+  const base = Math.max(0, salesBaseUsd);
+  const appliedPercent = base > rates.thresholdUsd ? rates.percentAbove : rates.percentUpTo;
   return {
     appliedPercent,
-    bonusUah: roundMoney((base * appliedPercent) / 100),
+    bonusUsd: roundMoney((base * appliedPercent) / 100),
   };
 }
 
-/** LEAD: flat % of subordinate managers' paid sales base. */
-export function computeLeadTeamBonusUah(
-  teamSalesBaseUah: number,
-  percent: number,
-): number {
-  const base = Math.max(0, teamSalesBaseUah);
+/** LEAD: flat % of subordinate managers' paid sales base (USD). */
+export function computeLeadTeamBonusUsd(teamSalesBaseUsd: number, percent: number): number {
+  const base = Math.max(0, teamSalesBaseUsd);
   const p = Math.max(0, percent);
   return roundMoney((base * p) / 100);
+}
+
+export function usdToUah(usd: number, rates: ExchangeRates): number {
+  return roundMoney(fromUsd(usd, "UAH", rates));
 }
 
 export function paymentAmountInOrderCurrency(
@@ -232,25 +240,27 @@ export function paymentAmountInOrderCurrency(
   return paymentInOrderCurrency(payment, orderCurrency, rates);
 }
 
-export function orderAmountToUahWithRate(
+/**
+ * Order effective total → USD for bonus base.
+ * USD orders use face amount. Other currencies: order.exchangeRate (UAH per unit)
+ * → UAH → USD when available, else settings rates.
+ */
+export function orderAmountToUsd(
   amount: number,
   currency: string | null | undefined,
   exchangeRate: number | null | undefined,
   rates: ExchangeRates,
-): { amountUah: number; exchangeRate: number; rateFallback: boolean } {
+): { amountUsd: number; rateFallback: boolean } {
   const c = normalizeCurrencyCode(currency);
-  if (c === "UAH") {
-    return { amountUah: roundMoney(amount), exchangeRate: 1, rateFallback: false };
+  if (c === "USD") {
+    return { amountUsd: roundMoney(amount), rateFallback: false };
   }
   const fixed = Number(exchangeRate);
-  if (Number.isFinite(fixed) && fixed > 0) {
-    return { amountUah: roundMoney(amount * fixed), exchangeRate: fixed, rateFallback: false };
+  if (Number.isFinite(fixed) && fixed > 0 && rates.UAH_TO_USD > 0) {
+    const uah = amount * fixed;
+    return { amountUsd: roundMoney(uah * rates.UAH_TO_USD), rateFallback: false };
   }
-  const fallback = computeOrderExchangeRate(c, rates);
-  if (fallback != null && fallback > 0) {
-    return { amountUah: roundMoney(amount * fallback), exchangeRate: fallback, rateFallback: true };
-  }
-  return { amountUah: roundMoney(amount), exchangeRate: 1, rateFallback: true };
+  return { amountUsd: roundMoney(toUsd(amount, c, rates)), rateFallback: true };
 }
 
 /**
@@ -315,11 +325,13 @@ export function accruePayrollMonth(input: {
   orders: PayrollOrderInput[];
   fuelDays: PayrollFuelDayInput[];
   rates: ExchangeRates;
-  /** Sum of managers' salesBaseUah for LEAD override; 0 for managers. */
-  teamSalesBaseUah?: number;
+  /** Sum of managers' salesBaseUsd for LEAD override; 0 for managers. */
+  teamSalesBaseUsd?: number;
 }): PayrollMonthResult {
   const bonusRates = resolveBonusRates(input.companyRates, input.personal);
   const { from, toExclusive } = kyivMonthBounds(input.month);
+  const usdToUahRate =
+    input.rates.UAH_TO_USD > 0 ? roundMoney(1 / input.rates.UAH_TO_USD) : 0;
 
   const orderLines: PayrollOrderLine[] = [];
   for (const order of input.orders) {
@@ -327,7 +339,7 @@ export function accruePayrollMonth(input: {
     if (!closed) continue;
     if (closed.closedAt < from || closed.closedAt >= toExclusive) continue;
 
-    const converted = orderAmountToUahWithRate(
+    const converted = orderAmountToUsd(
       closed.effectiveTotal,
       order.currency,
       order.exchangeRate,
@@ -339,16 +351,16 @@ export function accruePayrollMonth(input: {
       closedAt: kyivYmd(closed.closedAt),
       currency: normalizeCurrencyCode(order.currency),
       amountOriginal: roundMoney(closed.effectiveTotal),
-      exchangeRate: converted.exchangeRate,
-      amountUah: converted.amountUah,
+      amountUsd: converted.amountUsd,
       rateFallback: converted.rateFallback,
     });
   }
 
   orderLines.sort((a, b) => a.closedAt.localeCompare(b.closedAt) || a.orderNumber.localeCompare(b.orderNumber));
 
-  const salesBaseUah = roundMoney(orderLines.reduce((s, o) => s + o.amountUah, 0));
-  const { appliedPercent, bonusUah } = computeSalesBonusUah(salesBaseUah, bonusRates);
+  const salesBaseUsd = roundMoney(orderLines.reduce((s, o) => s + o.amountUsd, 0));
+  const { appliedPercent, bonusUsd } = computeSalesBonusUsd(salesBaseUsd, bonusRates);
+  const bonusUah = usdToUah(bonusUsd, input.rates);
 
   const fuelDays: PayrollFuelDayLine[] = [];
   let totalKm = 0;
@@ -373,20 +385,24 @@ export function accruePayrollMonth(input: {
   fuelCompensationUah = roundMoney(fuelCompensationUah);
   const amortizationUah = roundMoney(totalKm * input.personal.amortizationUahPerKm);
   const baseSalaryUah = roundMoney(Math.max(0, input.personal.baseSalaryUah));
-  const teamSalesBaseUah = roundMoney(Math.max(0, input.teamSalesBaseUah ?? 0));
+  const teamSalesBaseUsd = roundMoney(Math.max(0, input.teamSalesBaseUsd ?? 0));
   const leadTeamBonusPercent = Math.max(0, input.companyRates.leadTeamBonusPercent ?? 0);
-  const leadTeamBonusUah = computeLeadTeamBonusUah(teamSalesBaseUah, leadTeamBonusPercent);
+  const leadTeamBonusUsd = computeLeadTeamBonusUsd(teamSalesBaseUsd, leadTeamBonusPercent);
+  const leadTeamBonusUah = usdToUah(leadTeamBonusUsd, input.rates);
 
   return {
     month: input.month,
     baseSalaryUah,
-    salesBaseUah,
+    salesBaseUsd,
     bonusRates,
     appliedPercent,
+    bonusUsd,
     bonusUah,
-    teamSalesBaseUah,
+    teamSalesBaseUsd,
     leadTeamBonusPercent,
+    leadTeamBonusUsd,
     leadTeamBonusUah,
+    usdToUahRate,
     amortizationUahPerKm: input.personal.amortizationUahPerKm,
     totalKm,
     amortizationUah,
@@ -398,16 +414,16 @@ export function accruePayrollMonth(input: {
 }
 
 export function validatePersonalBonusTriplet(input: {
-  bonusThresholdUah?: number | null;
+  bonusThresholdUsd?: number | null;
   bonusPercentUpTo?: number | null;
   bonusPercentAbove?: number | null;
 }): { ok: true } | { ok: false; message: string } {
-  const vals = [input.bonusThresholdUah, input.bonusPercentUpTo, input.bonusPercentAbove];
+  const vals = [input.bonusThresholdUsd, input.bonusPercentUpTo, input.bonusPercentAbove];
   const nullCount = vals.filter((v) => v == null).length;
   if (nullCount === 3 || nullCount === 0) {
     if (nullCount === 0) {
-      if (!(Number(input.bonusThresholdUah) >= 0)) {
-        return { ok: false, message: "bonusThresholdUah must be >= 0" };
+      if (!(Number(input.bonusThresholdUsd) >= 0)) {
+        return { ok: false, message: "bonusThresholdUsd must be >= 0" };
       }
       if (!(Number(input.bonusPercentUpTo) >= 0) || !(Number(input.bonusPercentAbove) >= 0)) {
         return { ok: false, message: "bonus percents must be >= 0" };
@@ -417,6 +433,6 @@ export function validatePersonalBonusTriplet(input: {
   }
   return {
     ok: false,
-    message: "bonusThresholdUah, bonusPercentUpTo and bonusPercentAbove must all be set or all empty",
+    message: "bonusThresholdUsd, bonusPercentUpTo and bonusPercentAbove must all be set or all empty",
   };
 }

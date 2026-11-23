@@ -4,8 +4,8 @@ import { describe, it } from "node:test";
 import type { ExchangeRates } from "../../settings/settings.service";
 import {
   accruePayrollMonth,
-  computeLeadTeamBonusUah,
-  computeSalesBonusUah,
+  computeLeadTeamBonusUsd,
+  computeSalesBonusUsd,
   findOrderClosePayment,
   resolveBonusRates,
   selectFuelKm,
@@ -21,7 +21,7 @@ const rates: ExchangeRates = {
 };
 
 const company = {
-  thresholdUah: 25000,
+  thresholdUsd: 25000,
   percentUpTo: 2,
   percentAbove: 2.5,
   leadTeamBonusPercent: 1,
@@ -31,44 +31,44 @@ function order(partial: Partial<PayrollOrderInput> & Pick<PayrollOrderInput, "id
   return {
     orderNumber: partial.orderNumber ?? partial.id,
     ownerId: partial.ownerId ?? "u1",
-    currency: partial.currency ?? "UAH",
+    currency: partial.currency ?? "USD",
     totalAmount: partial.totalAmount ?? 10000,
     returnAdjustmentAmount: partial.returnAdjustmentAmount ?? 0,
     fxWriteOffAmount: partial.fxWriteOffAmount ?? 0,
-    exchangeRate: partial.exchangeRate ?? null,
+    exchangeRate: partial.exchangeRate ?? 40,
     orderStage: partial.orderStage ?? "COMPLETED",
     ...partial,
   };
 }
 
-describe("computeSalesBonusUah cliff", () => {
+describe("computeSalesBonusUsd cliff", () => {
   it("applies 2% to whole month when at or below threshold", () => {
     const r = resolveBonusRates(company, {
-      bonusThresholdUah: null,
+      bonusThresholdUsd: null,
       bonusPercentUpTo: null,
       bonusPercentAbove: null,
     });
-    assert.deepEqual(computeSalesBonusUah(20000, r), { appliedPercent: 2, bonusUah: 400 });
-    assert.deepEqual(computeSalesBonusUah(25000, r), { appliedPercent: 2, bonusUah: 500 });
+    assert.deepEqual(computeSalesBonusUsd(20000, r), { appliedPercent: 2, bonusUsd: 400 });
+    assert.deepEqual(computeSalesBonusUsd(25000, r), { appliedPercent: 2, bonusUsd: 500 });
   });
 
   it("applies 2.5% to whole month when above threshold", () => {
     const r = resolveBonusRates(company, {
-      bonusThresholdUah: null,
+      bonusThresholdUsd: null,
       bonusPercentUpTo: null,
       bonusPercentAbove: null,
     });
-    assert.deepEqual(computeSalesBonusUah(30000, r), { appliedPercent: 2.5, bonusUah: 750 });
+    assert.deepEqual(computeSalesBonusUsd(30000, r), { appliedPercent: 2.5, bonusUsd: 750 });
   });
 
   it("uses personal threshold and percents", () => {
     const r = resolveBonusRates(company, {
-      bonusThresholdUah: 10000,
+      bonusThresholdUsd: 10000,
       bonusPercentUpTo: 3,
       bonusPercentAbove: 4,
     });
     assert.equal(r.source, "personal");
-    assert.deepEqual(computeSalesBonusUah(12000, r), { appliedPercent: 4, bonusUah: 480 });
+    assert.deepEqual(computeSalesBonusUsd(12000, r), { appliedPercent: 4, bonusUsd: 480 });
   });
 });
 
@@ -76,6 +76,8 @@ describe("findOrderClosePayment", () => {
   it("ignores partial payments that do not close debt", () => {
     const o = order({
       id: "o1",
+      currency: "UAH",
+      exchangeRate: null,
       totalAmount: 10000,
       payments: [
         {
@@ -93,6 +95,8 @@ describe("findOrderClosePayment", () => {
   it("uses the payment that first closes the debt as close date", () => {
     const o = order({
       id: "o2",
+      currency: "UAH",
+      exchangeRate: null,
       totalAmount: 10000,
       payments: [
         {
@@ -120,6 +124,8 @@ describe("findOrderClosePayment", () => {
     for (const stage of ["CANCELED", "REFUSED", "FULLY_RETURNED"] as const) {
       const o = order({
         id: "ox",
+        currency: "UAH",
+        exchangeRate: null,
         orderStage: stage,
         totalAmount: 1000,
         payments: [
@@ -139,6 +145,8 @@ describe("findOrderClosePayment", () => {
   it("negative CREDIT_TRANSFER prevents early close", () => {
     const o = order({
       id: "o3",
+      currency: "UAH",
+      exchangeRate: null,
       totalAmount: 10000,
       payments: [
         {
@@ -202,7 +210,7 @@ describe("validatePersonalBonusTriplet", () => {
   it("allows all null or all set", () => {
     assert.equal(
       validatePersonalBonusTriplet({
-        bonusThresholdUah: null,
+        bonusThresholdUsd: null,
         bonusPercentUpTo: null,
         bonusPercentAbove: null,
       }).ok,
@@ -210,7 +218,7 @@ describe("validatePersonalBonusTriplet", () => {
     );
     assert.equal(
       validatePersonalBonusTriplet({
-        bonusThresholdUah: 10000,
+        bonusThresholdUsd: 10000,
         bonusPercentUpTo: 3,
         bonusPercentAbove: 4,
       }).ok,
@@ -221,7 +229,7 @@ describe("validatePersonalBonusTriplet", () => {
   it("rejects partial triplet", () => {
     assert.equal(
       validatePersonalBonusTriplet({
-        bonusThresholdUah: 10000,
+        bonusThresholdUsd: 10000,
         bonusPercentUpTo: null,
         bonusPercentAbove: 4,
       }).ok,
@@ -230,10 +238,10 @@ describe("validatePersonalBonusTriplet", () => {
   });
 });
 
-describe("computeLeadTeamBonusUah", () => {
+describe("computeLeadTeamBonusUsd", () => {
   it("applies flat percent to managers sales base", () => {
-    assert.equal(computeLeadTeamBonusUah(100000, 1), 1000);
-    assert.equal(computeLeadTeamBonusUah(0, 1), 0);
+    assert.equal(computeLeadTeamBonusUsd(100000, 1), 1000);
+    assert.equal(computeLeadTeamBonusUsd(0, 1), 0);
   });
 });
 
@@ -245,7 +253,7 @@ describe("accruePayrollMonth", () => {
       personal: {
         baseSalaryUah: 0,
         amortizationUahPerKm: 0,
-        bonusThresholdUah: null,
+        bonusThresholdUsd: null,
         bonusPercentUpTo: null,
         bonusPercentAbove: null,
       },
@@ -257,8 +265,8 @@ describe("accruePayrollMonth", () => {
           payments: [
             {
               amount: 20000,
-              currency: "UAH",
-              amountUsd: null,
+              currency: "USD",
+              amountUsd: 20000,
               paidAt: new Date("2026-11-10T12:00:00Z"),
               status: "COMPLETED",
             },
@@ -266,11 +274,14 @@ describe("accruePayrollMonth", () => {
         }),
       ],
       fuelDays: [],
-      teamSalesBaseUah: 80000,
+      teamSalesBaseUsd: 80000,
     });
-    assert.equal(result.bonusUah, 400);
-    assert.equal(result.leadTeamBonusUah, 800);
-    assert.equal(result.totalUah, 1200);
+    assert.equal(result.bonusUsd, 400);
+    assert.equal(result.leadTeamBonusUsd, 800);
+    // 1 USD = 40 UAH at test rates
+    assert.equal(result.bonusUah, 16000);
+    assert.equal(result.leadTeamBonusUah, 32000);
+    assert.equal(result.totalUah, 48000);
   });
 
   it("includes only orders closed in the month and applies cliff bonus", () => {
@@ -280,7 +291,7 @@ describe("accruePayrollMonth", () => {
       personal: {
         baseSalaryUah: 1000,
         amortizationUahPerKm: 2,
-        bonusThresholdUah: null,
+        bonusThresholdUsd: null,
         bonusPercentUpTo: null,
         bonusPercentAbove: null,
       },
@@ -292,8 +303,8 @@ describe("accruePayrollMonth", () => {
           payments: [
             {
               amount: 30000,
-              currency: "UAH",
-              amountUsd: null,
+              currency: "USD",
+              amountUsd: 30000,
               paidAt: new Date("2026-11-10T12:00:00Z"),
               status: "COMPLETED",
             },
@@ -305,8 +316,8 @@ describe("accruePayrollMonth", () => {
           payments: [
             {
               amount: 5000,
-              currency: "UAH",
-              amountUsd: null,
+              currency: "USD",
+              amountUsd: 5000,
               paidAt: new Date("2026-10-10T12:00:00Z"),
               status: "COMPLETED",
             },
@@ -332,14 +343,15 @@ describe("accruePayrollMonth", () => {
     });
 
     assert.equal(result.orders.length, 1);
-    assert.equal(result.salesBaseUah, 30000);
+    assert.equal(result.salesBaseUsd, 30000);
     assert.equal(result.appliedPercent, 2.5);
-    assert.equal(result.bonusUah, 750);
+    assert.equal(result.bonusUsd, 750);
+    assert.equal(result.bonusUah, 30000); // 750 USD × 40
     assert.equal(result.totalKm, 10);
     assert.equal(result.amortizationUah, 20);
     assert.equal(result.fuelCompensationUah, 350);
     assert.equal(result.baseSalaryUah, 1000);
-    assert.equal(result.leadTeamBonusUah, 0);
-    assert.equal(result.totalUah, 1770);
+    assert.equal(result.leadTeamBonusUsd, 0);
+    assert.equal(result.totalUah, 31020);
   });
 });

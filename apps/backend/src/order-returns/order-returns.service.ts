@@ -16,7 +16,11 @@ import type { ListOrderReturnsQueryDto } from "./dto/list-order-returns-query.dt
 import type { WaiveMisPickChecklistDto, UpdateReturnItemsDto } from "./dto/mis-pick.dto";
 import type { SettleReturnDto } from "../client-balances/dto/settle-return.dto";
 import { computeReturnAdjustmentAmount } from "./order-return-adjustment.utils";
-import { assertReturnReasonChange, buildReturnItemEdits } from "./order-return-edit.utils";
+import {
+  assertReturnReasonChange,
+  buildReturnItemEdits,
+  rematchReturnItemsByProduct,
+} from "./order-return-edit.utils";
 import { computeReturnCoverage } from "./order-return-coverage.utils";
 import {
   getAllowedReturnStatusTransitions,
@@ -512,13 +516,18 @@ export class OrderReturnsService {
   }
 
   /**
-   * Change reason, receiving warehouse, and returned quantities.
-   * Settled returns stay locked. Mis-pick reason and lines after a replacement order stay locked.
-   * Saving lines resyncs the order total.
+   * Change order, reason, receiving warehouse, and returned quantities.
+   * Settled returns stay locked. Mis-pick order / lines after a replacement stay locked.
+   * Saving lines or order resyncs affected order totals.
    */
   async update(id: string, dto: UpdateOrderReturnDto, actor?: AuthUser) {
     assertWarehouseReturnEdit(actor);
-    if (dto.reason === undefined && dto.warehouseId === undefined && dto.items === undefined) {
+    if (
+      dto.reason === undefined &&
+      dto.warehouseId === undefined &&
+      dto.items === undefined &&
+      dto.orderId === undefined
+    ) {
       throw new BadRequestException("Немає змін");
     }
 
@@ -526,7 +535,7 @@ export class OrderReturnsService {
       where: { id },
       include: {
         order: { include: { items: true } },
-        items: true,
+        items: { include: { orderItem: { select: { productId: true } } } },
       },
     });
     if (!ret) throw new NotFoundException("Return not found");
@@ -539,7 +548,55 @@ export class OrderReturnsService {
       assertReturnReasonChange(ret.reason, dto.reason);
     }
 
+    const previousOrderId = ret.orderId;
+    let nextOrderId = previousOrderId;
+    let nextOrderItems = ret.order.items;
+
+    if (dto.orderId !== undefined && dto.orderId.trim() && dto.orderId !== ret.orderId) {
+      if (isMisPickReturn(ret.reason)) {
+        throw new BadRequestException("Замовлення пересорту змінити не можна");
+      }
+      if (ret.replacementOrderId) {
+        throw new BadRequestException("Замовлення з заміною змінити не можна");
+      }
+      const target = await this.prisma.order.findUnique({
+        where: { id: dto.orderId.trim() },
+        include: { items: true },
+      });
+      if (!target) throw new NotFoundException("Order not found");
+      this.assertAccess(target, actor);
+      const stage = target.orderStage ?? undefined;
+      if (
+        stage !== "RECEIVED" &&
+        stage !== "COMPLETED" &&
+        stage !== "RETURN_IN_PROGRESS"
+      ) {
+        throw new BadRequestException(
+          "Повернення можна привʼязати лише до замовлення RECEIVED, COMPLETED або RETURN_IN_PROGRESS",
+        );
+      }
+      if (ret.returnPackageId) {
+        const clash = await this.prisma.orderReturn.findFirst({
+          where: {
+            returnPackageId: ret.returnPackageId,
+            orderId: target.id,
+            id: { not: ret.id },
+          },
+          select: { id: true },
+        });
+        if (clash) {
+          throw new BadRequestException(
+            "У цій посилці вже є повернення по цьому замовленню — відкрийте його",
+          );
+        }
+      }
+      nextOrderId = target.id;
+      nextOrderItems = target.items;
+    }
+
     let nextItems: Array<{ orderItemId: string; qtyReturned: number }> | null = null;
+    const orderChanged = nextOrderId !== previousOrderId;
+
     if (dto.items !== undefined) {
       if (isMisPickReturn(ret.reason) && ret.replacementOrderId) {
         throw new BadRequestException(
@@ -552,18 +609,18 @@ export class OrderReturnsService {
       const alreadyReturned = await this.prisma.orderReturnItem.groupBy({
         by: ["orderItemId"],
         where: {
-          orderReturn: { orderId: ret.orderId, id: { not: ret.id } },
+          orderReturn: { orderId: nextOrderId, id: { not: ret.id } },
         },
         _sum: { qtyReturned: true },
       });
       nextItems = buildReturnItemEdits({
-        orderItems: ret.order.items,
+        orderItems: nextOrderItems,
         otherReturnedByItem: new Map(
           alreadyReturned.map((row) => [row.orderItemId, row._sum.qtyReturned ?? 0]),
         ),
         items: dto.items,
       });
-      if (isMisPickReturn(ret.reason)) {
+      if (isMisPickReturn(ret.reason) && !orderChanged) {
         const existingIds = new Set(ret.items.map((item) => item.orderItemId));
         for (const item of nextItems) {
           if (!existingIds.has(item.orderItemId)) {
@@ -571,46 +628,85 @@ export class OrderReturnsService {
           }
         }
       }
+    } else if (orderChanged && ret.items.length > 0) {
+      const alreadyReturned = await this.prisma.orderReturnItem.groupBy({
+        by: ["orderItemId"],
+        where: {
+          orderReturn: { orderId: nextOrderId, id: { not: ret.id } },
+        },
+        _sum: { qtyReturned: true },
+      });
+      const rematched = rematchReturnItemsByProduct(
+        ret.items.map((item) => ({
+          qtyReturned: item.qtyReturned,
+          productId: item.orderItem.productId,
+        })),
+        nextOrderItems,
+        new Map(alreadyReturned.map((row) => [row.orderItemId, row._sum.qtyReturned ?? 0])),
+      );
+      if (!rematched) {
+        throw new BadRequestException(
+          "Не вдалося перенести позиції на нове замовлення — вкажіть кількості вручну",
+        );
+      }
+      nextItems = rematched;
     }
 
     let warehouseId: string | null | undefined;
     if (dto.warehouseId !== undefined) {
       warehouseId = await resolveReturnWarehouseId(this.prisma, {
         warehouseId: dto.warehouseId?.trim() || null,
-        orderId: ret.orderId,
+        orderId: nextOrderId,
       });
     }
 
     await this.prisma.$transaction(async (tx) => {
       if (nextItems) {
-        const existingByOrderItem = new Map(ret.items.map((item) => [item.orderItemId, item]));
-        const keep = new Set(nextItems.map((item) => item.orderItemId));
-        const removeIds = ret.items.filter((item) => !keep.has(item.orderItemId)).map((item) => item.id);
-        if (removeIds.length > 0) {
-          await tx.orderReturnItem.deleteMany({ where: { id: { in: removeIds } } });
-        }
-        for (const item of nextItems) {
-          const existing = existingByOrderItem.get(item.orderItemId);
-          if (existing) {
-            if (existing.qtyReturned !== item.qtyReturned) {
-              await tx.orderReturnItem.update({
-                where: { id: existing.id },
-                data: { qtyReturned: item.qtyReturned },
-              });
-            }
-          } else {
-            await tx.orderReturnItem.create({
-              data: {
+        // Order change always rebuilds lines: old orderItemIds are invalid on the new order.
+        if (orderChanged) {
+          await tx.orderReturnItem.deleteMany({ where: { orderReturnId: id } });
+          if (nextItems.length > 0) {
+            await tx.orderReturnItem.createMany({
+              data: nextItems.map((item) => ({
                 orderReturnId: id,
                 orderItemId: item.orderItemId,
                 qtyReturned: item.qtyReturned,
-              },
+              })),
             });
+          }
+        } else {
+          const existingByOrderItem = new Map(ret.items.map((item) => [item.orderItemId, item]));
+          const keep = new Set(nextItems.map((item) => item.orderItemId));
+          const removeIds = ret.items
+            .filter((item) => !keep.has(item.orderItemId))
+            .map((item) => item.id);
+          if (removeIds.length > 0) {
+            await tx.orderReturnItem.deleteMany({ where: { id: { in: removeIds } } });
+          }
+          for (const item of nextItems) {
+            const existing = existingByOrderItem.get(item.orderItemId);
+            if (existing) {
+              if (existing.qtyReturned !== item.qtyReturned) {
+                await tx.orderReturnItem.update({
+                  where: { id: existing.id },
+                  data: { qtyReturned: item.qtyReturned },
+                });
+              }
+            } else {
+              await tx.orderReturnItem.create({
+                data: {
+                  orderReturnId: id,
+                  orderItemId: item.orderItemId,
+                  qtyReturned: item.qtyReturned,
+                },
+              });
+            }
           }
         }
       }
 
       const data: Prisma.OrderReturnUpdateInput = {};
+      if (orderChanged) data.order = { connect: { id: nextOrderId } };
       if (dto.reason !== undefined && dto.reason !== ret.reason) data.reason = dto.reason;
       if (warehouseId !== undefined) {
         data.warehouse = warehouseId ? { connect: { id: warehouseId } } : { disconnect: true };
@@ -621,8 +717,9 @@ export class OrderReturnsService {
       }
     });
 
-    if (nextItems || (dto.reason !== undefined && dto.reason !== ret.reason)) {
-      await this.syncOrderStateFromReturns(ret.orderId);
+    if (nextItems || orderChanged || (dto.reason !== undefined && dto.reason !== ret.reason)) {
+      await this.syncOrderStateFromReturns(previousOrderId);
+      if (orderChanged) await this.syncOrderStateFromReturns(nextOrderId);
     }
     return this.getById(id, actor);
   }
@@ -631,10 +728,11 @@ export class OrderReturnsService {
     T extends {
       id: string;
       orderId: string;
+      returnPackageId?: string | null;
       items: Array<{ orderItemId: string; qtyReturned: number }>;
     },
   >(ret: T) {
-    const [orderItems, grouped] = await Promise.all([
+    const [orderItems, grouped, packageSiblings] = await Promise.all([
       this.prisma.orderItem.findMany({
         where: { orderId: ret.orderId },
         orderBy: { createdAt: "asc" },
@@ -645,6 +743,17 @@ export class OrderReturnsService {
         where: { orderReturn: { orderId: ret.orderId, id: { not: ret.id } } },
         _sum: { qtyReturned: true },
       }),
+      ret.returnPackageId
+        ? this.prisma.orderReturn.findMany({
+            where: { returnPackageId: ret.returnPackageId, id: { not: ret.id } },
+            select: {
+              id: true,
+              status: true,
+              order: { select: { id: true, orderNumber: true } },
+            },
+            orderBy: { createdAt: "asc" },
+          })
+        : Promise.resolve([]),
     ]);
     const takenElsewhere = new Map(
       grouped.map((row) => [row.orderItemId, row._sum.qtyReturned ?? 0]),
@@ -661,6 +770,12 @@ export class OrderReturnsService {
         lineTotal: item.lineTotal,
         productNameSnapshot: item.productNameSnapshot,
         product: item.product,
+      })),
+      packageSiblings: packageSiblings.map((row) => ({
+        id: row.id,
+        status: row.status,
+        orderId: row.order.id,
+        orderNumber: row.order.orderNumber,
       })),
     };
   }

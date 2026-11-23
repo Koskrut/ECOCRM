@@ -30,7 +30,7 @@ export class UsersService {
       select: {
         baseSalaryUah: true,
         amortizationUahPerKm: true,
-        bonusThresholdUah: true,
+        bonusThresholdUsd: true,
         bonusPercentUpTo: true,
         bonusPercentAbove: true,
       },
@@ -156,7 +156,7 @@ export class UsersService {
       usePersonalCar?: boolean;
       baseSalaryUah?: number;
       amortizationUahPerKm?: number;
-      bonusThresholdUah?: number | null;
+      bonusThresholdUsd?: number | null;
       bonusPercentUpTo?: number | null;
       bonusPercentAbove?: number | null;
     },
@@ -271,18 +271,18 @@ export class UsersService {
     const hasPayrollPayload =
       payload.baseSalaryUah !== undefined ||
       payload.amortizationUahPerKm !== undefined ||
-      payload.bonusThresholdUah !== undefined ||
+      payload.bonusThresholdUsd !== undefined ||
       payload.bonusPercentUpTo !== undefined ||
       payload.bonusPercentAbove !== undefined;
 
     if (hasPayrollPayload) {
       const existing = await this.prisma.userPayrollProfile.findUnique({ where: { userId: id } });
       const nextThreshold =
-        payload.bonusThresholdUah !== undefined
-          ? payload.bonusThresholdUah
-          : existing?.bonusThresholdUah == null
+        payload.bonusThresholdUsd !== undefined
+          ? payload.bonusThresholdUsd
+          : existing?.bonusThresholdUsd == null
             ? null
-            : Number(existing.bonusThresholdUah);
+            : Number(existing.bonusThresholdUsd);
       const nextUpTo =
         payload.bonusPercentUpTo !== undefined
           ? payload.bonusPercentUpTo
@@ -297,7 +297,7 @@ export class UsersService {
             : Number(existing.bonusPercentAbove);
 
       const triplet = validatePersonalBonusTriplet({
-        bonusThresholdUah: nextThreshold,
+        bonusThresholdUsd: nextThreshold,
         bonusPercentUpTo: nextUpTo,
         bonusPercentAbove: nextAbove,
       });
@@ -320,9 +320,9 @@ export class UsersService {
       if (payload.amortizationUahPerKm !== undefined) {
         payrollUpdate.amortizationUahPerKm = new Prisma.Decimal(payload.amortizationUahPerKm);
       }
-      if (payload.bonusThresholdUah !== undefined) {
-        payrollUpdate.bonusThresholdUah =
-          payload.bonusThresholdUah == null ? null : new Prisma.Decimal(payload.bonusThresholdUah);
+      if (payload.bonusThresholdUsd !== undefined) {
+        payrollUpdate.bonusThresholdUsd =
+          payload.bonusThresholdUsd == null ? null : new Prisma.Decimal(payload.bonusThresholdUsd);
       }
       if (payload.bonusPercentUpTo !== undefined) {
         payrollUpdate.bonusPercentUpTo =
@@ -339,7 +339,7 @@ export class UsersService {
           userId: id,
           baseSalaryUah: new Prisma.Decimal(payload.baseSalaryUah ?? 0),
           amortizationUahPerKm: new Prisma.Decimal(payload.amortizationUahPerKm ?? 0),
-          bonusThresholdUah:
+          bonusThresholdUsd:
             nextThreshold == null ? null : new Prisma.Decimal(nextThreshold),
           bonusPercentUpTo: nextUpTo == null ? null : new Prisma.Decimal(nextUpTo),
           bonusPercentAbove: nextAbove == null ? null : new Prisma.Decimal(nextAbove),

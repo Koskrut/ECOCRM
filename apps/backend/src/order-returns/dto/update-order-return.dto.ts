@@ -8,6 +8,11 @@ export class UpdateOrderReturnDto {
   @IsEnum(ReturnReason)
   reason?: ReturnReason;
 
+  /** Reassign this return to another order (same package may hold several orders). */
+  @IsOptional()
+  @IsString()
+  orderId?: string;
+
   /** Empty string keeps the order warehouse. Omit the field to leave it unchanged. */
   @IsOptional()
   @IsString()

@@ -1194,8 +1194,8 @@ model UserPayrollProfile {
   userId              String   @id
   baseSalaryUah       Decimal  @default(0) @db.Decimal(14, 2)
   amortizationUahPerKm Decimal @default(0) @db.Decimal(12, 4)
-  /// Персональный порог (грн). Задаётся вместе с обоими процентами или все null.
-  bonusThresholdUah   Decimal? @db.Decimal(14, 2)
+  /// Персональный порог бонуса (USD). Задаётся вместе с обоими процентами или все null.
+  bonusThresholdUsd   Decimal? @db.Decimal(14, 2)
   bonusPercentUpTo    Decimal? @db.Decimal(8, 4)
   bonusPercentAbove   Decimal? @db.Decimal(8, 4)
   createdAt           DateTime @default(now())

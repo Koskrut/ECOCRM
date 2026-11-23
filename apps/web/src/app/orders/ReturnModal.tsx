@@ -78,6 +78,12 @@ type ReturnDetails = {
     productNameSnapshot?: string | null;
     product?: { id: string; name: string; sku: string | null } | null;
   }>;
+  packageSiblings?: Array<{
+    id: string;
+    status: string;
+    orderId: string;
+    orderNumber: string;
+  }>;
   replacementOrder?: {
     id: string;
     orderNumber: string;
@@ -161,6 +167,7 @@ export function ReturnModal({
   onClose,
   onSaved,
   onOpenOrder,
+  onOpenReturn,
   allowWarehouseWork = false,
   canEdit = true,
   zIndex,
@@ -169,6 +176,8 @@ export function ReturnModal({
   onClose: () => void;
   onSaved?: () => void;
   onOpenOrder: (orderId: string) => void;
+  /** Open another return from the same parcel (multi-order TTN). */
+  onOpenReturn?: (returnId: string) => void;
   /** Admin and warehouse can receive the parcel and break down items. */
   allowWarehouseWork?: boolean;
   /** Warehouse staff receive parcels; they do not change the return request. */
@@ -194,7 +203,23 @@ export function ReturnModal({
   const [savingEdit, setSavingEdit] = useState(false);
   const [editReason, setEditReason] = useState<ReturnReasonCode>("CUSTOMER_CHANGE");
   const [editWarehouseId, setEditWarehouseId] = useState("");
+  const [editOrderId, setEditOrderId] = useState("");
+  const [editOrderNumber, setEditOrderNumber] = useState("");
+  const [editLines, setEditLines] = useState<
+    Array<{
+      id: string;
+      maxQty: number;
+      qtyOnThisReturn: number;
+      productNameSnapshot?: string | null;
+      product?: { id: string; name: string; sku: string | null } | null;
+    }>
+  >([]);
   const [editQtys, setEditQtys] = useState<Record<string, number>>({});
+  const [orderSearch, setOrderSearch] = useState("");
+  const [orderSearchLoading, setOrderSearchLoading] = useState(false);
+  const [orderSearchResults, setOrderSearchResults] = useState<
+    Array<{ id: string; orderNumber: string }>
+  >([]);
   const [warehouses, setWarehouses] = useState<Array<{ id: string; name: string }>>([]);
 
   const loadReturn = useCallback(async () => {
@@ -252,6 +277,7 @@ export function ReturnModal({
   const settled = Boolean(ret?.settledAt);
   const linesLocked = Boolean(ret && isMisPick(ret) && ret.replacementOrder);
   const reasonLocked = Boolean(ret && isMisPick(ret));
+  const orderLocked = Boolean(ret && isMisPick(ret));
 
   const beginEdit = useCallback(() => {
     if (!ret) return;
@@ -262,14 +288,118 @@ export function ReturnModal({
         : "CUSTOMER_CHANGE",
     );
     setEditWarehouseId(ret.warehouse?.id ?? "");
+    setEditOrderId(ret.orderId);
+    setEditOrderNumber(ret.order.orderNumber);
+    setOrderSearch("");
+    setOrderSearchResults([]);
+    const lines = ret.orderLines ?? [];
+    setEditLines(lines);
     const qtys: Record<string, number> = {};
-    for (const line of ret.orderLines ?? []) {
+    for (const line of lines) {
       qtys[line.id] = Math.min(line.qtyOnThisReturn, line.maxQty);
     }
     setEditQtys(qtys);
     setErr(null);
     setEditing(true);
   }, [ret]);
+
+  const selectEditOrder = useCallback(
+    async (order: { id: string; orderNumber: string }) => {
+      if (!ret || orderLocked) return;
+      if (order.id === editOrderId) {
+        setOrderSearch("");
+        setOrderSearchResults([]);
+        return;
+      }
+      setOrderSearchLoading(true);
+      setErr(null);
+      try {
+        const r = await fetch(`/api/orders/${order.id}`, {
+          credentials: "include",
+          cache: "no-store",
+        });
+        if (!r.ok) {
+          throw new Error(tr.editFailed);
+        }
+        const data = (await r.json()) as {
+          id: string;
+          orderNumber: string;
+          items?: Array<{
+            id: string;
+            qty: number;
+            productNameSnapshot?: string | null;
+            product?: { id: string; name: string; sku: string | null } | null;
+          }>;
+        };
+        const prevByProduct = new Map<string, number>();
+        for (const line of editLines) {
+          const productId = line.product?.id;
+          if (!productId) continue;
+          const qty = editQtys[line.id] ?? 0;
+          if (qty > 0) prevByProduct.set(productId, (prevByProduct.get(productId) ?? 0) + qty);
+        }
+        const lines = (data.items ?? []).map((item) => ({
+          id: item.id,
+          maxQty: item.qty,
+          qtyOnThisReturn: 0,
+          productNameSnapshot: item.productNameSnapshot,
+          product: item.product,
+        }));
+        const qtys: Record<string, number> = {};
+        for (const line of lines) {
+          const productId = line.product?.id;
+          const matched = productId ? prevByProduct.get(productId) ?? 0 : 0;
+          qtys[line.id] = Math.min(matched, line.maxQty);
+          if (productId && matched > 0) prevByProduct.delete(productId);
+        }
+        setEditOrderId(data.id);
+        setEditOrderNumber(data.orderNumber);
+        setEditLines(lines);
+        setEditQtys(qtys);
+        setOrderSearch("");
+        setOrderSearchResults([]);
+      } catch (e) {
+        setErr(e instanceof Error ? e.message : tr.editFailed);
+      } finally {
+        setOrderSearchLoading(false);
+      }
+    },
+    [editLines, editOrderId, editQtys, orderLocked, ret],
+  );
+
+  useEffect(() => {
+    if (!editing || orderLocked) return;
+    const q = orderSearch.trim();
+    if (q.length < 2) {
+      setOrderSearchResults([]);
+      return;
+    }
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      setOrderSearchLoading(true);
+      void fetch(`/api/orders?q=${encodeURIComponent(q)}&page=1&pageSize=8`, {
+        credentials: "include",
+        cache: "no-store",
+      })
+        .then(async (r) => (r.ok ? r.json() : { items: [] }))
+        .then((data: { items?: Array<{ id: string; orderNumber: string }> }) => {
+          if (cancelled) return;
+          setOrderSearchResults(
+            (data.items ?? []).filter((row) => row.id && row.orderNumber),
+          );
+        })
+        .catch(() => {
+          if (!cancelled) setOrderSearchResults([]);
+        })
+        .finally(() => {
+          if (!cancelled) setOrderSearchLoading(false);
+        });
+    }, 250);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [editing, orderLocked, orderSearch]);
 
   const saveEdit = useCallback(async () => {
     if (!ret) return;
@@ -279,21 +409,25 @@ export function ReturnModal({
       const body: {
         reason?: ReturnReasonCode;
         warehouseId: string;
+        orderId?: string;
         items?: Array<{ orderItemId: string; qtyReturned: number }>;
       } = { warehouseId: editWarehouseId };
       if (!reasonLocked) body.reason = editReason;
+      if (!orderLocked && editOrderId && editOrderId !== ret.orderId) {
+        body.orderId = editOrderId;
+      }
       if (!linesLocked) {
-        const items = (ret.orderLines ?? [])
+        const items = editLines
           .filter((line) => (isMisPick(ret) ? line.qtyOnThisReturn > 0 : line.maxQty > 0))
           .map((line) => ({
             orderItemId: line.id,
             qtyReturned: Math.max(0, Math.floor(Number(editQtys[line.id]) || 0)),
           }))
           .filter((item) => item.qtyReturned > 0);
-        if (items.length === 0) {
+        if (items.length === 0 && !(ret.itemsPending && editOrderId !== ret.orderId)) {
           throw new Error(tr.editNeedItem);
         }
-        body.items = items;
+        if (items.length > 0) body.items = items;
       }
       const r = await fetch(`/api/order-returns/${returnId}`, {
         method: "PATCH",
@@ -317,12 +451,15 @@ export function ReturnModal({
       setSavingEdit(false);
     }
   }, [
+    editLines,
+    editOrderId,
     editQtys,
     editReason,
     editWarehouseId,
     linesLocked,
     loadReturn,
     onSaved,
+    orderLocked,
     reasonLocked,
     ret,
     returnId,
@@ -600,6 +737,44 @@ export function ReturnModal({
         </div>
       ) : null}
 
+      {(ret.packageSiblings?.length ?? 0) > 0 ? (
+        <div className="rounded-lg border border-sky-200 bg-sky-50/60 px-3 py-2">
+          <div className="text-xs font-medium uppercase tracking-wide text-sky-900">
+            {tr.packageOtherOrders}
+          </div>
+          <ul className="mt-2 space-y-1.5">
+            {ret.packageSiblings!.map((sib) => (
+              <li key={sib.id} className="flex items-center justify-between gap-2 text-sm">
+                <span className="text-zinc-800">
+                  №{sib.orderNumber}
+                  <span className="ml-2 text-xs text-zinc-500">
+                    {returnStatusLabel(sib.status)}
+                  </span>
+                </span>
+                <span className="flex shrink-0 gap-2">
+                  {onOpenReturn ? (
+                    <button
+                      type="button"
+                      onClick={() => onOpenReturn(sib.id)}
+                      className="text-xs font-medium text-sky-800 underline"
+                    >
+                      {tr.openSiblingReturn}
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={() => onOpenOrder(sib.orderId)}
+                    className="text-xs font-medium text-zinc-700 underline"
+                  >
+                    №{sib.orderNumber}
+                  </button>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
       <div>
         <div className="mb-2 flex items-center justify-between gap-2">
           <div className="text-xs font-medium uppercase tracking-wide text-zinc-500">Позиції</div>
@@ -616,6 +791,44 @@ export function ReturnModal({
         {settled ? <p className="mb-2 text-xs text-zinc-500">{tr.editLockedSettled}</p> : null}
         {editing ? (
           <div className="space-y-3">
+            <div>
+              <div className="text-sm font-medium text-zinc-700">{tr.editOrderLabel}</div>
+              <div className="mt-1 rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm font-medium text-zinc-900">
+                №{editOrderNumber}
+                {editOrderId !== ret.orderId ? (
+                  <span className="ml-2 text-xs font-normal text-amber-800">(нове)</span>
+                ) : null}
+              </div>
+              {orderLocked ? (
+                <p className="mt-1 text-xs text-zinc-500">{tr.editOrderLockedMisPick}</p>
+              ) : (
+                <div className="relative mt-2">
+                  <input
+                    type="search"
+                    value={orderSearch}
+                    disabled={savingEdit || orderSearchLoading}
+                    onChange={(e) => setOrderSearch(e.target.value)}
+                    placeholder={tr.editOrderSearchPlaceholder}
+                    className="w-full rounded-md border border-zinc-300 bg-white px-2 py-2 text-sm"
+                  />
+                  {orderSearchResults.length > 0 ? (
+                    <ul className="absolute z-10 mt-1 max-h-40 w-full overflow-auto rounded-md border border-zinc-200 bg-white shadow-sm">
+                      {orderSearchResults.map((row) => (
+                        <li key={row.id}>
+                          <button
+                            type="button"
+                            className="w-full px-3 py-2 text-left text-sm hover:bg-zinc-50"
+                            onClick={() => void selectEditOrder(row)}
+                          >
+                            №{row.orderNumber}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </div>
+              )}
+            </div>
             <label className="block text-sm font-medium text-zinc-700">
               {tr.returnReasonLabel}
               <select
@@ -670,48 +883,48 @@ export function ReturnModal({
               </div>
             ) : (
               <div className="space-y-2">
-                {(ret.orderLines ?? [])
+                {editLines
                   .filter((line) =>
                     isMisPick(ret) ? line.qtyOnThisReturn > 0 : line.maxQty > 0,
                   )
                   .map((line) => {
-                  const name =
-                    line.productNameSnapshot ?? line.product?.name ?? line.product?.sku ?? "—";
-                  return (
-                    <div
-                      key={line.id}
-                      className="flex flex-wrap items-center gap-2 rounded-lg border border-zinc-200 px-3 py-2 text-sm"
-                    >
-                      <div className="min-w-0 flex-1">
-                        {line.product?.sku ? (
-                          <div className="text-[11px] text-zinc-500">{line.product.sku}</div>
-                        ) : null}
-                        <div className="truncate text-zinc-800">{name}</div>
+                    const name =
+                      line.productNameSnapshot ?? line.product?.name ?? line.product?.sku ?? "—";
+                    return (
+                      <div
+                        key={line.id}
+                        className="flex flex-wrap items-center gap-2 rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+                      >
+                        <div className="min-w-0 flex-1">
+                          {line.product?.sku ? (
+                            <div className="text-[11px] text-zinc-500">{line.product.sku}</div>
+                          ) : null}
+                          <div className="truncate text-zinc-800">{name}</div>
+                        </div>
+                        <span className="shrink-0 text-xs text-zinc-500">
+                          {strings.orders.modal.maxQty(line.maxQty)}
+                        </span>
+                        <input
+                          type="number"
+                          min={0}
+                          max={line.maxQty}
+                          value={editQtys[line.id] ?? 0}
+                          disabled={savingEdit || line.maxQty <= 0}
+                          onChange={(e) =>
+                            setEditQtys((prev) => ({
+                              ...prev,
+                              [line.id]: Math.max(
+                                0,
+                                Math.min(line.maxQty, Math.floor(Number(e.target.value) || 0)),
+                              ),
+                            }))
+                          }
+                          onWheel={(e) => e.currentTarget.blur()}
+                          className="w-16 rounded border border-zinc-300 bg-white px-2 py-1 text-right text-sm disabled:bg-zinc-50"
+                        />
                       </div>
-                      <span className="shrink-0 text-xs text-zinc-500">
-                        {strings.orders.modal.maxQty(line.maxQty)}
-                      </span>
-                      <input
-                        type="number"
-                        min={0}
-                        max={line.maxQty}
-                        value={editQtys[line.id] ?? 0}
-                        disabled={savingEdit || line.maxQty <= 0}
-                        onChange={(e) =>
-                          setEditQtys((prev) => ({
-                            ...prev,
-                            [line.id]: Math.max(
-                              0,
-                              Math.min(line.maxQty, Math.floor(Number(e.target.value) || 0)),
-                            ),
-                          }))
-                        }
-                        onWheel={(e) => e.currentTarget.blur()}
-                        className="w-16 rounded border border-zinc-300 bg-white px-2 py-1 text-right text-sm disabled:bg-zinc-50"
-                      />
-                    </div>
-                  );
-                })}
+                    );
+                  })}
               </div>
             )}
             <div className="flex gap-2">

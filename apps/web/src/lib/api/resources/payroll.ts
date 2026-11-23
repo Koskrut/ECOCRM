@@ -1,7 +1,7 @@
 import { apiGet } from "../client";
 
 export type PayrollCompanyRates = {
-  thresholdUah: number;
+  thresholdUsd: number;
   percentUpTo: number;
   percentAbove: number;
   leadTeamBonusPercent: number;
@@ -10,7 +10,7 @@ export type PayrollCompanyRates = {
 export type PayrollUserRates = {
   baseSalaryUah: number;
   amortizationUahPerKm: number;
-  bonusThresholdUah: number | null;
+  bonusThresholdUsd: number | null;
   bonusPercentUpTo: number | null;
   bonusPercentAbove: number | null;
 };
@@ -21,8 +21,7 @@ export type PayrollOrderLine = {
   closedAt: string;
   currency: string;
   amountOriginal: number;
-  exchangeRate: number;
-  amountUah: number;
+  amountUsd: number;
   rateFallback: boolean;
 };
 
@@ -40,18 +39,21 @@ export type PayrollBreakdown = {
   rates: PayrollUserRates;
   companyRates: PayrollCompanyRates & { source: "company" };
   baseSalaryUah: number;
-  salesBaseUah: number;
+  salesBaseUsd: number;
   bonusRates: {
-    thresholdUah: number;
+    thresholdUsd: number;
     percentUpTo: number;
     percentAbove: number;
     source: "company" | "personal";
   };
   appliedPercent: number;
+  bonusUsd: number;
   bonusUah: number;
-  teamSalesBaseUah: number;
+  teamSalesBaseUsd: number;
   leadTeamBonusPercent: number;
+  leadTeamBonusUsd: number;
   leadTeamBonusUah: number;
+  usdToUahRate: number;
   amortizationUahPerKm: number;
   totalKm: number;
   amortizationUah: number;
@@ -66,9 +68,11 @@ export type PayrollTeamRow = {
   fullName: string;
   role: string;
   baseSalaryUah: number;
-  salesBaseUah: number;
+  salesBaseUsd: number;
   appliedPercent: number;
+  bonusUsd: number;
   bonusUah: number;
+  leadTeamBonusUsd: number;
   leadTeamBonusUah: number;
   totalKm: number;
   amortizationUah: number;

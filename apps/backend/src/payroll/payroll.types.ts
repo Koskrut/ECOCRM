@@ -3,7 +3,7 @@ import type { PayrollMonthResult } from "./payroll-accrual.util";
 export type PayrollUserRatesDto = {
   baseSalaryUah: number;
   amortizationUahPerKm: number;
-  bonusThresholdUah: number | null;
+  bonusThresholdUsd: number | null;
   bonusPercentUpTo: number | null;
   bonusPercentAbove: number | null;
 };
@@ -13,7 +13,7 @@ export type PayrollBreakdownResponse = PayrollMonthResult & {
   fullName: string;
   rates: PayrollUserRatesDto;
   companyRates: {
-    thresholdUah: number;
+    thresholdUsd: number;
     percentUpTo: number;
     percentAbove: number;
     leadTeamBonusPercent: number;
@@ -26,9 +26,11 @@ export type PayrollTeamRow = {
   fullName: string;
   role: string;
   baseSalaryUah: number;
-  salesBaseUah: number;
+  salesBaseUsd: number;
   appliedPercent: number;
+  bonusUsd: number;
   bonusUah: number;
+  leadTeamBonusUsd: number;
   leadTeamBonusUah: number;
   totalKm: number;
   amortizationUah: number;
@@ -40,7 +42,7 @@ export type PayrollTeamRow = {
 export type PayrollTeamResponse = {
   month: string;
   companyRates: {
-    thresholdUah: number;
+    thresholdUsd: number;
     percentUpTo: number;
     percentAbove: number;
     leadTeamBonusPercent: number;

@@ -105,12 +105,12 @@ export class UsersController {
         body.amortizationUahPerKm === undefined || body.amortizationUahPerKm === ""
           ? undefined
           : (numOrNull(body.amortizationUahPerKm) ?? undefined),
-      bonusThresholdUah:
-        body.bonusThresholdUah === undefined
+      bonusThresholdUsd:
+        body.bonusThresholdUsd === undefined
           ? undefined
-          : body.bonusThresholdUah === null || body.bonusThresholdUah === ""
+          : body.bonusThresholdUsd === null || body.bonusThresholdUsd === ""
             ? null
-            : (numOrNull(body.bonusThresholdUah) as number | null),
+            : (numOrNull(body.bonusThresholdUsd) as number | null),
       bonusPercentUpTo:
         body.bonusPercentUpTo === undefined
           ? undefined

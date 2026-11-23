@@ -12,7 +12,7 @@ export type UserEmployeeFieldProfile = {
 export type UserPayrollProfile = {
   baseSalaryUah?: string | number;
   amortizationUahPerKm?: string | number;
-  bonusThresholdUah?: string | number | null;
+  bonusThresholdUsd?: string | number | null;
   bonusPercentUpTo?: string | number | null;
   bonusPercentAbove?: string | number | null;
 };
@@ -64,7 +64,7 @@ export type UpdateUserPayload = {
   usePersonalCar?: boolean;
   baseSalaryUah?: number;
   amortizationUahPerKm?: number;
-  bonusThresholdUah?: number | null;
+  bonusThresholdUsd?: number | null;
   bonusPercentUpTo?: number | null;
   bonusPercentAbove?: number | null;
 };

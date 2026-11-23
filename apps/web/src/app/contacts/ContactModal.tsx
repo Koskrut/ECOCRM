@@ -1237,6 +1237,7 @@ export function ContactModal({
             setOrdersReloadKey((k) => k + 1);
             void cardSummary.refetch();
           }}
+          onOpenReturn={(id) => openReturn(id)}
           onOpenOrder={(id) => {
             setReturnId(null);
             openOrder(id);

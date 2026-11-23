@@ -43,7 +43,7 @@ type FormSnapshot = {
   usePersonalCar: boolean;
   baseSalaryUah: string;
   amortizationUahPerKm: string;
-  bonusThresholdUah: string;
+  bonusThresholdUsd: string;
   bonusPercentUpTo: string;
   bonusPercentAbove: string;
   routeStartLabel: string;
@@ -82,7 +82,7 @@ function snapshotFromForm(
   usePersonalCar: boolean,
   baseSalaryUah: string,
   amortizationUahPerKm: string,
-  bonusThresholdUah: string,
+  bonusThresholdUsd: string,
   bonusPercentUpTo: string,
   bonusPercentAbove: string,
   routeStart: { label: string; lat: string; lng: string },
@@ -101,7 +101,7 @@ function snapshotFromForm(
     usePersonalCar,
     baseSalaryUah: baseSalaryUah.trim(),
     amortizationUahPerKm: amortizationUahPerKm.trim(),
-    bonusThresholdUah: bonusThresholdUah.trim(),
+    bonusThresholdUsd: bonusThresholdUsd.trim(),
     bonusPercentUpTo: bonusPercentUpTo.trim(),
     bonusPercentAbove: bonusPercentAbove.trim(),
     routeStartLabel: routeStart.label.trim(),
@@ -150,7 +150,7 @@ export function EmployeeModal({
   const [usePersonalCar, setUsePersonalCar] = useState(true);
   const [baseSalaryUah, setBaseSalaryUah] = useState("");
   const [amortizationUahPerKm, setAmortizationUahPerKm] = useState("");
-  const [bonusThresholdUah, setBonusThresholdUah] = useState("");
+  const [bonusThresholdUsd, setBonusThresholdUsd] = useState("");
   const [bonusPercentUpTo, setBonusPercentUpTo] = useState("");
   const [bonusPercentAbove, setBonusPercentAbove] = useState("");
 
@@ -200,7 +200,7 @@ export function EmployeeModal({
         usePersonalCar,
         baseSalaryUah,
         amortizationUahPerKm,
-        bonusThresholdUah,
+        bonusThresholdUsd,
         bonusPercentUpTo,
         bonusPercentAbove,
         routeStart,
@@ -219,7 +219,7 @@ export function EmployeeModal({
       usePersonalCar,
       baseSalaryUah,
       amortizationUahPerKm,
-      bonusThresholdUah,
+      bonusThresholdUsd,
       bonusPercentUpTo,
       bonusPercentAbove,
       routeStart.label,
@@ -272,12 +272,12 @@ export function EmployeeModal({
     const pp = user.payrollProfile;
     const baseSalary = pp?.baseSalaryUah != null ? String(pp.baseSalaryUah) : "";
     const amort = pp?.amortizationUahPerKm != null ? String(pp.amortizationUahPerKm) : "";
-    const thr = pp?.bonusThresholdUah != null ? String(pp.bonusThresholdUah) : "";
+    const thr = pp?.bonusThresholdUsd != null ? String(pp.bonusThresholdUsd) : "";
     const upTo = pp?.bonusPercentUpTo != null ? String(pp.bonusPercentUpTo) : "";
     const above = pp?.bonusPercentAbove != null ? String(pp.bonusPercentAbove) : "";
     setBaseSalaryUah(baseSalary);
     setAmortizationUahPerKm(amort);
-    setBonusThresholdUah(thr);
+    setBonusThresholdUsd(thr);
     setBonusPercentUpTo(upTo);
     setBonusPercentAbove(above);
 
@@ -337,7 +337,7 @@ export function EmployeeModal({
       setUsePersonalCar(true);
       setBaseSalaryUah("");
       setAmortizationUahPerKm("");
-      setBonusThresholdUah("");
+      setBonusThresholdUsd("");
       setBonusPercentUpTo("");
       setBonusPercentAbove("");
       initialSnapshotRef.current = "";
@@ -452,7 +452,7 @@ export function EmployeeModal({
         const p = parseNonNeg(raw);
         if ("invalid" in p) return t.payrollNumberInvalid;
       }
-      const thr = parseNonNeg(bonusThresholdUah);
+      const thr = parseNonNeg(bonusThresholdUsd);
       const up = parseNonNeg(bonusPercentUpTo);
       const above = parseNonNeg(bonusPercentAbove);
       if ("invalid" in thr || "invalid" in up || "invalid" in above) return t.payrollNumberInvalid;
@@ -520,8 +520,8 @@ export function EmployeeModal({
                 amortizationUahPerKm: Number(
                   (amortizationUahPerKm.trim() || "0").replace(",", "."),
                 ),
-                bonusThresholdUah: bonusThresholdUah.trim()
-                  ? Number(bonusThresholdUah.replace(",", "."))
+                bonusThresholdUsd: bonusThresholdUsd.trim()
+                  ? Number(bonusThresholdUsd.replace(",", "."))
                   : null,
                 bonusPercentUpTo: bonusPercentUpTo.trim()
                   ? Number(bonusPercentUpTo.replace(",", "."))
@@ -920,8 +920,8 @@ export function EmployeeModal({
                 type="text"
                 inputMode="decimal"
                 className="mt-0.5 w-full rounded-md border border-zinc-200 px-2 py-1.5 text-sm"
-                value={bonusThresholdUah}
-                onChange={(e) => setBonusThresholdUah(e.target.value)}
+                value={bonusThresholdUsd}
+                onChange={(e) => setBonusThresholdUsd(e.target.value)}
                 disabled={saving}
               />
             </div>

@@ -977,6 +977,153 @@ describe("OrderReturnsService", () => {
     assert.equal(recalc, true);
   });
 
+  it("update reassigns the return to another order and rematches product lines", async () => {
+    const synced: string[] = [];
+    const createMany: Array<{ orderItemId: string; qtyReturned: number }> = [];
+    let deleted = false;
+    let connectedOrderId: string | null = null;
+    const ret = {
+      id: "r1",
+      orderId: "o1",
+      returnPackageId: "pkg1",
+      status: "REQUESTED",
+      reason: "CUSTOMER_CHANGE",
+      settledAt: null,
+      replacementOrderId: null,
+      itemsPending: false,
+      items: [
+        {
+          id: "ri1",
+          orderItemId: "i1",
+          qtyReturned: 2,
+          orderItem: { productId: "p1" },
+        },
+      ],
+      order: {
+        id: "o1",
+        ownerId: "u1",
+        items: [{ id: "i1", qty: 4, price: 100, lineTotal: 400, productId: "p1" }],
+      },
+    };
+    const prisma = {
+      orderReturn: {
+        findUnique: async ({ include }: { include?: { order?: { include?: unknown } } }) => {
+          const orderInclude = include?.order?.include;
+          const isDetail =
+            !!orderInclude &&
+            typeof orderInclude === "object" &&
+            "company" in (orderInclude as object);
+          if (isDetail) {
+            return {
+              ...ret,
+              orderId: connectedOrderId ?? "o2",
+              order: {
+                id: connectedOrderId ?? "o2",
+                orderNumber: "2002",
+                company: null,
+                client: null,
+              },
+              items: createMany.map((row, idx) => ({
+                id: `n${idx}`,
+                orderItemId: row.orderItemId,
+                qtyReturned: row.qtyReturned,
+                orderItem: {
+                  qty: 5,
+                  price: 100,
+                  lineTotal: 500,
+                  productNameSnapshot: null,
+                  product: { id: "p1", name: "Товар", sku: "A" },
+                },
+              })),
+              returnPackage: { id: "pkg1", ttnNumber: "2045" },
+              returnPackageId: "pkg1",
+              replacementOrder: null,
+              warehouse: null,
+            };
+          }
+          return ret;
+        },
+        findFirst: async () => null,
+        findMany: async () => [],
+        count: async () => 1,
+        update: async (args: { data: { order?: { connect?: { id: string } } } }) => {
+          connectedOrderId = args.data.order?.connect?.id ?? connectedOrderId;
+          return ret;
+        },
+      },
+      orderReturnItem: {
+        groupBy: async () => [],
+        deleteMany: async () => {
+          deleted = true;
+          return { count: 1 };
+        },
+        createMany: async (args: {
+          data: Array<{ orderItemId: string; qtyReturned: number }>;
+        }) => {
+          createMany.push(...args.data);
+          return { count: args.data.length };
+        },
+      },
+      orderItem: {
+        findMany: async () => [
+          {
+            id: "i2",
+            qty: 5,
+            price: 100,
+            lineTotal: 500,
+            productNameSnapshot: null,
+            product: { id: "p1", name: "Товар", sku: "A" },
+          },
+        ],
+      },
+      order: {
+        findUnique: async ({ where }: { where: { id: string } }) => {
+          if (where.id === "o2") {
+            return {
+              id: "o2",
+              ownerId: "u1",
+              orderStage: "RECEIVED",
+              items: [{ id: "i2", qty: 5, price: 100, lineTotal: 500, productId: "p1" }],
+            };
+          }
+          return {
+            id: where.id,
+            ownerId: "u1",
+            orderStage: "RECEIVED",
+            subtotalAmount: 400,
+            totalAmount: 400,
+            paymentType: "POSTPAYMENT",
+            paidAmount: 0,
+            debtAmount: 400,
+            returnAdjustmentAmount: 0,
+            paymentDueDate: null,
+            items: [{ id: "i1", qty: 4 }],
+          };
+        },
+        update: async () => ({}),
+      },
+      $transaction: async (cb: (tx: typeof prisma) => Promise<unknown>) => cb(prisma),
+    } as unknown as PrismaSvc;
+
+    const svc = createService(
+      prisma,
+      mockIntegrations((orderId) => {
+        synced.push(orderId);
+      }),
+    );
+    // syncOrderStateFromReturns uses orderReturn.findMany — stub returns empty so adjustment 0
+    const result = await svc.update("r1", { orderId: "o2" });
+    assert.equal(deleted, true);
+    assert.deepEqual(
+      createMany.map((row) => ({ orderItemId: row.orderItemId, qtyReturned: row.qtyReturned })),
+      [{ orderItemId: "i2", qtyReturned: 2 }],
+    );
+    assert.equal(connectedOrderId, "o2");
+    assert.ok(synced.includes("o1"));
+    assert.ok(synced.includes("o2"));
+    assert.equal(result.orderLines[0]?.id, "i2");
+  });
+
   it("update reduces returned qty and resyncs the order adjustment", async () => {
     const itemUpdates: Array<{ id: string; qtyReturned: number }> = [];
     const orderUpdates: Array<Record<string, unknown>> = [];

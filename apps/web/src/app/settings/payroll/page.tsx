@@ -8,7 +8,7 @@ import { ErrorPanel, PageLoading } from "@/components/feedback";
 import { strings } from "@/locales";
 
 type PayrollCompanyRates = {
-  thresholdUah: number;
+  thresholdUsd: number;
   percentUpTo: number;
   percentAbove: number;
   leadTeamBonusPercent: number;
@@ -30,12 +30,12 @@ export default function PayrollSettingsPage() {
     try {
       const res = await apiHttp.get<PayrollCompanyRates>("/settings/payroll");
       const data = res.data ?? {
-        thresholdUah: 25000,
+        thresholdUsd: 25000,
         percentUpTo: 2,
         percentAbove: 2.5,
         leadTeamBonusPercent: 1,
       };
-      setThreshold(String(data.thresholdUah));
+      setThreshold(String(data.thresholdUsd));
       setPercentUpTo(String(data.percentUpTo));
       setPercentAbove(String(data.percentAbove));
       setLeadTeamBonusPercent(String(data.leadTeamBonusPercent ?? 1));
@@ -51,13 +51,13 @@ export default function PayrollSettingsPage() {
   }, []);
 
   async function save() {
-    const thresholdUah = parseFloat(threshold.replace(/,/g, "."));
+    const thresholdUsd = parseFloat(threshold.replace(/,/g, "."));
     const up = parseFloat(percentUpTo.replace(/,/g, "."));
     const above = parseFloat(percentAbove.replace(/,/g, "."));
     const leadPct = parseFloat(leadTeamBonusPercent.replace(/,/g, "."));
     if (
-      !Number.isFinite(thresholdUah) ||
-      thresholdUah < 0 ||
+      !Number.isFinite(thresholdUsd) ||
+      thresholdUsd < 0 ||
       !Number.isFinite(up) ||
       up < 0 ||
       !Number.isFinite(above) ||
@@ -72,18 +72,18 @@ export default function PayrollSettingsPage() {
     setError(null);
     try {
       const res = await apiHttp.patch<PayrollCompanyRates>("/settings/payroll", {
-        thresholdUah,
+        thresholdUsd,
         percentUpTo: up,
         percentAbove: above,
         leadTeamBonusPercent: leadPct,
       });
       const data = res.data ?? {
-        thresholdUah,
+        thresholdUsd,
         percentUpTo: up,
         percentAbove: above,
         leadTeamBonusPercent: leadPct,
       };
-      setThreshold(String(data.thresholdUah));
+      setThreshold(String(data.thresholdUsd));
       setPercentUpTo(String(data.percentUpTo));
       setPercentAbove(String(data.percentAbove));
       setLeadTeamBonusPercent(String(data.leadTeamBonusPercent ?? 1));

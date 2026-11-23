@@ -4,7 +4,24 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.260**.)_
+_(планируемые изменения после **0.2.261**.)_
+
+## [0.2.261] — 2026-11-23
+
+### Summary
+
+Патч **0.2.261**: payroll-поріг бонусу в **USD** + розширене редагування повернень (інше замовлення / склад / rematch по продукту).
+
+### Changed
+
+- **Payroll:** company/personal threshold у USD; sales/LEAD team bonus рахуються в USD і конвертуються в UAH за курсом settings; rename `bonusThresholdUah` → `bonusThresholdUsd`.
+- **Order returns:** PATCH може змінити `orderId`, `warehouseId`, qty; rematch рядків по product між замовленнями; UI ReturnModal.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.261`**.
+- **Міграція:** `20261123140000_payroll_threshold_usd` (rename колонки).
+- Після deploy: `prisma migrate deploy`. Перевірити company threshold у Settings → Зарплата (тепер USD).
 
 ## [0.2.260] — 2026-11-23
 

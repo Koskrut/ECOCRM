@@ -49,25 +49,32 @@ const DEFAULT_RATES: ExchangeRates = {
 };
 
 export type PayrollCompanyRatesConfig = {
-  thresholdUah: number;
+  /** Fully paid sales threshold in USD for cliff bonus. */
+  thresholdUsd: number;
   percentUpTo: number;
   percentAbove: number;
-  /** LEAD bonus from managers' fully paid sales base (default 1%). */
+  /** LEAD bonus from managers' fully paid sales base in USD (default 1%). */
   leadTeamBonusPercent: number;
 };
 
 const DEFAULT_PAYROLL_RATES: PayrollCompanyRatesConfig = {
-  thresholdUah: 25000,
+  thresholdUsd: 25000,
   percentUpTo: 2,
   percentAbove: 2.5,
   leadTeamBonusPercent: 1,
 };
 
 function normalizePayrollCompanyRates(v: Record<string, unknown>): PayrollCompanyRatesConfig {
-  const thresholdUah =
-    typeof v.thresholdUah === "number" && Number.isFinite(v.thresholdUah) && v.thresholdUah >= 0
-      ? v.thresholdUah
-      : DEFAULT_PAYROLL_RATES.thresholdUah;
+  const rawThreshold =
+    typeof v.thresholdUsd === "number"
+      ? v.thresholdUsd
+      : typeof v.thresholdUah === "number"
+        ? v.thresholdUah
+        : DEFAULT_PAYROLL_RATES.thresholdUsd;
+  const thresholdUsd =
+    Number.isFinite(rawThreshold) && rawThreshold >= 0
+      ? rawThreshold
+      : DEFAULT_PAYROLL_RATES.thresholdUsd;
   const percentUpTo =
     typeof v.percentUpTo === "number" && Number.isFinite(v.percentUpTo) && v.percentUpTo >= 0
       ? v.percentUpTo
@@ -82,7 +89,7 @@ function normalizePayrollCompanyRates(v: Record<string, unknown>): PayrollCompan
     v.leadTeamBonusPercent >= 0
       ? v.leadTeamBonusPercent
       : DEFAULT_PAYROLL_RATES.leadTeamBonusPercent;
-  return { thresholdUah, percentUpTo, percentAbove, leadTeamBonusPercent };
+  return { thresholdUsd, percentUpTo, percentAbove, leadTeamBonusPercent };
 }
 
 function normalizeExchangeRates(v: Record<string, unknown>): ExchangeRates {
@@ -670,14 +677,14 @@ export class SettingsService {
   ): Promise<PayrollCompanyRatesConfig> {
     const current = await this.getPayrollCompanyRates();
     const next = normalizePayrollCompanyRates({
-      thresholdUah: rates.thresholdUah ?? current.thresholdUah,
+      thresholdUsd: rates.thresholdUsd ?? current.thresholdUsd,
       percentUpTo: rates.percentUpTo ?? current.percentUpTo,
       percentAbove: rates.percentAbove ?? current.percentAbove,
       leadTeamBonusPercent: rates.leadTeamBonusPercent ?? current.leadTeamBonusPercent,
     });
-    if (rates.thresholdUah !== undefined) {
-      if (!Number.isFinite(rates.thresholdUah) || rates.thresholdUah < 0) {
-        throw new BadRequestException("thresholdUah must be a non-negative number");
+    if (rates.thresholdUsd !== undefined) {
+      if (!Number.isFinite(rates.thresholdUsd) || rates.thresholdUsd < 0) {
+        throw new BadRequestException("thresholdUsd must be a non-negative number");
       }
     }
     if (rates.percentUpTo !== undefined) {

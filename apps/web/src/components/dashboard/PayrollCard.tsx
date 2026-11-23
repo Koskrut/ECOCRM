@@ -37,6 +37,14 @@ function formatUah(n: number): string {
   }).format(n);
 }
 
+function formatUsd(n: number): string {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 2,
+  }).format(n);
+}
+
 function formatNum(n: number, digits = 2): string {
   return new Intl.NumberFormat("uk-UA", {
     maximumFractionDigits: digits,
@@ -191,15 +199,15 @@ export function PayrollCard({ userId, showTeam = false, className }: Props) {
                         }
                       >
                         <td className="py-2 pr-3 font-medium text-zinc-900">{row.fullName}</td>
-                        <td className="py-2 pr-3 text-zinc-700">{formatUah(row.salesBaseUah)}</td>
+                        <td className="py-2 pr-3 text-zinc-700">{formatUsd(row.salesBaseUsd)}</td>
                         <td className="py-2 pr-3 text-zinc-700">
-                          {formatUah(row.bonusUah)}
+                          {formatUsd(row.bonusUsd ?? 0)}
                           <span className="ml-1 text-xs text-zinc-400">
                             ({formatNum(row.appliedPercent, 2)}%)
                           </span>
                         </td>
                         <td className="py-2 pr-3 text-zinc-700">
-                          {formatUah(row.leadTeamBonusUah ?? 0)}
+                          {formatUsd(row.leadTeamBonusUsd ?? 0)}
                         </td>
                         <td className="py-2 pr-3 text-zinc-700">{formatUah(row.amortizationUah)}</td>
                         <td className="py-2 pr-3 text-zinc-700">
@@ -257,16 +265,18 @@ function PayrollBreakdownView({
         <Stat label={t.baseSalary} value={formatUah(data.baseSalaryUah)} />
         <Stat
           label={t.salesBonus}
-          value={formatUah(data.bonusUah)}
-          hint={`${formatNum(data.appliedPercent, 2)}% · ${ratesLabel}`}
+          value={formatUsd(data.bonusUsd ?? 0)}
+          hint={`${formatUsd(data.salesBaseUsd)} · ${formatNum(data.appliedPercent, 2)}% · ${ratesLabel}${
+            data.bonusUah ? ` · ${formatUah(data.bonusUah)}` : ""
+          }`}
         />
-        {(data.leadTeamBonusUah ?? 0) > 0 || (data.teamSalesBaseUah ?? 0) > 0 ? (
+        {(data.leadTeamBonusUsd ?? 0) > 0 || (data.teamSalesBaseUsd ?? 0) > 0 ? (
           <Stat
             label={t.leadTeamBonus}
-            value={formatUah(data.leadTeamBonusUah ?? 0)}
+            value={formatUsd(data.leadTeamBonusUsd ?? 0)}
             hint={t.leadTeamBonusHint({
               percent: formatNum(data.leadTeamBonusPercent ?? 0, 2),
-              sales: formatUah(data.teamSalesBaseUah ?? 0),
+              sales: formatUsd(data.teamSalesBaseUsd ?? 0),
             })}
           />
         ) : null}
@@ -298,7 +308,7 @@ function PayrollBreakdownView({
                     <th className="py-1.5 pr-3 font-medium">{t.colOrder}</th>
                     <th className="py-1.5 pr-3 font-medium">{t.colClosed}</th>
                     <th className="py-1.5 pr-3 font-medium">{t.colAmount}</th>
-                    <th className="py-1.5 pr-3 font-medium">{t.colUah}</th>
+                    <th className="py-1.5 pr-3 font-medium">{t.colUsd}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -312,7 +322,7 @@ function PayrollBreakdownView({
                           <span className="ml-1 text-xs text-amber-600">{t.rateFallback}</span>
                         ) : null}
                       </td>
-                      <td className="py-1.5 pr-3 text-zinc-900">{formatUah(o.amountUah)}</td>
+                      <td className="py-1.5 pr-3 text-zinc-900">{formatUsd(o.amountUsd)}</td>
                     </tr>
                   ))}
                 </tbody>
