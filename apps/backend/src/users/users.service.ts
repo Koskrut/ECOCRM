@@ -8,6 +8,7 @@ import {
   normalizeUsername,
   usernameBaseFromEmail,
 } from "../auth/username.util";
+import { validatePersonalBonusTriplet } from "../payroll/payroll-accrual.util";
 
 @Injectable()
 export class UsersService {
@@ -23,6 +24,15 @@ export class UsersService {
         fuelPricePerLiter: true,
         vehicleLabel: true,
         usePersonalCar: true,
+      },
+    },
+    payrollProfile: {
+      select: {
+        baseSalaryUah: true,
+        amortizationUahPerKm: true,
+        bonusThresholdUah: true,
+        bonusPercentUpTo: true,
+        bonusPercentAbove: true,
       },
     },
   } as const;
@@ -144,6 +154,11 @@ export class UsersService {
       fuelPricePerLiter?: number | null;
       vehicleLabel?: string | null;
       usePersonalCar?: boolean;
+      baseSalaryUah?: number;
+      amortizationUahPerKm?: number;
+      bonusThresholdUah?: number | null;
+      bonusPercentUpTo?: number | null;
+      bonusPercentAbove?: number | null;
     },
   ) {
     if (!id) throw new BadRequestException("id is required");
@@ -250,6 +265,86 @@ export class UsersService {
           usePersonalCar: payload.usePersonalCar ?? undefined,
         },
         update: profileData,
+      });
+    }
+
+    const hasPayrollPayload =
+      payload.baseSalaryUah !== undefined ||
+      payload.amortizationUahPerKm !== undefined ||
+      payload.bonusThresholdUah !== undefined ||
+      payload.bonusPercentUpTo !== undefined ||
+      payload.bonusPercentAbove !== undefined;
+
+    if (hasPayrollPayload) {
+      const existing = await this.prisma.userPayrollProfile.findUnique({ where: { userId: id } });
+      const nextThreshold =
+        payload.bonusThresholdUah !== undefined
+          ? payload.bonusThresholdUah
+          : existing?.bonusThresholdUah == null
+            ? null
+            : Number(existing.bonusThresholdUah);
+      const nextUpTo =
+        payload.bonusPercentUpTo !== undefined
+          ? payload.bonusPercentUpTo
+          : existing?.bonusPercentUpTo == null
+            ? null
+            : Number(existing.bonusPercentUpTo);
+      const nextAbove =
+        payload.bonusPercentAbove !== undefined
+          ? payload.bonusPercentAbove
+          : existing?.bonusPercentAbove == null
+            ? null
+            : Number(existing.bonusPercentAbove);
+
+      const triplet = validatePersonalBonusTriplet({
+        bonusThresholdUah: nextThreshold,
+        bonusPercentUpTo: nextUpTo,
+        bonusPercentAbove: nextAbove,
+      });
+      if (!triplet.ok) throw new BadRequestException(triplet.message);
+
+      if (payload.baseSalaryUah !== undefined && (!(Number.isFinite(payload.baseSalaryUah) && payload.baseSalaryUah >= 0))) {
+        throw new BadRequestException("baseSalaryUah must be a non-negative number");
+      }
+      if (
+        payload.amortizationUahPerKm !== undefined &&
+        (!(Number.isFinite(payload.amortizationUahPerKm) && payload.amortizationUahPerKm >= 0))
+      ) {
+        throw new BadRequestException("amortizationUahPerKm must be a non-negative number");
+      }
+
+      const payrollUpdate: Prisma.UserPayrollProfileUpdateInput = {};
+      if (payload.baseSalaryUah !== undefined) {
+        payrollUpdate.baseSalaryUah = new Prisma.Decimal(payload.baseSalaryUah);
+      }
+      if (payload.amortizationUahPerKm !== undefined) {
+        payrollUpdate.amortizationUahPerKm = new Prisma.Decimal(payload.amortizationUahPerKm);
+      }
+      if (payload.bonusThresholdUah !== undefined) {
+        payrollUpdate.bonusThresholdUah =
+          payload.bonusThresholdUah == null ? null : new Prisma.Decimal(payload.bonusThresholdUah);
+      }
+      if (payload.bonusPercentUpTo !== undefined) {
+        payrollUpdate.bonusPercentUpTo =
+          payload.bonusPercentUpTo == null ? null : new Prisma.Decimal(payload.bonusPercentUpTo);
+      }
+      if (payload.bonusPercentAbove !== undefined) {
+        payrollUpdate.bonusPercentAbove =
+          payload.bonusPercentAbove == null ? null : new Prisma.Decimal(payload.bonusPercentAbove);
+      }
+
+      await this.prisma.userPayrollProfile.upsert({
+        where: { userId: id },
+        create: {
+          userId: id,
+          baseSalaryUah: new Prisma.Decimal(payload.baseSalaryUah ?? 0),
+          amortizationUahPerKm: new Prisma.Decimal(payload.amortizationUahPerKm ?? 0),
+          bonusThresholdUah:
+            nextThreshold == null ? null : new Prisma.Decimal(nextThreshold),
+          bonusPercentUpTo: nextUpTo == null ? null : new Prisma.Decimal(nextUpTo),
+          bonusPercentAbove: nextAbove == null ? null : new Prisma.Decimal(nextAbove),
+        },
+        update: payrollUpdate,
       });
     }
 

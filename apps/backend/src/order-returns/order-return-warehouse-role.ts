@@ -35,6 +35,11 @@ export function assertWarehouseReturnCreate(actor: AuthUser | undefined): void {
   throw new ForbiddenException("Кладовщик не може створювати заявки на повернення");
 }
 
+export function assertWarehouseReturnEdit(actor: AuthUser | undefined): void {
+  if (!isWarehouseRole(actor)) return;
+  throw new ForbiddenException("Кладовщик не може редагувати повернення");
+}
+
 export function assertWarehouseReturnSettlement(actor: AuthUser | undefined): void {
   if (!isWarehouseRole(actor)) return;
   throw new ForbiddenException("Кладовщик не може проводити розрахунок повернення");

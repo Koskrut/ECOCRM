@@ -187,6 +187,69 @@ test("buildInvoicePaymentBlock returns NBU QR for sample order", async () => {
   assert.equal(block!.amountUah, 1500.5);
 });
 
+test("invoice payment amount excludes a received return", async () => {
+  const service = new OrdersDocumentsService({} as any);
+  const block = await service.buildInvoicePaymentBlock(
+    sampleOrder({
+      totalAmount: 300,
+      returnAdjustmentAmount: 100,
+      items: [
+        {
+          id: "i1",
+          qty: 3,
+          price: 100,
+          lineTotal: 300,
+          productNameSnapshot: "Товар українською",
+          product: { id: "p1", sku: "MG-AR-PMA", name: "Товар українською", unit: "шт" },
+        },
+      ],
+      returns: [
+        {
+          status: "RECEIVED_BY_WAREHOUSE",
+          reason: "CUSTOMER_CHANGE",
+          outboundWaivedAt: null,
+          items: [{ orderItemId: "i1", qtyReturned: 1 }],
+        },
+      ],
+    }) as any,
+  );
+  assert.ok(block);
+  assert.equal(block!.amountUah, 200);
+});
+
+test("invoice pay link is recreated when the pending amount ignores the return", async () => {
+  const prisma = {
+    paymentRequest: {
+      findMany: async () => [
+        {
+          status: "PENDING",
+          expiresAt: new Date(Date.now() + 86400000),
+          publicToken: "old-full",
+          amount: 1500.5,
+        },
+      ],
+    },
+  };
+  const created: number[] = [];
+  const paymentRequests = {
+    create: async (_id: string, dto: { amount: number }) => {
+      created.push(dto.amount);
+      return { publicToken: "net-tok" };
+    },
+  };
+  const settings = {
+    getStoreConfig: async () => ({ crmPayPageUrl: "https://crm.example.com" }),
+  };
+  const service = new OrdersDocumentsService(prisma as any, paymentRequests as any, settings as any);
+  const block = await service.buildInvoicePaymentBlock(
+    sampleOrder({ totalAmount: 1500.5, returnAdjustmentAmount: 500.5, returns: [] }) as any,
+  );
+  assert.ok(block);
+  assert.equal(block!.amountUah, 1000);
+  assert.equal(block!.payUrl, "https://crm.example.com/pay/net-tok");
+  assert.deepEqual(created, [1000]);
+});
+
 test("buildInvoicePaymentBlock prefers short CRM /pay/ URL when configured", async () => {
   const prisma = {
     paymentRequest: {

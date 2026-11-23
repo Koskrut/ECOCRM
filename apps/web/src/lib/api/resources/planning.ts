@@ -544,6 +544,14 @@ export type FactoryOrderLine = {
   effectiveDueAt?: string;
   trackingStatus?: FactoryLineTrackingStatus;
   partProduct: { id: string; sku: string; name: string; kind?: "KIT" | "PART" | "OTHER" };
+  /** BOM breakdown for a kit line. Empty for a part line. */
+  parts?: Array<{
+    sku: string;
+    name: string;
+    qtyPerKit: number;
+    available: number;
+    isBottleneck: boolean;
+  }>;
 };
 
 export type FactoryOrder = {

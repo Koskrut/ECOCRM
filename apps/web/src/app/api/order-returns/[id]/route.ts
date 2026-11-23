@@ -8,3 +8,11 @@ export async function GET(
   const { id } = await ctx.params;
   return proxyToBackend(req, `/order-returns/${id}`);
 }
+
+export async function PATCH(
+  req: NextRequest,
+  ctx: { params: Promise<{ id: string }> },
+) {
+  const { id } = await ctx.params;
+  return proxyToBackend(req, `/order-returns/${id}`);
+}

@@ -418,6 +418,10 @@ export const en = {
         title: "Exchange rates",
         desc: "Base currency, UAH and EUR rates — for orders, payments and analytics",
       },
+      payroll: {
+        title: "Payroll",
+        desc: "Sales bonus threshold and percents (company-wide rules)",
+      },
       orderDiscounts: {
         title: "Order line discounts",
         desc: "Available discount percentages and promotions for order line items",
@@ -734,6 +738,19 @@ export const en = {
       loadError: "Failed to load exchange rates.",
       saveError: "Failed to save exchange rates.",
       invalidRates: "Enter positive numbers for both rates",
+      save: "Save",
+      saving: "Saving…",
+    },
+    payrollPage: {
+      title: "Payroll — company rules",
+      subtitle:
+        "Bonus on fully paid orders for the month: at or below the threshold — lower %, above — higher % on the whole month total.",
+      threshold: "Threshold, UAH",
+      percentUpTo: "% up to threshold (incl.)",
+      percentAbove: "% above threshold",
+      loadError: "Failed to load payroll rules.",
+      saveError: "Failed to save payroll rules.",
+      invalid: "Enter non-negative numbers for the threshold and both percents",
       save: "Save",
       saving: "Saving…",
     },
@@ -1060,7 +1077,7 @@ export const en = {
       confirmProduceAs: "What to add",
       confirmProducePartsMode: "Parts from the specification",
       confirmProduceKitMode: "Kit",
-      confirmProduceKitHint: "The request gets this kit, without exploding it into parts.",
+      confirmProduceKitHint: "The request gets the kit, with the specification broken out underneath, the same way packing does.",
       confirmProduceParts: (skus: string) => `Factory lines will use parts: ${skus}`,
       confirmQtyLabel: "Kit quantity",
       confirmAdd: "Confirm",
@@ -1069,7 +1086,8 @@ export const en = {
       qtyInvalid: "Enter a quantity greater than zero",
       addedPack: (sku: string, qty: number) => `${sku}: +${qty} added to packing request`,
       addedProduce: (sku: string, qty: number) => `${sku}: parts for ${qty} kits added to factory request`,
-      addedProduceKit: (sku: string, qty: number) => `${sku}: +${qty} kits added to the production request`,
+      addedProduceKit: (sku: string, qty: number) =>
+        `${sku}: +${qty} kits added to the production request, with the parts breakdown`,
       empty: "No active kits",
       noMatches: "Nothing matches this filter",
       noParts: "No bill of materials",
@@ -2223,6 +2241,46 @@ export const en = {
     upcomingTasks: "Upcoming tasks",
     viewAllTasks: "View all",
     noOpenTasks: "No open tasks.",
+    payroll: {
+      title: "Payroll",
+      subtitle: "Accrual for the calendar month (Kyiv)",
+      prevMonth: "Previous month",
+      nextMonth: "Next month",
+      loadError: "Failed to load payroll",
+      baseSalary: "Base salary",
+      salesBonus: "Sales bonus",
+      amortization: "Car amortization",
+      total: "Total",
+      ratesCompany: "company rates",
+      ratesPersonal: "personal rates",
+      bonusRule: (p: {
+        sales: string;
+        threshold: string;
+        upTo: string;
+        above: string;
+        applied: string;
+      }) =>
+        `Month base ${p.sales}. Up to ${p.threshold} — ${p.upTo}%, above — ${p.above}% on the whole amount. Applied ${p.applied}%.`,
+      fuelNote:
+        "Fuel compensation (km estimate and refuel receipts) is not included — only amortization UAH/km.",
+      ordersTitle: "Fully paid orders",
+      ordersEmpty: "No fully paid orders in this month.",
+      daysTitle: "Kilometers for amortization",
+      teamTitle: "Team",
+      teamEmpty: "No employees to show.",
+      colName: "Employee",
+      colSales: "Base",
+      colBonus: "Bonus",
+      colAmort: "Amortization",
+      colTotal: "Total",
+      colOrder: "Order",
+      colClosed: "Closed",
+      colAmount: "Amount",
+      colUah: "UAH",
+      colDate: "Date",
+      colKm: "Km",
+      rateFallback: "settings rate",
+    },
     leadership: {
       pageTitle: "Dashboard",
       periodWeek: "Week",
@@ -2234,6 +2292,7 @@ export const en = {
         team: "Team",
         sales: "Sales",
         activity: "Activity",
+        payroll: "Payroll",
       },
       tabHints: {
         todayLead: "Who is off plan today and where the team risks sit.",
@@ -2242,6 +2301,7 @@ export const en = {
         sales: "Full KPIs and charts for the selected period.",
         activity:
           "What each person did in CRM for the selected day: payments, orders, tasks, visits.",
+        payroll: "Base salary, sales bonus on paid orders, and car amortization for the month.",
       },
       todayLeadQualityLink: "Visit quality and day plans → Team tab",
       heroKpis: {
@@ -3290,6 +3350,17 @@ export const en = {
       fuelConsumption: "Consumption (L/100 km)",
       fuelPrice: "Price (UAH/L)",
       fuelPricePlaceholder: "Not set",
+      payrollTitle: "Payroll",
+      payrollHint:
+        "Base salary and UAH/km. Empty threshold and percents use company rules (usually up to 25,000 UAH — 2%, above — 2.5%).",
+      baseSalary: "Base salary, UAH/month",
+      amortizationPerKm: "Amortization, UAH/km",
+      bonusThreshold: "Bonus threshold, UAH",
+      bonusPercentUpTo: "% up to threshold",
+      bonusPercentAbove: "% above threshold",
+      bonusCompanyHint: "Leave empty to use company-wide rates.",
+      bonusTripletRequired: "Threshold and both percents must all be set or all empty",
+      payrollNumberInvalid: "Non-negative number required for payroll fields",
       tabAccount: "Account",
       tabField: "Field",
       tabDayPlan: "Day plan",
@@ -3995,6 +4066,12 @@ export const en = {
     externalCodeLabel: "1C return document",
     externalCodePlaceholder: "Enter 1C document number…",
     saveExternalCode: "Save",
+    edit: "Edit",
+    saveChanges: "Save changes",
+    editLockedSettled: "Lines can't be changed after the return is settled",
+    editLockedReplacement: "Mis-pick lines stay as they are once a replacement order exists",
+    editNeedItem: "At least one line is required",
+    editFailed: "Couldn't save the return",
     actualProductLabel: "Actual product shipped",
     selectProduct: "Select product…",
   },

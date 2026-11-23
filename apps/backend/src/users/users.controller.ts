@@ -97,6 +97,32 @@ export class UsersController {
       vehicleLabel: strOrNull(body.vehicleLabel),
       usePersonalCar:
         body.usePersonalCar === undefined ? undefined : Boolean(body.usePersonalCar),
+      baseSalaryUah:
+        body.baseSalaryUah === undefined || body.baseSalaryUah === ""
+          ? undefined
+          : (numOrNull(body.baseSalaryUah) ?? undefined),
+      amortizationUahPerKm:
+        body.amortizationUahPerKm === undefined || body.amortizationUahPerKm === ""
+          ? undefined
+          : (numOrNull(body.amortizationUahPerKm) ?? undefined),
+      bonusThresholdUah:
+        body.bonusThresholdUah === undefined
+          ? undefined
+          : body.bonusThresholdUah === null || body.bonusThresholdUah === ""
+            ? null
+            : (numOrNull(body.bonusThresholdUah) as number | null),
+      bonusPercentUpTo:
+        body.bonusPercentUpTo === undefined
+          ? undefined
+          : body.bonusPercentUpTo === null || body.bonusPercentUpTo === ""
+            ? null
+            : (numOrNull(body.bonusPercentUpTo) as number | null),
+      bonusPercentAbove:
+        body.bonusPercentAbove === undefined
+          ? undefined
+          : body.bonusPercentAbove === null || body.bonusPercentAbove === ""
+            ? null
+            : (numOrNull(body.bonusPercentAbove) as number | null),
     });
 
     return { user };

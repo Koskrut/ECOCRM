@@ -28,6 +28,7 @@ import {
   Upload,
   BadgeDollarSign,
   Tags,
+  Wallet,
 } from "lucide-react";
 import { strings } from "@/locales";
 
@@ -72,6 +73,7 @@ export function allCards(): CardDescriptor[] {
     { href: "/settings/order-serials", icon: Barcode, ...t.orderSerials, group: "salesProcesses", adminOnly: true },
     { href: "/settings/leads-pipeline", icon: Filter, ...t.leadsPipeline, group: "salesProcesses", adminOnly: true },
     { href: "/settings/exchange-rates", icon: Coins, ...t.exchangeRates, group: "salesProcesses" },
+    { href: "/settings/payroll", icon: Wallet, ...t.payroll, group: "salesProcesses", adminOnly: true },
     { href: "/settings/google-maps", icon: Map, ...t.googleMaps, group: "integrations" },
     { href: "/settings/meta-lead-ads", icon: Megaphone, ...t.metaLeadAds, group: "integrations" },
     { href: "/settings/meta-audiences", icon: Users, ...t.metaAudiences, group: "integrations", adminOnly: true },

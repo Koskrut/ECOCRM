@@ -1,5 +1,6 @@
 import { Injectable, Logger } from "@nestjs/common";
 import type { PaymentMethod } from "@prisma/client";
+import { netDocumentLines } from "../../orders/order-document-net.utils";
 import { exportUnitPrice } from "../../orders/order-line-total.utils";
 import { PrismaService } from "../../prisma/prisma.service";
 import { SettingsService } from "../../settings/settings.service";
@@ -16,7 +17,7 @@ import { SettingsService } from "../../settings/settings.service";
  * 7. Код счета ФОП (fopAccountCode)
  * 8. Склад (warehouseCode)
  * 9. продукция (Артикул) (item.sku)
- * 10. продукция (кол-во) (item.qty)
+ * 10. продукция (кол-во) — залишок після повернень, які вже зменшили замовлення
  * 11. продукция (цена) — цена за единицу со скидкой/акцией (lineTotal / qty), иначе catalog price
  * 12. курс (exchangeRate)
  * 13. Статус (status)
@@ -54,6 +55,14 @@ const SEND_ORDER_INCLUDE = {
   bankAccount: { select: { id: true, name: true, externalCode: true, accountExternalCode: true } },
   warehouse: { select: { id: true, name: true, externalCode: true } },
   items: { include: { product: { select: { id: true, sku: true, name: true } } } },
+  returns: {
+    select: {
+      status: true,
+      reason: true,
+      outboundWaivedAt: true,
+      items: { select: { orderItemId: true, qtyReturned: true } },
+    },
+  },
 } as const;
 
 @Injectable()
@@ -94,7 +103,7 @@ export class GoogleSheetSendOrderService {
       ? (order.warehouse as { externalCode?: string | null }).externalCode ?? null
       : null;
 
-    const items = order.items.map(
+    const items = netDocumentLines(order.items, order.returns).map(
       (it: {
         product: { sku?: string } | null;
         productNameSnapshot?: string | null;

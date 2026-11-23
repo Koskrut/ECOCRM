@@ -4,7 +4,27 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.257**.)_
+_(планируемые изменения после **0.2.258**.)_
+
+## [0.2.258] — 2026-11-23
+
+### Summary
+
+Патч **0.2.258**: **зарплата** (оклад / бонус / амортизація), ранковий **MORNING_BRIEF** менеджеру, редагування повернень, нетто документів після повернень, BOM breakdown для KIT у factory.
+
+### Changed
+
+- **Payroll:** `UserPayrollProfile` + company rates; Settings → Зарплата; картка на dashboard; редагування в EmployeeModal; нарахування за місяць (бонус від оплачених продажів, км з field fuel).
+- **Morning brief:** enum `MORNING_BRIEF`; cron разом із daily report; відкриті ліди, churn-ризик, топ overdue; час у Settings → Telegram.
+- **Order returns:** PATCH редагування (qty/reason) для складу; UI в ReturnModal.
+- **Documents / 1C sheet:** invoice/waybill net qty після counting returns (`order-document-net`).
+- **Factory:** KIT-рядки з розбиттям BOM-компонентів у відповіді API / UI planning.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.258`**.
+- **Міграції:** `20261123100000_morning_brief_notification`, `20261123120000_user_payroll_profile`.
+- Після deploy: `prisma migrate deploy`. Увімкнути morning brief у Telegram settings за потреби.
 
 ## [0.2.257] — 2026-11-23
 

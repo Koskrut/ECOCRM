@@ -475,22 +475,32 @@ function formatPartQty(n: number): string {
 }
 
 function KitPartsCell({
-  line,
+  kind,
+  parts,
+  kitQty,
 }: {
-  line: NonNullable<PackingList["lines"]>[number];
+  kind?: string | null;
+  parts?: Array<{
+    sku: string;
+    name: string;
+    qtyPerKit: number;
+    available: number;
+    isBottleneck: boolean;
+  }>;
+  kitQty: number;
 }) {
   const t = strings.planning;
-  if (line.kitProduct.kind === "PART") {
+  if (kind === "PART") {
     return <p className="text-xs text-zinc-500">{t.labels.partLineHint}</p>;
   }
-  const parts = line.parts ?? [];
-  if (parts.length === 0) {
+  const rows = parts ?? [];
+  if (rows.length === 0) {
     return <p className="text-xs text-zinc-500">{t.labels.noKitParts}</p>;
   }
-  const kitsForParts = Math.max(line.qtyApproved, line.targetPack ?? 0);
+  const kitsForParts = Math.max(0, kitQty);
   return (
     <ul className="space-y-1 text-xs text-zinc-700">
-      {parts.map((part) => {
+      {rows.map((part) => {
         const need = part.qtyPerKit * kitsForParts;
         const short = isKitPartShort(part.available, need);
         const title = part.name && part.name !== part.sku ? part.name : part.sku;
@@ -1030,7 +1040,12 @@ export function PackingPanel({
                     </span>
                   ) : null}
                 </span>,
-                <KitPartsCell key={`${line.id}-parts`} line={line} />,
+                <KitPartsCell
+                  key={`${line.id}-parts`}
+                  kind={line.kitProduct.kind}
+                  parts={line.parts}
+                  kitQty={Math.max(line.qtyApproved, line.targetPack ?? 0)}
+                />,
                 t.labels.stockNowVsTarget(stockNow, targetStock),
                 <span key={`${line.id}-can`} className={canPackNow > 0 ? "font-medium text-cyan-700" : undefined}>
                   {canPackNow}
@@ -1861,9 +1876,10 @@ export function FactoryPanel({
           <SimpleTable
             headers={
               active.status === "DRAFT"
-                ? [t.labels.sku, t.labels.qty, t.labels.lineDueAt, t.labels.actions]
+                ? [t.labels.sku, t.labels.kitParts, t.labels.qty, t.labels.lineDueAt, t.labels.actions]
                 : [
                     t.labels.sku,
+                    t.labels.kitParts,
                     t.labels.qty,
                     t.labels.qtyReceived,
                     t.labels.lineDueAt,
@@ -1872,6 +1888,16 @@ export function FactoryPanel({
             }
             rows={(active.lines ?? []).map((line) => {
               const overdue = line.trackingStatus === "overdue";
+              const kitQty =
+                Number(lineQtys[line.partProductId] ?? line.qtyOrdered) || line.qtyOrdered;
+              const partsCell = (
+                <KitPartsCell
+                  key={`${line.id}-parts`}
+                  kind={line.partProduct.kind}
+                  parts={line.parts}
+                  kitQty={kitQty}
+                />
+              );
               if (active.status === "DRAFT") {
                 return [
                   <SkuKindLabel
@@ -1880,6 +1906,7 @@ export function FactoryPanel({
                     name={line.partProduct.name}
                     kind={line.partProduct.kind}
                   />,
+                  partsCell,
                   <input
                     key={`${line.id}-qty`}
                     className="w-24 rounded border border-zinc-200 px-2 py-1"
@@ -1919,6 +1946,7 @@ export function FactoryPanel({
                     kind={line.partProduct.kind}
                   />
                 </span>,
+                partsCell,
                 String(line.qtyOrdered),
                 active.status === "OPEN" || active.status === "PARTIAL" ? (
                   <input

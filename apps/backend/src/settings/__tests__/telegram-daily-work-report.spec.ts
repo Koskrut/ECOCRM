@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   DEFAULT_TELEGRAM_DAILY_WORK_REPORT,
+  DEFAULT_TELEGRAM_MORNING_BRIEF,
   normalizeTelegramDailyWorkReportConfig,
+  normalizeTelegramMorningBriefConfig,
 } from "../settings.service";
 
 test("normalizeTelegramDailyWorkReportConfig applies defaults", () => {
@@ -28,6 +30,20 @@ test("normalizeTelegramDailyWorkReportConfig keeps valid overrides", () => {
       weekdaysOnly: false,
       teamSummary: false,
     },
+  );
+});
+
+test("normalizeTelegramMorningBriefConfig defaults to 08:30 weekdays", () => {
+  assert.deepEqual(normalizeTelegramMorningBriefConfig(undefined), {
+    ...DEFAULT_TELEGRAM_MORNING_BRIEF,
+  });
+  assert.deepEqual(
+    normalizeTelegramMorningBriefConfig({ enabled: false, time: "09:15", weekdaysOnly: false }),
+    { enabled: false, time: "09:15", weekdaysOnly: false },
+  );
+  assert.equal(
+    normalizeTelegramMorningBriefConfig({ time: "8:30" }).time,
+    DEFAULT_TELEGRAM_MORNING_BRIEF.time,
   );
 });
 

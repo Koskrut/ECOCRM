@@ -11,8 +11,10 @@ import {
   checklistLegLabel,
   outboundLegLabel,
   replacementModeLabel,
+  RETURN_REASON_OPTIONS,
   returnReasonLabel,
   returnStatusLabel,
+  type ReturnReasonCode,
 } from "@/lib/returns/return-labels";
 import { OrderReturnSettlementDialog } from "./OrderClientBalancePanel";
 
@@ -67,6 +69,15 @@ type ReturnDetails = {
   settlementType?: string | null;
   externalCode?: string | null;
   warehouse?: { id: string; name: string } | null;
+  orderLines?: Array<{
+    id: string;
+    qty: number;
+    maxQty: number;
+    qtyOnThisReturn: number;
+    price: number;
+    productNameSnapshot?: string | null;
+    product?: { id: string; name: string; sku: string | null } | null;
+  }>;
   replacementOrder?: {
     id: string;
     orderNumber: string;
@@ -151,6 +162,7 @@ export function ReturnModal({
   onSaved,
   onOpenOrder,
   allowWarehouseWork = false,
+  canEdit = true,
   zIndex,
 }: {
   returnId: string;
@@ -159,6 +171,8 @@ export function ReturnModal({
   onOpenOrder: (orderId: string) => void;
   /** Admin and warehouse can receive the parcel and break down items. */
   allowWarehouseWork?: boolean;
+  /** Warehouse staff receive parcels; they do not change the return request. */
+  canEdit?: boolean;
   zIndex?: number;
 }) {
   const router = useRouter();
@@ -176,6 +190,12 @@ export function ReturnModal({
   const [waiveSubmitting, setWaiveSubmitting] = useState(false);
   const [externalCodeEdit, setExternalCodeEdit] = useState("");
   const [externalCodeSaving, setExternalCodeSaving] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [editReason, setEditReason] = useState<ReturnReasonCode>("CUSTOMER_CHANGE");
+  const [editWarehouseId, setEditWarehouseId] = useState("");
+  const [editQtys, setEditQtys] = useState<Record<string, number>>({});
+  const [warehouses, setWarehouses] = useState<Array<{ id: string; name: string }>>([]);
 
   const loadReturn = useCallback(async () => {
     setLoading(true);
@@ -205,7 +225,108 @@ export function ReturnModal({
     void loadReturn();
   }, [loadReturn]);
 
+  useEffect(() => {
+    if (!editing) return;
+    let cancelled = false;
+    void fetch("/api/warehouses", { credentials: "include", cache: "no-store" })
+      .then(async (r) => (r.ok ? r.json() : []))
+      .then((data: unknown) => {
+        if (cancelled || !Array.isArray(data)) return;
+        setWarehouses(
+          data.filter(
+            (row): row is { id: string; name: string } =>
+              !!row &&
+              typeof row === "object" &&
+              typeof (row as { id?: unknown }).id === "string" &&
+              typeof (row as { name?: unknown }).name === "string",
+          ),
+        );
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [editing]);
+
   const currency = ret?.order.currency ?? "UAH";
+  const settled = Boolean(ret?.settledAt);
+  const linesLocked = Boolean(ret && isMisPick(ret) && ret.replacementOrder);
+  const reasonLocked = Boolean(ret && isMisPick(ret));
+
+  const beginEdit = useCallback(() => {
+    if (!ret) return;
+    const reason = ret.reason;
+    setEditReason(
+      reason === "DEFECT" || reason === "WRONG_ITEM" || reason === "CUSTOMER_CHANGE"
+        ? reason
+        : "CUSTOMER_CHANGE",
+    );
+    setEditWarehouseId(ret.warehouse?.id ?? "");
+    const qtys: Record<string, number> = {};
+    for (const line of ret.orderLines ?? []) {
+      qtys[line.id] = Math.min(line.qtyOnThisReturn, line.maxQty);
+    }
+    setEditQtys(qtys);
+    setErr(null);
+    setEditing(true);
+  }, [ret]);
+
+  const saveEdit = useCallback(async () => {
+    if (!ret) return;
+    setSavingEdit(true);
+    setErr(null);
+    try {
+      const body: {
+        reason?: ReturnReasonCode;
+        warehouseId: string;
+        items?: Array<{ orderItemId: string; qtyReturned: number }>;
+      } = { warehouseId: editWarehouseId };
+      if (!reasonLocked) body.reason = editReason;
+      if (!linesLocked) {
+        const items = (ret.orderLines ?? [])
+          .filter((line) => (isMisPick(ret) ? line.qtyOnThisReturn > 0 : line.maxQty > 0))
+          .map((line) => ({
+            orderItemId: line.id,
+            qtyReturned: Math.max(0, Math.floor(Number(editQtys[line.id]) || 0)),
+          }))
+          .filter((item) => item.qtyReturned > 0);
+        if (items.length === 0) {
+          throw new Error(tr.editNeedItem);
+        }
+        body.items = items;
+      }
+      const r = await fetch(`/api/order-returns/${returnId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(body),
+      });
+      if (!r.ok) {
+        const payload = (await r.json().catch(() => ({}))) as { message?: string | string[] };
+        const message = Array.isArray(payload.message)
+          ? payload.message.join(", ")
+          : payload.message;
+        throw new Error(message || tr.editFailed);
+      }
+      setEditing(false);
+      await loadReturn();
+      onSaved?.();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : tr.editFailed);
+    } finally {
+      setSavingEdit(false);
+    }
+  }, [
+    editQtys,
+    editReason,
+    editWarehouseId,
+    linesLocked,
+    loadReturn,
+    onSaved,
+    reasonLocked,
+    ret,
+    returnId,
+  ]);
 
   const itemsTotal = useMemo(() => {
     if (!ret?.items?.length) return 0;
@@ -480,8 +601,142 @@ export function ReturnModal({
       ) : null}
 
       <div>
-        <div className="mb-2 text-xs font-medium uppercase tracking-wide text-zinc-500">Позиції</div>
-        {ret.items.length === 0 ? (
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <div className="text-xs font-medium uppercase tracking-wide text-zinc-500">Позиції</div>
+          {canEdit && !settled && !editing ? (
+            <button
+              type="button"
+              onClick={beginEdit}
+              className="text-xs font-medium text-zinc-800 underline"
+            >
+              {tr.edit}
+            </button>
+          ) : null}
+        </div>
+        {settled ? <p className="mb-2 text-xs text-zinc-500">{tr.editLockedSettled}</p> : null}
+        {editing ? (
+          <div className="space-y-3">
+            <label className="block text-sm font-medium text-zinc-700">
+              {tr.returnReasonLabel}
+              <select
+                value={editReason}
+                disabled={reasonLocked || savingEdit}
+                onChange={(e) => setEditReason(e.target.value as ReturnReasonCode)}
+                className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-2 py-2 text-sm disabled:bg-zinc-50"
+              >
+                {RETURN_REASON_OPTIONS.filter((opt) =>
+                  reasonLocked ? true : opt.value !== "WRONG_ITEM",
+                ).map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block text-sm font-medium text-zinc-700">
+              {tr.returnWarehouseLabel}
+              <select
+                value={editWarehouseId}
+                disabled={savingEdit}
+                onChange={(e) => setEditWarehouseId(e.target.value)}
+                className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-2 py-2 text-sm"
+              >
+                <option value="">{strings.orders.modal.notSpecified}</option>
+                {(ret.warehouse && !warehouses.some((w) => w.id === ret.warehouse!.id)
+                  ? [ret.warehouse, ...warehouses]
+                  : warehouses
+                ).map((w) => (
+                  <option key={w.id} value={w.id}>
+                    {w.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {linesLocked ? (
+              <div className="space-y-2">
+                <p className="text-xs text-amber-800">{tr.editLockedReplacement}</p>
+                <ul className="space-y-1 text-sm text-zinc-700">
+                  {ret.items.map((it) => (
+                    <li key={it.id} className="flex justify-between gap-2">
+                      <span className="truncate">
+                        {it.orderItem?.productNameSnapshot ??
+                          it.orderItem?.product?.name ??
+                          "—"}
+                      </span>
+                      <span className="shrink-0">{it.qtyReturned} од.</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {(ret.orderLines ?? [])
+                  .filter((line) =>
+                    isMisPick(ret) ? line.qtyOnThisReturn > 0 : line.maxQty > 0,
+                  )
+                  .map((line) => {
+                  const name =
+                    line.productNameSnapshot ?? line.product?.name ?? line.product?.sku ?? "—";
+                  return (
+                    <div
+                      key={line.id}
+                      className="flex flex-wrap items-center gap-2 rounded-lg border border-zinc-200 px-3 py-2 text-sm"
+                    >
+                      <div className="min-w-0 flex-1">
+                        {line.product?.sku ? (
+                          <div className="text-[11px] text-zinc-500">{line.product.sku}</div>
+                        ) : null}
+                        <div className="truncate text-zinc-800">{name}</div>
+                      </div>
+                      <span className="shrink-0 text-xs text-zinc-500">
+                        {strings.orders.modal.maxQty(line.maxQty)}
+                      </span>
+                      <input
+                        type="number"
+                        min={0}
+                        max={line.maxQty}
+                        value={editQtys[line.id] ?? 0}
+                        disabled={savingEdit || line.maxQty <= 0}
+                        onChange={(e) =>
+                          setEditQtys((prev) => ({
+                            ...prev,
+                            [line.id]: Math.max(
+                              0,
+                              Math.min(line.maxQty, Math.floor(Number(e.target.value) || 0)),
+                            ),
+                          }))
+                        }
+                        onWheel={(e) => e.currentTarget.blur()}
+                        className="w-16 rounded border border-zinc-300 bg-white px-2 py-1 text-right text-sm disabled:bg-zinc-50"
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            <div className="flex gap-2">
+              <button
+                type="button"
+                disabled={savingEdit}
+                onClick={() => void saveEdit()}
+                className="rounded-md bg-zinc-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+              >
+                {savingEdit ? strings.common.loading : tr.saveChanges}
+              </button>
+              <button
+                type="button"
+                disabled={savingEdit}
+                onClick={() => {
+                  setEditing(false);
+                  setErr(null);
+                }}
+                className="rounded-md border border-zinc-300 px-3 py-2 text-sm"
+              >
+                {strings.common.cancel}
+              </button>
+            </div>
+          </div>
+        ) : ret.items.length === 0 ? (
           <p className="text-sm text-zinc-500">
             {ret.itemsPending ? "Позиції ще не визначені" : "Немає позицій"}
           </p>
@@ -696,7 +951,7 @@ export function ReturnModal({
         subtitle={ret ? clientLabel(ret) : undefined}
         left={left}
         right={right}
-        canClose={!statusUpdating}
+        canClose={!statusUpdating && !savingEdit}
         onClose={onClose}
         size="default"
         zIndex={zIndex}

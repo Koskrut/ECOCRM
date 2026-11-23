@@ -41,6 +41,11 @@ type FormSnapshot = {
   fuelPricePerLiter: string;
   vehicleLabel: string;
   usePersonalCar: boolean;
+  baseSalaryUah: string;
+  amortizationUahPerKm: string;
+  bonusThresholdUah: string;
+  bonusPercentUpTo: string;
+  bonusPercentAbove: string;
   routeStartLabel: string;
   routeStartLat: string;
   routeStartLng: string;
@@ -75,6 +80,11 @@ function snapshotFromForm(
   fuelPricePerLiter: string,
   vehicleLabel: string,
   usePersonalCar: boolean,
+  baseSalaryUah: string,
+  amortizationUahPerKm: string,
+  bonusThresholdUah: string,
+  bonusPercentUpTo: string,
+  bonusPercentAbove: string,
   routeStart: { label: string; lat: string; lng: string },
   routeEnd: { label: string; lat: string; lng: string },
 ): FormSnapshot {
@@ -89,6 +99,11 @@ function snapshotFromForm(
     fuelPricePerLiter: fuelPricePerLiter.trim(),
     vehicleLabel: vehicleLabel.trim(),
     usePersonalCar,
+    baseSalaryUah: baseSalaryUah.trim(),
+    amortizationUahPerKm: amortizationUahPerKm.trim(),
+    bonusThresholdUah: bonusThresholdUah.trim(),
+    bonusPercentUpTo: bonusPercentUpTo.trim(),
+    bonusPercentAbove: bonusPercentAbove.trim(),
     routeStartLabel: routeStart.label.trim(),
     routeStartLat: routeStart.lat.trim(),
     routeStartLng: routeStart.lng.trim(),
@@ -133,6 +148,11 @@ export function EmployeeModal({
   const [fuelPricePerLiter, setFuelPricePerLiter] = useState("");
   const [vehicleLabel, setVehicleLabel] = useState("");
   const [usePersonalCar, setUsePersonalCar] = useState(true);
+  const [baseSalaryUah, setBaseSalaryUah] = useState("");
+  const [amortizationUahPerKm, setAmortizationUahPerKm] = useState("");
+  const [bonusThresholdUah, setBonusThresholdUah] = useState("");
+  const [bonusPercentUpTo, setBonusPercentUpTo] = useState("");
+  const [bonusPercentAbove, setBonusPercentAbove] = useState("");
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -178,6 +198,11 @@ export function EmployeeModal({
         fuelPricePerLiter,
         vehicleLabel,
         usePersonalCar,
+        baseSalaryUah,
+        amortizationUahPerKm,
+        bonusThresholdUah,
+        bonusPercentUpTo,
+        bonusPercentAbove,
         routeStart,
         routeEnd,
       ),
@@ -192,6 +217,11 @@ export function EmployeeModal({
       fuelPricePerLiter,
       vehicleLabel,
       usePersonalCar,
+      baseSalaryUah,
+      amortizationUahPerKm,
+      bonusThresholdUah,
+      bonusPercentUpTo,
+      bonusPercentAbove,
       routeStart.label,
       routeStart.lat,
       routeStart.lng,
@@ -239,6 +269,17 @@ export function EmployeeModal({
     setFuelPricePerLiter(fp?.fuelPricePerLiter != null ? String(fp.fuelPricePerLiter) : "");
     setVehicleLabel(fp?.vehicleLabel ?? "");
     setUsePersonalCar(fp?.usePersonalCar !== false);
+    const pp = user.payrollProfile;
+    const baseSalary = pp?.baseSalaryUah != null ? String(pp.baseSalaryUah) : "";
+    const amort = pp?.amortizationUahPerKm != null ? String(pp.amortizationUahPerKm) : "";
+    const thr = pp?.bonusThresholdUah != null ? String(pp.bonusThresholdUah) : "";
+    const upTo = pp?.bonusPercentUpTo != null ? String(pp.bonusPercentUpTo) : "";
+    const above = pp?.bonusPercentAbove != null ? String(pp.bonusPercentAbove) : "";
+    setBaseSalaryUah(baseSalary);
+    setAmortizationUahPerKm(amort);
+    setBonusThresholdUah(thr);
+    setBonusPercentUpTo(upTo);
+    setBonusPercentAbove(above);
 
     const snap = snapshotFromForm(
       user.email ?? "",
@@ -251,6 +292,11 @@ export function EmployeeModal({
       fp?.fuelPricePerLiter != null ? String(fp.fuelPricePerLiter) : "",
       fp?.vehicleLabel ?? "",
       fp?.usePersonalCar !== false,
+      baseSalary,
+      amort,
+      thr,
+      upTo,
+      above,
       {
         label: user.routeStartLabel ?? "",
         lat: user.routeStartLat != null ? String(user.routeStartLat) : "",
@@ -289,6 +335,11 @@ export function EmployeeModal({
       setFuelPricePerLiter("");
       setVehicleLabel("");
       setUsePersonalCar(true);
+      setBaseSalaryUah("");
+      setAmortizationUahPerKm("");
+      setBonusThresholdUah("");
+      setBonusPercentUpTo("");
+      setBonusPercentAbove("");
       initialSnapshotRef.current = "";
       setLoadingUser(false);
     }
@@ -389,6 +440,26 @@ export function EmployeeModal({
       }
     }
 
+    if (mode === "edit" && actorRole === "ADMIN") {
+      const parseNonNeg = (raw: string) => {
+        const trimmed = raw.trim();
+        if (trimmed === "") return { empty: true as const };
+        const n = Number(trimmed.replace(",", "."));
+        if (!Number.isFinite(n) || n < 0) return { invalid: true as const };
+        return { value: n };
+      };
+      for (const raw of [baseSalaryUah, amortizationUahPerKm]) {
+        const p = parseNonNeg(raw);
+        if ("invalid" in p) return t.payrollNumberInvalid;
+      }
+      const thr = parseNonNeg(bonusThresholdUah);
+      const up = parseNonNeg(bonusPercentUpTo);
+      const above = parseNonNeg(bonusPercentAbove);
+      if ("invalid" in thr || "invalid" in up || "invalid" in above) return t.payrollNumberInvalid;
+      const emptyCount = [thr, up, above].filter((x) => "empty" in x).length;
+      if (emptyCount !== 0 && emptyCount !== 3) return t.bonusTripletRequired;
+    }
+
     if (mode === "create") {
       if (email.trim().length === 0) return t.emailRequired;
       if (!email.includes("@")) return t.emailInvalid;
@@ -443,6 +514,23 @@ export function EmployeeModal({
           fuelPricePerLiter: priceTrim ? Number(priceTrim.replace(",", ".")) : null,
           vehicleLabel: vehicleLabel.trim() || null,
           usePersonalCar,
+          ...(actorRole === "ADMIN"
+            ? {
+                baseSalaryUah: Number((baseSalaryUah.trim() || "0").replace(",", ".")),
+                amortizationUahPerKm: Number(
+                  (amortizationUahPerKm.trim() || "0").replace(",", "."),
+                ),
+                bonusThresholdUah: bonusThresholdUah.trim()
+                  ? Number(bonusThresholdUah.replace(",", "."))
+                  : null,
+                bonusPercentUpTo: bonusPercentUpTo.trim()
+                  ? Number(bonusPercentUpTo.replace(",", "."))
+                  : null,
+                bonusPercentAbove: bonusPercentAbove.trim()
+                  ? Number(bonusPercentAbove.replace(",", "."))
+                  : null,
+              }
+            : {}),
         });
         if (role !== initialRole) {
           await usersApi.updateRole(userId, role);
@@ -794,6 +882,74 @@ export function EmployeeModal({
           </div>
         </div>
       </EntitySection>
+
+      {actorRole === "ADMIN" ? (
+        <EntitySection title={t.payrollTitle}>
+          <p className="text-xs text-zinc-500">{t.payrollHint}</p>
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-xs font-medium text-zinc-700">{t.baseSalary}</label>
+              <input
+                type="text"
+                inputMode="decimal"
+                className="mt-0.5 w-full rounded-md border border-zinc-200 px-2 py-1.5 text-sm"
+                value={baseSalaryUah}
+                onChange={(e) => setBaseSalaryUah(e.target.value)}
+                disabled={saving}
+                placeholder="0"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-zinc-700">{t.amortizationPerKm}</label>
+              <input
+                type="text"
+                inputMode="decimal"
+                className="mt-0.5 w-full rounded-md border border-zinc-200 px-2 py-1.5 text-sm"
+                value={amortizationUahPerKm}
+                onChange={(e) => setAmortizationUahPerKm(e.target.value)}
+                disabled={saving}
+                placeholder="0"
+              />
+            </div>
+          </div>
+          <p className="mt-3 text-xs text-zinc-500">{t.bonusCompanyHint}</p>
+          <div className="mt-2 grid grid-cols-3 gap-2">
+            <div>
+              <label className="text-xs font-medium text-zinc-700">{t.bonusThreshold}</label>
+              <input
+                type="text"
+                inputMode="decimal"
+                className="mt-0.5 w-full rounded-md border border-zinc-200 px-2 py-1.5 text-sm"
+                value={bonusThresholdUah}
+                onChange={(e) => setBonusThresholdUah(e.target.value)}
+                disabled={saving}
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-zinc-700">{t.bonusPercentUpTo}</label>
+              <input
+                type="text"
+                inputMode="decimal"
+                className="mt-0.5 w-full rounded-md border border-zinc-200 px-2 py-1.5 text-sm"
+                value={bonusPercentUpTo}
+                onChange={(e) => setBonusPercentUpTo(e.target.value)}
+                disabled={saving}
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-zinc-700">{t.bonusPercentAbove}</label>
+              <input
+                type="text"
+                inputMode="decimal"
+                className="mt-0.5 w-full rounded-md border border-zinc-200 px-2 py-1.5 text-sm"
+                value={bonusPercentAbove}
+                onChange={(e) => setBonusPercentAbove(e.target.value)}
+                disabled={saving}
+              />
+            </div>
+          </div>
+        </EntitySection>
+      ) : null}
     </div>
   ) : null;
 

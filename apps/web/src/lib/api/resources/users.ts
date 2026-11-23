@@ -9,6 +9,14 @@ export type UserEmployeeFieldProfile = {
   usePersonalCar?: boolean;
 };
 
+export type UserPayrollProfile = {
+  baseSalaryUah?: string | number;
+  amortizationUahPerKm?: string | number;
+  bonusThresholdUah?: string | number | null;
+  bonusPercentUpTo?: string | number | null;
+  bonusPercentAbove?: string | number | null;
+};
+
 export type User = {
   id: string;
   email: string;
@@ -25,6 +33,7 @@ export type User = {
   routeEndLabel?: string | null;
   leadId?: string | null;
   fieldProfile?: UserEmployeeFieldProfile | null;
+  payrollProfile?: UserPayrollProfile | null;
 };
 
 export type CreateUserPayload = {
@@ -53,6 +62,11 @@ export type UpdateUserPayload = {
   fuelPricePerLiter?: number | null;
   vehicleLabel?: string | null;
   usePersonalCar?: boolean;
+  baseSalaryUah?: number;
+  amortizationUahPerKm?: number;
+  bonusThresholdUah?: number | null;
+  bonusPercentUpTo?: number | null;
+  bonusPercentAbove?: number | null;
 };
 
 export const usersApi = {

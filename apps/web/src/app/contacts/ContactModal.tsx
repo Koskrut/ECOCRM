@@ -1231,6 +1231,7 @@ export function ContactModal({
           returnId={returnId}
           zIndex={(zIndex ?? 50) + 20}
           allowWarehouseWork={effectiveRole === "ADMIN" || effectiveRole === "WAREHOUSE"}
+          canEdit={effectiveRole !== "WAREHOUSE"}
           onClose={() => setReturnId(null)}
           onSaved={() => {
             setOrdersReloadKey((k) => k + 1);

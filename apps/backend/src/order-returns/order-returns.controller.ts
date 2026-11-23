@@ -7,6 +7,7 @@ import { ListOrderReturnsQueryDto } from "./dto/list-order-returns-query.dto";
 import { UpdateReturnItemsDto, WaiveMisPickChecklistDto } from "./dto/mis-pick.dto";
 import { UpdateReturnStatusDto } from "./dto/update-return-status.dto";
 import { UpdateOrderReturnExternalCodeDto } from "./dto/update-order-return-external-code.dto";
+import { UpdateOrderReturnDto } from "./dto/update-order-return.dto";
 
 @Controller("order-returns")
 export class OrderReturnsController {
@@ -23,6 +24,15 @@ export class OrderReturnsController {
   @Get(":id")
   getById(@Param("id") id: string, @Req() req: Request & { user?: AuthUser }) {
     return this.orderReturns.getById(id, req.user);
+  }
+
+  @Patch(":id")
+  update(
+    @Param("id") id: string,
+    @Body() dto: UpdateOrderReturnDto,
+    @Req() req: Request & { user?: AuthUser },
+  ) {
+    return this.orderReturns.update(id, dto, req.user);
   }
 
   @Patch(":id/status")

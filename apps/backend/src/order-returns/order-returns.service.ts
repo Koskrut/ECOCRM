@@ -11,10 +11,12 @@ import { getOrderCompletionBlockers } from "../orders/order-completion-guards";
 import { OrderMaterialReservationService } from "../orders/order-material-reservation.service";
 import { PrismaService } from "../prisma/prisma.service";
 import type { CreateOrderReturnDto } from "./dto/create-order-return.dto";
+import type { UpdateOrderReturnDto } from "./dto/update-order-return.dto";
 import type { ListOrderReturnsQueryDto } from "./dto/list-order-returns-query.dto";
 import type { WaiveMisPickChecklistDto, UpdateReturnItemsDto } from "./dto/mis-pick.dto";
 import type { SettleReturnDto } from "../client-balances/dto/settle-return.dto";
 import { computeReturnAdjustmentAmount } from "./order-return-adjustment.utils";
+import { assertReturnReasonChange, buildReturnItemEdits } from "./order-return-edit.utils";
 import { computeReturnCoverage } from "./order-return-coverage.utils";
 import {
   getAllowedReturnStatusTransitions,
@@ -31,6 +33,7 @@ import {
 } from "./order-return-replacement.utils";
 import {
   assertWarehouseReturnCreate,
+  assertWarehouseReturnEdit,
   assertWarehouseReturnExternalCodeUpdate,
   assertWarehouseReturnSettlement,
   assertWarehouseReturnStatusUpdate,
@@ -500,12 +503,166 @@ export class OrderReturnsService {
     if (!r) throw new NotFoundException("Return not found");
     this.assertAccess(r.order, actor);
     await this.recomputeMisPickOutboundIfNeeded(r);
-    return (
+    const fresh =
       (await this.prisma.orderReturn.findUnique({
         where: { id },
         include: RETURN_DETAIL_INCLUDE,
-      })) ?? r
+      })) ?? r;
+    return this.withOrderLines(fresh);
+  }
+
+  /**
+   * Change reason, receiving warehouse, and returned quantities.
+   * Settled returns stay locked. Mis-pick reason and lines after a replacement order stay locked.
+   * Saving lines resyncs the order total.
+   */
+  async update(id: string, dto: UpdateOrderReturnDto, actor?: AuthUser) {
+    assertWarehouseReturnEdit(actor);
+    if (dto.reason === undefined && dto.warehouseId === undefined && dto.items === undefined) {
+      throw new BadRequestException("Немає змін");
+    }
+
+    const ret = await this.prisma.orderReturn.findUnique({
+      where: { id },
+      include: {
+        order: { include: { items: true } },
+        items: true,
+      },
+    });
+    if (!ret) throw new NotFoundException("Return not found");
+    this.assertAccess(ret.order, actor);
+    if (ret.settledAt) {
+      throw new BadRequestException("Після розрахунку повернення не редагується");
+    }
+
+    if (dto.reason !== undefined && dto.reason !== ret.reason) {
+      assertReturnReasonChange(ret.reason, dto.reason);
+    }
+
+    let nextItems: Array<{ orderItemId: string; qtyReturned: number }> | null = null;
+    if (dto.items !== undefined) {
+      if (isMisPickReturn(ret.reason) && ret.replacementOrderId) {
+        throw new BadRequestException(
+          "Позиції пересорту не змінюються після створення замовлення-заміни",
+        );
+      }
+      if (dto.items.length === 0) {
+        throw new BadRequestException("Потрібна хоча б одна позиція");
+      }
+      const alreadyReturned = await this.prisma.orderReturnItem.groupBy({
+        by: ["orderItemId"],
+        where: {
+          orderReturn: { orderId: ret.orderId, id: { not: ret.id } },
+        },
+        _sum: { qtyReturned: true },
+      });
+      nextItems = buildReturnItemEdits({
+        orderItems: ret.order.items,
+        otherReturnedByItem: new Map(
+          alreadyReturned.map((row) => [row.orderItemId, row._sum.qtyReturned ?? 0]),
+        ),
+        items: dto.items,
+      });
+      if (isMisPickReturn(ret.reason)) {
+        const existingIds = new Set(ret.items.map((item) => item.orderItemId));
+        for (const item of nextItems) {
+          if (!existingIds.has(item.orderItemId)) {
+            throw new BadRequestException("До пересорту не можна додати нову позицію");
+          }
+        }
+      }
+    }
+
+    let warehouseId: string | null | undefined;
+    if (dto.warehouseId !== undefined) {
+      warehouseId = await resolveReturnWarehouseId(this.prisma, {
+        warehouseId: dto.warehouseId?.trim() || null,
+        orderId: ret.orderId,
+      });
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      if (nextItems) {
+        const existingByOrderItem = new Map(ret.items.map((item) => [item.orderItemId, item]));
+        const keep = new Set(nextItems.map((item) => item.orderItemId));
+        const removeIds = ret.items.filter((item) => !keep.has(item.orderItemId)).map((item) => item.id);
+        if (removeIds.length > 0) {
+          await tx.orderReturnItem.deleteMany({ where: { id: { in: removeIds } } });
+        }
+        for (const item of nextItems) {
+          const existing = existingByOrderItem.get(item.orderItemId);
+          if (existing) {
+            if (existing.qtyReturned !== item.qtyReturned) {
+              await tx.orderReturnItem.update({
+                where: { id: existing.id },
+                data: { qtyReturned: item.qtyReturned },
+              });
+            }
+          } else {
+            await tx.orderReturnItem.create({
+              data: {
+                orderReturnId: id,
+                orderItemId: item.orderItemId,
+                qtyReturned: item.qtyReturned,
+              },
+            });
+          }
+        }
+      }
+
+      const data: Prisma.OrderReturnUpdateInput = {};
+      if (dto.reason !== undefined && dto.reason !== ret.reason) data.reason = dto.reason;
+      if (warehouseId !== undefined) {
+        data.warehouse = warehouseId ? { connect: { id: warehouseId } } : { disconnect: true };
+      }
+      if (nextItems) data.itemsPending = false;
+      if (Object.keys(data).length > 0) {
+        await tx.orderReturn.update({ where: { id }, data });
+      }
+    });
+
+    if (nextItems || (dto.reason !== undefined && dto.reason !== ret.reason)) {
+      await this.syncOrderStateFromReturns(ret.orderId);
+    }
+    return this.getById(id, actor);
+  }
+
+  private async withOrderLines<
+    T extends {
+      id: string;
+      orderId: string;
+      items: Array<{ orderItemId: string; qtyReturned: number }>;
+    },
+  >(ret: T) {
+    const [orderItems, grouped] = await Promise.all([
+      this.prisma.orderItem.findMany({
+        where: { orderId: ret.orderId },
+        orderBy: { createdAt: "asc" },
+        include: { product: { select: { id: true, name: true, sku: true } } },
+      }),
+      this.prisma.orderReturnItem.groupBy({
+        by: ["orderItemId"],
+        where: { orderReturn: { orderId: ret.orderId, id: { not: ret.id } } },
+        _sum: { qtyReturned: true },
+      }),
+    ]);
+    const takenElsewhere = new Map(
+      grouped.map((row) => [row.orderItemId, row._sum.qtyReturned ?? 0]),
     );
+    const onThis = new Map(ret.items.map((item) => [item.orderItemId, item.qtyReturned]));
+    return {
+      ...ret,
+      orderLines: orderItems.map((item) => ({
+        id: item.id,
+        qty: item.qty,
+        maxQty: Math.max(0, item.qty - (takenElsewhere.get(item.id) ?? 0)),
+        qtyOnThisReturn: onThis.get(item.id) ?? 0,
+        price: item.price,
+        lineTotal: item.lineTotal,
+        productNameSnapshot: item.productNameSnapshot,
+        product: item.product,
+      })),
+    };
   }
 
   async updateExternalCode(id: string, externalCode: string, actor?: AuthUser) {

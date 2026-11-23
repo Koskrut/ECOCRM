@@ -13,6 +13,7 @@ import type {
   NovaPoshtaIntegrationConfig,
   OrderLineDiscountsConfig,
   OrderSerialNumbersConfig,
+  PayrollCompanyRatesConfig,
   StoreConfig,
   TelegramConfig,
 } from "./settings.service";
@@ -33,6 +34,18 @@ export class SettingsController {
   @Roles(UserRole.ADMIN)
   setExchangeRates(@Body() body: Partial<ExchangeRates>) {
     return this.settings.setExchangeRates(body);
+  }
+
+  @Get("payroll")
+  @Roles(UserRole.ADMIN)
+  getPayrollCompanyRates() {
+    return this.settings.getPayrollCompanyRates();
+  }
+
+  @Patch("payroll")
+  @Roles(UserRole.ADMIN)
+  setPayrollCompanyRates(@Body() body: Partial<PayrollCompanyRatesConfig>) {
+    return this.settings.setPayrollCompanyRates(body);
   }
 
   @Get("currency-config")

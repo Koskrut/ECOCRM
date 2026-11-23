@@ -94,6 +94,7 @@ enum NotificationType {
   CLIENT_ORDER_ACCEPTED
   RISK_ALERT
   DAILY_WORK_REPORT
+  MORNING_BRIEF
 }
 
 enum AuditAction {
@@ -724,6 +725,7 @@ model User {
   rbacAssignments            RbacUserRoleAssignment[]
   dataImportJobsCreated      DataImportJob[]           @relation("DataImportJobCreatedBy")
   fieldProfile               UserFieldProfile?
+  payrollProfile             UserPayrollProfile?
   fieldShifts                FieldShift[]
   fieldLocationSamples       FieldLocationSample[]
   fieldTrackingEvents        FieldTrackingEvent[]
@@ -1183,6 +1185,21 @@ model UserFieldProfile {
   usePersonalCar      Boolean   @default(true)
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+/// Ставки зарплаты сотрудника. Null-порог и проценты → правила компании.
+model UserPayrollProfile {
+  userId              String   @id
+  baseSalaryUah       Decimal  @default(0) @db.Decimal(14, 2)
+  amortizationUahPerKm Decimal @default(0) @db.Decimal(12, 4)
+  /// Персональный порог (грн). Задаётся вместе с обоими процентами или все null.
+  bonusThresholdUah   Decimal? @db.Decimal(14, 2)
+  bonusPercentUpTo    Decimal? @db.Decimal(8, 4)
+  bonusPercentAbove   Decimal? @db.Decimal(8, 4)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }

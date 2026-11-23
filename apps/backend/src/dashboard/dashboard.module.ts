@@ -13,6 +13,7 @@ import { DashboardV2Service } from "./dashboard-v2.service";
 import { ManagerDashboardService } from "./manager-dashboard.service";
 import { ManagerDailyReportCron } from "./manager-daily-report.cron";
 import { ManagerDailyReportService } from "./manager-daily-report.service";
+import { ManagerMorningBriefService } from "./manager-morning-brief.service";
 
 @Module({
   imports: [
@@ -31,6 +32,7 @@ import { ManagerDailyReportService } from "./manager-daily-report.service";
     ManagerDashboardService,
     EmployeeDailyActivityService,
     ManagerDailyReportService,
+    ManagerMorningBriefService,
     ManagerDailyReportCron,
   ],
 })

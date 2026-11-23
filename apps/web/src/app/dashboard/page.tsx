@@ -26,6 +26,7 @@ import {
 } from "@/components/dashboard/DashboardTabBar";
 import { DashboardTeamPulse } from "@/components/dashboard/DashboardTeamPulse";
 import { EmployeeDailyActivityPanel } from "@/components/dashboard/EmployeeDailyActivityPanel";
+import { PayrollCard } from "@/components/dashboard/PayrollCard";
 import { ManagerDashboardView } from "@/components/dashboard/manager/ManagerDashboardView";
 import { ErrorPanel, PageLoading } from "@/components/feedback";
 import type { BaseCurrency } from "@/lib/base-currency";
@@ -38,7 +39,7 @@ import { receivablesApi } from "@/lib/api/resources/receivables";
 type ManagerOption = { id: string; fullName: string };
 
 function parseLeadershipTab(raw: string | null): DashboardLeadershipTab {
-  if (raw === "team" || raw === "sales" || raw === "activity") return raw;
+  if (raw === "team" || raw === "sales" || raw === "activity" || raw === "payroll") return raw;
   return "today";
 }
 
@@ -256,15 +257,15 @@ function DashboardPageContent() {
     return <ManagerDashboardView userName={userName} userRole={userRole} />;
   }
 
-  if (loading && !data && tab !== "activity") {
+  if (loading && !data && tab !== "activity" && tab !== "payroll") {
     return <PageLoading />;
   }
 
-  if (error && !data && tab !== "activity") {
+  if (error && !data && tab !== "activity" && tab !== "payroll") {
     return <ErrorPanel message={error} onRetry={() => void load()} />;
   }
 
-  if (!data && tab !== "activity") {
+  if (!data && tab !== "activity" && tab !== "payroll") {
     return <ErrorPanel message="Немає даних" onRetry={() => void load()} />;
   }
 
@@ -308,7 +309,9 @@ function DashboardPageContent() {
             ? lt.tabHints.team
             : tab === "sales"
               ? lt.tabHints.sales
-              : lt.tabHints.activity}
+              : tab === "payroll"
+                ? lt.tabHints.payroll
+                : lt.tabHints.activity}
       </p>
 
       {managerId && tab === "team" ? (
@@ -392,6 +395,10 @@ function DashboardPageContent() {
 
       {tab === "activity" ? (
         <EmployeeDailyActivityPanel userRole={userRole} leads={leads} />
+      ) : null}
+
+      {tab === "payroll" ? (
+        <PayrollCard showTeam={userRole === "ADMIN" || userRole === "LEAD"} />
       ) : null}
 
       {tab === "sales" && data ? (

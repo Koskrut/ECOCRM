@@ -12,7 +12,7 @@ import {
 import * as XLSX from "xlsx";
 import { PrismaService } from "../prisma/prisma.service";
 import { kyivDayBounds } from "../crm-timezone";
-import { constrainsKitCapacity } from "./bom-part.util";
+import { constrainsKitCapacity, displayBottleneckSku } from "./bom-part.util";
 import { mixKitDemand, uncoveredKitDemand } from "./demand-mix.util";
 import { ForecastService } from "./forecast.service";
 import { PlanningCalculationService } from "./planning-calculation.service";
@@ -49,6 +49,14 @@ export type FactoryLineInput = {
   partProductId: string;
   qtyOrdered: number;
   dueAt?: string | null;
+};
+
+type FactoryKitPart = {
+  sku: string;
+  name: string;
+  qtyPerKit: number;
+  available: number;
+  isBottleneck: boolean;
 };
 
 const factoryProductSelect = {
@@ -104,15 +112,17 @@ export class FactoryOrderService {
       ...order,
       overdueLineCount: countOverdueLines(order.lines, order.dueAt),
       nearestLineDueYmd: nearestOpenLineDueYmd(order.lines, order.dueAt),
-      lines: order.lines.map((l) => ({
-        ...l,
-        effectiveDueAt: effectiveLineDueAt(l.dueAt, order.dueAt).toISOString(),
-        trackingStatus: factoryLineTrackingStatus({
-          qtyOrdered: l.qtyOrdered,
-          qtyReceived: l.qtyReceived,
-          effectiveDueAt: effectiveLineDueAt(l.dueAt, order.dueAt),
-        }),
-      })),
+      lines: await this.attachKitBreakdown(
+        order.lines.map((l) => ({
+          ...l,
+          effectiveDueAt: effectiveLineDueAt(l.dueAt, order.dueAt).toISOString(),
+          trackingStatus: factoryLineTrackingStatus({
+            qtyOrdered: l.qtyOrdered,
+            qtyReceived: l.qtyReceived,
+            effectiveDueAt: effectiveLineDueAt(l.dueAt, order.dueAt),
+          }),
+        })),
+      ),
     };
   }
 
@@ -669,6 +679,45 @@ export class FactoryOrderService {
     return new StreamableFile(buffer, {
       type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       disposition: `attachment; filename="factory-order-${order.id.slice(0, 8)}.xlsx"`,
+    });
+  }
+
+  /**
+   * Kit lines keep the kit as the order position and carry the BOM breakdown
+   * (same shape as a packing-list line) so the request shows parts underneath.
+   */
+  private async attachKitBreakdown<
+    T extends { partProductId: string; partProduct: { kind: ProductKind } },
+  >(lines: T[]) {
+    const kitIds = [
+      ...new Set(
+        lines
+          .filter((line) => line.partProduct.kind === ProductKind.KIT)
+          .map((line) => line.partProductId),
+      ),
+    ];
+    const caps = new Map<
+      string,
+      Awaited<ReturnType<PlanningCalculationService["getKitCapacity"]>>
+    >();
+    for (const kitId of kitIds) {
+      caps.set(kitId, await this.calculations.getKitCapacity(kitId));
+    }
+    return lines.map((line) => {
+      if (line.partProduct.kind !== ProductKind.KIT) {
+        return { ...line, parts: [] as FactoryKitPart[] };
+      }
+      const cap = caps.get(line.partProductId);
+      const parts: FactoryKitPart[] = (cap?.components ?? [])
+        .filter((component) => component.constrainsCapacity && component.product)
+        .map((component) => ({
+          sku: displayBottleneckSku(component.product!.sku, component.product!.name),
+          name: component.product!.name,
+          qtyPerKit: component.qtyPerKit,
+          available: component.available,
+          isBottleneck: component.componentProductId === cap?.bottleneckComponentId,
+        }));
+      return { ...line, parts };
     });
   }
 

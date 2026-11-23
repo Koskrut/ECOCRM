@@ -976,4 +976,115 @@ describe("OrderReturnsService", () => {
     assert.deepEqual(stages, ["REFUSED"]);
     assert.equal(recalc, true);
   });
+
+  it("update reduces returned qty and resyncs the order adjustment", async () => {
+    const itemUpdates: Array<{ id: string; qtyReturned: number }> = [];
+    const orderUpdates: Array<Record<string, unknown>> = [];
+    const existingReturn = {
+      id: "r1",
+      orderId: "o1",
+      status: "RECEIVED_BY_WAREHOUSE",
+      reason: "CUSTOMER_CHANGE",
+      settledAt: null,
+      replacementOrderId: null,
+      itemsPending: false,
+      items: [{ id: "ri1", orderItemId: "i1", qtyReturned: 2 }],
+      order: {
+        id: "o1",
+        ownerId: "u1",
+        items: [{ id: "i1", qty: 4, price: 100, lineTotal: 400 }],
+      },
+    };
+    const prisma = {
+      orderReturn: {
+        findUnique: async () => existingReturn,
+        count: async () => 1,
+        findMany: async () => [
+          {
+            status: "RECEIVED_BY_WAREHOUSE",
+            reason: "DEFECT",
+            outboundWaivedAt: null,
+            items: [
+              {
+                orderItemId: "i1",
+                qtyReturned: 1,
+                orderItem: { qty: 4, lineTotal: 400, price: 100 },
+              },
+            ],
+          },
+        ],
+        update: async () => existingReturn,
+      },
+      orderReturnItem: {
+        groupBy: async () => [],
+      },
+      orderItem: {
+        findMany: async () => [
+          {
+            id: "i1",
+            qty: 4,
+            price: 100,
+            lineTotal: 400,
+            productNameSnapshot: "Товар",
+            product: { id: "p1", name: "Товар", sku: "A" },
+          },
+        ],
+      },
+      order: {
+        findUnique: async () => ({
+          id: "o1",
+          ownerId: "u1",
+          orderStage: "RECEIVED",
+          subtotalAmount: 400,
+          totalAmount: 400,
+          paymentType: "POSTPAYMENT",
+          paidAmount: 0,
+          debtAmount: 300,
+          returnAdjustmentAmount: 100,
+          paymentDueDate: null,
+          items: [{ id: "i1", qty: 4 }],
+        }),
+        update: async (args: { data: Record<string, unknown> }) => {
+          orderUpdates.push(args.data);
+          return {};
+        },
+      },
+      warehouse: {
+        findUnique: async () => ({ id: "wh1" }),
+      },
+      $transaction: async (
+        cb: (tx: {
+          orderReturnItem: {
+            deleteMany: (args: unknown) => Promise<unknown>;
+            update: (args: { where: { id: string }; data: { qtyReturned: number } }) => Promise<unknown>;
+            create: (args: unknown) => Promise<unknown>;
+          };
+          orderReturn: { update: (args: unknown) => Promise<unknown> };
+        }) => Promise<unknown>,
+      ) =>
+        cb({
+          orderReturnItem: {
+            deleteMany: async () => ({ count: 0 }),
+            update: async (args) => {
+              itemUpdates.push({ id: args.where.id, qtyReturned: args.data.qtyReturned });
+              return {};
+            },
+            create: async () => ({}),
+          },
+          orderReturn: { update: async () => existingReturn },
+        }),
+    } as unknown as PrismaSvc;
+
+    const svc = createService(prisma);
+    const updated = await svc.update("r1", {
+      reason: "DEFECT",
+      warehouseId: "wh1",
+      items: [{ orderItemId: "i1", qtyReturned: 1 }],
+    });
+
+    assert.deepEqual(itemUpdates, [{ id: "ri1", qtyReturned: 1 }]);
+    assert.ok(orderUpdates.some((row) => row.returnAdjustmentAmount === 100));
+    assert.equal(updated.orderLines[0]?.qtyOnThisReturn, 2);
+    assert.equal(updated.orderLines[0]?.maxQty, 4);
+  });
 });

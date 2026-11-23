@@ -40,12 +40,41 @@ export type CurrencyConfig = {
 };
 
 const EXCHANGE_RATES_KEY = "exchange_rates";
+const PAYROLL_RATES_KEY = "payroll.company_rates";
 const DEFAULT_RATES: ExchangeRates = {
   UAH_TO_USD: 0.024,
   UAH_TO_EUR: 0.024 / 1.05,
   EUR_TO_USD: 1.05,
   baseCurrency: "USD",
 };
+
+export type PayrollCompanyRatesConfig = {
+  thresholdUah: number;
+  percentUpTo: number;
+  percentAbove: number;
+};
+
+const DEFAULT_PAYROLL_RATES: PayrollCompanyRatesConfig = {
+  thresholdUah: 25000,
+  percentUpTo: 2,
+  percentAbove: 2.5,
+};
+
+function normalizePayrollCompanyRates(v: Record<string, unknown>): PayrollCompanyRatesConfig {
+  const thresholdUah =
+    typeof v.thresholdUah === "number" && Number.isFinite(v.thresholdUah) && v.thresholdUah >= 0
+      ? v.thresholdUah
+      : DEFAULT_PAYROLL_RATES.thresholdUah;
+  const percentUpTo =
+    typeof v.percentUpTo === "number" && Number.isFinite(v.percentUpTo) && v.percentUpTo >= 0
+      ? v.percentUpTo
+      : DEFAULT_PAYROLL_RATES.percentUpTo;
+  const percentAbove =
+    typeof v.percentAbove === "number" && Number.isFinite(v.percentAbove) && v.percentAbove >= 0
+      ? v.percentAbove
+      : DEFAULT_PAYROLL_RATES.percentAbove;
+  return { thresholdUah, percentUpTo, percentAbove };
+}
 
 function normalizeExchangeRates(v: Record<string, unknown>): ExchangeRates {
   const UAH_TO_USD =
@@ -125,6 +154,15 @@ export type TelegramDailyWorkReportConfig = {
   teamSummary: boolean;
 };
 
+export type TelegramMorningBriefConfig = {
+  /** Master switch for the morning leads / risk / overdue digest. */
+  enabled: boolean;
+  /** Local Europe/Kyiv wall time `HH:mm`. */
+  time: string;
+  /** When true, skip Saturday and Sunday. */
+  weekdaysOnly: boolean;
+};
+
 export type TelegramConfig = {
   botToken?: string;
   webhookSecret?: string;
@@ -141,6 +179,8 @@ export type TelegramConfig = {
   aiModel?: string;
   /** End-of-day manager work report via Telegram DM. */
   dailyWorkReport?: TelegramDailyWorkReportConfig;
+  /** Morning leads, churn-risk and overdue-receivables digest. */
+  morningBrief?: TelegramMorningBriefConfig;
 };
 
 export const DEFAULT_TELEGRAM_DAILY_WORK_REPORT: TelegramDailyWorkReportConfig = {
@@ -148,6 +188,12 @@ export const DEFAULT_TELEGRAM_DAILY_WORK_REPORT: TelegramDailyWorkReportConfig =
   time: "18:00",
   weekdaysOnly: true,
   teamSummary: true,
+};
+
+export const DEFAULT_TELEGRAM_MORNING_BRIEF: TelegramMorningBriefConfig = {
+  enabled: true,
+  time: "08:30",
+  weekdaysOnly: true,
 };
 
 const DAILY_WORK_REPORT_TIME_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
@@ -176,6 +222,29 @@ export function normalizeTelegramDailyWorkReportConfig(
       typeof src.teamSummary === "boolean"
         ? src.teamSummary
         : DEFAULT_TELEGRAM_DAILY_WORK_REPORT.teamSummary,
+  };
+}
+
+export function normalizeTelegramMorningBriefConfig(
+  raw: unknown,
+): TelegramMorningBriefConfig {
+  const src =
+    raw && typeof raw === "object" && !Array.isArray(raw)
+      ? (raw as Record<string, unknown>)
+      : {};
+  const timeRaw = typeof src.time === "string" ? src.time.trim() : "";
+  return {
+    enabled:
+      typeof src.enabled === "boolean"
+        ? src.enabled
+        : DEFAULT_TELEGRAM_MORNING_BRIEF.enabled,
+    time: DAILY_WORK_REPORT_TIME_RE.test(timeRaw)
+      ? timeRaw
+      : DEFAULT_TELEGRAM_MORNING_BRIEF.time,
+    weekdaysOnly:
+      typeof src.weekdaysOnly === "boolean"
+        ? src.weekdaysOnly
+        : DEFAULT_TELEGRAM_MORNING_BRIEF.weekdaysOnly,
   };
 }
 
@@ -575,6 +644,48 @@ export class SettingsService {
   async getCurrencyConfig(): Promise<CurrencyConfig> {
     const rates = await this.getExchangeRates();
     return { baseCurrency: getBaseCurrency(rates) };
+  }
+
+  async getPayrollCompanyRates(): Promise<PayrollCompanyRatesConfig> {
+    const row = await this.prisma.systemSetting.findUnique({
+      where: { id: PAYROLL_RATES_KEY },
+    });
+    if (!row || !row.value || typeof row.value !== "object") {
+      return { ...DEFAULT_PAYROLL_RATES };
+    }
+    return normalizePayrollCompanyRates(row.value as Record<string, unknown>);
+  }
+
+  async setPayrollCompanyRates(
+    rates: Partial<PayrollCompanyRatesConfig>,
+  ): Promise<PayrollCompanyRatesConfig> {
+    const current = await this.getPayrollCompanyRates();
+    const next = normalizePayrollCompanyRates({
+      thresholdUah: rates.thresholdUah ?? current.thresholdUah,
+      percentUpTo: rates.percentUpTo ?? current.percentUpTo,
+      percentAbove: rates.percentAbove ?? current.percentAbove,
+    });
+    if (rates.thresholdUah !== undefined) {
+      if (!Number.isFinite(rates.thresholdUah) || rates.thresholdUah < 0) {
+        throw new BadRequestException("thresholdUah must be a non-negative number");
+      }
+    }
+    if (rates.percentUpTo !== undefined) {
+      if (!Number.isFinite(rates.percentUpTo) || rates.percentUpTo < 0) {
+        throw new BadRequestException("percentUpTo must be a non-negative number");
+      }
+    }
+    if (rates.percentAbove !== undefined) {
+      if (!Number.isFinite(rates.percentAbove) || rates.percentAbove < 0) {
+        throw new BadRequestException("percentAbove must be a non-negative number");
+      }
+    }
+    await this.prisma.systemSetting.upsert({
+      where: { id: PAYROLL_RATES_KEY },
+      create: { id: PAYROLL_RATES_KEY, value: next },
+      update: { value: next },
+    });
+    return next;
   }
 
   async setExchangeRates(rates: Partial<ExchangeRates>): Promise<ExchangeRates> {
@@ -1115,6 +1226,7 @@ export class SettingsService {
     if (!row || !row.value || typeof row.value !== "object") {
       return {
         dailyWorkReport: { ...DEFAULT_TELEGRAM_DAILY_WORK_REPORT },
+        morningBrief: { ...DEFAULT_TELEGRAM_MORNING_BRIEF },
       };
     }
     const v = row.value as Record<string, unknown>;
@@ -1135,12 +1247,18 @@ export class SettingsService {
       aiOpenaiApiKeyMasked: maskToken(aiOpenaiApiKey),
       aiModel: typeof v.aiModel === "string" ? v.aiModel : undefined,
       dailyWorkReport: normalizeTelegramDailyWorkReportConfig(v.dailyWorkReport),
+      morningBrief: normalizeTelegramMorningBriefConfig(v.morningBrief),
     };
   }
 
   async getTelegramDailyWorkReportConfig(): Promise<TelegramDailyWorkReportConfig> {
     const cfg = await this.getTelegramConfig();
     return cfg.dailyWorkReport ?? { ...DEFAULT_TELEGRAM_DAILY_WORK_REPORT };
+  }
+
+  async getTelegramMorningBriefConfig(): Promise<TelegramMorningBriefConfig> {
+    const cfg = await this.getTelegramConfig();
+    return cfg.morningBrief ?? { ...DEFAULT_TELEGRAM_MORNING_BRIEF };
   }
 
   async setTelegramConfig(
@@ -1191,6 +1309,14 @@ export class SettingsService {
             }
           : current.dailyWorkReport,
       ),
+      morningBrief: normalizeTelegramMorningBriefConfig(
+        config.morningBrief !== undefined
+          ? {
+              ...normalizeTelegramMorningBriefConfig(current.morningBrief),
+              ...config.morningBrief,
+            }
+          : current.morningBrief,
+      ),
     };
     if (config.botToken === "") next.botToken = undefined;
     if (config.webhookSecret === "") next.webhookSecret = undefined;
@@ -1220,6 +1346,7 @@ export class SettingsService {
       aiOpenaiApiKeyMasked: maskToken(next.aiOpenaiApiKey as string | undefined),
       aiModel: next.aiModel as string | undefined,
       dailyWorkReport: next.dailyWorkReport as TelegramDailyWorkReportConfig,
+      morningBrief: next.morningBrief as TelegramMorningBriefConfig,
     };
   }
 

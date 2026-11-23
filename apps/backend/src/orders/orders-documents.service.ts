@@ -7,6 +7,7 @@ import { PaymentRequestsService } from "../payment-requests/payment-requests.ser
 import { buildNbuPaymentDeeplink } from "../payment-requests/nbu-qr";
 import { PrismaService } from "../prisma/prisma.service";
 import { SettingsService } from "../settings/settings.service";
+import { applyReturnsToIssuedOrder } from "./order-document-net.utils";
 import { exportUnitPrice } from "./order-line-total.utils";
 import { resolveDocumentFontPaths } from "./orders-documents-fonts";
 
@@ -39,6 +40,14 @@ const ORDER_DOCUMENTS_INCLUDE = {
   items: {
     include: {
       product: { select: { id: true, sku: true, name: true, unit: true } },
+    },
+  },
+  returns: {
+    select: {
+      status: true,
+      reason: true,
+      outboundWaivedAt: true,
+      items: { select: { orderItemId: true, qtyReturned: true } },
     },
   },
 } as const;
@@ -399,16 +408,17 @@ export class OrdersDocumentsService {
    * Returns null when requisites/amount are incomplete (PDF still builds without the block).
    */
   async buildInvoicePaymentBlock(order: OrderForDocument): Promise<InvoicePaymentBlock | null> {
-    const requisites = (order.bankAccount?.documentRequisites as DocumentRequisites | null) ?? null;
-    const meta = this.sellerMeta(requisites, order.bankAccount?.iban ?? null);
-    const amountUah = invoiceAmountUah(order);
+    const issued = applyReturnsToIssuedOrder(order);
+    const requisites = (issued.bankAccount?.documentRequisites as DocumentRequisites | null) ?? null;
+    const meta = this.sellerMeta(requisites, issued.bankAccount?.iban ?? null);
+    const amountUah = invoiceAmountUah(issued);
     if (!amountUah || !meta.iban || !meta.legalName || meta.legalName === "—" || !meta.edrpou) {
       return null;
     }
     const codeDigits = meta.edrpou.replace(/\D/g, "");
     if (codeDigits.length !== 8 && codeDigits.length !== 10) return null;
 
-    const purpose = buildInvoicePaymentPurpose(order.orderNumber);
+    const purpose = buildInvoicePaymentPurpose(issued.orderNumber);
     try {
       const nbuDeeplink = buildNbuPaymentDeeplink({
         recipientName: meta.legalName.slice(0, 70),
@@ -417,10 +427,10 @@ export class OrdersDocumentsService {
         currency: "UAH",
         amount: amountUah,
         purpose,
-        displayText: `Замовлення ${order.orderNumber}`.slice(0, 70),
+        displayText: `Замовлення ${issued.orderNumber}`.slice(0, 70),
       });
       const payUrl =
-        (await this.resolveShortPayUrl(order, amountUah, purpose)) ?? nbuDeeplink;
+        (await this.resolveShortPayUrl(issued, amountUah, purpose)) ?? nbuDeeplink;
       const QR = await import("qrcode");
       const qrPng = await QR.toBuffer(nbuDeeplink, {
         type: "png",
@@ -462,9 +472,12 @@ export class OrdersDocumentsService {
         take: 10,
       });
       for (const row of existing) {
-        if (effectivePaymentRequestStatus(row, now) === "PENDING") {
-          return buildPublicPayUrl(base, row.publicToken);
+        if (effectivePaymentRequestStatus(row, now) !== "PENDING") continue;
+        const pendingAmount = Number(row.amount);
+        if (Number.isFinite(pendingAmount) && Math.abs(pendingAmount - amountUah) > 0.009) {
+          continue;
         }
+        return buildPublicPayUrl(base, row.publicToken);
       }
 
       const expiresAt = new Date();
@@ -488,16 +501,17 @@ export class OrdersDocumentsService {
     order: OrderForDocument,
     payment: InvoicePaymentBlock | null,
   ) {
+    const issued = applyReturnsToIssuedOrder(order);
     const fonts = this.registerFonts(doc);
     const requisites = (order.bankAccount?.documentRequisites as DocumentRequisites | null) ?? null;
     const seller = this.sellerLines(requisites, order.bankAccount?.iban ?? null);
     const meta = this.sellerMeta(requisites, order.bankAccount?.iban ?? null);
-    const buyer = this.buyerLine(order.contact, order.company);
-    const header = documentHeaderFromOrder(order);
+    const buyer = this.buyerLine(issued.contact, issued.company);
+    const header = documentHeaderFromOrder(issued);
 
     doc.fillColor("#000").strokeColor("#000");
     doc.font(fonts.regular).fontSize(7.5);
-    doc.text(buildInvoiceWarning(order.orderNumber), L, TOP, {
+    doc.text(buildInvoiceWarning(issued.orderNumber), L, TOP, {
       width: W,
       align: "left",
       lineGap: 0.8,
@@ -516,11 +530,11 @@ export class OrdersDocumentsService {
 
     doc.y += 10;
     this.drawParties(doc, fonts, seller, buyer);
-    this.drawGoodsTable(doc, fonts, order);
-    this.drawTotalsBlock(doc, fonts, order);
+    this.drawGoodsTable(doc, fonts, issued);
+    this.drawTotalsBlock(doc, fonts, issued);
 
     if (payment) {
-      this.drawInvoicePaymentBlock(doc, fonts, payment, order.orderNumber);
+      this.drawInvoicePaymentBlock(doc, fonts, payment, issued.orderNumber);
     }
 
     doc.y += 18;
@@ -595,11 +609,12 @@ export class OrdersDocumentsService {
   }
 
   private drawWaybill(doc: PdfDoc, order: OrderForDocument) {
+    const issued = applyReturnsToIssuedOrder(order);
     const fonts = this.registerFonts(doc);
-    const requisites = (order.bankAccount?.documentRequisites as DocumentRequisites | null) ?? null;
-    const seller = this.sellerLines(requisites, order.bankAccount?.iban ?? null);
-    const buyer = this.buyerLine(order.contact, order.company);
-    const header = documentHeaderFromOrder(order);
+    const requisites = (issued.bankAccount?.documentRequisites as DocumentRequisites | null) ?? null;
+    const seller = this.sellerLines(requisites, issued.bankAccount?.iban ?? null);
+    const buyer = this.buyerLine(issued.contact, issued.company);
+    const header = documentHeaderFromOrder(issued);
 
     doc.fillColor("#000").strokeColor("#000");
     doc.font(fonts.bold).fontSize(12);
@@ -612,8 +627,8 @@ export class OrdersDocumentsService {
 
     doc.y += 12;
     this.drawParties(doc, fonts, seller, buyer);
-    this.drawGoodsTable(doc, fonts, order);
-    this.drawTotalsBlock(doc, fonts, order);
+    this.drawGoodsTable(doc, fonts, issued);
+    this.drawTotalsBlock(doc, fonts, issued);
     this.drawWaybillSignatures(doc, fonts);
   }
 

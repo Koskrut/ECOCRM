@@ -14,6 +14,12 @@ type TelegramDailyWorkReportConfig = {
   teamSummary: boolean;
 };
 
+type TelegramMorningBriefConfig = {
+  enabled: boolean;
+  time: string;
+  weekdaysOnly: boolean;
+};
+
 type TelegramConfig = {
   botTokenMasked?: string;
   webhookSecretMasked?: string;
@@ -24,6 +30,7 @@ type TelegramConfig = {
   aiOpenaiApiKeyMasked?: string;
   aiModel?: string;
   dailyWorkReport?: TelegramDailyWorkReportConfig;
+  morningBrief?: TelegramMorningBriefConfig;
 };
 
 const DEFAULT_DAILY_WORK_REPORT: TelegramDailyWorkReportConfig = {
@@ -31,6 +38,12 @@ const DEFAULT_DAILY_WORK_REPORT: TelegramDailyWorkReportConfig = {
   time: "18:00",
   weekdaysOnly: true,
   teamSummary: true,
+};
+
+const DEFAULT_MORNING_BRIEF: TelegramMorningBriefConfig = {
+  enabled: true,
+  time: "08:30",
+  weekdaysOnly: true,
 };
 
 type WebhookInfo = {
@@ -57,6 +70,8 @@ export default function TelegramSettingsPage() {
   const [aiModel, setAiModel] = useState("");
   const [dailyWorkReport, setDailyWorkReport] =
     useState<TelegramDailyWorkReportConfig>(DEFAULT_DAILY_WORK_REPORT);
+  const [morningBrief, setMorningBrief] =
+    useState<TelegramMorningBriefConfig>(DEFAULT_MORNING_BRIEF);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -95,6 +110,10 @@ export default function TelegramSettingsPage() {
         ...DEFAULT_DAILY_WORK_REPORT,
         ...(data.dailyWorkReport ?? {}),
       });
+      setMorningBrief({
+        ...DEFAULT_MORNING_BRIEF,
+        ...(data.morningBrief ?? {}),
+      });
       setPublicStoreUrl(
         typeof storeRes.data?.publicStoreUrl === "string" ? storeRes.data.publicStoreUrl : "",
       );
@@ -125,6 +144,11 @@ export default function TelegramSettingsPage() {
           weekdaysOnly: dailyWorkReport.weekdaysOnly,
           teamSummary: dailyWorkReport.teamSummary,
         },
+        morningBrief: {
+          enabled: morningBrief.enabled,
+          time: morningBrief.time.trim() || DEFAULT_MORNING_BRIEF.time,
+          weekdaysOnly: morningBrief.weekdaysOnly,
+        },
       };
       if (botToken !== "") body.botToken = botToken;
       if (webhookSecret !== "") body.webhookSecret = webhookSecret;
@@ -148,6 +172,10 @@ export default function TelegramSettingsPage() {
       setDailyWorkReport({
         ...DEFAULT_DAILY_WORK_REPORT,
         ...(data.dailyWorkReport ?? dailyWorkReport),
+      });
+      setMorningBrief({
+        ...DEFAULT_MORNING_BRIEF,
+        ...(data.morningBrief ?? morningBrief),
       });
       setPublicStoreUrl(
         typeof storeRes.data?.publicStoreUrl === "string"
@@ -380,6 +408,66 @@ export default function TelegramSettingsPage() {
                 placeholder="https://shop.example.com"
                 className="mt-2 w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
               />
+            </div>
+          </div>
+
+          <div className="mt-6 border-t border-zinc-200 pt-5">
+            <h3 className="text-sm font-semibold text-zinc-800">
+              Ранкове зведення менеджерам
+            </h3>
+            <p className="mt-0.5 text-xs text-zinc-500">
+              Особисте повідомлення в Telegram: відкриті ліди, повний список клієнтів «ризик
+              втрати» і топ 20 з простроченою дебіторкою. Час — Europe/Kyiv. Канал можна вимкнути в{" "}
+              <Link
+                href="/settings/notifications"
+                className="text-zinc-800 underline underline-offset-2"
+              >
+                Налаштування → Сповіщення
+              </Link>
+              .
+            </p>
+            <div className="mt-3 space-y-3">
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={morningBrief.enabled}
+                  onChange={(e) =>
+                    setMorningBrief((prev) => ({ ...prev, enabled: e.target.checked }))
+                  }
+                  className="rounded border-zinc-300"
+                />
+                <span className="text-sm text-zinc-700">Увімкнути ранкове зведення</span>
+              </label>
+              <div>
+                <label className="block text-sm font-medium text-zinc-700">
+                  Час відправки (Київ)
+                </label>
+                <input
+                  type="time"
+                  value={morningBrief.time}
+                  onChange={(e) =>
+                    setMorningBrief((prev) => ({
+                      ...prev,
+                      time: e.target.value || DEFAULT_MORNING_BRIEF.time,
+                    }))
+                  }
+                  className="mt-1 w-40 rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900"
+                />
+              </div>
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={morningBrief.weekdaysOnly}
+                  onChange={(e) =>
+                    setMorningBrief((prev) => ({
+                      ...prev,
+                      weekdaysOnly: e.target.checked,
+                    }))
+                  }
+                  className="rounded border-zinc-300"
+                />
+                <span className="text-sm text-zinc-700">Лише будні (пн–пт)</span>
+              </label>
             </div>
           </div>
 

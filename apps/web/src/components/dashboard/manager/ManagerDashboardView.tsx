@@ -46,6 +46,7 @@ import {
   type ManagerReadyStockOrder,
 } from "./ManagerReadyStockOrdersPanel";
 import { ManagerSalesPulse, type ManagerDebtSummary } from "./ManagerSalesPulse";
+import { PayrollCard } from "@/components/dashboard/PayrollCard";
 
 type Props = {
   userName: string | null;
@@ -338,6 +339,8 @@ export function ManagerDashboardView({ userName, userRole }: Props) {
   return (
     <div className="space-y-6">
       <ManagerDashboardHeader userName={userName} onNewLead={() => setCreateLeadOpen(true)} />
+
+      <PayrollCard />
 
       {scorecardLoading && !scorecard ? (
         <div className="h-28 animate-pulse rounded-xl bg-zinc-100" />

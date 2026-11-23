@@ -11,6 +11,7 @@ import { CustomFieldsModule } from "./custom-fields/custom-fields.module";
 import { DashboardModule } from "./dashboard/dashboard.module";
 import { DailyAgendaModule } from "./daily-agenda/daily-agenda.module";
 import { DayPlanModule } from "./day-plan/day-plan.module";
+import { PayrollModule } from "./payroll/payroll.module";
 import { DictionariesModule } from "./dictionaries/dictionaries.module";
 import { LayoutsModule } from "./layouts/layouts.module";
 import { LeadsModule } from "./leads/leads.module";
@@ -88,6 +89,7 @@ import { CannedResponsesModule } from "./canned-responses/canned-responses.modul
     AuthModule,
     AnalyticsModule,
     DashboardModule,
+    PayrollModule,
     DayPlanModule,
     DailyAgendaModule,
     ActivitiesModule,
