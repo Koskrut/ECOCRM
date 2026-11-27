@@ -142,6 +142,48 @@ describe("findOrderClosePayment", () => {
     }
   });
 
+  it("excludes pre-ship stages even when fully paid", () => {
+    for (const stage of ["NEW", "AWAITING_PAYMENT", "AWAITING_STOCK", "CONFIRMED"] as const) {
+      const o = order({
+        id: `pre-${stage}`,
+        currency: "USD",
+        orderStage: stage,
+        totalAmount: 5000,
+        payments: [
+          {
+            amount: 5000,
+            currency: "USD",
+            amountUsd: 5000,
+            paidAt: new Date("2026-11-01T10:00:00Z"),
+            status: "COMPLETED",
+          },
+        ],
+      });
+      assert.equal(findOrderClosePayment(o, rates), null, stage);
+    }
+  });
+
+  it("keeps READY_TO_SHIP+ fully paid orders", () => {
+    const o = order({
+      id: "rts",
+      currency: "USD",
+      orderStage: "READY_TO_SHIP",
+      totalAmount: 5000,
+      payments: [
+        {
+          amount: 5000,
+          currency: "USD",
+          amountUsd: 5000,
+          paidAt: new Date("2026-11-01T10:00:00Z"),
+          status: "COMPLETED",
+        },
+      ],
+    });
+    const closed = findOrderClosePayment(o, rates);
+    assert.ok(closed);
+    assert.equal(closed!.effectiveTotal, 5000);
+  });
+
   it("negative CREDIT_TRANSFER prevents early close", () => {
     const o = order({
       id: "o3",

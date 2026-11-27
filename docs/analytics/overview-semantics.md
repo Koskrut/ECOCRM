@@ -10,7 +10,7 @@ Cross-cutting KPIs: **booked** vs **collected**, orders, debt, lead creation and
 
 | Concept | Meaning | Date field | Tables |
 |--------|---------|------------|--------|
-| **Booked revenue** | `max(0, totalAmount − returnAdjustmentAmount)` per order, converted to USD | Order **createdAt** (period filter) | `Order` + exchange rates |
+| **Booked revenue** | `max(0, totalAmount − returnAdjustmentAmount)` per order, converted to USD; stages **READY_TO_SHIP+** only (excludes NEW / AWAITING_STOCK / other pre-ship and voids) | Order **createdAt** (period filter) | `Order` + exchange rates |
 | **Collected payments** | Completed payments in USD (`amountUsd` or converted `amount`) | Payment **paidAt** (period filter) | `Payment` + parent order scope |
 
 They are different business events; do not sum or label them as one series.

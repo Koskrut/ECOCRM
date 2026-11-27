@@ -1,7 +1,10 @@
 import type { Prisma } from "@prisma/client";
 import { UserRole } from "@prisma/client";
 import type { AuthUser } from "../../auth/auth.types";
-import { ANALYTICS_EXCLUDED_ORDER_STAGES } from "../analytics.constants";
+import {
+  ANALYTICS_BOOKED_EXCLUDED_ORDER_STAGES,
+  ANALYTICS_EXCLUDED_ORDER_STAGES,
+} from "../analytics.constants";
 
 export type OrderScopeInput = {
   actor: AuthUser;
@@ -9,21 +12,63 @@ export type OrderScopeInput = {
   allowedOwnerIds?: string[];
 };
 
-export function buildPeriodOrderWhere(
-  from: Date,
-  to: Date,
-  scope: OrderScopeInput,
-): Prisma.OrderWhereInput {
-  const where: Prisma.OrderWhereInput = {
-    createdAt: { gte: from, lte: to },
+/** Stage clause for booked sales KPIs: READY_TO_SHIP+ (and legacy null), not pre-ship drafts. */
+export function bookedOrderStageClause(): Prisma.OrderWhereInput {
+  return {
+    OR: [
+      { orderStage: { notIn: [...ANALYTICS_BOOKED_EXCLUDED_ORDER_STAGES] } },
+      { orderStage: null },
+    ],
+  };
+}
+
+/** Stage clause for pipeline charts: all non-void stages (includes NEW / AWAITING_STOCK). */
+export function pipelineOrderStageClause(): Prisma.OrderWhereInput {
+  return {
     OR: [
       { orderStage: { notIn: [...ANALYTICS_EXCLUDED_ORDER_STAGES] } },
       { orderStage: null },
     ],
   };
+}
+
+function applyOrderScope(
+  where: Prisma.OrderWhereInput,
+  scope: OrderScopeInput,
+): Prisma.OrderWhereInput {
   if (scope.managerId) where.ownerId = scope.managerId;
   else if (scope.allowedOwnerIds !== undefined) where.ownerId = { in: scope.allowedOwnerIds };
   return where;
+}
+
+/** Period orders that count as booked / “real” sales (excludes pre-ship + voids). */
+export function buildPeriodOrderWhere(
+  from: Date,
+  to: Date,
+  scope: OrderScopeInput,
+): Prisma.OrderWhereInput {
+  return applyOrderScope(
+    {
+      createdAt: { gte: from, lte: to },
+      ...bookedOrderStageClause(),
+    },
+    scope,
+  );
+}
+
+/** Period orders for stage/pipeline breakdown (excludes voids only). */
+export function buildPeriodPipelineOrderWhere(
+  from: Date,
+  to: Date,
+  scope: OrderScopeInput,
+): Prisma.OrderWhereInput {
+  return applyOrderScope(
+    {
+      createdAt: { gte: from, lte: to },
+      ...pipelineOrderStageClause(),
+    },
+    scope,
+  );
 }
 
 export function buildLeadPeriodWhere(
@@ -75,4 +120,3 @@ export function buildOverdueTaskWhereForPeriod(
   }
   return where;
 }
-

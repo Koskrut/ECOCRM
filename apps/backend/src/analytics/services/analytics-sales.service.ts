@@ -7,6 +7,7 @@ import {
   buildOverdueTaskWhereForPeriod,
   buildPaymentPeriodWhere,
   buildPeriodOrderWhere,
+  buildPeriodPipelineOrderWhere,
 } from "../utils/analytics-filter.builder";
 import { previousPeriodOfSameLength, type ResolvedPeriod } from "../utils/analytics-date.util";
 import { safeNum, getBaseCurrency, paymentToBase, toBaseCurrency } from "../utils/analytics-currency.util";
@@ -79,6 +80,7 @@ export class AnalyticsSalesService {
     flags: { includeOverdueForPeriod: boolean; includeByStage: boolean },
   ): Promise<SalesPayload> {
     const orderWhere = buildPeriodOrderWhere(period.from, period.to, scope.orderScope);
+    const pipelineOrderWhere = buildPeriodPipelineOrderWhere(period.from, period.to, scope.orderScope);
     const orderOwnerPrismaWhere: Prisma.OrderWhereInput = {};
     if (scope.orderScope.managerId) orderOwnerPrismaWhere.ownerId = scope.orderScope.managerId;
     else if (scope.orderScope.allowedOwnerIds !== undefined) {
@@ -102,7 +104,11 @@ export class AnalyticsSalesService {
         select: { amount: true, currency: true, amountUsd: true },
       }),
       flags.includeByStage
-        ? this.prisma.order.groupBy({ by: ["orderStage"], where: orderWhere, _count: { id: true } })
+        ? this.prisma.order.groupBy({
+            by: ["orderStage"],
+            where: pipelineOrderWhere,
+            _count: { id: true },
+          })
         : Promise.resolve([]),
       flags.includeOverdueForPeriod
         ? this.prisma.task.count({ where: overdueWhere })

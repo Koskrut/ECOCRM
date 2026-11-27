@@ -39,7 +39,7 @@ export function DashboardExecutiveKpis({
         <div>
           <h2 className="text-lg font-semibold text-zinc-900">Ключові показники</h2>
           <p className="mt-1 text-sm text-zinc-500">
-            Заброньований дохід і зібрані оплати — різні метрики. Порівняння — лише коли увімкнено.
+            Продажі — від «Готово до відправки» (без Новий / Очікує склад). Оплати — окрема метрика.
           </p>
         </div>
         {showAnalyticsLink ? (
@@ -55,7 +55,7 @@ export function DashboardExecutiveKpis({
         <KpiDeltaCard
           variant="money"
           title="Заброньований дохід"
-          subtitle="Замовлення за період (createdAt)"
+          subtitle="Від «Готово до відправки» і далі"
           value={formatMoneyBase(kpi.bookedRevenue, currency)}
           deltaLabel={
             compareEnabled ? deltaMoneyLine(kpi.bookedRevenue, cmp?.bookedRevenue) : null
@@ -72,15 +72,15 @@ export function DashboardExecutiveKpis({
         />
         <KpiDeltaCard
           variant="count"
-          title="Замовлення"
-          subtitle="Кількість замовлень"
+          title="Продажі"
+          subtitle="Реальні: без Новий / Очікує склад"
           value={formatNumber(kpi.ordersCount)}
           deltaLabel={compareEnabled ? deltaCountLine(kpi.ordersCount, cmp?.ordersCount) : null}
         />
         <KpiDeltaCard
           variant="money"
           title="Середній чек"
-          subtitle="Дохід / замовлення"
+          subtitle="Дохід / продажі"
           value={formatMoneyBaseFine(kpi.avgCheck, currency)}
           deltaLabel={compareEnabled ? deltaMoneyLineFine(kpi.avgCheck, cmp?.avgCheck) : null}
         />

@@ -327,6 +327,7 @@ export function ReturnModal({
           items?: Array<{
             id: string;
             qty: number;
+            productName?: string | null;
             productNameSnapshot?: string | null;
             product?: { id: string; name: string; sku: string | null } | null;
           }>;
@@ -342,7 +343,7 @@ export function ReturnModal({
           id: item.id,
           maxQty: item.qty,
           qtyOnThisReturn: 0,
-          productNameSnapshot: item.productNameSnapshot,
+          productNameSnapshot: item.productNameSnapshot ?? item.productName ?? null,
           product: item.product,
         }));
         const qtys: Record<string, number> = {};
@@ -366,6 +367,36 @@ export function ReturnModal({
     },
     [editLines, editOrderId, editQtys, orderLocked, ret],
   );
+
+  const applyOrderSearch = useCallback(async () => {
+    const q = orderSearch.trim();
+    if (q.length < 1 || orderLocked) return;
+    setOrderSearchLoading(true);
+    setErr(null);
+    try {
+      const r = await fetch(`/api/orders?q=${encodeURIComponent(q)}&page=1&pageSize=10`, {
+        credentials: "include",
+        cache: "no-store",
+      });
+      if (!r.ok) throw new Error(tr.editOrderNotFound);
+      const data = (await r.json()) as { items?: Array<{ id: string; orderNumber: string }> };
+      const items = data.items ?? [];
+      const exact = items.find(
+        (row) => row.orderNumber.trim().toLowerCase() === q.toLowerCase(),
+      );
+      const pick = exact ?? (items.length === 1 ? items[0] : null);
+      if (!pick) {
+        setOrderSearchResults(items.filter((row) => row.id && row.orderNumber));
+        if (items.length === 0) throw new Error(tr.editOrderNotFound);
+        return;
+      }
+      await selectEditOrder(pick);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : tr.editOrderNotFound);
+    } finally {
+      setOrderSearchLoading(false);
+    }
+  }, [orderLocked, orderSearch, selectEditOrder]);
 
   useEffect(() => {
     if (!editing || orderLocked) return;
@@ -442,9 +473,14 @@ export function ReturnModal({
           : payload.message;
         throw new Error(message || tr.editFailed);
       }
+      const saved = (await r.json()) as { id?: string };
       setEditing(false);
-      await loadReturn();
       onSaved?.();
+      if (saved.id && saved.id !== returnId && onOpenReturn) {
+        onOpenReturn(saved.id);
+        return;
+      }
+      await loadReturn();
     } catch (e) {
       setErr(e instanceof Error ? e.message : tr.editFailed);
     } finally {
@@ -458,6 +494,7 @@ export function ReturnModal({
     editWarehouseId,
     linesLocked,
     loadReturn,
+    onOpenReturn,
     onSaved,
     orderLocked,
     reasonLocked,
@@ -627,6 +664,29 @@ export function ReturnModal({
 
       <div className="grid gap-3 sm:grid-cols-2">
         <div>
+          <div className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+            {tr.editOrderLabel}
+          </div>
+          <div className="mt-1 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => onOpenOrder(ret.order.id)}
+              className="text-sm font-medium text-zinc-900 underline"
+            >
+              №{ret.order.orderNumber}
+            </button>
+            {canEdit && !settled && !editing && !orderLocked ? (
+              <button
+                type="button"
+                onClick={beginEdit}
+                className="rounded border border-zinc-300 bg-white px-2 py-0.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
+              >
+                {tr.changeOrder}
+              </button>
+            ) : null}
+          </div>
+        </div>
+        <div>
           <div className="text-xs font-medium uppercase tracking-wide text-zinc-500">Статус</div>
           <div className="mt-1 text-sm font-medium text-zinc-900">
             {returnStatusLabel(ret.status)}
@@ -791,28 +851,45 @@ export function ReturnModal({
         {settled ? <p className="mb-2 text-xs text-zinc-500">{tr.editLockedSettled}</p> : null}
         {editing ? (
           <div className="space-y-3">
-            <div>
-              <div className="text-sm font-medium text-zinc-700">{tr.editOrderLabel}</div>
-              <div className="mt-1 rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm font-medium text-zinc-900">
+            <div className="rounded-lg border border-sky-200 bg-sky-50/50 p-3">
+              <div className="text-sm font-medium text-zinc-800">{tr.changeOrder}</div>
+              <div className="mt-1 text-sm font-semibold text-zinc-900">
                 №{editOrderNumber}
                 {editOrderId !== ret.orderId ? (
-                  <span className="ml-2 text-xs font-normal text-amber-800">(нове)</span>
+                  <span className="ml-2 text-xs font-normal text-amber-800">{tr.editOrderPending}</span>
                 ) : null}
               </div>
               {orderLocked ? (
                 <p className="mt-1 text-xs text-zinc-500">{tr.editOrderLockedMisPick}</p>
               ) : (
-                <div className="relative mt-2">
-                  <input
-                    type="search"
-                    value={orderSearch}
-                    disabled={savingEdit || orderSearchLoading}
-                    onChange={(e) => setOrderSearch(e.target.value)}
-                    placeholder={tr.editOrderSearchPlaceholder}
-                    className="w-full rounded-md border border-zinc-300 bg-white px-2 py-2 text-sm"
-                  />
+                <div className="relative mt-2 space-y-2">
+                  <div className="flex gap-2">
+                    <input
+                      type="search"
+                      value={orderSearch}
+                      disabled={savingEdit || orderSearchLoading}
+                      onChange={(e) => setOrderSearch(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          void applyOrderSearch();
+                        }
+                      }}
+                      placeholder={tr.editOrderSearchPlaceholder}
+                      className="min-w-0 flex-1 rounded-md border border-zinc-300 bg-white px-2 py-2 text-sm"
+                    />
+                    <button
+                      type="button"
+                      disabled={savingEdit || orderSearchLoading || orderSearch.trim().length < 1}
+                      onClick={() => void applyOrderSearch()}
+                      className="shrink-0 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+                    >
+                      {tr.editOrderApply}
+                    </button>
+                  </div>
+                  <p className="text-xs text-zinc-500">{tr.editOrderHint}</p>
                   {orderSearchResults.length > 0 ? (
-                    <ul className="absolute z-10 mt-1 max-h-40 w-full overflow-auto rounded-md border border-zinc-200 bg-white shadow-sm">
+                    <ul className="max-h-40 overflow-auto rounded-md border border-zinc-200 bg-white shadow-sm">
                       {orderSearchResults.map((row) => (
                         <li key={row.id}>
                           <button

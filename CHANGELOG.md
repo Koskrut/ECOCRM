@@ -4,7 +4,24 @@
 
 ## Unreleased
 
-_(планируемые изменения после **0.2.261**.)_
+_(планируемые изменения после **0.2.262**.)_
+
+## [0.2.262] — 2026-11-27
+
+### Summary
+
+Патч **0.2.262**: booked-продажі лише з **READY_TO_SHIP+** (analytics/dashboard/payroll) + merge повернень при зміні замовлення на вже існуючий return у тому ж пакеті.
+
+### Changed
+
+- **Analytics / dashboard:** `ANALYTICS_BOOKED_EXCLUDED_ORDER_STAGES` (NEW…CONFIRMED); KPI revenue/ordersCount без pre-ship; by-stage лишається pipeline (лише voids excluded).
+- **Payroll:** той самий cut — pre-ship не входить у sales bonus base навіть якщо повністю оплачений.
+- **Order returns:** при reassign на замовлення, яке вже є в тому ж package return — merge qty/rematch замість дубліката; UI ReturnModal.
+
+### Upgrade notes
+
+- **`BACKEND_VERSION` / `WEB_VERSION` / `STORE_VERSION` = `0.2.262`**.
+- Нових Prisma-міграцій немає.
 
 ## [0.2.261] — 2026-11-23
 

@@ -125,14 +125,14 @@ export default function AnalyticsOverviewPage() {
       <section className="min-w-0">
         <h2 className="text-lg font-semibold text-zinc-900">Ключові показники</h2>
         <p className="mt-1 text-sm text-zinc-500">
-          Заброньований дохід і зібрані оплати — різні метрики (дата створення замовлення vs дата
-          оплати). Порівняння з попереднім періодом — лише коли увімкнено фільтр.
+          Продажі — від «Готово до відправки» (без Новий / Очікує склад). Оплати — окрема метрика
+          (paidAt). Порівняння — лише коли увімкнено фільтр.
         </p>
         <div className="mt-4 grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <KpiDeltaCard
             variant="money"
             title="Заброньований дохід"
-            subtitle={`max(0, total − returns) → ${currency} за період (createdAt)`}
+            subtitle={`READY_TO_SHIP+: max(0, total − returns) → ${currency}`}
             tooltip="Не змішувати з collected payments."
             value={formatMoneyBase(kpi?.bookedRevenue, currency)}
             deltaLabel={
@@ -156,8 +156,8 @@ export default function AnalyticsOverviewPage() {
           />
           <KpiDeltaCard
             variant="count"
-            title="Замовлення"
-            subtitle="Замовлення у періоді (createdAt)"
+            title="Продажі"
+            subtitle="Реальні: без Новий / Очікує склад"
             value={formatNumber(kpi?.ordersCount)}
             deltaLabel={
               filters.comparePrev ? deltaCountLine(kpi?.ordersCount ?? 0, cmp?.ordersCount) : null
@@ -166,7 +166,7 @@ export default function AnalyticsOverviewPage() {
           <KpiDeltaCard
             variant="money"
             title="Середній чек"
-            subtitle={`Дохід / замовлення (${currency})`}
+            subtitle={`Дохід / продажі (${currency})`}
             tooltip="Те саме, що bookedRevenue / ordersCount для обраного періоду; порівняння — попередній період тієї ж довжини."
             value={formatMoneyBaseFine(kpi?.avgCheck, currency)}
             deltaLabel={

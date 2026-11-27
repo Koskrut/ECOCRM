@@ -1,9 +1,22 @@
 import { fromUsd, normalizeCurrencyCode, toUsd } from "../common/currency.util";
-import type { ExchangeRates } from "../settings/settings.service";
 import { computeEffectiveTotal } from "../orders/order-payment-guards";
 import { paymentAmountInOrderCurrency as paymentInOrderCurrency } from "../payments/order-finance.utils";
+import { PRE_SHIP_PAYMENT_STAGES } from "../receivables/receivables.constants";
+import type { ExchangeRates } from "../settings/settings.service";
 
+/** Stages with no bonusable debt (void / full return). */
 export const DEBT_CLOSED_STAGES = new Set(["CANCELED", "REFUSED", "FULLY_RETURNED"]);
+
+/**
+ * Orders that do not count toward sales bonus base.
+ * Same “real sale” cut as dashboard booked KPI: READY_TO_SHIP+ only
+ * (pre-ship NEW…CONFIRMED excluded even if fully prepaid) + voids / full return.
+ * Legacy null orderStage still allowed.
+ */
+export const BONUS_EXCLUDED_STAGES = new Set<string>([
+  ...DEBT_CLOSED_STAGES,
+  ...PRE_SHIP_PAYMENT_STAGES,
+]);
 
 export type PayrollCompanyRates = {
   thresholdUsd: number;
@@ -271,7 +284,7 @@ export function findOrderClosePayment(
   order: PayrollOrderInput,
   rates: ExchangeRates,
 ): { closedAt: Date; effectiveTotal: number } | null {
-  if (order.orderStage && DEBT_CLOSED_STAGES.has(order.orderStage)) return null;
+  if (order.orderStage && BONUS_EXCLUDED_STAGES.has(order.orderStage)) return null;
 
   const effectiveTotal = computeEffectiveTotal({
     totalAmount: order.totalAmount,

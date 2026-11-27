@@ -49,11 +49,11 @@ const DEFAULT_RATES: ExchangeRates = {
 };
 
 export type PayrollCompanyRatesConfig = {
-  /** Fully paid sales threshold in USD for cliff bonus. */
+  /** Fully paid READY_TO_SHIP+ sales threshold in USD for cliff bonus. */
   thresholdUsd: number;
   percentUpTo: number;
   percentAbove: number;
-  /** LEAD bonus from managers' fully paid sales base in USD (default 1%). */
+  /** LEAD bonus from managers' paid READY_TO_SHIP+ sales base in USD (default 1%). */
   leadTeamBonusPercent: number;
 };
 

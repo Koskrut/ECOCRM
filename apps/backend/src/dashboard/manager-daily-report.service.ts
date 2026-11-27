@@ -6,6 +6,7 @@ import {
   VisitOutcome,
   VisitStatus,
 } from "@prisma/client";
+import { bookedOrderStageClause } from "../analytics/utils/analytics-filter.builder";
 import { toUsd } from "../common/currency.util";
 import { todayYmdKyiv } from "../crm-timezone";
 import { NotificationsService } from "../notifications/notifications.service";
@@ -171,6 +172,7 @@ export class ManagerDailyReportService {
           where: {
             ownerId: { in: userIds },
             createdAt: { gte: dayFrom, lte: dayTo },
+            ...bookedOrderStageClause(),
           },
           select: { ownerId: true, totalAmount: true, currency: true },
         }),
@@ -178,6 +180,7 @@ export class ManagerDailyReportService {
           where: {
             ownerId: { in: userIds },
             createdAt: { gte: monthFrom, lte: monthTo },
+            ...bookedOrderStageClause(),
           },
           select: { ownerId: true, totalAmount: true, currency: true },
         }),

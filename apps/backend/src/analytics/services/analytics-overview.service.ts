@@ -7,6 +7,7 @@ import {
   buildLeadPeriodWhere,
   buildPaymentPeriodWhere,
   buildPeriodOrderWhere,
+  buildPeriodPipelineOrderWhere,
 } from "../utils/analytics-filter.builder";
 import { buildTaskOverdueWhere } from "../../tasks/tasks-attention.util";
 import {
@@ -133,6 +134,7 @@ export class AnalyticsOverviewService {
     rates: ExchangeRates,
   ): Promise<OverviewPayload> {
     const orderWhere = buildPeriodOrderWhere(period.from, period.to, scope.orderScope);
+    const pipelineOrderWhere = buildPeriodPipelineOrderWhere(period.from, period.to, scope.orderScope);
     const snapshotDebtWhere = buildReceivablesDebtOrderWhere(scope);
     const overduePaymentsWhere = buildOrderOverduePaymentsWhere({
       managerId: scope.orderScope.managerId,
@@ -184,7 +186,7 @@ export class AnalyticsOverviewService {
       }),
       this.prisma.order.groupBy({
         by: ["orderStage"],
-        where: orderWhere,
+        where: pipelineOrderWhere,
         _count: { id: true },
       }),
       this.prisma.order.findMany({

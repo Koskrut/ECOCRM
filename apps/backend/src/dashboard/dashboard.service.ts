@@ -8,6 +8,7 @@ import { SettingsService } from "../settings/settings.service";
 import { getBaseCurrency, paymentToBase } from "../common/currency.util";
 import { instantToKyivYmd, kyivDayBounds, kyivStatsRange, todayYmdKyiv } from "../crm-timezone";
 import { DayPlanService } from "../day-plan/day-plan.service";
+import { bookedOrderStageClause } from "../analytics/utils/analytics-filter.builder";
 import { buildOperationalDebtOrderWhere } from "../receivables/receivables-scope.util";
 import type { DayPlanStatus } from "../day-plan/day-plan.types";
 
@@ -20,6 +21,7 @@ function getDateRange(period: DashboardPeriod): { from: Date; to: Date } {
 function buildOrderWhere(actor: AuthUser | undefined, from: Date, to: Date): Prisma.OrderWhereInput {
   const where: Prisma.OrderWhereInput = {
     createdAt: { gte: from, lte: to },
+    ...bookedOrderStageClause(),
   };
   if (actor?.role === UserRole.MANAGER) {
     where.ownerId = actor.id;
@@ -285,6 +287,7 @@ export class DashboardService {
         where: {
           ownerId: { in: visibleIds },
           createdAt: { gte: from, lte: to },
+          ...bookedOrderStageClause(),
         },
         _count: { id: true },
         _sum: { totalAmount: true },

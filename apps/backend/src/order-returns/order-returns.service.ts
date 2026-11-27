@@ -566,28 +566,40 @@ export class OrderReturnsService {
       if (!target) throw new NotFoundException("Order not found");
       this.assertAccess(target, actor);
       const stage = target.orderStage ?? undefined;
-      if (
-        stage !== "RECEIVED" &&
-        stage !== "COMPLETED" &&
-        stage !== "RETURN_IN_PROGRESS"
-      ) {
+      const allowedStages = new Set([
+        "SHIPPED",
+        "AWAITING_RECEIPT",
+        "RECEIVED",
+        "COMPLETED",
+        "RETURN_IN_PROGRESS",
+        "FULLY_RETURNED",
+      ]);
+      if (!stage || !allowedStages.has(stage)) {
         throw new BadRequestException(
-          "Повернення можна привʼязати лише до замовлення RECEIVED, COMPLETED або RETURN_IN_PROGRESS",
+          "На це замовлення не можна перенести повернення (непідходящий статус)",
         );
       }
+      // Same package may already list this order — move into that return instead of duplicating.
       if (ret.returnPackageId) {
         const clash = await this.prisma.orderReturn.findFirst({
           where: {
             returnPackageId: ret.returnPackageId,
             orderId: target.id,
             id: { not: ret.id },
+            settledAt: null,
           },
-          select: { id: true },
+          include: {
+            items: { include: { orderItem: { select: { productId: true } } } },
+            order: { include: { items: true } },
+          },
         });
         if (clash) {
-          throw new BadRequestException(
-            "У цій посилці вже є повернення по цьому замовленню — відкрийте його",
-          );
+          if (isMisPickReturn(ret.reason)) {
+            throw new BadRequestException(
+              "У цій посилці вже є повернення по цьому замовленню — відкрийте його",
+            );
+          }
+          return this.mergeReturnIntoExisting(ret, clash, dto, actor);
         }
       }
       nextOrderId = target.id;
@@ -722,6 +734,121 @@ export class OrderReturnsService {
       if (orderChanged) await this.syncOrderStateFromReturns(nextOrderId);
     }
     return this.getById(id, actor);
+  }
+
+  /**
+   * Wrong order on this parcel: target order already has a return here.
+   * Fold source lines into that return and delete the empty source card.
+   */
+  private async mergeReturnIntoExisting(
+    source: {
+      id: string;
+      orderId: string;
+      itemsPending: boolean;
+      items: Array<{
+        qtyReturned: number;
+        orderItem: { productId: string | null };
+      }>;
+    },
+    target: {
+      id: string;
+      orderId: string;
+      itemsPending: boolean;
+      items: Array<{ orderItemId: string; qtyReturned: number }>;
+      order: { items: Array<{ id: string; qty: number; productId: string | null }> };
+    },
+    dto: UpdateOrderReturnDto,
+    actor?: AuthUser,
+  ) {
+    const alreadyReturned = await this.prisma.orderReturnItem.groupBy({
+      by: ["orderItemId"],
+      where: {
+        orderReturn: { orderId: target.orderId, id: { notIn: [source.id, target.id] } },
+      },
+      _sum: { qtyReturned: true },
+    });
+    const otherByItem = new Map(
+      alreadyReturned.map((row) => [row.orderItemId, row._sum.qtyReturned ?? 0]),
+    );
+
+    let finalItems: Array<{ orderItemId: string; qtyReturned: number }>;
+    if (dto.items !== undefined) {
+      if (dto.items.length === 0) {
+        throw new BadRequestException("Потрібна хоча б одна позиція");
+      }
+      // UI rebuilt lines for the target order — treat as the absolute set after merge.
+      finalItems = buildReturnItemEdits({
+        orderItems: target.order.items,
+        otherReturnedByItem: otherByItem,
+        items: dto.items,
+      });
+    } else if (source.items.length > 0) {
+      const rematched = rematchReturnItemsByProduct(
+        source.items.map((item) => ({
+          qtyReturned: item.qtyReturned,
+          productId: item.orderItem.productId,
+        })),
+        target.order.items,
+        otherByItem,
+      );
+      if (!rematched) {
+        throw new BadRequestException(
+          "Не вдалося перенести позиції на нове замовлення — вкажіть кількості вручну",
+        );
+      }
+      const merged = new Map(target.items.map((it) => [it.orderItemId, it.qtyReturned]));
+      for (const row of rematched) {
+        merged.set(row.orderItemId, (merged.get(row.orderItemId) ?? 0) + row.qtyReturned);
+      }
+      finalItems = buildReturnItemEdits({
+        orderItems: target.order.items,
+        otherReturnedByItem: otherByItem,
+        items: Array.from(merged.entries()).map(([orderItemId, qtyReturned]) => ({
+          orderItemId,
+          qtyReturned,
+        })),
+      });
+    } else {
+      finalItems = target.items.map((it) => ({
+        orderItemId: it.orderItemId,
+        qtyReturned: it.qtyReturned,
+      }));
+    }
+
+    const previousOrderId = source.orderId;
+    const nextOrderId = target.orderId;
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.orderReturnItem.deleteMany({ where: { orderReturnId: target.id } });
+      if (finalItems.length > 0) {
+        await tx.orderReturnItem.createMany({
+          data: finalItems.map((item) => ({
+            orderReturnId: target.id,
+            orderItemId: item.orderItemId,
+            qtyReturned: item.qtyReturned,
+          })),
+        });
+      }
+      const data: Prisma.OrderReturnUpdateInput = {
+        itemsPending:
+          finalItems.length === 0 ? target.itemsPending || source.itemsPending : false,
+      };
+      if (dto.reason !== undefined) data.reason = dto.reason;
+      if (dto.warehouseId !== undefined) {
+        const warehouseId = await resolveReturnWarehouseId(tx, {
+          warehouseId: dto.warehouseId?.trim() || null,
+          orderId: nextOrderId,
+        });
+        data.warehouse = warehouseId ? { connect: { id: warehouseId } } : { disconnect: true };
+      }
+      await tx.orderReturn.update({ where: { id: target.id }, data });
+      await tx.orderReturnItem.deleteMany({ where: { orderReturnId: source.id } });
+      await tx.orderReturn.delete({ where: { id: source.id } });
+    });
+
+    await this.syncOrderStateFromReturns(previousOrderId);
+    await this.syncOrderStateFromReturns(nextOrderId);
+    return this.getById(target.id, actor);
   }
 
   private async withOrderLines<

@@ -420,8 +420,8 @@ export default function AnalyticsSalesPage() {
             <KpiDeltaCard
               variant="money"
               title="Заброньований дохід"
-              subtitle={`${currency}, createdAt (за період)`}
-              tooltip={`Booked revenue = max(0, totalAmount − returnAdjustmentAmount) → ${currency}.`}
+              subtitle={`${currency}, READY_TO_SHIP+`}
+              tooltip={`Booked = READY_TO_SHIP+ only (без NEW / AWAITING_STOCK). max(0, total − returns) → ${currency}.`}
               value={formatMoneyBase(kpi?.bookedRevenue, currency)}
               deltaLabel={
                 filters.comparePrev
@@ -431,8 +431,8 @@ export default function AnalyticsSalesPage() {
             />
             <KpiDeltaCard
               variant="count"
-              title="Кількість замовлень"
-              subtitle="Замовлення у періоді (createdAt)"
+              title="Продажі"
+              subtitle="Реальні: від «Готово до відправки»"
               value={formatNumber(kpi?.ordersCount)}
               deltaLabel={
                 filters.comparePrev
@@ -443,7 +443,7 @@ export default function AnalyticsSalesPage() {
             <KpiDeltaCard
               variant="money"
               title="Середній чек"
-              subtitle={`Дохід / замовлення (${currency})`}
+              subtitle={`Дохід / продажі (${currency})`}
               value={formatMoneyBaseFine(kpi?.avgCheck, currency)}
               deltaLabel={
                 filters.comparePrev

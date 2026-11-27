@@ -10,9 +10,9 @@ Period-based sales KPIs and manager attribution, plus **current** operational si
 
 | Field | Semantics | Period vs snapshot |
 |-------|-----------|-------------------|
-| `bookedRevenue` | Sum of order economic amount → USD | **Period** (`createdAt`) |
+| `bookedRevenue` | Sum of order economic amount → USD; stages **READY_TO_SHIP+** (excludes NEW / AWAITING_PAYMENT / AWAITING_STOCK / CONFIRMED and voids) | **Period** (`createdAt`) |
 | `collectedPayments` | Sum of completed payments → USD | **Period** (`paidAt`) |
-| `ordersCount` | Orders in scope | **Period** |
+| `ordersCount` | Same stage filter as booked (“real sales”) | **Period** |
 | `avgCheck` | `bookedRevenue / ordersCount` | **Period** |
 | `overdueTasksCount` | Tasks OPEN/IN_PROGRESS with `dueAt < now` | **Operational snapshot** |
 
@@ -25,7 +25,7 @@ Period-based sales KPIs and manager attribution, plus **current** operational si
 ## Charts / managers
 
 - **By manager (chart):** booked revenue in **selected period** per manager (`GET /analytics/managers`).
-- **Orders by stage:** counts for **selected period** only.
+- **Orders by stage:** counts for **selected period** only; **non-void pipeline** (still includes NEW / AWAITING_STOCK for operational view). Booked KPI excludes those.
 - **Overdue tasks column** on manager table: **snapshot** per assignee (same idea as overview tasks).
 
 ## Known limitations

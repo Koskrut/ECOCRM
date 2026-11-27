@@ -38,7 +38,7 @@ Both use the same `managerId` / team filters from the query string. **Managers**
 
 ## Booked vs collected (once)
 
-- **Booked revenue:** order economic amount (max(0, total − returns)) → USD, filtered by order **createdAt** in the selected period.
+- **Booked revenue:** order economic amount (max(0, total − returns)) → USD, filtered by order **createdAt** in the selected period; stages **READY_TO_SHIP+** only (excludes NEW / AWAITING_STOCK / pre-ship and voids).
 - **Collected payments:** **COMPLETED** payments → USD, filtered by **paidAt** in the period.
 
 They are different events; never label one as the other or sum them into a single “revenue” without explicit definition.

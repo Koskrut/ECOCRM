@@ -5,7 +5,7 @@ import { AnalyticsScopeService } from "../analytics/analytics-scope.service";
 import { AnalyticsLeadsService } from "../analytics/services/analytics-leads.service";
 import { AnalyticsOverviewService } from "../analytics/services/analytics-overview.service";
 import { AnalyticsQualityService } from "../analytics/services/analytics-quality.service";
-import { ANALYTICS_EXCLUDED_ORDER_STAGES } from "../analytics/analytics.constants";
+import { bookedOrderStageClause } from "../analytics/utils/analytics-filter.builder";
 import {
   previousPeriodOfSameLength,
   resolvePresetPeriod,
@@ -492,10 +492,7 @@ export class ManagerDashboardService {
         where: {
           ownerId: managerId,
           createdAt: { gte: period.from, lte: period.to },
-          OR: [
-            { orderStage: { notIn: [...ANALYTICS_EXCLUDED_ORDER_STAGES] } },
-            { orderStage: null },
-          ],
+          ...bookedOrderStageClause(),
         },
         select: {
           createdAt: true,
